@@ -62,3 +62,7 @@ There is no analytics, crash reporting or Vox backend.
 ## Keys per role
 
 `api_key`, `stt_api_key` and `llm_api_key` are all stored DPAPI-protected on Windows (`vox_core.KEY_FIELDS`). A role with its own server address never receives the main key: `role_settings` returns only that role's key for it, and `tests/test_providers.py` checks this. The model list request and the Test buttons go to the role's own address and are subject to the same private-host rule for plain http.
+
+## The "About you" text
+
+`user_context` is personal text the user writes. It is stored in the settings (Windows `config.json`, Android preferences; not encrypted) and sent, with each cleanup request, to the cleanup server only, never to the speech-to-text server. Users should not put secrets in it.

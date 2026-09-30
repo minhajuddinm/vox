@@ -222,7 +222,13 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
   <section class="page" id="dictionary">
     <h1>Dictionary</h1>
     <p class="sub">Your own words, names and acronyms. Vox sends them to Whisper as spelling hints and to the cleanup model so they come out right every time.</p>
-    <h2 style="margin-top:0">Words</h2>
+    <h2 style="margin-top:0">About you</h2>
+    <p class="sub" style="margin-top:-6px">Who you are, what you work on, how you like to write, terms Vox should know. It is added to every cleanup request so the text comes out your way. It goes only to your cleanup server.</p>
+    <div class="card">
+      <textarea class="mynotes" id="about" style="min-height:150px" placeholder="e.g. I'm a student building a dictation app called Vox. I write short, direct messages and use British spelling. Projects: Vox, Raventrack."></textarea>
+      <div class="status" id="about-status" style="margin-top:6px"></div>
+    </div>
+    <h2>Words</h2>
     <div class="card">
       <div class="row"><input type="text" id="term" class="grow" placeholder="Add a word, name or acronym (e.g. LoomXR)"><button class="btn" id="add-term">Add</button></div>
       <div class="chips" id="terms"></div>
@@ -416,7 +422,17 @@ function dictLists() {
   return { terms, repl };
 }
 function setDict(terms, repl) { return save({ dictionary: [...terms, ...repl.map(([w, r]) => `${w} => ${r}`)] }); }
+const ABOUT_MAX = 8000;
+function aboutCount() {
+  const n = $("about").value.length, s = $("about-status");
+  s.className = "status" + (n > ABOUT_MAX ? " bad" : "");
+  s.textContent = n ? `${n.toLocaleString()} of ${ABOUT_MAX.toLocaleString()} characters` + (n > ABOUT_MAX ? ". The rest is ignored." : "") : "";
+}
+function renderAbout() { if (document.activeElement !== $("about")) $("about").value = S.config.user_context || ""; aboutCount(); }
+$("about").oninput = aboutCount;
+$("about").onchange = () => save({ user_context: $("about").value.trim() });
 function renderDict() {
+  renderAbout();
   const { terms, repl } = dictLists();
   $("terms").innerHTML = terms.length ? terms.map((t, i) => `<span class="chip">${esc(t)}<button data-i="${i}" title="Remove">${ICON_X}</button></span>`).join("") : '<span class="style-tag">No words yet.</span>';
   $("repls").innerHTML = repl.length ? repl.map(([w, r], i) => `<tr><td>${esc(w)}</td><td class="arrow">→</td><td><b>${esc(r)}</b></td><td style="width:40px"><button class="icon-btn" data-r="${i}">${ICON_DEL}</button></td></tr>`).join("") : '<tr><td class="empty">No replacements yet.</td></tr>';

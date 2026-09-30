@@ -19,6 +19,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `llm_base_url` | string | `""` | Separate server for cleanup. Blank means the main `base_url`. |
 | `llm_api_key` | string | `""` | Key for `llm_base_url` (DPAPI-protected). |
 | `llm_reasoning` | string | `auto` | `auto` sends `reasoning_effort` only to gpt-oss models (and stops if the server refuses it); `off` never sends it. |
+| `user_context` | string | `""` | Free text about the user (work, projects, style, terms) added to every cleanup request; at most 8,000 characters are used. |
 | `language` | string | `""` | Whisper language code; empty = auto detect. |
 | `input_device` | string | `""` | Microphone name for dictation; empty = Windows default. Not used by meeting notes. |
 | `cleanup` | bool | `true` | Run the AI cleanup. |
@@ -51,6 +52,7 @@ Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_de
 | `provider` | string | `groq` | Preset chosen in Settings (a UI convenience; the address decides behaviour). |
 | `stt_base_url`, `llm_base_url` | string | blank | Separate server for speech or cleanup; blank means the main `base_url`. Validated by `Endpoint.error`. |
 | `stt_api_key`, `llm_api_key` | string | blank | Key for that role's own server; used only with its own address. |
+| `user_context` | string | blank | Same as the Windows setting: background text added to every cleanup request. |
 | `language` | string | `""` | Whisper language code. |
 | `dictionary` | string (lines) | comment header | Terms and `wrong => right` lines, one per line. |
 | `people` | string (lines) | `""` | Names, one per line. |

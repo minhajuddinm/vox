@@ -127,3 +127,7 @@ Settings starts with an **AI provider** block: a preset list (`providers.PRESETS
 ## Connection warm-up
 
 `Engine.start` calls `core.warm(cfg)` right after it notes the target app and before the microphone opens. It opens (in a background thread) one connection per distinct role server with a small `GET /models`, on the shared `vox_core._session`; `post_with_retry` posts through the same session, so the upload after the key is released reuses the connection. The microphone is still opened only at key-down ([decisions/0017-warm-connections-not-an-open-microphone.md](decisions/0017-warm-connections-not-an-open-microphone.md)).
+
+## About you
+
+The Dictionary page starts with an **About you** card: a text box bound to `user_context` (saved on change, character count against 8,000). `core.cleanup` passes it to `system_prompt`. It is sent only to the cleanup server.

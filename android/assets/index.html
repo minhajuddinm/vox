@@ -100,6 +100,11 @@ nav button.on .pill { background:var(--accent-soft); }
 <!-- DICTIONARY -->
 <section class="page" id="dict">
   <p class="sub" style="margin:0 4px 6px">Vox uses these as spelling hints so names and terms come out right.</p>
+  <h2>About you</h2>
+  <div class="card">
+    <textarea id="about" rows="6" placeholder="Who you are, what you work on, how you like to write, terms Vox should know. Added to every cleanup request; goes only to your cleanup server."></textarea>
+    <div class="status" id="about-status"></div>
+  </div>
   <h2>My words</h2>
   <div class="card"><div class="add"><input type="text" id="w-in" placeholder="e.g. LoomXR"><button class="btn" id="w-add">Add</button></div><div class="chips" id="words"></div></div>
   <h2>People</h2>
@@ -318,7 +323,17 @@ function words() { return (S.config.dictionary || []).filter(l => !l.includes("=
 function repls() { return (S.config.dictionary || []).filter(l => l.includes("=>")).map(l => l.split("=>").map(s => s.trim())); }
 function setDict(w, r) { save({ dictionary: [...w, ...r.map(([a, b]) => `${a} => ${b}`)] }); }
 function chips(list, id) { $(id).innerHTML = list.length ? list.map((t, i) => `<span class="chip">${esc(t)}<button data-i="${i}">×</button></span>`).join("") : '<span class="note" style="margin:0">Nothing yet.</span>'; }
+const ABOUT_MAX = 8000;
+function aboutCount() {
+  const n = $("about").value.length, s = $("about-status");
+  s.className = "status" + (n > ABOUT_MAX ? " bad" : "");
+  s.textContent = n ? `${n.toLocaleString()} of ${ABOUT_MAX.toLocaleString()} characters` + (n > ABOUT_MAX ? ". The rest is ignored." : "") : "";
+}
+function renderAbout() { if (document.activeElement !== $("about")) $("about").value = S.config.user_context || ""; aboutCount(); }
+$("about").oninput = aboutCount;
+$("about").onchange = () => save({ user_context: $("about").value.trim() });
 function renderDict() {
+  renderAbout();
   chips(words(), "words"); chips(S.config.people || [], "people");
   const r = repls();
   $("repls").innerHTML = r.length ? r.map(([a, b], i) => `<div class="item"><div class="grow">${esc(a)} <span style="color:var(--muted)">→</span> <b>${esc(b)}</b></div><button class="ib" data-r="${i}">${ICON_DEL}</button></div>`).join("") : '<div class="empty">No replacements yet.</div>';

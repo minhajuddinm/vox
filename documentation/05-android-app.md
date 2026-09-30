@@ -86,3 +86,7 @@ Settings starts with an **AI provider** card: preset list (`Providers.PRESETS`, 
 ## Connection warm-up
 
 `DictationService.startRecording` checks the address of each role (speech and cleanup), then starts a `vox-warm` thread that calls `GroqClient.warm()` for each distinct server: a small `GET /models` read to the end, so the connection returns to the pool. `GroqClient.readJson` no longer calls `disconnect()`, so the upload reuses it. The start delay of the bubble (400 ms trampoline activity plus 350 ms in `VoxAccessibilityService.onDictationServiceReady`) is unchanged.
+
+## About you
+
+The Dictionary page starts with an **About you** card bound to the `user_context` preference (`Prefs.userContext`, `Bridge.state`/`save`). `DictationService.send` passes it to `GroqClient.cleanup`, which adds it to the prompt.

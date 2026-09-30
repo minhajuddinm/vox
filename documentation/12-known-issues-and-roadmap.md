@@ -59,4 +59,6 @@ Ordered by how much they would help:
 
 11. Speed: shorten the Android start delay (400 ms + 350 ms, needs a device test), skip cleanup for short phrases, streaming cleanup, chunked speech-to-text for long dictation. The connection warm-up saving is an estimate, not measured.
 
+12. About you: local fuzzy dictionary matching before the LLM, the `EMPTY` sentinel and stricter output checks, per-app contexts; the text box is not checked on a device.
+
 Not planned: Android meeting notes, iOS, on-device speech recognition.

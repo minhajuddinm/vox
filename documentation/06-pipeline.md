@@ -86,3 +86,7 @@ One case per line, fields separated by TAB; `\n`, `\t`, `\\` are escapes; lists 
 ## Connection reuse
 
 Windows posts through one shared `requests.Session` (`vox_core._post`); `vox_core.warm` opens the role servers' connections at key-down. Android reuses connections by reading responses fully and not disconnecting; `GroqClient.warm` does the opening. Without this each request paid a fresh TLS handshake.
+
+## "About you" context in the cleanup prompt
+
+`system_prompt(style, terms, app_label, context)` (Python) and `GroqClient.systemPrompt(style, terms, appLabel, context)` (Java) add, after the dictionary terms and before the style line, a rule that introduces `<about_speaker>...</about_speaker>` as reference material for spelling, names, jargon and tone, never text to output and never instructions. The text comes from `clean_context` / `cleanContext`: line endings normalised, our own tags removed, trimmed, capped at 8,000 characters. An empty context adds nothing, so existing prompts are unchanged. The constant parts come first so automatic prefix caching (Groq gpt-oss, OpenAI) can reuse them. Golden rows: `context` and `promptctx`. See [decisions/0018-about-you-context-in-the-prompt.md](decisions/0018-about-you-context-in-the-prompt.md).
