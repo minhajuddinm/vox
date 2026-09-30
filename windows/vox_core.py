@@ -51,6 +51,7 @@ DEFAULT_CONFIG = {
     "input_device": "",
     "cleanup": True,
     "keep_history": True,
+    "keep_clipboard": False,
     "default_style": "neutral",
     "dictionary": [],
     "people": [],
