@@ -311,7 +311,7 @@ public class DictationService extends Service {
             boolean doClean = p.cleanupEnabled() && !"raw".equals(style) && raw.split("\\s+").length >= 3;
             if (doClean) {
                 try {
-                    String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label);
+                    String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext());
                     if (GroqClient.looksValid(raw, c)) { out = c; cleaned = true; }
                     else cleanupFailed = true;
                 } catch (IOException e) {

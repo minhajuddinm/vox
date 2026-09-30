@@ -28,6 +28,9 @@ Chronological notes on how the improvement series was made, what was found, and 
 
 Later the same day: PR 2 (the documentation folder) was merged upstream as `de839c8`. Added `documentation/tools/docs_todo.py` (maps changed files to the pages that describe them, tested in `tests/test_docs_todo.py`) and the project skill `vox-doc-sync`, so the documentation is synced at the end of every session ([decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)). The tool was tried on its own branch: it listed the three new files and the pages to update.
 
+## 2026-09-30, P3 built ("About you" context)
+`user_context` on both apps, the fenced block in `system_prompt`/`systemPrompt`, `clean_context`/`cleanContext`, golden rows and 11 new tests (249 total). CI on PR 6 (P2a) was green before this. Not verified: the Java code before CI, the text box on a device, whether the extra context measurably changes results (no real-provider test).
+
 ## 2026-09-30, P2a built (warm connections at key-down)
 PRs 4 and 5 merged first. Added `vox_core.warm` and a shared HTTP session (Windows) and `GroqClient.warm` plus connection reuse (Android); `startRecording` now validates each role address. 5 new tests (238 total); `tests/conftest.py` routes the shared session back through `requests.post` for older tests. Verified: pytest. Not verified: real time saved (an estimate of one to two round trips), the Java code before CI. Decision 0017: no always-open microphone.
 

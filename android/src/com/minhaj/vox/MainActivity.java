@@ -124,6 +124,7 @@ public class MainActivity extends Activity {
                 cfg.put("stt_model", prefs.sttModel());
                 cfg.put("llm_model", prefs.llmModel());
                 cfg.put("provider", prefs.provider());
+                cfg.put("user_context", prefs.userContext());
                 for (String f : new String[]{"stt_base_url", "stt_api_key", "llm_base_url", "llm_api_key"}) cfg.put(f, prefs.raw(f));
                 cfg.put("dictionary", lines(prefs.dictionaryRaw()));
                 cfg.put("people", lines(prefs.peopleRaw()));
@@ -159,6 +160,7 @@ public class MainActivity extends Activity {
                 if (c.has("stt_model")) e.putString("stt_model", c.getString("stt_model"));
                 if (c.has("llm_model")) e.putString("llm_model", c.getString("llm_model"));
                 if (c.has("provider")) e.putString("provider", c.getString("provider"));
+                if (c.has("user_context")) e.putString("user_context", c.getString("user_context"));
                 for (String f : new String[]{"stt_base_url", "llm_base_url"}) {
                     if (c.has(f) && Endpoint.error(c.getString(f)) == null) e.putString(f, Endpoint.normalize(c.getString(f)));
                 }

@@ -30,6 +30,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | Model list and picker from the server's `/models`, with free-text fallback | yes | yes | `providers.list_models`, `classify` / `GroqClient.listModels`, `Providers.classify` | py `test_providers`, `test_parity` (`models` rows); java `ParityTest` |
 | Test button per role (real call, plain-language failure reasons) | yes | yes | `providers.test` / `GroqClient.test` | py `test_providers` |
 | Reasoning fields only where accepted; `<think>` stripped | yes | yes | `providers.reasoning_params`, `strip_think` / `Providers.sendReasoning`, `stripThink` | py `test_providers`; java `ProvidersTest` |
+| "About you" context added to every cleanup request (fenced, capped) | yes | yes | `vox_core.clean_context`, `system_prompt` / `GroqClient.cleanContext`, `systemPrompt` | py `test_user_context`, `test_parity` (`context`, `promptctx` rows); java `ParityTest` |
 | Only the app name is sent to the model (no window title) | yes | (already) | `engine.foreground_app` | - |
 | API key protected by the Windows login (DPAPI) | yes | - | `secret.py`, `vox_core.load_config/save_config` | py `test_secret` |
 | "Keep dictation history" switch | yes | yes | `keep_history` | - |

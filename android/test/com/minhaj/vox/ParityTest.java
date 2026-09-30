@@ -82,6 +82,12 @@ public final class ParityTest {
                 case "spoken":
                     eq(ln, kind, f[1], GroqClient.applySpokenCommands(f[0]));
                     break;
+                case "promptctx":
+                    eq(ln, kind, f[4], GroqClient.systemPrompt(f[0], items(f[1], "|"), f[2], f[3]));
+                    break;
+                case "context":
+                    eq(ln, kind, f[1], GroqClient.cleanContext(f[0]));
+                    break;
                 case "models":
                     eq(ln, kind, f[1], Providers.classify(f[0]));
                     break;

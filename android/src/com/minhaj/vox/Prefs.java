@@ -59,6 +59,8 @@ public final class Prefs {
     public String provider() { return nonEmpty(sp.getString("provider", ""), "groq"); }
     /** A stored setting as typed (blank when unset), for the provider form. */
     public String raw(String key) { return sp.getString(key, ""); }
+    /** Free text about the user (work, projects, style) added to every cleanup request. */
+    public String userContext() { return sp.getString("user_context", ""); }
     public String language() { return sp.getString("language", "").trim(); }
     public String dictionaryRaw() { return sp.getString("dictionary", DEFAULT_DICTIONARY); }
     public String peopleRaw() { return sp.getString("people", ""); }
