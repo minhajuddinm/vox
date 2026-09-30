@@ -23,7 +23,7 @@ Documentation verified against commit: see the `Verified against` line at the bo
 | Where logs are and how to diagnose problems | [11-logs-and-diagnostics.md](11-logs-and-diagnostics.md) |
 | Open problems and the roadmap | [12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md) |
 | Terms used in the code and docs | [13-glossary.md](13-glossary.md) |
-| The optional relay server (protocol, rules, what is missing) | [14-relay.md](14-relay.md) |
+| The optional relay server: protocol, management page, rules, what is missing (set-up guide: [../relay/README.md](../relay/README.md)) | [14-relay.md](14-relay.md) |
 | Why things are the way they are | [decisions/README.md](decisions/README.md) (architecture decision records) |
 | Designs written before the code (one per sub-project) | [specs/README.md](specs/README.md) |
 | What changed and when | [../CHANGELOG.md](../CHANGELOG.md) and [devlog.md](devlog.md) |

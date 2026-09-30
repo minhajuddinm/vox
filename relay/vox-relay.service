@@ -1,0 +1,32 @@
+[Unit]
+Description=Vox relay (shares voice notes and a profile between your devices)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Copy relay.py to /opt/vox-relay/relay.py first. The data (relay.json with the token, relay.db) lives in
+# /var/lib/vox-relay, owned by a throw-away user that systemd creates (DynamicUser).
+ExecStart=/usr/bin/python3 /opt/vox-relay/relay.py --data-dir /var/lib/vox-relay
+DynamicUser=yes
+StateDirectory=vox-relay
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=3
+
+# It only listens on 127.0.0.1 and writes only to its state folder.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

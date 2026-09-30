@@ -26,6 +26,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0018](0018-about-you-context-in-the-prompt.md) | "About you" context: constant, fenced, capped | Accepted |
 | [0019](0019-voice-notes-in-sqlite.md) | Voice notes in SQLite, separate from history and meetings for now | Accepted |
 | [0020](0020-relay-design.md) | Relay: loopback server, tailnet transport, token auth, sequence cursor | Accepted |
+| [0021](0021-relay-portable-with-a-web-page.md) | The relay is portable and manages itself through a web page | Accepted |
 
 ## Template
 

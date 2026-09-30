@@ -18,7 +18,7 @@ State of the code, honestly. Update this page when you fix or discover something
 | Windows history is unbounded | `history.jsonl` only grows; the window shows the newest 300. Android keeps 500. |
 | New screens and meters are unchecked on devices | The providers settings, the About you box, the recording pill history and the phone bubble level were verified only by tests, script checks and CI; nobody has looked at them on a Windows screen or a phone yet. |
 | Voice notes exist on Windows only and are a separate list | The Voice notes page lists notes only; dictation history and meetings are not in it, and Android has no notes yet. `Voice notes` was verified by tests (store and engine logic) but not seen on a screen. |
-| The relay has no clients and is not in the installer | `windows/relay.py` is run with Python by hand; no app syncs with it, keys are not served or proxied, audio is not synced, and reaching it through `tailscale serve` from a phone has not been tried. |
+| The relay has no clients, is not in the installer, and is untested on a real Pi | `relay/relay.py` is run with Python by hand; no app syncs with it, keys are not served or proxied, audio is not synced; the systemd unit and the Raspberry Pi steps in `relay/README.md` and `tailscale serve` from a phone have not been tried (CI runs the tests on arm64 Linux). The `/admin` endpoints share the data token. |
 
 ### Security and privacy (see [09-security-privacy.md](09-security-privacy.md))
 

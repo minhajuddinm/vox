@@ -48,3 +48,13 @@ def test_every_rule_targets_a_real_page():
         assert os.path.exists(os.path.join(root, page)), page
     for page, _why in docs_todo.ALWAYS:
         assert os.path.exists(os.path.join(root, page)), page
+
+
+def test_relay_change_points_at_the_relay_and_security_pages():
+    got = pages("relay/relay.py")
+    assert "documentation/14-relay.md" in got and "documentation/09-security-privacy.md" in got
+
+
+def test_provider_and_notes_changes_point_at_their_pages():
+    assert "documentation/06-pipeline.md" in pages("windows/providers.py")
+    assert "documentation/04-windows-app.md" in pages("windows/notes.py")
