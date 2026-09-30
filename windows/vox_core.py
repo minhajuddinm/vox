@@ -41,6 +41,7 @@ DEFAULT_CONFIG = {
     "relay_sync": False,
     "relay_url": "",
     "relay_token": "",
+    "relay_sync_keys": False,
     "device_name": "",
     "hotkey": ["ctrl_l", "cmd"],
     "stt_model": DEFAULT_STT,

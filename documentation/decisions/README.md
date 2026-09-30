@@ -28,6 +28,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0020](0020-relay-design.md) | Relay: loopback server, tailnet transport, token auth, sequence cursor | Accepted |
 | [0021](0021-relay-portable-with-a-web-page.md) | The relay is portable and manages itself through a web page | Accepted |
 | [0022](0022-sync-client-dirty-flag-and-cursor.md) | Sync client: a dirty flag per note and the relay's cursor | Accepted |
+| [0023](0023-profile-sync-three-way-merge.md) | Profile sync: fixed fields, field-by-field merge, keys only by choice | Accepted |
 
 ## Template
 

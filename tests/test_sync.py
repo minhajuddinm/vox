@@ -29,6 +29,10 @@ def dev(tmp_path, monkeypatch, srv):
     return switch
 
 
+def brief(res):
+    return {k: res[k] for k in ("pushed", "pulled", "error")}
+
+
 def texts():
     return sorted(n["text"] for n in notes.search(""))
 
@@ -36,13 +40,13 @@ def texts():
 def test_a_note_travels_from_one_device_to_another(dev, srv):
     a = dev("A")
     n = notes.add("call the dentist", device="A")
-    assert sync.sync_once(a) == {"pushed": 1, "pulled": 0, "error": ""}      # our own send coming back is not "pulled"
+    assert brief(sync.sync_once(a)) == {"pushed": 1, "pulled": 0, "error": ""}      # our own send coming back is not "pulled"
     assert srv.store.get_note(n["id"])["text"] == "call the dentist"
     b = dev("B")
-    assert sync.sync_once(b) == {"pushed": 0, "pulled": 1, "error": ""}
+    assert brief(sync.sync_once(b)) == {"pushed": 0, "pulled": 1, "error": ""}
     got = notes.get(n["id"])
     assert got["text"] == "call the dentist" and got["device"] == "A" and got["dirty"] is False
-    assert sync.sync_once(b) == {"pushed": 0, "pulled": 0, "error": ""}      # nothing new: quiet
+    assert brief(sync.sync_once(b)) == {"pushed": 0, "pulled": 0, "error": ""}      # nothing new: quiet
     assert int(notes.get_meta("relay_cursor")) == srv.store.stats()["seq"]
 
 

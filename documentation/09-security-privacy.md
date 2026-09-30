@@ -81,3 +81,7 @@ The page shell at `/` is public on whatever address the relay is published to (i
 ## Sync from the Windows app
 
 With **Sync voice notes with my relay** on, the full text of every voice note (title, cleaned text, the raw transcript, tags, device name, times) and delete markers go to the relay address in Settings, and each request carries the relay token and this device's name. The address must pass the same rule as the provider address (plain http only for this PC, the local network and Tailscale). The token is stored DPAPI-protected in `config.json` like the API keys. Audio is never sent. Nothing syncs unless the switch is on; dictation history, meetings and the profile are not synced. A relay that is taken over (or a stolen token) exposes every note.
+
+### Profile sync and API keys
+
+While sync is on, the "About you" text, dictionary, people, default style, cleanup switch and language go to the relay. Provider settings and **API keys go to the relay only if the user turns on "Also share my provider settings and API keys"** (`relay_sync_keys`, off by default); turning it off removes them from the relay on the next sync. The relay stores the profile as plain JSON in `relay.db` and returns it to anyone with the token (its management page hides key values, its API does not), so while the switch is on the relay and its token are as sensitive as the keys themselves. Keys received from the relay are saved on this PC DPAPI-protected like any other key. A device that has not switched keys on ignores keys on the relay.
