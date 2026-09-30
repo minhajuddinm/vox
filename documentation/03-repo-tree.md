@@ -103,6 +103,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_providers.py` | Per-role settings, key isolation, model discovery, Test button, reasoning retry. |
 | `tests/test_warmup.py` | Connection warm-up (`vox_core.warm`) and the shared session. |
 | `tests/test_user_context.py` | The "about you" context: cleaning, prompt placement, sent with cleanup. |
+| `tests/test_level.py` | The meter curve and the scrolling level history. |
 | `tests/test_docs_todo.py` | The path-to-page rules of `documentation/tools/docs_todo.py`. |
 | `spec/golden.txt` | Shared expected results (sanitize, looks_valid, replacements, whisper prompt, terms, system prompt, spoken commands, silence). Read by the Python and Java parity tests. |
 | `android/test/com/minhaj/vox/GroqClientTest.java` | Prompt, sanitize, replacements, retry policy, silence phrases. |
@@ -169,5 +170,6 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p1-providers-and-models.md` | Spec for sub-project P1: any provider, per-role server, model list, Test button. |
 | `documentation/specs/p2a-keydown-warmup.md` | Spec for P2a: warm connections at key-down. |
 | `documentation/specs/p3-about-you-context.md` | Spec for P3: "About you" context. |
+| `documentation/specs/p4-live-voice-level.md` | Spec for P4: live voice level. |
 | `documentation/tools/check_docs.py` | The documentation checker (tree, config keys, links, ADR index). |
 | `documentation/tools/docs_todo.py` | Prints which pages to update for the code that changed (checklist only, edits nothing). |

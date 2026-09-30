@@ -23,6 +23,8 @@ DEFAULT_STT = providers.DEFAULT_MODELS["stt"]
 DEFAULT_LLM = providers.DEFAULT_MODELS["llm"]
 KEY_FIELDS = ("api_key", "stt_api_key", "llm_api_key")   # stored protected by the Windows login
 SAMPLE_RATE = 16000
+LEVEL_FLOOR = 0.004         # normalised rms of a quiet room: below it the meter shows nothing
+LEVEL_GAIN = 30             # how fast the meter fills as the voice gets louder
 SILENCE_PEAK = 655          # 16-bit peak (about -34 dBFS) below which a recording is treated as silence
 RETRY_STATUS = (500, 502, 503, 504)   # server trouble worth retrying; 429 is left to the callers
 
@@ -303,6 +305,25 @@ def is_silence_hallucination(t):
 
 
 # --------------------------------------------------------------------- audio
+
+def level_from_rms(rms):
+    """Meter level 0..1 for a normalised rms (0..1). Same curve as the phone (Pcm.levelFromRms): a gentle
+    floor for room noise, then a fast rise that flattens near the top, so quiet and loud voices both show."""
+    return 1.0 - 10.0 ** (-LEVEL_GAIN * max(0.0, float(rms) - LEVEL_FLOOR))
+
+
+class LevelHistory:
+    """The last few sampled voice levels, newest last: what the recording meter draws."""
+
+    def __init__(self, n):
+        self.values = [0.0] * n
+
+    def push(self, level):
+        self.values = self.values[1:] + [min(1.0, max(0.0, float(level)))]
+
+    def reset(self):
+        self.values = [0.0] * len(self.values)
+
 
 def peak_level(pcm_bytes):
     """Loudest sample (0 to 32768) of a 16-bit mono recording."""
