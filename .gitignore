@@ -20,3 +20,6 @@ android/vox.keystore
 
 # local Python environment
 .venv/
+
+# local agent scratch (plans, reports): never commit
+.superpowers/

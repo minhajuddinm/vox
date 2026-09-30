@@ -92,16 +92,7 @@ jobs:
           else echo "::warning::No ANDROID_KEYSTORE_B64 secret. A new key is generated, so this APK cannot update earlier installs."; fi
       - name: Unit tests (pure helpers in GroqClient)
         run: |
-          JAR="$ANDROID_HOME/platforms/android-34/android.jar"
-          mkdir -p android/build/test
-          javac -nowarn -encoding UTF-8 -cp "$JAR" -d android/build/test \
-            android/src/com/minhaj/vox/GroqClient.java android/src/com/minhaj/vox/Endpoint.java \
-            android/src/com/minhaj/vox/Pcm.java android/src/com/minhaj/vox/Corrections.java \
-            android/src/com/minhaj/vox/Terms.java android/src/com/minhaj/vox/Providers.java android/test/com/minhaj/vox/*.java
-          for t in GroqClientTest EndpointTest PcmTest CorrectionsTest ProvidersTest; do
-            java -cp "android/build/test:$JAR" "com.minhaj.vox.$t"
-          done
-          java -cp "android/build/test:$JAR" com.minhaj.vox.ParityTest spec/golden.txt
+          ANDROID_JAR="$ANDROID_HOME/platforms/android-34/android.jar" bash android/run-tests.sh
       - name: Build APK
         env:
           KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}

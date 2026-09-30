@@ -28,14 +28,14 @@ Put the API key in the window's Settings, or in `%APPDATA%\Vox\config.json` (it 
 | Suite | Command | Covers |
 |---|---|---|
 | Python | `python -m pytest -q` (from the repo root) | 349 tests at the time of writing: `tests/test_*.py` |
-| Java | compiled and run by CI (see below) | 5 programs in `android/test/com/minhaj/vox/`, no device, no JUnit |
+| Java | `bash android/run-tests.sh` (needs a JDK and `ANDROID_JAR`; see below) | 6 programs in `android/test/com/minhaj/vox/`, no device, no JUnit |
 | Parity | part of both suites | `spec/golden.txt` |
 | Docs | `python documentation/tools/check_docs.py` | tree, config keys, links, ADR index |
 | Docs checklist | `python documentation/tools/docs_todo.py` | not a test: lists the pages to update for the code you changed (see [decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)) |
 
 Local pytest tip on Windows: if pytest fails while cleaning its temp folder, run `python -m pytest -q -p no:cacheprovider --basetemp=%TEMP%\vox-pt`.
 
-There is no local JDK requirement: CI compiles the Java helpers and tests. To run them yourself: `javac -cp <android.jar> -d out android/src/com/minhaj/vox/{GroqClient,Endpoint,Pcm,Corrections,Terms}.java android/test/com/minhaj/vox/*.java`, then `java -cp out:<android.jar> com.minhaj.vox.<TestName>` (`ParityTest` takes the path `spec/golden.txt`). `android.jar` is only needed to satisfy `org.json` imports; the tests never call it.
+CI and local runs share one script, `android/run-tests.sh`. With a JDK (17) on `PATH` and `ANDROID_JAR` pointing at `platforms/android-34/android.jar`, run `bash android/run-tests.sh` from the repo root: it compiles the sources in `android/testsrc.list` plus `android/test/**/*.java` (`javac -source 8 -target 8`) into a temporary folder, runs every `*Test` class (`ParityTest` gets `spec/golden.txt`), prints one line per test and stops with a non-zero exit at the first failure. A new pure Java class needs one line in `android/testsrc.list`. `android.jar` is only needed to satisfy `org.json` imports; the tests never call it. On the maintainer's laptop (outside the repo): `java = "temurin-17"` in the area's `mise.toml` provides the JDK, `platforms/android-34` is installed under an `.tools/android-sdk` folder (no build-tools, so no APK can be built there), and a `javatest.cmd` wrapper sets both and runs the script.
 
 Not covered by tests: `engine.py`, `meeting.py`, `overlay.py`, `gcal.py`, `vcalendar.py`, `ui_app.py`, both HTML pages, `DictationService`, `VoxAccessibilityService`, `MainActivity`, `BubbleView`, `Prefs`. Verify those by hand or add tests when you touch them.
 
@@ -49,7 +49,7 @@ Triggers: push of a tag `v*`, manual run (`workflow_dispatch`), or a pull reques
 |---|---|---|
 | `tests` | ubuntu | install `tests/requirements.txt`; `pytest -q`; documentation checker |
 | `windows` (needs `tests`) | windows | optional Google client from secret; `pip install -r windows/requirements.txt pyinstaller==6.22.3`; PyInstaller `--onedir --windowed`; Inno Setup; upload `VoxSetup` artifact |
-| `android` (needs `tests`) | ubuntu | install SDK parts; optional keystore from secret; compile and run the Java tests (`GroqClientTest`, `EndpointTest`, `PcmTest`, `CorrectionsTest`, `ProvidersTest`, `ParityTest spec/golden.txt`); `android/build.sh`; upload `Vox-android` artifact (`Vox.apk`) |
+| `android` (needs `tests`) | ubuntu | install SDK parts; optional keystore from secret; compile and run the Java tests with `bash android/run-tests.sh` (`CorrectionsTest`, `EndpointTest`, `GroqClientTest`, `ParityTest spec/golden.txt`, `PcmTest`, `ProvidersTest`); `android/build.sh`; upload `Vox-android` artifact (`Vox.apk`) |
 | `release` (tags only) | ubuntu | download artifacts, publish a GitHub Release with `VoxSetup.exe` and `Vox.apk` |
 
 Workflow permissions are `contents: read`; only `release` has `contents: write`. All third-party Actions are pinned by commit SHA (comments give the version).
