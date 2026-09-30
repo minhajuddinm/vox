@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Compile and run the Java unit tests. One runner for CI and local use (no device, no Gradle).
 #   CI:    .github/workflows/build.yml (android job) calls this with ANDROID_JAR set.
-#   Local: J:\Projects\.bin\javatest.cmd sets JAVA_HOME and ANDROID_JAR, then calls this.
+#   Local: a wrapper script kept outside the repo sets JAVA_HOME and ANDROID_JAR, then calls this.
 # Needs a JDK (javac and java on PATH) and ANDROID_JAR = platforms/android-34/android.jar.
 # Compiles the sources listed in android/testsrc.list plus every android/test/**/*.java, then runs
 # every *Test class (each has a main; ParityTest gets spec/golden.txt). Prints one line per test
@@ -9,6 +9,13 @@
 set -eu
 
 : "${ANDROID_JAR:?set ANDROID_JAR to the path of android.jar (platforms/android-34)}"
+# Make it absolute before the cd below (a relative path would break). Under Git Bash, cygpath also turns a
+# POSIX-style path into the Windows-style one the Windows JDK needs.
+if command -v cygpath >/dev/null 2>&1; then
+  ANDROID_JAR=$(cygpath -ma "$ANDROID_JAR")
+else
+  case "$ANDROID_JAR" in /*) ;; *) ANDROID_JAR=$PWD/$ANDROID_JAR ;; esac
+fi
 [ -f "$ANDROID_JAR" ] || { echo "ANDROID_JAR not found: $ANDROID_JAR" >&2; exit 2; }
 
 cd "$(dirname "$0")/.."   # repository root: paths in testsrc.list and spec/golden.txt are relative to it
@@ -36,10 +43,12 @@ while IFS= read -r f; do tests+=("$f"); done < <(find android/test -name '*.java
 javac -nowarn -Xlint:-options -source 8 -target 8 -encoding UTF-8 -cp "$ANDROID_JAR" -d "$OUT" \
   "${srcs[@]}" "${tests[@]}"
 
+count=0
 run_test() {   # run_test <fully.qualified.TestClass> [args...]
   local cls=$1 out
   shift
   if out=$(java -cp "$OUT$SEP$ANDROID_JAR" "$cls" "$@" 2>&1); then
+    count=$((count + 1))
     echo "PASS ${cls##*.}: $(printf '%s\n' "$out" | tail -n 1)"
   else
     echo "FAIL ${cls##*.}"
@@ -58,3 +67,4 @@ for f in "${tests[@]}"; do
     *)            run_test "$cls" ;;
   esac
 done
+echo "$count tests run"

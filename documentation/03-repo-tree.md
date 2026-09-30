@@ -28,6 +28,7 @@ windows/                Windows app (Python) and its installer scripts
 | `README.md` | End-user guide for both apps, plus maintainer notes (release, signing, local build). User-facing; not this documentation. |
 | `AGENTS.md` | Short entry point for coding agents; points here. |
 | `CHANGELOG.md` | Release-style change history. |
+| `.gitattributes` | Forces LF line endings for `*.sh` and `*.list` so the test runner works on Windows checkouts with `core.autocrlf=true`. |
 | `.gitignore` | Keeps secrets (`config.json`, `google_client.json`, keystores), logs and build output out of git. |
 
 ## CI

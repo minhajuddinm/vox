@@ -1,0 +1,3 @@
+# Keep LF in the working tree even where core.autocrlf=true (Windows): bash fails on a CR at the end of a line.
+*.sh text eol=lf
+*.list text eol=lf
