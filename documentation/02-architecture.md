@@ -124,7 +124,8 @@ The same functions exist in both languages:
 | Voice-note title (first 7 words) and search string (`"word"*` tokens) | `notes.auto_title`, `notes.fts_query` | `NoteLogic.autoTitle`, `NoteLogic.ftsQuery` |
 | Which version wins a note sync (strictly newer; a tie keeps the local one; a delete of an unknown note is ignored) | `notes.apply_remote` | `NoteLogic.remoteWins` |
 | Profile sync merge (per field: the side that changed since the last sync wins, the relay wins a clash, an absent result drops the field) and which settings travel | `sync.merge3`, `sync.PROFILE_FIELDS`, `sync.PROFILE_KEY_FIELDS` | `ProfileMerge.merge3`, `mergeProfile`, `SHARED_FIELDS`, `KEY_FIELDS` |
-| Tag clean-up (trim, no empties, no repeats) | `notes._tags` | `NoteLogic.cleanTags` (not in the golden file; see [12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md)) |
+| Tag clean-up (quotes removed, trim, no empties, no repeats) | `notes._tags` | `NoteLogic.cleanTags` (not in the golden file; see [12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md)) |
+| Device name on the relay and on notes (typed name trimmed and cut at 60 characters, counted as code points) | `sync.device_name` | `NoteLogic.deviceName` (the fallback when no name is typed, computer name or phone model, is not shared) |
 
 `spec/golden.txt` holds expected results for the first eight rows; `tests/test_parity.py` and `android/test/.../ParityTest.java` both run it. See [decisions/0007-shared-golden-file.md](decisions/0007-shared-golden-file.md).
 

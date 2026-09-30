@@ -63,7 +63,11 @@ Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_de
 | `stt_api_key`, `llm_api_key` | string | blank | Key for that role's own server; used only with its own address. |
 | `user_context` | string | blank | Same as the Windows setting: background text added to every cleanup request. |
 | `language` | string | `""` | Whisper language code. |
-| `device_name` | string | `""` | This phone's name on the notes it records and on the relay; blank uses the phone model (`Build.MODEL`). Trimmed, at most 60 characters (`Prefs.deviceName`). |
+| `device_name` | string | `""` | This phone's name on the notes it records and on the relay; blank uses the phone model (`Build.MODEL`), and `android-phone` when that is empty too. Trimmed, at most 60 code points (`Prefs.deviceName`, the rule of `NoteLogic.deviceName`). Set in Settings, Sync between devices. |
+| `relay_sync` | bool | `false` | Sync voice notes with a relay (the Settings switch "Sync voice notes with my relay"). Read with `Prefs.relaySync`. |
+| `relay_url` | string | `""` | Address of the relay. Saved only when `Endpoint.error` accepts it (plain http only for private hosts); a trailing slash is removed. Read with `Prefs.relayUrl`. |
+| `relay_token` | string | `""` | The relay's bearer token. A secret like `api_key`: stored in these private preferences only, never logged. Read with `Prefs.relayToken`. |
+| `relay_sync_keys` | bool | `false` | Also share the provider settings and API keys through the relay ("Also share my provider settings and API keys"). Read with `Prefs.relaySyncKeys`. |
 | `dictionary` | string (lines) | comment header | Terms and `wrong => right` lines, one per line. |
 | `people` | string (lines) | `""` | Names, one per line. |
 | `app_styles` | string (lines) | `Prefs.DEFAULT_APP_STYLES` | `package = style` per line. |

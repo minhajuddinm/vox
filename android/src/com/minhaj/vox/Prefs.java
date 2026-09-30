@@ -63,12 +63,22 @@ public final class Prefs {
     /** Free text about the user (work, projects, style) added to every cleanup request. */
     public String userContext() { return sp.getString("user_context", ""); }
     public String language() { return sp.getString("language", "").trim(); }
-    /** This phone's name on the notes it records and on the relay; the phone model unless the user typed one. At most 60 characters. */
-    public String deviceName() {
-        String name = sp.getString("device_name", "").trim();
-        if (name.isEmpty()) name = Build.MODEL == null ? "" : Build.MODEL.trim();
-        return name.length() > 60 ? name.substring(0, 60).trim() : name;
-    }
+    /**
+     * This phone's name on the notes it records and on the relay: what the user typed, else the phone model, else
+     * "android-phone". Trimmed, at most 60 code points (NoteLogic.deviceName, the same rule as sync.device_name).
+     */
+    public String deviceName() { return NoteLogic.deviceName(sp.getString("device_name", ""), Build.MODEL); }
+    /** The setting "sync voice notes with my relay". Off until the user turns it on. */
+    public boolean relaySync() { return sp.getBoolean("relay_sync", false); }
+    /** The relay's address as saved (Endpoint.error accepted it), without a trailing slash; blank when unset. */
+    public String relayUrl() { return Endpoint.normalize(sp.getString("relay_url", "")); }
+    /**
+     * The relay's bearer token. A secret like the API key: kept only in this private SharedPreferences file, never
+     * logged, and sent only to the relay's own address.
+     */
+    public String relayToken() { return sp.getString("relay_token", "").trim(); }
+    /** The setting "also share my provider settings and API keys" through the relay. Off by default. */
+    public boolean relaySyncKeys() { return sp.getBoolean("relay_sync_keys", false); }
     public String dictionaryRaw() { return sp.getString("dictionary", DEFAULT_DICTIONARY); }
     public String peopleRaw() { return sp.getString("people", ""); }
     public String appStylesRaw() { return sp.getString("app_styles", DEFAULT_APP_STYLES); }

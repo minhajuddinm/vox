@@ -20,7 +20,7 @@ There is no analytics, crash reporting or Vox backend.
 | Item | Where | Protection |
 |---|---|---|
 | Windows API key | `%APPDATA%\Vox\config.json` | Windows DPAPI (`secret.py`), value `dpapi:<base64>`; only the same Windows user on the same PC can open it |
-| Android API key | SharedPreferences `vox` | App-private storage only (no extra encryption); `allowBackup="false"` |
+| Android API keys and relay token | SharedPreferences `vox` | App-private storage only (no extra encryption); `allowBackup="false"`. The relay token (`relay_token`) is handled like the API key: never logged, sent only to the relay's own address |
 | History | `history.jsonl` (Windows) / SharedPreferences (Android) | Plain text. Switch it off with **Keep dictation history**; then nothing is saved |
 | Meeting audio | `meetings\<id>\*.raw` | Deleted after the notes are written unless `keep_audio`; a crash can leave it behind |
 | Meeting notes and transcripts | `%APPDATA%\Vox\meetings`, `Documents\Vox Notes` | Plain text |
@@ -51,7 +51,7 @@ There is no analytics, crash reporting or Vox backend.
 
 ## Known gaps (also listed in [12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md))
 
-- Android API key and all history are unencrypted at rest inside the app sandbox.
+- Android API keys, the relay token and all history are unencrypted at rest inside the app sandbox.
 - History and meeting data on Windows are plain text; Google tokens are plain JSON.
 - `keep_clipboard` defaults to true, so dictated text stays on the clipboard where clipboard history and other apps can read it.
 - The API key goes to whatever address is configured; a tampered `config.json` could redirect it (mitigated only by the https/private rule).
