@@ -36,6 +36,7 @@ The Android app writes no logs (it does not use `android.util.Log`). Problems ar
 | Shortcut does nothing | `vox.log` for `engine started` and `recording started`. No `recording started`: the engine is not running or the key names in `hotkey` are wrong. |
 | "Vox did not hear anything (loudest sound 1 ...)" | The selected microphone delivers silence (muted, dead, or a wireless headset whose mic is off). Pick another in Settings > Microphone. A live microphone in a quiet room usually shows a small but non-trivial value (25 to 30 was seen on one laptop). |
 | Nothing pasted, no error | The target app blocked Ctrl+V, or the engine was busy (`busy` state) |
+| Notification "Copied; the window changed" | The focused window was not the one the dictation started in, so Vox did not paste (it would have gone to the wrong app). The text is on the clipboard: press Ctrl+V where you want it. `vox.log` shows a warning `could not read the focused window` when that check itself failed (the paste then goes ahead). |
 | Notification "The server rejected the API key" | Key wrong or expired; Settings > Test |
 | Notification "Rate limit reached" | Groq free limit; wait, then tray > Retry last dictation |
 | Recording pill missing but dictation works | Vox was started from a session the user cannot see, or the overlay failed (`overlay failed to start` in `vox.log`) |

@@ -24,7 +24,7 @@ State of the code, honestly. Update this page when you fix or discover something
 
 - Android API key and history are not encrypted inside the app's private storage.
 - Windows history, meeting data and `google_token.json` are plain files.
-- `keep_clipboard` defaults to true (dictated text stays on the clipboard).
+- Dictated text passes through the clipboard (clipboard history can keep it). `keep_clipboard` defaults to false, so the old clipboard text is restored after a paste.
 
 ### Structure and quality
 

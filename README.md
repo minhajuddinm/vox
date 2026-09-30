@@ -52,7 +52,7 @@ Windows **Settings** → **Privacy & security** → **Microphone**:
 |---|---|
 | Dictate | Click into any text box, **hold Ctrl + Win**, speak, **release** |
 | Hands-free (long dictation) | **Double-tap Ctrl + Win**, speak, press **Ctrl + Win** once to finish. **Esc** cancels |
-| Paste the last dictation again | **Ctrl + V** (the text stays on your clipboard) |
+| Paste the last dictation again | **Ctrl + V**, if **Settings → Keep dictation on the clipboard** is on. If you switch windows before the text is pasted, Vox does not paste it: it copies it and says "Copied; the window changed", so press **Ctrl + V** where you want it |
 | Open the Vox window | Double-click the tray icon, or search **Vox** in the Start menu |
 
 While you speak, a small pill at the bottom of the screen shows a live waveform. Amber dots mean Vox is processing. The text is pasted about 1 second after you release.

@@ -53,7 +53,7 @@ There is no analytics, crash reporting or Vox backend.
 
 - Android API key and all history are unencrypted at rest inside the app sandbox.
 - History and meeting data on Windows are plain text; Google tokens are plain JSON.
-- `keep_clipboard` defaults to true, so dictated text stays on the clipboard where clipboard history and other apps can read it.
+- Dictated text is on the clipboard for a moment while it is pasted (clipboard history and other apps can read it). `keep_clipboard` defaults to false, so the old clipboard text is put back afterwards; with it on, or when the window changed and the text is only copied, the dictation stays on the clipboard.
 - The API key goes to whatever address is configured; a tampered `config.json` could redirect it (mitigated only by the https/private rule).
 - Whisper and the chat model are third parties; their handling of the data is covered by their own policies.
 - `ACTION_SET_TEXT` rewrites the whole field, which can drop rich text or race with typing.

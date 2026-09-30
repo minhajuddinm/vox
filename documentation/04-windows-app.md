@@ -24,7 +24,7 @@ Both set DPI awareness, install `sys.excepthook` / `threading.excepthook` that l
 ### Recording (`Engine.start`, `_audio`, `stop`)
 
 1. `start` refuses (with a tray notification and by opening the window) if `core.endpoint_error(cfg)` reports a bad server address or `core.key_missing(cfg)` is true.
-2. It remembers the foreground app's exe name (`foreground_app`, via psutil; the window title is never read).
+2. It remembers the foreground app's exe name (`foreground_app`, via psutil; the window title is never read); `paste` later checks the focused window against it.
 3. It opens a `sounddevice.InputStream` (16 kHz, mono, int16) on the device chosen in Settings (`audio_devices.input_index(cfg["input_device"])`; empty means the Windows default; a missing device falls back to the default with a notification).
 4. `_audio` appends chunks and computes the level for the overlay.
 5. `stop` calls `_end_recording` (atomic under `_rec_lock`, because the audio callback and the hotkey thread can both stop), joins the chunks, then:
@@ -36,7 +36,11 @@ Both set DPI awareness, install `sys.excepthook` / `threading.excepthook` that l
 
 - Calls `core.process_detailed(cfg, pcm, exe, exe)` (see [06-pipeline.md](06-pipeline.md)). The app label given to the model is the exe name.
 - If cleanup was wanted but failed, a notification says the words were pasted as spoken.
-- `paste`: waits (up to 2 s) until the hotkey modifiers are released, copies the text to the clipboard, sends Ctrl+V, waits 0.4 s. The old clipboard is restored only when `keep_clipboard` is false (default true: dictated text stays on the clipboard).
+- `paste` calls `paste.paste_text(text, target, keep_clipboard)` (`windows/paste.py`; `target` is the exe name remembered when recording started):
+  1. waits (up to 2 s) until Shift, Ctrl, Alt and Win are all up, so Ctrl+V is not combined with Win;
+  2. compares the focused window's exe name (`GetForegroundWindow` and `QueryFullProcessImageNameW`, never the title) with `target`, ignoring case. If it differs, the text is left on the clipboard, **no Ctrl+V is sent**, and the engine shows "Copied; the window changed". If the target was never captured, the window cannot be named, or the lookup fails (logged as a warning), the paste goes ahead rather than losing the text;
+  3. otherwise copies the text, sends Ctrl+V and waits 0.4 s;
+  4. restores the old clipboard text only when `keep_clipboard` is false (the default) **and** the clipboard still holds the dictated text, so something the user copied in the meantime is never overwritten. If the old clipboard could not be read it is not restored (the text stays).
 - History: one JSON line appended to `history.jsonl` unless `keep_history` is false.
 - Errors: `ApiError` (401 key rejected, 429 rate limit, other) and `requests.RequestException` set `Engine.pending = (pcm, exe)` and notify with "Your recording is kept: tray icon > Retry last dictation." `retry_last` re-runs `_process` on the kept audio. Success clears `pending`.
 

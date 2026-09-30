@@ -53,6 +53,7 @@ windows/                Windows app (Python) and its installer scripts
 | `windows/providers.py` | Which server, key and model each role (speech, cleanup) uses; model list from `GET /models` and its classification; the Test button; reasoning-field retry. |
 | `windows/notes.py` | Voice notes store: SQLite with search and filters, delete markers for a later sync. |
 | `windows/sync.py` | Syncs voice notes with a relay: send changed notes, fetch new ones, background worker, connection test. |
+| `windows/paste.py` | `paste_text`: pastes into the focused app only if the window is still the one the dictation started in, and restores the old clipboard only if it still holds our text. The real Win32, clipboard and key calls are in `SystemDeps`; tests pass their own. |
 | `windows/streaming.py` | Sends the finished parts of a long recording to speech-to-text while the user is still speaking (worker thread, falls back to the whole recording). |
 | `windows/ui/index.html` | The main window's screens: Home, Notes (meetings), Dictionary, Styles, Settings. One file with CSS and JavaScript. |
 | `windows/meeting.py` | Meeting notes: records mic and PC audio, live transcript, final pass, speaker naming, notes generation, saved-meeting search. |
@@ -119,6 +120,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_sync_profile.py` | Profile sync between two devices through a real relay: merge rules, keys switch, races. |
 | `tests/test_streaming.py` | The pause finder (`Segmenter`), the streaming worker, and the text half of the pipeline. |
 | `tests/test_engine_notes.py` | The engine's voice-note mode (skipped where the Windows runtime packages are missing). |
+| `tests/test_paste.py` | `paste_text` with injected fakes (window unchanged or changed, clipboard restore rules) and the engine's "Copied; the window changed" notice. |
 | `tests/test_docs_todo.py` | The path-to-page rules of `documentation/tools/docs_todo.py`. |
 | `spec/golden.txt` | Shared expected results (sanitize, looks_valid, replacements, whisper prompt, terms, system prompt, spoken commands, silence). Read by the Python and Java parity tests. |
 | `android/test/com/minhaj/vox/ApiClientTest.java` | Prompt, sanitize, replacements, retry policy, silence phrases. |
