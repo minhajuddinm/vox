@@ -28,7 +28,7 @@ Put the API key in the window's Settings, or in `%APPDATA%\Vox\config.json` (it 
 | Suite | Command | Covers |
 |---|---|---|
 | Python | `python -m pytest -q` (from the repo root) | 349 tests at the time of writing: `tests/test_*.py` |
-| Java | `bash android/run-tests.sh` (needs a JDK and `ANDROID_JAR`; see below) | 6 programs in `android/test/com/minhaj/vox/`, no device, no JUnit |
+| Java | `bash android/run-tests.sh` (needs a JDK and `ANDROID_JAR`; see below) | 9 programs in `android/test/com/minhaj/vox/`, no device, no JUnit |
 | Parity | part of both suites | `spec/golden.txt` |
 | Docs | `python documentation/tools/check_docs.py` | tree, config keys, links, ADR index |
 | Docs checklist | `python documentation/tools/docs_todo.py` | not a test: lists the pages to update for the code you changed (see [decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)) |
@@ -51,7 +51,7 @@ Triggers: push of a tag `v*`, manual run (`workflow_dispatch`), or a pull reques
 |---|---|---|
 | `tests` | ubuntu | install `tests/requirements.txt`; `pytest -q`; documentation checker |
 | `windows` (needs `tests`) | windows | optional Google client from secret; `pip install -r windows/requirements.txt pyinstaller==6.22.3`; PyInstaller `--onedir --windowed` (with `--paths ../relay --hidden-import relay` so `Vox.exe --relay` can import `relay/relay.py`); Inno Setup; upload `VoxSetup` artifact |
-| `android` (needs `tests`) | ubuntu | install SDK parts; optional keystore from secret; compile and run the Java tests with `bash android/run-tests.sh` (`ApiClientTest`, `CorrectionsTest`, `EndpointTest`, `ParityTest spec/golden.txt`, `PcmTest`, `ProvidersTest`); `android/build.sh`; upload `Vox-android` artifact (`Vox.apk`) |
+| `android` (needs `tests`) | ubuntu | install SDK parts; optional keystore from secret; compile and run the Java tests with `bash android/run-tests.sh` (`ApiClientTest`, `CorrectionsTest`, `EndpointTest`, `NoteLogicTest`, `NoteTest`, `ParityTest spec/golden.txt`, `PcmTest`, `ProfileMergeTest`, `ProvidersTest`); `android/build.sh`; upload `Vox-android` artifact (`Vox.apk`) |
 | `release` (tags only) | ubuntu | download artifacts, publish a GitHub Release with `VoxSetup.exe` and `Vox.apk` |
 
 Workflow permissions are `contents: read`; only `release` has `contents: write`. All third-party Actions are pinned by commit SHA (comments give the version).

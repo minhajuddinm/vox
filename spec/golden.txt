@@ -104,3 +104,74 @@ gate	a b c d e f	casual	true	7	false
 gate	a b c	casual	true	banana	true
 gate	a b	casual	true	0	true
 gate	a b c	casual	true	99	false
+# Voice notes: title = first 7 words (notes.auto_title / NoteLogic.autoTitle), ftsq = FTS5 match string
+# (notes.fts_query / NoteLogic.ftsQuery), remotewins = hasLocal localUpdated remoteUpdated remoteDeleted expected
+# (whether a note from the relay replaces the local copy: notes.apply_remote / NoteLogic.remoteWins).
+# Expected values were produced by running the Python functions.
+title		
+title	Hello	Hello
+title	one two three four five six seven	one two three four five six seven
+title	one two three four five six seven eight	one two three four five six seven...
+title	   padded words here   	padded words here
+title	alpha\tbeta\ngamma\n\ndelta\t\tepsilon	alpha beta gamma delta epsilon
+title	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+title	one two　three four five six seven eight nine	one two three four five six seven...
+title	He said "hello" to me and then left the room	He said "hello" to me and then...
+title	École café naïve über señor ñandú straße résumé	École café naïve über señor ñandú straße...
+ftsq		
+ftsq	hello	"hello"*
+ftsq	hello world	"hello"* "world"*
+ftsq	say "hi" there	"say"* "hi"* "there"*
+ftsq	x" OR "y	"x"* "OR"* "y"*
+ftsq	a"b	"a"* "b"*
+ftsq	"	
+ftsq	!!! ???	
+ftsq	  spaced   out  	"spaced"* "out"*
+ftsq	foo_bar 42	"foo_bar"* "42"*
+ftsq	well-known don't	"well"* "known"* "don"* "t"*
+ftsq	École café	"École"* "café"*
+ftsq	hi 😀 𝒜bc	"hi"* "𝒜bc"*
+ftsq	tab\tsep\nnl	"tab"* "sep"* "nl"*
+ftsq	café bar	"cafe"* "bar"*
+ftsq	one two	"one"* "two"*
+ftsq	x² Ⅷ ½	"x²"* "Ⅷ"* "½"*
+ftsq	١٢٣ abc	"١٢٣"* "abc"*
+ftsq	日本語 テスト	"日本語"* "テスト"*
+ftsq	_	"_"*
+remotewins	false	0	5	false	true
+remotewins	false	0	5	true	false
+remotewins	true	5	6	false	true
+remotewins	true	6	6	false	false
+remotewins	true	7	6	false	false
+remotewins	true	5	6	true	true
+remotewins	true	6	6	true	false
+remotewins	true	7	6	true	false
+# Profile sync: merge3 = base local remote expected, one shared field's value on each side (sync.merge3 /
+# ProfileMerge.merge3). ~ = the field is absent (a removed field). The side that changed since base wins; if both
+# changed differently the relay's (remote) value wins; an absent result drops the field. An empty field is the
+# empty string, which is a value like any other (a cleared field is not a removal).
+# Expected values were produced by running the Python function.
+merge3	a	a	a	a
+merge3	a	b	a	b
+merge3	a	a	c	c
+merge3	a	b	c	c
+merge3	a	b	b	b
+merge3	~	x	~	x
+merge3	a	~	a	~
+merge3	a	~	c	c
+merge3	~	~	~	~
+merge3	~	x	x	x
+merge3	~	x	y	y
+merge3	~	~	x	x
+merge3	a	~	~	~
+merge3	a	a	~	~
+merge3	a	b	~	~
+merge3	a		a	
+merge3	a	a		
+merge3	a		c	c
+merge3	~		~	
+merge3		a		a
+# profilefields = which settings take part in the profile sync, in this order: shared = always, keys = only with
+# relay_sync_keys (sync.PROFILE_FIELDS, PROFILE_KEY_FIELDS / ProfileMerge.SHARED_FIELDS, KEY_FIELDS).
+profilefields	shared	user_context|dictionary|people|default_style|cleanup|language
+profilefields	keys	provider|base_url|stt_base_url|llm_base_url|stt_model|llm_model|llm_reasoning|api_key|stt_api_key|llm_api_key

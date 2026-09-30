@@ -63,6 +63,7 @@ Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_de
 | `stt_api_key`, `llm_api_key` | string | blank | Key for that role's own server; used only with its own address. |
 | `user_context` | string | blank | Same as the Windows setting: background text added to every cleanup request. |
 | `language` | string | `""` | Whisper language code. |
+| `device_name` | string | `""` | This phone's name on the notes it records and on the relay; blank uses the phone model (`Build.MODEL`). Trimmed, at most 60 characters (`Prefs.deviceName`). |
 | `dictionary` | string (lines) | comment header | Terms and `wrong => right` lines, one per line. |
 | `people` | string (lines) | `""` | Names, one per line. |
 | `app_styles` | string (lines) | `Prefs.DEFAULT_APP_STYLES` | `package = style` per line. |
@@ -107,7 +108,7 @@ Files written by the app while it runs: `history.jsonl` is appended; `config.jso
 
 ## Files on the phone
 
-Only the SharedPreferences file above, plus `cache/vox_pending.wav` while a dictation is waiting to be sent or retried (deleted on success, on cancel, and when the service stops).
+The SharedPreferences file above, plus `cache/vox_pending.wav` while a dictation is waiting to be sent or retried (deleted on success, on cancel, and when the service stops), plus the voice notes database `databases/notes.db` (with `notes.db-wal` and `notes.db-shm` while it is open; created by `NotesStore` the first time it is used). It has the same tables and columns as `notes.db` on the PC (see above): `notes` (`id`, `source`, `title`, `text`, `raw`, `created_at`, `updated_at`, `secs`, `device`, `tags`, `deleted`, `dirty`, `seq`), `sync_meta` (`key`, `value`) and, when the phone's SQLite has FTS5, `notes_fts`. A note's `id` is 32 lowercase hex characters and times are Unix seconds. Not encrypted; the app does not allow Android backup (`allowBackup="false"`), so the database is not copied to Google's cloud.
 
 ## Never commit
 

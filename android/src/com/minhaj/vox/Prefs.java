@@ -2,6 +2,7 @@ package com.minhaj.vox;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Build;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -62,6 +63,12 @@ public final class Prefs {
     /** Free text about the user (work, projects, style) added to every cleanup request. */
     public String userContext() { return sp.getString("user_context", ""); }
     public String language() { return sp.getString("language", "").trim(); }
+    /** This phone's name on the notes it records and on the relay; the phone model unless the user typed one. At most 60 characters. */
+    public String deviceName() {
+        String name = sp.getString("device_name", "").trim();
+        if (name.isEmpty()) name = Build.MODEL == null ? "" : Build.MODEL.trim();
+        return name.length() > 60 ? name.substring(0, 60).trim() : name;
+    }
     public String dictionaryRaw() { return sp.getString("dictionary", DEFAULT_DICTIONARY); }
     public String peopleRaw() { return sp.getString("people", ""); }
     public String appStylesRaw() { return sp.getString("app_styles", DEFAULT_APP_STYLES); }
