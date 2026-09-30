@@ -90,3 +90,7 @@ Settings starts with an **AI provider** card: preset list (`Providers.PRESETS`, 
 ## About you
 
 The Dictionary page starts with an **About you** card bound to the `user_context` preference (`Prefs.userContext`, `Bridge.state`/`save`). `DictationService.send` passes it to `GroqClient.cleanup`, which adds it to the prompt.
+
+## Recording meter
+
+The record loop in `DictationService.startRecording` reads 40 ms buffers and posts `Pcm.levelFromRms(rms)` to the listener (about 25 updates a second); `BubbleView.setLevel` rises fast (65% new value) and falls slowly (20%). Same curve as Windows.

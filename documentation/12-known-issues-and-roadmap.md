@@ -61,4 +61,6 @@ Ordered by how much they would help:
 
 12. About you: local fuzzy dictionary matching before the LLM, the `EMPTY` sentinel and stricter output checks, per-app contexts; the text box is not checked on a device.
 
+13. Meter: the Android bubble still shows a circle and ring, not bars; neither meter has been looked at on a screen since the change.
+
 Not planned: Android meeting notes, iOS, on-device speech recognition.

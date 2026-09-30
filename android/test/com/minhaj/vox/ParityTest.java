@@ -88,6 +88,9 @@ public final class ParityTest {
                 case "context":
                     eq(ln, kind, f[1], GroqClient.cleanContext(f[0]));
                     break;
+                case "level":
+                    eq(ln, kind, f[1], String.format(java.util.Locale.ROOT, "%.3f", Pcm.levelFromRms(Double.parseDouble(f[0]))));
+                    break;
                 case "models":
                     eq(ln, kind, f[1], Providers.classify(f[0]));
                     break;

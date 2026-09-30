@@ -131,3 +131,7 @@ Settings starts with an **AI provider** block: a preset list (`providers.PRESETS
 ## About you
 
 The Dictionary page starts with an **About you** card: a text box bound to `user_context` (saved on change, character count against 8,000). `core.cleanup` passes it to `system_prompt`. It is sent only to the cleanup server.
+
+## Recording meter
+
+`Engine._audio` (the PortAudio callback) stores `core.level_from_rms(rms)` in `self.level`. The overlay polls it on the Tk thread every 33 ms and, every 80 ms, pushes the smoothed value into a `core.LevelHistory` of 11 values; `_draw_recording` draws one bar per value, newest on the right. The history is cleared when the pill appears. The curve is shared with the phone ([specs/p4-live-voice-level.md](specs/p4-live-voice-level.md)).

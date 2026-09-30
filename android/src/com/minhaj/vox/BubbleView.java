@@ -44,7 +44,7 @@ public class BubbleView extends View {
     }
 
     public void setLevel(float l) {
-        level = level * 0.6f + l * 0.4f;
+        level = l > level ? level * 0.35f + l * 0.65f : level * 0.8f + l * 0.2f;   // quick to rise, slow to fall
         invalidate();
     }
 

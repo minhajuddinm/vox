@@ -7,6 +7,11 @@ final class Pcm {
 
     private Pcm() { }
 
+    /** Meter level 0..1 for a normalised rms (0..1). Same curve as Windows (vox_core.level_from_rms). */
+    static double levelFromRms(double rms) {
+        return 1.0 - Math.pow(10.0, -30.0 * Math.max(0.0, rms - 0.004));
+    }
+
     /** True when the recording never gets louder than {@link #SILENCE_PEAK}: nothing was said. */
     static boolean isSilent(byte[] pcm) {
         return isSilent(pcm, SILENCE_PEAK);

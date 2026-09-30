@@ -246,7 +246,7 @@ class Engine:
     def _audio(self, indata, frames, t, status):
         self.chunks.append(bytes(indata))
         rms = float(np.sqrt(np.mean(np.square(indata.astype(np.float32))))) / 32768.0
-        self.level = min(1.0, rms * 12)
+        self.level = core.level_from_rms(rms)
         limit = MAX_SECONDS * (3 if self.hands_free else 1)
         if time.time() - self.started_at > limit:
             threading.Thread(target=self.stop, daemon=True).start()

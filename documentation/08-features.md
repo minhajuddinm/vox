@@ -31,6 +31,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | Test button per role (real call, plain-language failure reasons) | yes | yes | `providers.test` / `GroqClient.test` | py `test_providers` |
 | Reasoning fields only where accepted; `<think>` stripped | yes | yes | `providers.reasoning_params`, `strip_think` / `Providers.sendReasoning`, `stripThink` | py `test_providers`; java `ProvidersTest` |
 | "About you" context added to every cleanup request (fenced, capped) | yes | yes | `vox_core.clean_context`, `system_prompt` / `GroqClient.cleanContext`, `systemPrompt` | py `test_user_context`, `test_parity` (`context`, `promptctx` rows); java `ParityTest` |
+| Live voice level on the pill and bubble (same curve, real history on Windows) | yes | yes | `vox_core.level_from_rms`, `LevelHistory`, `overlay._draw_recording` / `Pcm.levelFromRms`, `BubbleView.setLevel` | py `test_level`, `test_parity` (`level` rows); java `ParityTest` |
 | Only the app name is sent to the model (no window title) | yes | (already) | `engine.foreground_app` | - |
 | API key protected by the Windows login (DPAPI) | yes | - | `secret.py`, `vox_core.load_config/save_config` | py `test_secret` |
 | "Keep dictation history" switch | yes | yes | `keep_history` | - |

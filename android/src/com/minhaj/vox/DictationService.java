@@ -175,7 +175,7 @@ public class DictationService extends Service {
         recording = true;
         setState(RECORDING);
         recThread = new Thread(() -> {
-            byte[] buf = new byte[3200]; // 100 ms
+            byte[] buf = new byte[1280]; // 40 ms: about 25 meter updates a second
             long maxBytes = (long) SAMPLE_RATE * 2 * MAX_SECONDS;
             try {
                 rec.startRecording();
@@ -360,7 +360,7 @@ public class DictationService extends Service {
             sum += (long) v * v;
         }
         double r = Math.sqrt(sum / (double) Math.max(1, samples)) / 32768.0;
-        return (float) Math.min(1.0, r * 6);
+        return (float) Pcm.levelFromRms(r);
     }
 
     static void writeWav(File f, byte[] pcm) throws IOException {

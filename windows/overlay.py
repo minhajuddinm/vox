@@ -9,13 +9,16 @@ import random
 import sys
 import tkinter as tk
 
+import vox_core as core
+
 KEY = "#010203"          # colour made fully transparent (gives the pill rounded corners)
 BG = "#161618"
 EDGE = "#3A3A3F"
 BAR = "#F2F2F2"
 REC_DOT = "#FF453A"
 BUSY = "#F5B83D"
-FPS_MS = 16
+FPS_MS = 33               # about 30 frames a second is plenty for a meter
+SAMPLE_MS = 80            # one meter bar per 80 ms of voice (about a syllable)
 log = logging.getLogger("vox.overlay")
 
 
@@ -100,6 +103,8 @@ class Overlay:
         self.t = 0.0
         self.smooth = 0.0
         self.heights = [0.0] * self.N_BARS
+        self.hist = core.LevelHistory(self.N_BARS)
+        self.sample_acc = 0
         self.phase = [random.random() * math.tau for _ in range(self.N_BARS)]
         self.root.after(FPS_MS, self._tick)
 
@@ -123,8 +128,11 @@ class Overlay:
 
     def _draw_recording(self):
         c, s = self.canvas, self.scale
-        self.smooth += (self.app.level - self.smooth) * 0.35
-        lvl = min(1.0, self.smooth)
+        self.smooth += (self.app.level - self.smooth) * 0.5
+        self.sample_acc += FPS_MS
+        if self.sample_acc >= SAMPLE_MS:   # the bars scroll: newest voice on the right
+            self.sample_acc = 0
+            self.hist.push(self.smooth)
         cx, cy = 17 * s, self.h / 2
         if getattr(self.app, "hands_free", False):
             # hands-free: a stop square means "press the shortcut again to finish"
@@ -139,10 +147,8 @@ class Overlay:
         x0 = 32 * s
         mid = (self.N_BARS - 1) / 2
         for i in range(self.N_BARS):
-            centre = 1 - abs(i - mid) / (mid + 1) * 0.55          # taller in the middle
-            wobble = 0.55 + 0.45 * math.sin(self.t * 9 + self.phase[i])
-            target = 0.12 + 0.88 * lvl * centre * wobble
-            self.heights[i] += (target - self.heights[i]) * 0.4
+            target = 0.12 + 0.88 * self.hist.values[i]
+            self.heights[i] += (target - self.heights[i]) * 0.5
             bh = max(bw, self.heights[i] * (self.h - 14 * s))
             x = x0 + i * gap
             c.create_line(x, cy - bh / 2, x, cy + bh / 2, fill=BAR, width=bw, capstyle=tk.ROUND)
@@ -177,6 +183,8 @@ class Overlay:
             want = state != "idle"
             if want and not self.visible:
                 self._place()
+                self.hist.reset()
+                self.smooth = 0.0
                 _show(self.root, True)
                 self.visible = True
                 log.info("overlay shown (%s)", state)

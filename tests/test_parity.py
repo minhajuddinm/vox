@@ -58,6 +58,8 @@ def test_golden(kind, f):
         assert core.system_prompt(f[0], [t for t in f[1].split("|") if t], f[2], f[3]) == f[4]
     elif kind == "context":
         assert core.clean_context(f[0]) == f[1]
+    elif kind == "level":
+        assert "%.3f" % core.level_from_rms(float(f[0])) == f[1]
     elif kind == "models":
         assert providers.classify(f[0]) == f[1]
     elif kind == "silence":

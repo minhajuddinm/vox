@@ -28,6 +28,9 @@ Chronological notes on how the improvement series was made, what was found, and 
 
 Later the same day: PR 2 (the documentation folder) was merged upstream as `de839c8`. Added `documentation/tools/docs_todo.py` (maps changed files to the pages that describe them, tested in `tests/test_docs_todo.py`) and the project skill `vox-doc-sync`, so the documentation is synced at the end of every session ([decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)). The tool was tried on its own branch: it listed the three new files and the pages to update.
 
+## 2026-09-30, P4 built (live voice level)
+Shared curve `level_from_rms` / `Pcm.levelFromRms` with golden rows; `LevelHistory` for the Windows pill; 40 ms reads and faster-rise smoothing on Android. 13 new tests (262 total). The code map had shown that both meters already existed, so this is an upgrade. Not verified: how it looks on a Windows screen or on a phone.
+
 ## 2026-09-30, P3 built ("About you" context)
 `user_context` on both apps, the fenced block in `system_prompt`/`systemPrompt`, `clean_context`/`cleanContext`, golden rows and 11 new tests (249 total). CI on PR 6 (P2a) was green before this. Not verified: the Java code before CI, the text box on a device, whether the extra context measurably changes results (no real-provider test).
 
