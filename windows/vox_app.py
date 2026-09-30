@@ -2,6 +2,7 @@
 
   Vox.exe            start the background engine (tray, hotkey, overlay). If it is already running, open the window.
   Vox.exe --window   open the main window.
+  Vox.exe --relay    run the relay server (no tray, no window); the options after it are relay.py's (--data-dir, --port, ...).
 """
 import ctypes
 import logging
@@ -39,7 +40,24 @@ def _focus_existing_window():
         user32.SetForegroundWindow(hwnd)
 
 
+def _run_relay(argv):
+    """Runs relay/relay.py's main with `argv` and nothing else: no GUI, audio or keyboard library is imported."""
+    _setup_logging("relay.log")
+    for name in ("stdout", "stderr"):   # a windowed exe has no console, so give the relay's print() somewhere to go
+        if getattr(sys, name) is None:
+            setattr(sys, name, open(os.devnull, "w"))
+    if not getattr(sys, "frozen", False):   # the frozen exe has the relay built in (build_app.bat, build.yml)
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "relay"))
+    import relay
+    return relay.main(argv)
+
+
 def main():
+    if "--relay" in sys.argv[1:]:
+        args = sys.argv[1:]
+        args.remove("--relay")
+        sys.exit(_run_relay(args))
+
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except Exception:

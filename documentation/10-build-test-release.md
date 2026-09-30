@@ -50,7 +50,7 @@ Triggers: push of a tag `v*`, manual run (`workflow_dispatch`), or a pull reques
 | Job | Runner | Steps |
 |---|---|---|
 | `tests` | ubuntu | install `tests/requirements.txt`; `pytest -q`; documentation checker |
-| `windows` (needs `tests`) | windows | optional Google client from secret; `pip install -r windows/requirements.txt pyinstaller==6.22.3`; PyInstaller `--onedir --windowed`; Inno Setup; upload `VoxSetup` artifact |
+| `windows` (needs `tests`) | windows | optional Google client from secret; `pip install -r windows/requirements.txt pyinstaller==6.22.3`; PyInstaller `--onedir --windowed` (with `--paths ../relay --hidden-import relay` so `Vox.exe --relay` can import `relay/relay.py`); Inno Setup; upload `VoxSetup` artifact |
 | `android` (needs `tests`) | ubuntu | install SDK parts; optional keystore from secret; compile and run the Java tests with `bash android/run-tests.sh` (`ApiClientTest`, `CorrectionsTest`, `EndpointTest`, `ParityTest spec/golden.txt`, `PcmTest`, `ProvidersTest`); `android/build.sh`; upload `Vox-android` artifact (`Vox.apk`) |
 | `release` (tags only) | ubuntu | download artifacts, publish a GitHub Release with `VoxSetup.exe` and `Vox.apk` |
 
@@ -60,7 +60,7 @@ Secrets: `GOOGLE_CLIENT_JSON` (Windows Google sign-in), `ANDROID_KEYSTORE_B64` (
 
 ## Building locally
 
-- **Windows installer flow:** `windows\build_app.bat` (Python 3.10+): makes a venv in `%LOCALAPPDATA%\Vox\venv`, installs requirements and an unpinned PyInstaller, builds, and installs to `%LOCALAPPDATA%\Programs\Vox` with a Start-menu shortcut and autostart entry.
+- **Windows installer flow:** `windows\build_app.bat` (Python 3.10+): makes a venv in `%LOCALAPPDATA%\Vox\venv`, installs requirements and an unpinned PyInstaller, builds, and installs to `%LOCALAPPDATA%\Programs\Vox` with a Start-menu shortcut and autostart entry. It passes the same `--paths "%~dp0..\relay" --hidden-import relay` as the workflow; `tests/test_relay_cli.py` checks that both build files keep those two flags, but no PyInstaller build with them has been run yet.
 - **Android:** `ANDROID_HOME=... ./android/build.sh` produces `android/build/Vox.apk`. Steps: aapt2 compile/link, javac (source 8), d8, zip, zipalign, apksigner. If `android/vox.keystore` is missing it generates one.
 
 ## Releasing

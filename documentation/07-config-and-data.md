@@ -24,6 +24,8 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `relay_url` | string | `""` | Address of the relay (for example `https://yuvipi.your-tailnet.ts.net`). Same rule as the server address: plain http only for private hosts. |
 | `relay_token` | string | `""` | The relay's bearer token. DPAPI-protected like the API keys. |
 | `relay_sync_keys` | bool | `false` | Also share the provider settings and API keys through the relay (`provider`, `base_url`, `stt_base_url`, `llm_base_url`, `stt_model`, `llm_model`, `llm_reasoning`, `api_key`, `stt_api_key`, `llm_api_key`). Off removes them from the relay on the next sync. |
+| `relay_run` | bool | `false` | Run a relay on this PC while Vox is running (the tray item "Run relay on this PC" sets it). The engine starts `Vox.exe --relay` as a child process and stops it when Vox quits. Never synced. See [14-relay.md](14-relay.md). |
+| `relay_port` | int | `8765` | Port the PC's own relay listens on (127.0.0.1 only); the relay's own default. An unusable value means 8765. Publish it with `tailscale serve --bg PORT`. Never synced. |
 | `stream_stt` | bool | `true` | Send long recordings to speech-to-text in pieces while the user is still speaking (recordings shorter than about 13 s are unaffected). |
 | `device_name` | string | `""` | This PC's name on the relay and on the notes it records; blank uses the computer name. |
 | `language` | string | `""` | Whisper language code; empty = auto detect. |
@@ -74,7 +76,7 @@ Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_de
 
 ## Relay settings (`relay.json` in the relay's data folder: Windows `%APPDATA%\VoxRelay`, macOS `~/Library/Application Support/VoxRelay`, otherwise `~/.local/share/vox-relay`)
 
-Written by `relay/relay.py` on first start; not part of Vox's own `config.json`. See [14-relay.md](14-relay.md).
+Written by `relay/relay.py` on first start; not part of Vox's own `config.json`. When the relay runs from Vox (`relay_run`), it uses this same folder, so `python relay.py` and Vox share one relay. See [14-relay.md](14-relay.md).
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -93,6 +95,7 @@ The relay's data lives next to it in `relay.db` (SQLite: tables `notes` with a `
 | `notes.db` (+ `notes.db-wal`, `notes.db-shm`) | engine, window | SQLite, table `notes`: `id` (32 hex chars), `source` (`voice note`), `title`, `text`, `raw`, `created_at` and `updated_at` (Unix seconds), `secs`, `device`, `tags` (JSON list), `deleted` (0 or 1; a deleted note keeps only the marker row). Sync columns: `dirty` (1 = changed here and not yet accepted by the relay; notes from before sync count as changed) and `seq` (the relay's sequence number, 0 if unknown). Table `sync_meta` (`key`, `value`) holds `relay_cursor`, `profile_version` and `profile_snapshot` (the shared settings as of the last profile sync). Table `notes_fts` (FTS5: `id`, `title`, `text`) exists when SQLite has FTS5. Not encrypted. |
 | `vox.log`, `vox.log.1`, `vox.log.2` | engine | Rotating log (1 MB each). |
 | `window.log` (+ backups) | window | Same for the window process. |
+| `relay.log` (+ backups) | `Vox.exe --relay` | Same for the relay process started by the tray item; holds the traceback if the relay cannot start (for example the port is taken). |
 | `engine.json` | engine | `{"port", "token", "pid"}` for the control server. Deleted on quit. |
 | `calendar.json` | `vcalendar` | Cached events `{"source", "events", "error", "fetched"}` (5 minutes). |
 | `google_token.json` | `gcal` | `{"refresh_token", "access_token", "expires", "email"}`. Plain JSON. |

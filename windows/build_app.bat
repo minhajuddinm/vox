@@ -28,6 +28,7 @@ if exist "%~dp0google_client.json" set GADD=--add-data "%~dp0google_client.json;
 "%VENV%\Scripts\python.exe" -m PyInstaller --noconfirm --clean --log-level WARN --onedir --windowed --name Vox ^
   --icon "%~dp0vox.ico" --add-data "%~dp0ui;ui" --add-data "%~dp0vox.ico;." ^
   --hidden-import pystray._win32 --hidden-import pynput.keyboard._win32 --hidden-import pynput.mouse._win32 ^
+  --paths "%~dp0..\relay" --hidden-import relay ^
   --collect-data soundcard --collect-data tzdata --collect-submodules recurring_ical_events --exclude-module PIL._avif --exclude-module PIL.AvifImagePlugin --exclude-module PIL._webp --exclude-module PIL.WebPImagePlugin %GADD% ^
   --distpath "%WORK%\dist" --workpath "%WORK%\work" --specpath "%WORK%" "%~dp0vox_app.py" || goto :fail
 

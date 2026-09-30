@@ -144,6 +144,7 @@ There is no telemetry and no Vox backend.
 | `windows/notes.py` | Voice notes store (SQLite, search, sync flags) |
 | `windows/sync.py` | Windows sync client (notes and profile) and its background worker |
 | `windows/streaming.py` | Sends the finished pieces of a long recording while the user speaks |
-| `relay/relay.py` | The optional relay server with a management web page; runs on a PC, Linux box or Raspberry Pi |
+| `windows/relay_host.py` | Starts and stops the relay as a child process of the engine (tray item "Run relay on this PC") |
+| `relay/relay.py` | The optional relay server with a management web page; runs on a PC, Linux box or Raspberry Pi, or inside `Vox.exe --relay` |
 
 Sync in one line: the engine's `SyncWorker` sends changed notes to the relay (`PUT /notes/{id}`), fetches what changed elsewhere (`GET /changes`), then merges the shared profile settings; notes and settings always work without the relay. Details: [14-relay.md](14-relay.md), [decisions/0022-sync-client-dirty-flag-and-cursor.md](decisions/0022-sync-client-dirty-flag-and-cursor.md).
