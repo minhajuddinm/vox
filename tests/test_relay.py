@@ -1,0 +1,219 @@
+"""The relay: auth, note sync (sequence cursor, last writer wins, delete markers), search, profile versions, limits."""
+import http.client
+import json
+import threading
+import time
+import uuid
+
+import pytest
+
+import relay
+
+
+def nid():
+    return uuid.uuid4().hex
+
+
+def note(text="hello world", **kw):
+    now = time.time()
+    return dict({"id": nid(), "text": text, "title": text[:20], "created_at": now, "updated_at": now, "device": "pc"}, **kw)
+
+
+@pytest.fixture
+def server(tmp_path):
+    srv = relay.make_server(str(tmp_path), port=0)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    yield srv
+    srv.shutdown()
+    srv.server_close()
+
+
+class Client:
+    def __init__(self, srv, token=True):
+        self.port, self.token = srv.server_address[1], srv.token if token is True else token
+
+    def call(self, method, path, body=None, headers=None, raw=None):
+        h = dict(headers or {})
+        if self.token:
+            h.setdefault("Authorization", "Bearer " + self.token)
+        data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request(method, path, body=data, headers=h)
+        r = c.getresponse()
+        out = json.loads(r.read() or b"null")
+        c.close()
+        return r.status, out
+
+
+@pytest.fixture
+def cl(server):
+    return Client(server)
+
+
+# ------------------------------------------------------------------ auth
+def test_every_request_needs_the_token(server):
+    assert Client(server, token=None).call("GET", "/health")[0] == 401
+    assert Client(server, token="wrong").call("GET", "/changes")[0] == 401
+    assert Client(server).call("GET", "/health")[0] == 200
+
+
+def test_owner_header_is_checked_when_set(tmp_path):
+    srv = relay.make_server(str(tmp_path), port=0, owner="me@example.com")
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        c = Client(srv)
+        assert c.call("GET", "/health")[0] == 403
+        assert c.call("GET", "/health", headers={"Tailscale-User-Login": "other@example.com"})[0] == 403
+        assert c.call("GET", "/health", headers={"Tailscale-User-Login": "me@example.com"})[0] == 200
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_token_is_created_once_and_reused(tmp_path):
+    a = relay.load_config(str(tmp_path))
+    b = relay.load_config(str(tmp_path))
+    assert a["token"] == b["token"] and len(a["token"]) >= 32 and a["port"] == 8765
+    assert relay.load_config(str(tmp_path), port=9000)["port"] == 9000
+    assert relay.load_config(str(tmp_path))["token"] == a["token"]
+
+
+def test_server_listens_on_loopback_only(server):
+    assert server.server_address[0] == "127.0.0.1"
+
+
+# ----------------------------------------------------------------- notes
+def test_put_stores_a_note_and_changes_lists_it_with_a_cursor(cl):
+    n = note("first note")
+    st, out = cl.call("PUT", "/notes/" + n["id"], n)
+    assert st == 200 and out["applied"] and out["note"]["seq"] == 1
+    st, ch = cl.call("GET", "/changes?since=0")
+    assert [x["id"] for x in ch["notes"]] == [n["id"]] and ch["next"] == 1 and ch["more"] is False
+    assert cl.call("GET", "/changes?since=1")[1] == {"notes": [], "next": 1, "more": False}
+    assert cl.call("GET", "/notes/" + n["id"])[1]["text"] == "first note"
+
+
+def test_changes_pages_with_limit(cl):
+    ids = [note(f"note {i}") for i in range(5)]
+    for n in ids:
+        cl.call("PUT", "/notes/" + n["id"], n)
+    _, page = cl.call("GET", "/changes?since=0&limit=2")
+    assert len(page["notes"]) == 2 and page["more"] is True and page["next"] == 2
+    _, rest = cl.call("GET", f"/changes?since={page['next']}&limit=10")
+    assert [x["text"] for x in rest["notes"]] == ["note 2", "note 3", "note 4"]
+
+
+def test_last_writer_wins_by_updated_at_and_repeats_are_harmless(cl):
+    n = note("v1")
+    cl.call("PUT", "/notes/" + n["id"], n)
+    assert cl.call("PUT", "/notes/" + n["id"], n)[1]["applied"] is False       # identical repeat: no new sequence number
+    newer = dict(n, text="v2", updated_at=n["updated_at"] + 10)
+    st, out = cl.call("PUT", "/notes/" + n["id"], newer)
+    assert out["applied"] and out["note"]["seq"] == 2 and out["note"]["text"] == "v2"
+    older = dict(n, text="stale", updated_at=n["updated_at"] - 5)
+    st, out = cl.call("PUT", "/notes/" + n["id"], older)
+    assert out["applied"] is False and out["note"]["text"] == "v2"
+    assert cl.call("GET", "/changes?since=0")[1]["next"] == 2
+
+
+def test_delete_leaves_a_marker_without_content_that_syncs(cl):
+    n = note("private thought", tags=["x"])
+    cl.call("PUT", "/notes/" + n["id"], n)
+    st, out = cl.call("DELETE", "/notes/" + n["id"])
+    marker = out["note"]
+    assert st == 200 and marker["deleted"] and marker["text"] == "" and marker["title"] == "" and marker["tags"] == []
+    assert cl.call("GET", "/notes/" + n["id"])[0] == 404
+    assert cl.call("GET", "/notes?q=private")[1]["notes"] == []
+    _, ch = cl.call("GET", "/changes?since=1")
+    assert ch["notes"][0]["deleted"] is True and ch["notes"][0]["seq"] == 2
+    assert cl.call("DELETE", "/notes/" + nid())[0] == 404
+
+
+def test_a_tombstone_from_a_client_beats_an_older_edit(cl):
+    n = note("draft")
+    cl.call("PUT", "/notes/" + n["id"], n)
+    cl.call("PUT", "/notes/" + n["id"], dict(n, deleted=True, updated_at=n["updated_at"] + 1))
+    late_edit = dict(n, text="edited on the phone offline", updated_at=n["updated_at"] + 0.5)
+    assert cl.call("PUT", "/notes/" + n["id"], late_edit)[1]["applied"] is False
+    assert cl.call("GET", "/notes")[1]["notes"] == []
+
+
+def test_search_and_filters(cl):
+    now = time.time()
+    a = note("Meeting with the design team", created_at=now - 40 * 86400, updated_at=now, tags=["work"])
+    b = note("Grocery list eggs and coffee", tags=["home"])
+    for n in (a, b):
+        cl.call("PUT", "/notes/" + n["id"], n)
+    ids = lambda path: [x["id"] for x in cl.call("GET", path)[1]["notes"]]  # noqa: E731
+    assert ids("/notes?q=desig") == [a["id"]]
+    assert ids("/notes?q=design+coffee") == []
+    assert ids("/notes?tag=home") == [b["id"]]
+    assert ids(f"/notes?from={now - 7 * 86400}") == [b["id"]]
+    assert ids(f"/notes?to={now - 7 * 86400}") == [a["id"]]
+    assert ids("/notes") == [b["id"], a["id"]]
+
+
+def test_search_works_without_fts5(tmp_path):
+    store = relay.RelayStore(str(tmp_path / "x.db"), use_fts=False)
+    n = note("plain text search")
+    store.upsert_note(n)
+    assert [x["id"] for x in store.search("plain")] == [n["id"]]
+
+
+def test_bad_input_is_rejected(cl):
+    assert cl.call("PUT", "/notes/not-an-id", note())[0] == 400
+    assert cl.call("PUT", "/notes/" + nid(), raw=b"{not json")[0] == 400
+    assert cl.call("PUT", "/notes/" + nid(), ["a list"])[0] == 400
+    assert cl.call("PUT", "/notes/" + nid(), note(created_at="soon"))[0] == 400
+    assert cl.call("PUT", "/notes/" + nid(), note(tags="work"))[0] == 400
+    assert cl.call("GET", "/changes?since=abc")[0] == 400
+    assert cl.call("GET", "/nothing")[0] == 404
+    assert cl.call("POST", "/notes", {})[0] == 405
+
+
+def test_the_id_in_the_path_wins_and_text_is_capped(cl):
+    n = note("x" * (relay.MAX_TEXT + 50))
+    other = nid()
+    st, out = cl.call("PUT", "/notes/" + other, n)
+    assert out["note"]["id"] == other and len(out["note"]["text"]) == relay.MAX_TEXT
+
+
+def test_oversized_bodies_are_refused(cl):
+    st, out = cl.call("PUT", "/notes/" + nid(), raw=b"x" * (relay.MAX_BODY + 10))
+    assert st == 413
+
+
+# --------------------------------------------------------------- profile
+def test_profile_versions_guard_against_lost_updates(cl):
+    assert cl.call("GET", "/profile")[1] == {"version": 0, "data": {}}
+    assert cl.call("PUT", "/profile", {"a": 1})[0] == 428                                  # If-Match is required
+    st, out = cl.call("PUT", "/profile", {"about": "hello"}, headers={"If-Match": "0"})
+    assert st == 200 and out["version"] == 1
+    st, out = cl.call("PUT", "/profile", {"about": "stale"}, headers={"If-Match": "0"})
+    assert st == 412 and out["version"] == 1 and out["data"] == {"about": "hello"}
+    st, out = cl.call("PUT", "/profile", {"about": "second"}, headers={"If-Match": '"1"'})
+    assert st == 200 and out["version"] == 2
+    assert cl.call("GET", "/profile")[1] == {"version": 2, "data": {"about": "second"}}
+    assert cl.call("PUT", "/profile", ["not", "an", "object"], headers={"If-Match": "2"})[0] == 400
+    assert cl.call("PUT", "/profile", {"big": "x" * relay.MAX_PROFILE}, headers={"If-Match": "2"})[0] == 400
+
+
+def test_star_creates_only_when_there_is_no_profile(cl):
+    assert cl.call("PUT", "/profile", {"a": 1}, headers={"If-Match": "*"})[0] == 200
+    assert cl.call("PUT", "/profile", {"a": 2}, headers={"If-Match": "*"})[0] == 412
+
+
+def test_data_survives_a_restart(tmp_path):
+    a = relay.make_server(str(tmp_path), port=0)
+    n = note("kept")
+    a.store.upsert_note(n)
+    a.store.put_profile({"k": "v"}, "0")
+    a.server_close()
+    b = relay.make_server(str(tmp_path), port=0)
+    try:
+        assert b.token == a.token
+        assert b.store.get_note(n["id"])["text"] == "kept" and b.store.get_profile()["data"] == {"k": "v"}
+        assert b.store.stats() == {"notes": 1, "seq": 1}
+    finally:
+        b.server_close()
