@@ -130,6 +130,7 @@ class Engine:
             self.cfg = core.load_config()
             self.hotkey = self._hotkey()
             log.info("settings reloaded, hotkey=%s", self.cfg.get("hotkey"))
+            self.sync.trigger()   # a changed profile setting goes to the relay; a run with nothing new changes nothing
 
     def _watch_config(self):
         while True:

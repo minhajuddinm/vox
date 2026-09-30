@@ -4,6 +4,7 @@ Offline-first: the notes always work locally; syncing is best effort and every f
 Protocol: documentation/14-relay.md. Rules: the newer `updated_at` wins, deletes travel as markers, the relay's
 sequence number is the cursor for "what is new".
 """
+import json
 import logging
 import platform
 import threading
@@ -53,22 +54,29 @@ def problem(url, token):
     return ""
 
 
-def _request(method, url, path, token, device, **kw):
+def _call(method, url, path, token, device, headers=None, allow=(), **kw):
+    """(status, JSON body). Statuses in `allow` are returned; other failures raise SyncError."""
+    h = {"Authorization": "Bearer " + token, "X-Vox-Device": device}
+    h.update(headers or {})
     try:
-        r = _session.request(method, url + path, headers={"Authorization": "Bearer " + token, "X-Vox-Device": device},
-                             timeout=TIMEOUT, **kw)
+        r = _session.request(method, url + path, headers=h, timeout=TIMEOUT, **kw)
     except requests.RequestException as e:
         raise SyncError("Cannot reach the relay (is Tailscale running?): " + type(e).__name__)
-    if r.status_code == 401:
-        raise SyncError("The relay refused the token.")
-    if r.status_code == 403:
-        raise SyncError("The relay belongs to another Tailscale user.")
-    if r.status_code >= 400:
-        raise SyncError(f"The relay answered HTTP {r.status_code}.")
+    if r.status_code not in allow:
+        if r.status_code == 401:
+            raise SyncError("The relay refused the token.")
+        if r.status_code == 403:
+            raise SyncError("The relay belongs to another Tailscale user.")
+        if r.status_code >= 400:
+            raise SyncError(f"The relay answered HTTP {r.status_code}.")
     try:
-        return r.json()
+        return r.status_code, r.json()
     except ValueError:
         raise SyncError("That address did not answer like a Vox relay.")
+
+
+def _request(method, url, path, token, device, **kw):
+    return _call(method, url, path, token, device, **kw)[1]
 
 
 def test_relay(url, token, device="Vox"):
@@ -88,6 +96,64 @@ def test_relay(url, token, device="Vox"):
 def wire(n):
     """A local note as the relay stores it."""
     return {k: n[k] for k in ("id", "source", "title", "text", "raw", "created_at", "updated_at", "secs", "device", "tags", "deleted")}
+
+
+# ------------------------------------------------------------------ the profile
+PROFILE_FIELDS = ("user_context", "dictionary", "people", "default_style", "cleanup", "language")
+PROFILE_KEY_FIELDS = ("provider", "base_url", "stt_base_url", "llm_base_url", "stt_model", "llm_model",
+                      "llm_reasoning", "api_key", "stt_api_key", "llm_api_key")   # only with relay_sync_keys
+
+
+def shared_fields(cfg):
+    """Settings that follow the user from device to device. Provider settings and API keys only when the user
+    switched on `relay_sync_keys`; per-app styles, the hotkey, the microphone and the relay settings never do."""
+    return PROFILE_FIELDS + (PROFILE_KEY_FIELDS if cfg.get("relay_sync_keys") else ())
+
+
+def merge3(base, local, remote):
+    """Field by field: the side that changed since `base` wins; if both changed differently, the relay's value wins."""
+    out = {}
+    for k in set(base) | set(local) | set(remote):
+        b, l, r = base.get(k), local.get(k), remote.get(k)
+        v = l if l == r else r if l == b else l if r == b else r
+        if v is not None:
+            out[k] = v
+    return out
+
+
+def sync_profile(url, token, device):
+    """Two-way sync of the shared settings with the relay's profile document. Returns "", "sent", "received" or
+    "both"; raises SyncError. The relay refuses a stale write (If-Match), so a race is retried, not lost."""
+    for _ in range(3):
+        cfg = core.load_config()
+        fields = shared_fields(cfg)
+        keys_on = bool(cfg.get("relay_sync_keys"))
+        _, remote = _call("GET", url, "/profile", token, device)
+        version, data = int(remote["version"]), dict(remote["data"])
+        base_version = int(notes.get_meta("profile_version", "0") or 0)
+        base = json.loads(notes.get_meta("profile_snapshot", "{}") or "{}")
+        local = {k: cfg[k] for k in fields if k in cfg}
+        remote_shared = {k: v for k, v in data.items() if k in fields}
+        merged = local if version in (0, base_version) else merge3(base, local, remote_shared)
+        received = {k: v for k, v in merged.items() if cfg.get(k) != v}
+        if received:
+            live = core.load_config()
+            live.update(received)
+            core.save_config(live)
+        stale_keys = not keys_on and any(k in data for k in PROFILE_KEY_FIELDS)   # keys were switched off: take them off the relay
+        if merged == remote_shared and not stale_keys:
+            notes.set_meta("profile_version", version)
+            notes.set_meta("profile_snapshot", json.dumps(merged))
+            return "received" if received else ""
+        doc = {k: v for k, v in data.items() if k not in PROFILE_KEY_FIELDS or keys_on}   # keep fields other devices added
+        doc.update(merged)
+        status, out = _call("PUT", url, "/profile", token, device, headers={"If-Match": str(version)}, allow=(412,), json=doc)
+        if status == 412:
+            continue   # someone wrote in between: look again
+        notes.set_meta("profile_version", out["version"])
+        notes.set_meta("profile_snapshot", json.dumps(merged))
+        return "both" if received else "sent"
+    raise SyncError("The profile keeps changing on the relay; it will be tried again later.")
 
 
 def sync_once(cfg):
@@ -125,12 +191,13 @@ def sync_once(cfg):
             notes.set_meta("relay_cursor", cursor)
             if not d.get("more"):
                 break
+        profile = sync_profile(url, token, device)
     except SyncError as e:
         return {"pushed": pushed, "pulled": pulled, "error": str(e)}
     except Exception as e:
         log.exception("sync failed")
         return {"pushed": pushed, "pulled": pulled, "error": "Sync failed: " + type(e).__name__}
-    return {"pushed": pushed, "pulled": pulled, "error": ""}
+    return {"pushed": pushed, "pulled": pulled, "error": "", "profile": profile}
 
 
 class SyncWorker:
