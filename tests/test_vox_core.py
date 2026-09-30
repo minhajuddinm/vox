@@ -130,3 +130,21 @@ def test_style_for_falls_back_to_default():
 
 def test_style_for_defaults_to_neutral_when_unset():
     assert core.style_for({}, "x.exe") == "neutral"
+
+
+# ------------------------------------------------------------ cleanup gate
+
+def test_clean_min_words_clamps_and_falls_back_to_three():
+    assert [core.clean_min_words(v) for v in (1, "7", " 20 ", 0, -4, 99, "99999999999999999999")] == [1, 7, 20, 1, 1, 20, 20]
+    assert [core.clean_min_words(v) for v in (None, "", "banana", "2.5", 4.5)] == [3, 3, 3, 3, 3]
+
+
+def test_process_text_uses_the_cleanup_min_words_setting(monkeypatch):
+    calls = []
+    monkeypatch.setattr(core, "cleanup", lambda cfg, raw, style, label: calls.append(raw) or raw.capitalize())
+    base = {"cleanup": True, "default_style": "neutral"}
+    assert core.process_text(base, "one two", "x.exe", "x").cleaned is False          # default: 3 words
+    assert core.process_text(base, "one two three", "x.exe", "x").cleaned is True
+    assert core.process_text(dict(base, cleanup_min_words=1), "one", "x.exe", "x").cleaned is True
+    assert core.process_text(dict(base, cleanup_min_words="oops"), "one two", "x.exe", "x").cleaned is False
+    assert calls == ["one two three", "one"]

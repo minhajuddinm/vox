@@ -10,7 +10,7 @@ How audio becomes text, on both platforms. Windows: `windows/vox_core.py` (`proc
    -> transcribe              POST {server}/audio/transcriptions   (Whisper)
    -> silence-phrase filter   "thank you", "thanks for watching", "thank you for watching", "you", "bye"
    -> choose style            per-app style, else default style
-   -> cleanup?                only if cleanup is on AND style != raw AND the text has >= 3 words
+   -> cleanup?                only if cleanup is on AND style != raw AND the text has >= cleanup_min_words words (default 3)
         yes: POST {server}/chat/completions  -> sanitize -> looks_valid guard
         no / failed / rejected: use the raw transcript, then apply_spoken_commands
    -> apply_replacements      dictionary "wrong => right", whole word, case-insensitive
@@ -49,6 +49,8 @@ Built by `system_prompt(style, terms, app_label)` / `ApiClient.systemPrompt`. It
 
 Styles: `formal`, `casual`, `very_casual`, `neutral` (default text for any other value), `raw` (skips cleanup entirely). The style name in the prompt is matched case-insensitively on both platforms; the check that skips cleanup for `raw` is exact-case on Windows (`raw`) and lower-cased on Android. Default per-app styles are in `vox_core.DEFAULT_CONFIG["app_styles"]` (Windows exe names) and `Prefs.DEFAULT_APP_STYLES` (Android packages).
 
+Short phrases skip cleanup (saves a round trip to the model). The threshold is the `cleanup_min_words` setting (Settings, "Skip AI cleanup for phrases shorter than N words"). `clean_min_words(value)` / `ApiClient.cleanMinWords` turn the stored value into a whole number from 1 to 20 (anything that is not a whole number gives 3; numbers outside the range are clamped), and `needs_cleanup(raw, style, enabled, min_words)` / `ApiClient.needsCleanup` decide: false when cleanup is off or the style is `raw`, otherwise true when the transcript has at least that many words (words are runs of non-space characters). `process_text` and `DictationService.send` both call it; the `gate` rows of `spec/golden.txt` keep the two in step. A skipped phrase is handled like a failed cleanup without the warning: spoken commands, then replacements.
+
 The app label is the exe name on Windows (for example `slack.exe`) and the app's display name on Android. The window title is never used ([decisions/0006-app-name-only-to-the-model.md](decisions/0006-app-name-only-to-the-model.md)).
 
 ## Guards and fallbacks
@@ -74,7 +76,7 @@ Both platforms store the dictionary as lines: a plain line is a **term** (spelli
 
 ## The shared golden file (`spec/golden.txt`)
 
-One case per line, fields separated by TAB; `\n`, `\t`, `\\` are escapes; lists use `|`; replacement pairs use `;` between pairs and `=>` inside one. Kinds: `sanitize`, `looks_valid`, `replace`, `whisper`, `terms`, `prompt`, `spoken`, `silence`. `tests/test_parity.py` (Python) and `android/test/com/minhaj/vox/ParityTest.java` (Java) run every line. If you change any of these behaviours, change both implementations and the affected lines in the file (compute the expected value from the Python implementation and review it by hand). Never edit the file just to make one side pass.
+One case per line, fields separated by TAB; `\n`, `\t`, `\\` are escapes; lists use `|`; replacement pairs use `;` between pairs and `=>` inside one. Kinds: `sanitize`, `looks_valid`, `replace`, `whisper`, `terms`, `prompt`, `spoken`, `silence`, `gate` (raw text, style, cleanup on/off, minimum words, expected). `tests/test_parity.py` (Python) and `android/test/com/minhaj/vox/ParityTest.java` (Java) run every line. If you change any of these behaviours, change both implementations and the affected lines in the file (compute the expected value from the Python implementation and review it by hand). Never edit the file just to make one side pass.
 
 ## Per-role servers, model discovery and reasoning fields
 

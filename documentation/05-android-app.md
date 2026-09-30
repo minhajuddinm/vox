@@ -26,7 +26,7 @@ Foreground service (notification "Vox is ready", low importance, with a "Turn of
 |---|---|
 | `startRecording(pkg, label)` | Refuses (toast) on a bad server address or a missing key (`Prefs.keyMissing`). Creates an `AudioRecord` (16 kHz mono PCM16, `VOICE_RECOGNITION` source) and a recording thread. Increments `jobId`. Limit 360 s. |
 | `stopRecording()` | Ends recording, then on the worker thread: drops clips under 0.4 s, rejects silent clips (`Pcm.isSilent`, toast "Vox did not hear anything"), writes the WAV to `cache/vox_pending.wav`, marks pending, calls `send`. |
-| `send(job, pkg, label)` | Up to 3 attempts to transcribe (`ApiClient.isRetryable`: network errors, 5xx, 429, 408; waits 0.8 s, 1.6 s between); silence-phrase filter; cleanup unless style is `raw`, cleanup is off or the text has fewer than 3 words; falls back to the raw text (with `applySpokenCommands`) and toasts if cleanup fails; dictionary replacements; history; result delivered to the `Listener`. The WAV is deleted only on success. |
+| `send(job, pkg, label)` | Up to 3 attempts to transcribe (`ApiClient.isRetryable`: network errors, 5xx, 429, 408; waits 0.8 s, 1.6 s between); silence-phrase filter; cleanup only when `ApiClient.needsCleanup` says so (style is not `raw`, cleanup is on and the text has at least `Prefs.cleanupMinWords` words, default 3); falls back to the raw text (with `applySpokenCommands`) and toasts if cleanup fails; dictionary replacements; history; result delivered to the `Listener`. The WAV is deleted only on success. |
 | `retryLast()` | Sends the pending WAV again (notification button). Needs the service to be alive; the WAV is deleted when the service is destroyed or the user cancels. |
 | `cancel()` | Bumps `jobId`, deletes the pending WAV, goes idle. |
 
@@ -65,7 +65,7 @@ One HTML file, works in a normal browser too (a mock `Vox` object is used when t
 | Home | Setup checklist (key, microphone, accessibility bubble, dictation service), try-it box, stats, searchable history (copy, delete, "Fix a word") |
 | Dictionary | Words, People, Replacements |
 | Styles | Default style and a style per installed app |
-| Settings | API key + test, Server address, AI cleanup, keep history, bubble only while typing, language, dictation service switch, battery, speech and cleanup model, clear history |
+| Settings | API key + test, Server address, AI cleanup, skip cleanup below N words, keep history, bubble only while typing, language, dictation service switch, battery, speech and cleanup model, clear history |
 
 ## `Prefs` (SharedPreferences file `vox`)
 

@@ -9,7 +9,7 @@
 | Server / server address | The OpenAI-compatible API Vox talks to. `base_url` setting; Groq unless changed. |
 | Groq | The default provider of Whisper speech-to-text and chat models. |
 | STT | Speech to text (Whisper). |
-| Cleanup | The chat-model pass that removes fillers, fixes punctuation, and so on. Skipped for the `raw` style, when switched off, and for texts under 3 words. |
+| Cleanup | The chat-model pass that removes fillers, fixes punctuation, and so on. Skipped for the `raw` style, when switched off, and for texts shorter than the `cleanup_min_words` setting (3 words unless changed). |
 | Raw transcript | The Whisper text before cleanup. Used as the fallback when cleanup fails. |
 | Style | Tone for cleanup: `formal`, `casual`, `very_casual`, `neutral`, or `raw` (no cleanup). Chosen per app. |
 | App label | The name given to the cleanup model: exe name on Windows, app display name on Android. Never a window title. |

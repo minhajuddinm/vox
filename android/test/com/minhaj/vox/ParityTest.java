@@ -97,6 +97,9 @@ public final class ParityTest {
                 case "silence":
                     eq(ln, kind, f[1], ApiClient.isSilenceHallucination(f[0]) ? "true" : "false");
                     break;
+                case "gate":
+                    eq(ln, kind, f[4], ApiClient.needsCleanup(f[0], f[1], "true".equals(f[2]), f[3]) ? "true" : "false");
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);

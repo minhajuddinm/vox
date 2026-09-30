@@ -29,6 +29,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `language` | string | `""` | Whisper language code; empty = auto detect. |
 | `input_device` | string | `""` | Microphone name for dictation; empty = Windows default. Not used by meeting notes. |
 | `cleanup` | bool | `true` | Run the AI cleanup. |
+| `cleanup_min_words` | int | `3` | Phrases with fewer words than this skip the AI cleanup (1 to 20; an unusable value counts as 3). |
 | `keep_history` | bool | `true` | Save dictations to `history.jsonl`. |
 | `default_style` | string | `neutral` | `formal`, `casual`, `very_casual`, `neutral`, `raw`. |
 | `dictionary` | list of strings | `[]` | Terms and `wrong => right` lines. |
@@ -45,7 +46,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `keep_audio` | bool | absent (false) | Keep the raw meeting audio after the notes are written. |
 | `notes_folder` | string | absent | Where a copy of each meeting's notes is written (default `Documents\Vox Notes`). |
 
-Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_device`, `language`, `cleanup`, `keep_history`, `keep_clipboard`, `your_name`, `my_email`, `auto_notes`, `provider`, `stt_base_url`, `stt_api_key`, `llm_base_url`, `llm_api_key`, `stt_model`, `llm_model`, `default_style`, `app_styles`, `dictionary`, `people`, `calendar_url`. The others (`notes_model`, `final_stt_model`, `final_pass`, `keep_audio`, `notes_folder`) are only settable by editing the file.
+Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_device`, `language`, `cleanup`, `cleanup_min_words`, `keep_history`, `keep_clipboard`, `your_name`, `my_email`, `auto_notes`, `provider`, `stt_base_url`, `stt_api_key`, `llm_base_url`, `llm_api_key`, `stt_model`, `llm_model`, `default_style`, `app_styles`, `dictionary`, `people`, `calendar_url`. The others (`notes_model`, `final_stt_model`, `final_pass`, `keep_audio`, `notes_folder`) are only settable by editing the file.
 
 ## Android preferences (SharedPreferences file `vox`, private to the app)
 
@@ -65,6 +66,7 @@ Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_de
 | `app_styles` | string (lines) | `Prefs.DEFAULT_APP_STYLES` | `package = style` per line. |
 | `default_style` | string | `neutral` | Style for other apps. |
 | `cleanup` | bool | `true` | Run the AI cleanup. |
+| `cleanup_min_words` | string | `3` | Phrases with fewer words than this skip the AI cleanup. Stored as text; Settings saves a whole number from 1 to 20, and `Bridge.state` reports it as a number. |
 | `keep_history` | bool | `true` | Save dictations. |
 | `only_typing` | bool | `true` | Show the bubble only while a text field is focused. |
 | `bubble_x`, `bubble_y` | int | -1 (default spot) | Saved bubble position. |

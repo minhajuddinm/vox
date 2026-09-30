@@ -308,7 +308,7 @@ public class DictationService extends Service {
             String style = p.styleFor(pkg);
             String out = raw;
             boolean cleaned = false, cleanupFailed = false;
-            boolean doClean = p.cleanupEnabled() && !"raw".equals(style) && raw.split("\\s+").length >= 3;
+            boolean doClean = ApiClient.needsCleanup(raw, style, p.cleanupEnabled(), p.cleanupMinWords());
             if (doClean) {
                 try {
                     String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext());
