@@ -64,5 +64,7 @@ def test_golden(kind, f):
         assert providers.classify(f[0]) == f[1]
     elif kind == "silence":
         assert core.is_silence_hallucination(f[0]) == (f[1] == "true")
+    elif kind == "gate":
+        assert core.needs_cleanup(f[0], f[1], f[2] == "true", f[3]) == (f[4] == "true")
     else:
         pytest.fail(f"unknown case kind {kind}")

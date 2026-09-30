@@ -82,7 +82,7 @@ A small Tk pill at the bottom of the work area: live waveform while recording, b
 | Notes (beta) | Calendar, start/stop meeting notes, live transcript with a question box, saved meetings with detail view, questions across all meetings |
 | Dictionary | Words, People, Replacements (`wrong => right`) |
 | Styles | Default style and a style per app exe |
-| Settings | API key + Test, Server address, shortcut, microphone, language, AI cleanup, keep history, keep clipboard, your name, calendar email, auto notes, start with Windows, clear history, data folder |
+| Settings | API key + Test, Server address, shortcut, microphone, language, AI cleanup, skip cleanup below N words, keep history, keep clipboard, your name, calendar email, auto notes, start with Windows, clear history, data folder |
 
 `Api` methods (called from JavaScript as `pywebview.api.<name>`): `get_state`, `save_config`, `set_hotkey`, `check_key`, `list_models`, `test_role`, `note_toggle`, `note_status`, `sync_status`, `sync_now`, `sync_test`, `notes_list`, `note_edit`, `note_delete`, `endpoint_problem`, `suggest_corrections`, `copy`, `delete_history`, `clear_history`, `open_url`, `open_data_folder`, the `meeting_*` and `meetings*` group, `calendar`, `google_*`, `connect_calendar`, `get_autostart`, `set_autostart`. Live meeting calls go through `Api._engine` to the control server; everything else reads or writes files directly.
 

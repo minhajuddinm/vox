@@ -70,6 +70,17 @@ public final class ApiClientTest {
         eq("silence: thanks for watching", true, ApiClient.isSilenceHallucination("Thanks for watching!"));
         eq("silence: real sentence", false, ApiClient.isSilenceHallucination("Thank you for the update on Friday"));
 
+        // cleanup gate (the golden file covers the main cases; these are the edges)
+        eq("cleanMinWords clamps low", 1, ApiClient.cleanMinWords("-4"));
+        eq("cleanMinWords clamps high", 20, ApiClient.cleanMinWords("99999999999999999999"));
+        eq("cleanMinWords trims", 7, ApiClient.cleanMinWords(" 7 "));
+        eq("cleanMinWords null", 3, ApiClient.cleanMinWords(null));
+        eq("cleanMinWords empty", 3, ApiClient.cleanMinWords(""));
+        eq("cleanMinWords decimal", 3, ApiClient.cleanMinWords("2.5"));
+        eq("needsCleanup odd spacing", true, ApiClient.needsCleanup("  one \t two\nthree  ", "casual", true, "3"));
+        eq("needsCleanup odd spacing short", false, ApiClient.needsCleanup("  one \t two\n", "casual", true, "3"));
+        eq("needsCleanup null text", false, ApiClient.needsCleanup(null, "casual", true, "1"));
+
         // retry policy
         eq("retry 500", true, ApiClient.isRetryable(new ApiClient.ApiException(500, "x")));
         eq("retry 503", true, ApiClient.isRetryable(new ApiClient.ApiException(503, "x")));

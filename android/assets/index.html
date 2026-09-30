@@ -27,7 +27,7 @@ h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(-
 .btn.ghost { background:var(--accent-soft); color:var(--accent); }
 .btn.full { width:100%; padding:13px; margin-top:12px; }
 .btn.danger { background:transparent; color:var(--bad); border:1px solid var(--line); }
-input[type=text], input[type=password], select, textarea { width:100%; font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:12px; padding:12px; outline:none; }
+input[type=text], input[type=password], input[type=number], select, textarea { width:100%; font:inherit; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:12px; padding:12px; outline:none; }
 input:focus, select:focus, textarea:focus { border-color:var(--accent); }
 .check { width:26px; height:26px; border-radius:50%; flex:none; display:grid; place-items:center; font-size:14px; font-weight:700; color:#fff; background:var(--line); }
 .check.ok { background:var(--ok); }
@@ -167,6 +167,7 @@ nav button.on .pill { background:var(--accent-soft); }
   <h2>Dictation</h2>
   <div class="card list">
     <div class="item"><div class="grow"><div class="t">AI cleanup</div><div class="d">Removes fillers, fixes punctuation, applies corrections</div></div><label class="switch"><input type="checkbox" id="cleanup"><span></span></label></div>
+    <div class="item"><div class="grow"><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases are typed as spoken, which is faster. 1 cleans up everything (1 to 20)</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" inputmode="numeric" style="width:76px"></div>
     <div class="item"><div class="grow"><div class="t">Keep dictation history</div><div class="d">Saves what you dictate on this phone. Off saves nothing</div></div><label class="switch"><input type="checkbox" id="keep-history"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Bubble only while typing</div><div class="d">Hide the bubble when no text box is selected</div></div><label class="switch"><input type="checkbox" id="only-typing"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Language</div><div class="d">Auto can switch on short phrases</div></div>
@@ -195,7 +196,7 @@ nav button.on .pill { background:var(--accent-soft); }
 
 <script>
 const V = window.Vox || {   // browser preview fallback
-  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, only_typing: true, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "" }, mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
+  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "" }, mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
   save(){}, requestMic(){}, openAccessibility(){}, openAppInfo(){}, openBattery(){}, setService(){}, testKey(k, u, cb){ setTimeout(() => window[cb]("ok"), 300); }, listModels(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ models: [], error: "Preview only" })), 200); }, testRole(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ ok: true, message: "Preview only" })), 200); }, endpointProblem: () => "", suggestCorrections: (a, b) => JSON.stringify(a !== b ? [["vox", "Vox"]] : []), copy(){}, deleteHistory(){}, clearHistory(){}, openUrl(){}, toast(){}, apps: () => "[]", appLabel: (p) => p
 };
 const STYLES = [["neutral","Neutral"],["formal","Formal"],["casual","Casual"],["very_casual","Very casual"],["raw","Raw (no cleanup)"]];
@@ -374,6 +375,7 @@ function renderSettings() {
   const c = S.config;
   renderProvider();
   $("cleanup").checked = c.cleanup !== false; $("only-typing").checked = c.only_typing !== false;
+  $("cleanup-min").value = c.cleanup_min_words || 3;
   $("keep-history").checked = c.keep_history !== false;
   $("language").value = c.language || ""; $("service").checked = S.service;
   $("about").textContent = `Vox ${S.version} · audio goes to ${presetFor(c.base_url).id === "custom" ? "your own server" : presetFor(c.base_url).name} · everything else stays on this phone`;
@@ -470,6 +472,7 @@ for (const [id, field] of [["stt-url", "stt_base_url"], ["llm-url", "llm_base_ur
 };
 for (const [id, field] of [["stt-key", "stt_api_key"], ["llm-key", "llm_api_key"]]) $(id).onchange = () => { save({ [field]: $(id).value.trim() }); refreshModels(); };
 $("cleanup").onchange = (e) => save({ cleanup: e.target.checked }, "Saved");
+$("cleanup-min").onchange = (e) => { const v = parseInt(e.target.value, 10), n = isNaN(v) ? 3 : Math.max(1, Math.min(20, v)); e.target.value = n; save({ cleanup_min_words: n }, "Saved"); };
 $("only-typing").onchange = (e) => save({ only_typing: e.target.checked }, "Saved");
 $("keep-history").onchange = (e) => save({ keep_history: e.target.checked }, "Saved");
 $("language").onchange = (e) => save({ language: e.target.value }, "Saved");
