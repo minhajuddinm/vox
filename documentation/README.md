@@ -30,6 +30,7 @@ Documentation verified against commit: see the `Verified against` line at the bo
 
 1. **Change code, change docs, in the same commit.** New or moved file: update [03-repo-tree.md](03-repo-tree.md). New setting: update [07-config-and-data.md](07-config-and-data.md). New user-visible behaviour: update [08-features.md](08-features.md) and add a line under `Unreleased` in [../CHANGELOG.md](../CHANGELOG.md). A decision that a future reader would question: add an ADR in [decisions/](decisions/README.md).
 2. **Run the checker before committing docs or code:** `python documentation/tools/check_docs.py`. It needs only Python and `requests` (the same as the unit tests). CI runs it.
+2b. **Sync at the end of every session.** `python documentation/tools/docs_todo.py` lists the pages the changed code affects; the project skill `.claude/skills/vox-doc-sync/SKILL.md` describes the whole routine ([decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)).
 3. **State only what you verified.** If something is inferred (for example the reason the original author made a choice), say "inferred". Do not copy claims from old notes without checking the code.
 4. **No secrets, no personal data.** Never write API keys, tokens or the contents of a user's `config.json` here.
 5. **Keep pages short and factual.** Tables and file paths beat prose. Link instead of repeating.
@@ -43,4 +44,4 @@ Documentation verified against commit: see the `Verified against` line at the bo
 
 ## Verified against
 
-Commit `cb3f679` (merge of PR 1) plus the documentation branch that adds this folder. Tests at that point: 188 pytest tests (including 58 shared golden cases) and 5 plain-Java test programs, all passing in CI.
+Commit `cb3f679` (merge of PR 1) plus the documentation branch that adds this folder. Tests at that point: 196 pytest tests (including 58 shared golden cases) and 5 plain-Java test programs, all passing in CI.

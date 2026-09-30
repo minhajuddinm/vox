@@ -27,10 +27,11 @@ Put the API key in the window's Settings, or in `%APPDATA%\Vox\config.json` (it 
 
 | Suite | Command | Covers |
 |---|---|---|
-| Python | `python -m pytest -q` (from the repo root) | 188 tests at the time of writing: `tests/test_*.py` |
+| Python | `python -m pytest -q` (from the repo root) | 196 tests at the time of writing: `tests/test_*.py` |
 | Java | compiled and run by CI (see below) | 5 programs in `android/test/com/minhaj/vox/`, no device, no JUnit |
 | Parity | part of both suites | `spec/golden.txt` |
 | Docs | `python documentation/tools/check_docs.py` | tree, config keys, links, ADR index |
+| Docs checklist | `python documentation/tools/docs_todo.py` | not a test: lists the pages to update for the code you changed (see [decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)) |
 
 Local pytest tip on Windows: if pytest fails while cleaning its temp folder, run `python -m pytest -q -p no:cacheprovider --basetemp=%TEMP%\vox-pt`.
 
