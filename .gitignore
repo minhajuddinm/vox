@@ -17,3 +17,6 @@ windows/run_debug.bat
 # Android signing key: kept private, provided to GitHub Actions as a secret
 android/vox.keystore
 *.keystore
+
+# local Python environment
+.venv/
