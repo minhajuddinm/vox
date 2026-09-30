@@ -51,6 +51,7 @@ windows/                Windows app (Python) and its installer scripts
 | `windows/ui_app.py` | The main window's Python side: pywebview window and the `Api` class the page calls. |
 | `windows/providers.py` | Which server, key and model each role (speech, cleanup) uses; model list from `GET /models` and its classification; the Test button; reasoning-field retry. |
 | `windows/notes.py` | Voice notes store: SQLite with search and filters, delete markers for a later sync. |
+| `windows/sync.py` | Syncs voice notes with a relay: send changed notes, fetch new ones, background worker, connection test. |
 | `windows/ui/index.html` | The main window's screens: Home, Notes (meetings), Dictionary, Styles, Settings. One file with CSS and JavaScript. |
 | `windows/meeting.py` | Meeting notes: records mic and PC audio, live transcript, final pass, speaker naming, notes generation, saved-meeting search. |
 | `windows/gcal.py` | Optional Google sign-in (OAuth with PKCE, loopback redirect) and calendar reading. |
@@ -109,6 +110,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_notes.py` | The notes store: add, edit, delete, search with FTS5 and the LIKE fallback, filters. |
 | `tests/test_relay.py` | The relay over real HTTP: auth, sync cursor, conflicts, delete markers, search, profile versions, limits. |
 | `tests/test_relay_admin.py` | The relay's management page and endpoints, portability and file permissions. |
+| `tests/test_sync.py` | The Windows sync client against a real relay: two devices, edits, deletes, conflicts, failures, upgrade of old databases. |
 | `tests/test_engine_notes.py` | The engine's voice-note mode (skipped where the Windows runtime packages are missing). |
 | `tests/test_docs_todo.py` | The path-to-page rules of `documentation/tools/docs_todo.py`. |
 | `spec/golden.txt` | Shared expected results (sanitize, looks_valid, replacements, whisper prompt, terms, system prompt, spoken commands, silence). Read by the Python and Java parity tests. |
@@ -184,6 +186,7 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/decisions/0019-voice-notes-in-sqlite.md` | ADR: voice notes in SQLite, separate from history and meetings for now. |
 | `documentation/decisions/0020-relay-design.md` | ADR: relay on loopback with tailnet transport, token auth and a sequence cursor. |
 | `documentation/decisions/0021-relay-portable-with-a-web-page.md` | ADR: relay moved to `relay/`, portable, with a management web page. |
+| `documentation/decisions/0022-sync-client-dirty-flag-and-cursor.md` | ADR: the Windows sync client uses a dirty flag per note and the relay's cursor. |
 | `documentation/specs/README.md` | Index of design specs (written before the code they describe). |
 | `documentation/specs/p1-providers-and-models.md` | Spec for sub-project P1: any provider, per-role server, model list, Test button. |
 | `documentation/specs/p2a-keydown-warmup.md` | Spec for P2a: warm connections at key-down. |
@@ -192,5 +195,6 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p5-voice-notes-windows.md` | Spec for P5: voice notes on Windows. |
 | `documentation/specs/p7a-relay-server.md` | Spec for P7a: the relay server. |
 | `documentation/specs/p7b-relay-portable-and-web-page.md` | Spec for P7b: relay on a Raspberry Pi with a web page. |
+| `documentation/specs/p7c-windows-sync-client.md` | Spec for P7c: the Windows sync client. |
 | `documentation/tools/check_docs.py` | The documentation checker (tree, config keys, links, ADR index). |
 | `documentation/tools/docs_todo.py` | Prints which pages to update for the code that changed (checklist only, edits nothing). |

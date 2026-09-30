@@ -30,6 +30,8 @@ RULES = [
     ("windows/providers.py", "documentation/07-config-and-data.md", "provider settings keys"),
     ("windows/notes.py", "documentation/04-windows-app.md", "voice notes"),
     ("windows/notes.py", "documentation/07-config-and-data.md", "notes.db format"),
+    ("windows/sync.py", "documentation/04-windows-app.md", "syncing voice notes"),
+    ("windows/sync.py", "documentation/14-relay.md", "clients of the relay"),
     ("relay/*", "documentation/14-relay.md", "the relay: protocol, management page, set-up"),
     ("relay/*", "documentation/09-security-privacy.md", "relay token, page and data handling"),
     ("windows/audio_devices.py", "documentation/04-windows-app.md", "microphone selection"),

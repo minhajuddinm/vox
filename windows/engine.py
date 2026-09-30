@@ -20,6 +20,7 @@ from pynput import keyboard
 import audio_devices
 import logo
 import notes
+import sync
 import vox_core as core
 import vcalendar
 from meeting import Meeting
@@ -96,6 +97,7 @@ class Engine:
         self.press_t = 0.0
         self.last_tap_t = 0.0
         self.meeting = Meeting(lambda: self.cfg)
+        self.sync = sync.SyncWorker(lambda: self.cfg)
         self.kb = keyboard.Controller()
         self.icon = pystray.Icon(
             "Vox", ICONS["idle"], "Vox",
@@ -149,6 +151,7 @@ class Engine:
             deadline = time.time() + 180
             while m.processing and time.time() < deadline:
                 time.sleep(0.5)
+        self.sync.stop()
         self.icon.stop()
         if self.overlay:
             self.overlay.stop()
@@ -329,7 +332,8 @@ class Engine:
             if res.cleanup_error:
                 self.notify(("Cleanup did not work, so Vox saved your words as spoken: " if note else "Cleanup did not work, so Vox pasted your words as spoken: ") + res.cleanup_error[:120])
             if text and note:
-                saved = notes.add(text, raw=raw, secs=secs, source=notes.SOURCE_NOTE, device="windows")
+                saved = notes.add(text, raw=raw, secs=secs, source=notes.SOURCE_NOTE, device=sync.device_name(self.cfg))
+                self.sync.trigger()
                 self.notify("Note saved: " + saved["title"])
             elif text:
                 self.paste(text)
@@ -461,6 +465,11 @@ class Engine:
                         return self._send(200, {"recording": engine.recording and engine.note_mode, "busy": engine.busy})
                     if self.path == "/note/status":
                         return self._send(200, {"recording": engine.recording and engine.note_mode, "busy": engine.busy})
+                    if self.path == "/sync/now":
+                        engine.sync.trigger()
+                        return self._send(200, engine.sync.status())
+                    if self.path == "/sync/status":
+                        return self._send(200, engine.sync.status())
                     if self.path == "/meeting/stop":
                         return self._send(200, {"ok": m.stop()})
                     if self.path == "/meeting/status":
@@ -489,6 +498,7 @@ class Engine:
         threading.Thread(target=self._watch_config, daemon=True).start()
         threading.Thread(target=self._serve, daemon=True, name="control").start()
         threading.Thread(target=self._watch_calendar, daemon=True, name="calendar").start()
+        self.sync.start()
         self.icon.run_detached()
         log.info("engine started, hotkey=%s", self.cfg.get("hotkey"))
         if core.key_missing(self.cfg) or core.endpoint_error(self.cfg):

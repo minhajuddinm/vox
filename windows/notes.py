@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS notes (
     deleted INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS notes_created ON notes(created_at);
+CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
 
@@ -44,6 +45,11 @@ def _connect():
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.executescript(_SCHEMA)
+    cols = {r[1] for r in con.execute("PRAGMA table_info(notes)")}
+    if "dirty" not in cols:    # 1 = changed here and not yet sent to the relay (older notes count as changed)
+        con.execute("ALTER TABLE notes ADD COLUMN dirty INTEGER NOT NULL DEFAULT 1")
+    if "seq" not in cols:      # the relay's sequence number for this note, 0 when unknown
+        con.execute("ALTER TABLE notes ADD COLUMN seq INTEGER NOT NULL DEFAULT 0")
     try:
         con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(id UNINDEXED, title, text)")
     except sqlite3.OperationalError:
@@ -75,6 +81,7 @@ def _row(r):
     d = dict(r)
     d["tags"] = json.loads(d.get("tags") or "[]")
     d["deleted"] = bool(d["deleted"])
+    d["dirty"] = bool(d.get("dirty", 0))
     return d
 
 
@@ -115,7 +122,7 @@ def update(nid, title=None, text=None, tags=None):
         new_title = r["title"] if title is None else title.strip()
         new_text = r["text"] if text is None else text.strip()
         new_tags = r["tags"] if tags is None else json.dumps(_tags(tags))
-        con.execute("UPDATE notes SET title = ?, text = ?, tags = ?, updated_at = ? WHERE id = ?",
+        con.execute("UPDATE notes SET title = ?, text = ?, tags = ?, updated_at = ?, dirty = 1 WHERE id = ?",
                     (new_title, new_text, new_tags, time.time(), nid))
         _index(con, nid, new_title, new_text)
         r = con.execute("SELECT * FROM notes WHERE id = ?", (nid,)).fetchone()
@@ -125,7 +132,7 @@ def update(nid, title=None, text=None, tags=None):
 def delete(nid):
     """Removes a note's content and keeps a marker row. True when a note was deleted."""
     with contextlib.closing(_connect()) as con, con:
-        cur = con.execute("UPDATE notes SET deleted = 1, title = '', text = '', raw = '', tags = '[]', updated_at = ? "
+        cur = con.execute("UPDATE notes SET deleted = 1, title = '', text = '', raw = '', tags = '[]', updated_at = ?, dirty = 1 "
                           "WHERE id = ? AND deleted = 0", (time.time(), nid))
         if _has_fts(con):
             con.execute("DELETE FROM notes_fts WHERE id = ?", (nid,))
@@ -165,3 +172,54 @@ def search(query="", source=None, since=None, until=None, tag=None, limit=200):
 def count():
     with contextlib.closing(_connect()) as con:
         return con.execute("SELECT COUNT(*) FROM notes WHERE deleted = 0").fetchone()[0]
+
+
+# ------------------------------------------------------------------ sync with a relay (see sync.py)
+def get_meta(key, default=""):
+    with contextlib.closing(_connect()) as con:
+        r = con.execute("SELECT value FROM sync_meta WHERE key = ?", (key,)).fetchone()
+    return r["value"] if r else default
+
+
+def set_meta(key, value):
+    with contextlib.closing(_connect()) as con, con:
+        con.execute("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)", (key, str(value)))
+
+
+def dirty_notes(limit=100):
+    """Notes and delete markers changed here since they were last sent, oldest change first."""
+    with contextlib.closing(_connect()) as con:
+        rows = con.execute("SELECT * FROM notes WHERE dirty = 1 ORDER BY updated_at LIMIT ?", (int(limit),)).fetchall()
+    return [_row(r) for r in rows]
+
+
+def mark_synced(nid, sent_updated_at, seq):
+    """The relay has this version. Only clears the flag when the note was not changed again while it was being sent."""
+    with contextlib.closing(_connect()) as con, con:
+        con.execute("UPDATE notes SET dirty = 0, seq = ? WHERE id = ? AND updated_at = ?", (int(seq), nid, sent_updated_at))
+
+
+def apply_remote(note):
+    """Merges one note (or delete marker) received from the relay: the newer `updated_at` wins.
+    Returns True when the local copy changed."""
+    with contextlib.closing(_connect()) as con, con:
+        cur = con.execute("SELECT updated_at FROM notes WHERE id = ?", (note["id"],)).fetchone()
+        if cur is None and note.get("deleted"):
+            return False   # a delete of something this device never had
+        if cur is not None and cur["updated_at"] > note["updated_at"]:
+            return False   # the local version is newer; it is (or will be) sent to the relay
+        if cur is not None and cur["updated_at"] == note["updated_at"]:
+            con.execute("UPDATE notes SET seq = ? WHERE id = ?", (int(note.get("seq", 0)), note["id"]))
+            return False   # the same version (for example our own send coming back): nothing to change
+        deleted = bool(note.get("deleted"))
+        con.execute("INSERT OR REPLACE INTO notes (id, source, title, text, raw, created_at, updated_at, secs, device, tags, deleted, dirty, seq) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+                    (note["id"], note.get("source") or SOURCE_NOTE, "" if deleted else note.get("title", ""),
+                     "" if deleted else note.get("text", ""), "" if deleted else note.get("raw", ""), note["created_at"],
+                     note["updated_at"], note.get("secs", 0), note.get("device", ""),
+                     json.dumps([] if deleted else _tags(note.get("tags"))), int(deleted), int(note.get("seq", 0))))
+        if _has_fts(con):
+            con.execute("DELETE FROM notes_fts WHERE id = ?", (note["id"],))
+            if not deleted:
+                con.execute("INSERT INTO notes_fts (id, title, text) VALUES (?, ?, ?)", (note["id"], note.get("title", ""), note.get("text", "")))
+    return True

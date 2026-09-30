@@ -1,6 +1,6 @@
 # 14. The relay
 
-An optional server the user runs on their own machine (PC, Raspberry Pi, any Linux box) so a phone and a PC can share voice notes and a profile. **This page describes what exists in the code today: the server and its management page. Nothing in the Windows or Android app talks to it yet.** Set-up steps for a Raspberry Pi are in [../relay/README.md](../relay/README.md).
+An optional server the user runs on their own machine (PC, Raspberry Pi, any Linux box) so a phone and a PC can share voice notes and a profile. **This page describes what exists in the code today: the server, its management page, and the Windows client (voice notes only). The Android app does not use it yet.** Set-up steps for a Raspberry Pi are in [../relay/README.md](../relay/README.md).
 
 ## What it is
 
@@ -62,6 +62,11 @@ Note fields: `id` (32 lowercase hex characters, made by the client), `source`, `
 - **Deletes:** kept as markers with no content so other devices learn about them. Purging markers means a device that was offline for longer than the purge age could bring a deleted note back.
 - **Profile:** an opaque JSON object; the relay does not look inside. If clients put API keys in it, they sit in `relay.db` unencrypted (see [09-security-privacy.md](09-security-privacy.md)).
 
+## Clients
+
+- **Windows:** `windows/sync.py` (settings `relay_sync`, `relay_url`, `relay_token`, `device_name`). It sends changed voice notes with `PUT /notes/{id}`, fetches `GET /changes` from its stored cursor and merges by `updated_at`; it runs at start, every 90 seconds and after each saved note, and sends `X-Vox-Device`. See [decisions/0022-sync-client-dirty-flag-and-cursor.md](decisions/0022-sync-client-dirty-flag-and-cursor.md).
+- **Android:** not built.
+
 ## Not built yet
 
-Clients (Windows sync loop, Android outbox), audio blobs, keys served to devices, proxy mode, a tray toggle or `Vox.exe --relay`, restoring a backup from the page, `tailscale serve` set-up help inside the apps. Verified only on Windows and, through CI, on x86 and arm64 Linux; the systemd unit and the Raspberry Pi steps have not been tried on a real Pi. Decision records: [decisions/0020-relay-design.md](decisions/0020-relay-design.md), [decisions/0021-relay-portable-with-a-web-page.md](decisions/0021-relay-portable-with-a-web-page.md).
+Android client and outbox, syncing dictation history, meetings and the profile (About you, dictionary, keys), audio blobs, keys served to devices, proxy mode, a tray toggle or `Vox.exe --relay`, restoring a backup from the page, `tailscale serve` set-up help inside the apps. Verified only on Windows and, through CI, on x86 and arm64 Linux; the systemd unit, the Raspberry Pi steps and a real phone or PC reaching the relay through `tailscale serve` have not been tried. Decision records: [decisions/0020-relay-design.md](decisions/0020-relay-design.md), [decisions/0021-relay-portable-with-a-web-page.md](decisions/0021-relay-portable-with-a-web-page.md).

@@ -38,3 +38,4 @@
 | Warm-up | Opening the server connections when recording starts, so the upload does not wait for the TLS handshake (`vox_core.warm`, `GroqClient.warm`). |
 | Voice note | A note recorded by voice in note mode and saved to `notes.db` instead of being pasted (`windows/notes.py`). |
 | Relay | The optional self-hosted server (`relay/relay.py`, runs on a Raspberry Pi, Linux, macOS, Windows) that stores voice notes and a profile so devices can share them over Tailscale, with a management web page. |
+| Dirty note | A local voice note changed on this device and not yet accepted by the relay (`dirty = 1` in `notes.db`). |

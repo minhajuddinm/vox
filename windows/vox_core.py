@@ -21,7 +21,7 @@ import secret
 BASE = providers.GROQ_BASE
 DEFAULT_STT = providers.DEFAULT_MODELS["stt"]
 DEFAULT_LLM = providers.DEFAULT_MODELS["llm"]
-KEY_FIELDS = ("api_key", "stt_api_key", "llm_api_key")   # stored protected by the Windows login
+KEY_FIELDS = ("api_key", "stt_api_key", "llm_api_key", "relay_token")   # stored protected by the Windows login
 SAMPLE_RATE = 16000
 LEVEL_FLOOR = 0.004         # normalised rms of a quiet room: below it the meter shows nothing
 LEVEL_GAIN = 30             # how fast the meter fills as the voice gets louder
@@ -38,6 +38,10 @@ DEFAULT_CONFIG = {
     "llm_api_key": "",
     "llm_reasoning": "auto",
     "user_context": "",
+    "relay_sync": False,
+    "relay_url": "",
+    "relay_token": "",
+    "device_name": "",
     "hotkey": ["ctrl_l", "cmd"],
     "stt_model": DEFAULT_STT,
     "llm_model": DEFAULT_LLM,
