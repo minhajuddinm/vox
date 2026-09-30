@@ -51,7 +51,7 @@ Triggers: push of a tag `v*`, manual run (`workflow_dispatch`), or a pull reques
 |---|---|---|
 | `tests` | ubuntu | install `tests/requirements.txt`; `pytest -q`; documentation checker |
 | `windows` (needs `tests`) | windows | optional Google client from secret; `pip install -r windows/requirements.txt pyinstaller==6.22.3`; PyInstaller `--onedir --windowed`; Inno Setup; upload `VoxSetup` artifact |
-| `android` (needs `tests`) | ubuntu | install SDK parts; optional keystore from secret; compile and run the Java tests with `bash android/run-tests.sh` (`CorrectionsTest`, `EndpointTest`, `ApiClientTest`, `ParityTest spec/golden.txt`, `PcmTest`, `ProvidersTest`); `android/build.sh`; upload `Vox-android` artifact (`Vox.apk`) |
+| `android` (needs `tests`) | ubuntu | install SDK parts; optional keystore from secret; compile and run the Java tests with `bash android/run-tests.sh` (`ApiClientTest`, `CorrectionsTest`, `EndpointTest`, `ParityTest spec/golden.txt`, `PcmTest`, `ProvidersTest`); `android/build.sh`; upload `Vox-android` artifact (`Vox.apk`) |
 | `release` (tags only) | ubuntu | download artifacts, publish a GitHub Release with `VoxSetup.exe` and `Vox.apk` |
 
 Workflow permissions are `contents: read`; only `release` has `contents: write`. All third-party Actions are pinned by commit SHA (comments give the version).
