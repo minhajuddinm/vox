@@ -42,6 +42,8 @@ DEFAULT_CONFIG = {
     "relay_url": "",
     "relay_token": "",
     "relay_sync_keys": False,
+    "relay_run": False,
+    "relay_port": 8765,
     "stream_stt": True,
     "device_name": "",
     "hotkey": ["ctrl_l", "cmd"],

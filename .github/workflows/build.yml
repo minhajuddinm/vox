@@ -62,6 +62,7 @@ jobs:
           pyinstaller @g --noconfirm --clean --onedir --windowed --name Vox --icon vox.ico `
             --add-data "ui;ui" --add-data "vox.ico;." `
             --hidden-import pystray._win32 --hidden-import pynput.keyboard._win32 --hidden-import pynput.mouse._win32 `
+            --paths ../relay --hidden-import relay `
             --collect-data soundcard --collect-data tzdata --collect-submodules recurring_ical_events `
             --exclude-module PIL._avif --exclude-module PIL.AvifImagePlugin --exclude-module PIL._webp --exclude-module PIL.WebPImagePlugin `
             vox_app.py

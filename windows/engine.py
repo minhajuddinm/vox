@@ -20,6 +20,7 @@ from pynput import keyboard
 import audio_devices
 import logo
 import notes
+import relay_host
 import streaming
 import sync
 import vox_core as core
@@ -100,6 +101,7 @@ class Engine:
         self.last_tap_t = 0.0
         self.meeting = Meeting(lambda: self.cfg)
         self.sync = sync.SyncWorker(lambda: self.cfg)
+        self.relay = relay_host.RelayHost(relay_host.default_data_dir(), relay_host.port_from(self.cfg), notify=self.notify)
         self.kb = keyboard.Controller()
         self.icon = pystray.Icon(
             "Vox", ICONS["idle"], "Vox",
@@ -110,6 +112,7 @@ class Engine:
                                  self.toggle_note),
                 pystray.MenuItem(lambda _: "Stop meeting notes" if self.meeting.active else "Start meeting notes",
                                  self.toggle_meeting),
+                pystray.MenuItem("Run relay on this PC", self.toggle_relay, checked=lambda _: bool(self.cfg.get("relay_run"))),
                 pystray.MenuItem("Quit Vox", self.quit),
             ),
         )
@@ -155,6 +158,7 @@ class Engine:
             while m.processing and time.time() < deadline:
                 time.sleep(0.5)
         self.sync.stop()
+        self.relay.stop()
         self.icon.stop()
         if self.overlay:
             self.overlay.stop()
@@ -176,6 +180,28 @@ class Engine:
         if name != "rec":
             self.level = 0.0
         self.icon.icon = ICONS[name]
+
+    # ----------------------------------------------------------------- relay
+    def start_relay(self):
+        self.relay.port = relay_host.port_from(self.cfg)
+        return self.relay.start()
+
+    def toggle_relay(self, *_):
+        """Tray item "Run relay on this PC": saves the choice (relay_run) and starts or stops the relay process."""
+        on = not self.cfg.get("relay_run")
+        try:
+            cfg = core.load_config()   # the file, not our copy: the window may have saved settings since we read it
+            cfg["relay_run"] = on
+            core.save_config(cfg)
+        except Exception as e:
+            log.exception("could not save relay_run")
+            self.notify(f"Could not save the relay setting: {e}")
+            return
+        self.cfg["relay_run"] = on
+        if on:
+            self.start_relay()
+        else:
+            self.relay.stop()
 
     # --------------------------------------------------------------- hotkey
     # Hold the shortcut to talk, release to insert.
@@ -528,6 +554,8 @@ class Engine:
         self.sync.start()
         self.icon.run_detached()
         log.info("engine started, hotkey=%s", self.cfg.get("hotkey"))
+        if self.cfg.get("relay_run"):
+            self.start_relay()
         if core.key_missing(self.cfg) or core.endpoint_error(self.cfg):
             open_window()
         try:
