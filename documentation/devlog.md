@@ -28,6 +28,9 @@ Chronological notes on how the improvement series was made, what was found, and 
 
 Later the same day: PR 2 (the documentation folder) was merged upstream as `de839c8`. Added `documentation/tools/docs_todo.py` (maps changed files to the pages that describe them, tested in `tests/test_docs_todo.py`) and the project skill `vox-doc-sync`, so the documentation is synced at the end of every session ([decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)). The tool was tried on its own branch: it listed the three new files and the pages to update.
 
+## 2026-09-30, documentation sync before handing over
+Ran the routine against `50094d0`: only the settings layout fix (PR 19) and docs changed since, so the Windows page description, the verified-against commit (`a2570f7`) and this entry were the only updates. A handoff note for the next session was written to the OS temp folder (`vox-handoff-2026-09-30.md`), outside the repo.
+
 ## 2026-09-30, Windows checked on a real laptop
 After the merges Yuvraj ran the Windows app from `main` on his laptop and said it looks good. He did not list what he tried, so the README and known issues say only that, not that every feature works. Phone, Pi and Tailscale are still untried.
 
