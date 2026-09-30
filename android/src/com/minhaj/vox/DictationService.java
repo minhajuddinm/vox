@@ -14,6 +14,8 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.util.Log;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -33,6 +35,19 @@ public class DictationService extends Service {
     private static final String ACTION_STOP = "com.minhaj.vox.STOP";
     private static final String ACTION_RETRY = "com.minhaj.vox.RETRY";
     private static final int SEND_ATTEMPTS = 3;
+
+    /**
+     * Extras of the start intent. TrampolineActivity passes its own extras on, so one set of keys serves both:
+     * EXTRA_START (boolean) = start recording as soon as the service is in the foreground; EXTRA_PKG and
+     * EXTRA_LABEL = the app being typed into; EXTRA_DEST = DEST_DICTATION (default) or DEST_NOTE;
+     * EXTRA_TAP_AT (long, SystemClock.elapsedRealtime) = when the user tapped, only for the tap->recording log.
+     */
+    public static final String EXTRA_START = "com.minhaj.vox.EXTRA_START";
+    public static final String EXTRA_PKG = "com.minhaj.vox.EXTRA_PKG";
+    public static final String EXTRA_LABEL = "com.minhaj.vox.EXTRA_LABEL";
+    public static final String EXTRA_DEST = "com.minhaj.vox.EXTRA_DEST";
+    public static final String EXTRA_TAP_AT = "com.minhaj.vox.EXTRA_TAP_AT";
+    public static final String DEST_DICTATION = "dictation", DEST_NOTE = "note";
 
     public static final int IDLE = 0, RECORDING = 1, PROCESSING = 2;
 
@@ -58,6 +73,7 @@ public class DictationService extends Service {
     private ByteArrayOutputStream pcm;
     private String targetPkg;
     private String targetLabel;
+    private String targetDest = DEST_DICTATION;   // where the result goes; set per recording, read by send() in the notes task
     private volatile boolean hasPending;
 
     @Override public IBinder onBind(Intent i) { return null; }
@@ -88,8 +104,16 @@ public class DictationService extends Service {
             startForeground(1, n);
         }
         instance = this;
-        VoxAccessibilityService a = VoxAccessibilityService.instance;
-        if (a != null) a.onDictationServiceReady();
+        try {
+            // Started by TrampolineActivity for a bubble tap: record right now, while that activity is still on
+            // screen (the microphone may only be opened while the app is visible), with no fixed delay.
+            if (intent != null && intent.getBooleanExtra(EXTRA_START, false)) {
+                startRecording(intent.getStringExtra(EXTRA_PKG), intent.getStringExtra(EXTRA_LABEL),
+                        intent.getStringExtra(EXTRA_DEST), intent.getLongExtra(EXTRA_TAP_AT, 0L));
+            }
+        } finally {
+            TrampolineActivity.finishNow();   // the service is in the foreground: the trampoline is no longer needed
+        }
         return START_NOT_STICKY;
     }
 
@@ -135,7 +159,16 @@ public class DictationService extends Service {
 
     // ------------------------------------------------------------ recording
 
-    public synchronized void startRecording(String pkg, String label) {
+    public void startRecording(String pkg, String label) {
+        startRecording(pkg, label, DEST_DICTATION);
+    }
+
+    public void startRecording(String pkg, String label, String dest) {
+        startRecording(pkg, label, dest, 0L);
+    }
+
+    /** @param tapAtMs SystemClock.elapsedRealtime() of the user's tap, or 0 when unknown (only used for the log) */
+    public synchronized void startRecording(String pkg, String label, String dest, final long tapAtMs) {
         if (state != IDLE) return;
         Prefs p = new Prefs(this);
         String problem = Endpoint.error(p.role(Providers.STT)[0]);
@@ -150,6 +183,7 @@ public class DictationService extends Service {
         }
         targetPkg = pkg;
         targetLabel = label;
+        targetDest = DEST_NOTE.equals(dest) ? DEST_NOTE : DEST_DICTATION;
         final String[] warmStt = p.role(Providers.STT), warmLlm = p.role(Providers.LLM);
         new Thread(() -> {   // open the server connections while the user speaks
             new ApiClient(warmStt[1], warmStt[0]).warm();
@@ -177,6 +211,7 @@ public class DictationService extends Service {
         recThread = new Thread(() -> {
             byte[] buf = new byte[1280]; // 40 ms: about 25 meter updates a second
             long maxBytes = (long) SAMPLE_RATE * 2 * MAX_SECONDS;
+            boolean firstFrame = true;
             try {
                 rec.startRecording();
                 while (recording) {
@@ -186,6 +221,10 @@ public class DictationService extends Service {
                         break;
                     }
                     if (n == 0) continue;
+                    if (firstFrame) {
+                        firstFrame = false;
+                        if (tapAtMs > 0) Log.d("vox", "tap->recording ms=" + (SystemClock.elapsedRealtime() - tapAtMs));
+                    }
                     data.write(buf, 0, n);
                     postLevel(rms(buf, n));
                     if (data.size() >= maxBytes) {

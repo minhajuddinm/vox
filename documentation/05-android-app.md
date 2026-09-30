@@ -10,7 +10,7 @@ Plain Java (source level 8, no Kotlin, no Gradle, no AndroidX), package `com.min
 | `<queries>` | Lets the Styles page list installed launcher apps |
 | Application | `allowBackup="false"`, `networkSecurityConfig="@xml/network_security_config"` |
 | `MainActivity` | Exported launcher activity (the screens) |
-| `TrampolineActivity` | Not exported, translucent, no history |
+| `TrampolineActivity` | Not exported, translucent, no history; closes when `DictationService` calls `TrampolineActivity.finishNow()`, or after a 1500 ms safety timeout |
 | `DictationService` | Not exported, `foregroundServiceType="microphone"` |
 | `VoxAccessibilityService` | Bound with `BIND_ACCESSIBILITY_SERVICE`, config `@xml/accessibility_config` |
 
@@ -22,9 +22,11 @@ Network security config: `cleartextTrafficPermitted="true"` for the whole app be
 
 Foreground service (notification "Vox is ready", low importance, with a "Turn off" action; "Retry" appears while a recording is pending). Started only from a visible activity, because Android blocks background microphone access.
 
+**Start intent.** `onStartCommand` calls `startForeground`, sets `instance`, and, when the intent has `EXTRA_START`, calls `startRecording` itself, then `TrampolineActivity.finishNow()` (also when nothing was asked to start, and even if `startRecording` throws). `TrampolineActivity` passes its own extras through, so a bubble tap with the service not running needs no further hop and no fixed delay. Extras: `EXTRA_START` (boolean), `EXTRA_PKG` and `EXTRA_LABEL` (the app being typed into), `EXTRA_DEST` (`dictation`, the default, or `note`; any other value means `dictation`), `EXTRA_TAP_AT` (`SystemClock.elapsedRealtime()` of the tap, only used by the log). A start without `EXTRA_START` (the settings switch, `MainActivity`) just starts the service.
+
 | Method | Behaviour |
 |---|---|
-| `startRecording(pkg, label)` | Refuses (toast) on a bad server address or a missing key (`Prefs.keyMissing`). Creates an `AudioRecord` (16 kHz mono PCM16, `VOICE_RECOGNITION` source) and a recording thread. Increments `jobId`. Limit 360 s. |
+| `startRecording(pkg, label, dest, tapAtMs)` | Refuses (toast) on a bad server address or a missing key (`Prefs.keyMissing`). Creates an `AudioRecord` (16 kHz mono PCM16, `VOICE_RECOGNITION` source) and a recording thread. Increments `jobId`. Limit 360 s. Remembers `dest` for the recording (`dictation` or `note`). When `tapAtMs` is not 0, the recording thread logs `tap->recording ms=N` (tag `vox`, debug level) at the first audio frame. `startRecording(pkg, label, dest)` and `startRecording(pkg, label)` (dest `dictation`) call it with no tap time. |
 | `stopRecording()` | Ends recording, then on the worker thread: drops clips under 0.4 s, rejects silent clips (`Pcm.isSilent`, toast "Vox did not hear anything"), writes the WAV to `cache/vox_pending.wav`, marks pending, calls `send`. |
 | `send(job, pkg, label)` | Up to 3 attempts to transcribe (`ApiClient.isRetryable`: network errors, 5xx, 429, 408; waits 0.8 s, 1.6 s between); silence-phrase filter; cleanup unless style is `raw`, cleanup is off or the text has fewer than 3 words; falls back to the raw text (with `applySpokenCommands`) and toasts if cleanup fails; dictionary replacements; history; result delivered to the `Listener`. The WAV is deleted only on success. |
 | `retryLast()` | Sends the pending WAV again (notification button). Needs the service to be alive; the WAV is deleted when the service is destroyed or the user cancels. |
@@ -46,7 +48,7 @@ State machine: `IDLE (0)` -> `RECORDING (1)` -> `PROCESSING (2)` -> `IDLE`. Ever
   3. If the focused node's package differs from the package the dictation started in ("you switched apps"), copy to the clipboard instead of typing.
   4. Compute the new text: current text (ignoring a hint shown as placeholder), selection, add a leading space when needed, then `ACTION_SET_TEXT` and move the caret. Known limitation: `SET_TEXT` replaces the whole field ([12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md)).
   5. If `SET_TEXT` is refused, fall back to a clipboard paste and restore the old clip after 800 ms.
-- **Lifecycle:** removes the bubble and clears the static listener on unbind and destroy. If `DictationService` is not running when the bubble is tapped it starts `TrampolineActivity`; `onDictationServiceReady` then starts recording after 350 ms.
+- **Lifecycle:** removes the bubble and clears the static listener on unbind and destroy. If `DictationService` is not running when the bubble is tapped (and the remembered field is not a password field) it starts `TrampolineActivity` with `EXTRA_START`, the package and label of the focused app and the tap time; the service then starts recording by itself (there is no `onDictationServiceReady` and no 350 ms wait any more). The haptic tick is given at the tap on both paths.
 
 ## `MainActivity` and the `Vox` bridge
 
@@ -77,7 +79,7 @@ Keys, defaults and formats: [07-config-and-data.md](07-config-and-data.md). Hist
 
 ## Not present on Android
 
-Meeting notes, calendar, hotkeys, overlay pill, DPAPI-style key protection (the key is in app-private SharedPreferences; see [09-security-privacy.md](09-security-privacy.md)), file logs (the app does not use `android.util.Log`; problems appear as toasts).
+Meeting notes, calendar, hotkeys, overlay pill, DPAPI-style key protection (the key is in app-private SharedPreferences; see [09-security-privacy.md](09-security-privacy.md)), file logs (the only `android.util.Log` call is the debug line `tap->recording ms=` described under `DictationService`; problems appear as toasts).
 
 ## AI provider settings
 
@@ -85,7 +87,7 @@ Settings starts with an **AI provider** card: preset list (`Providers.PRESETS`, 
 
 ## Connection warm-up
 
-`DictationService.startRecording` checks the address of each role (speech and cleanup), then starts a `vox-warm` thread that calls `ApiClient.warm()` for each distinct server: a small `GET /models` read to the end, so the connection returns to the pool. `ApiClient.readJson` no longer calls `disconnect()`, so the upload reuses it. The start delay of the bubble (400 ms trampoline activity plus 350 ms in `VoxAccessibilityService.onDictationServiceReady`) is unchanged.
+`DictationService.startRecording` checks the address of each role (speech and cleanup), then starts a `vox-warm` thread that calls `ApiClient.warm()` for each distinct server: a small `GET /models` read to the end, so the connection returns to the pool. `ApiClient.readJson` no longer calls `disconnect()`, so the upload reuses it. The fixed start delays of the bubble (a 400 ms trampoline activity plus 350 ms in `VoxAccessibilityService.onDictationServiceReady`) are gone: see "Start intent" above. The new tap-to-first-audio time has not been measured on a device yet (read it from `adb logcat -s vox`).
 
 ## About you
 
