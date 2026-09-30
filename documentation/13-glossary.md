@@ -36,3 +36,4 @@
 | About you | Free text about the user added to every cleanup request (`user_context`). |
 | Meter level | 0 to 1 loudness value of the voice, the same curve on both platforms (`level_from_rms`, `Pcm.levelFromRms`). |
 | Warm-up | Opening the server connections when recording starts, so the upload does not wait for the TLS handshake (`vox_core.warm`, `GroqClient.warm`). |
+| Voice note | A note recorded by voice in note mode and saved to `notes.db` instead of being pasted (`windows/notes.py`). |

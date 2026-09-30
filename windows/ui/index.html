@@ -174,6 +174,7 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
   <nav>
     <button data-page="home" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
     <button data-page="notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Notes<span class="beta">Beta</span></button>
+    <button data-page="voicenotes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Voice notes</button>
     <button data-page="dictionary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h11a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/></svg>Dictionary</button>
     <button data-page="styles"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h10M4 12h16M4 17h7"/></svg>Styles</button>
     <button data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
@@ -205,6 +206,19 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
   </section>
 
   <!-- NOTES -->
+  <!-- VOICE NOTES -->
+  <section class="page" id="voicenotes">
+    <h1>Voice notes</h1>
+    <p class="sub">Record a quick note: it is written down, tidied up and saved here instead of being pasted into an app. Start it here or from the tray icon and finish it the same way. Esc cancels.</p>
+    <div class="row" style="margin-bottom:14px">
+      <button class="btn" id="vn-toggle">New voice note</button>
+      <input type="text" id="vn-q" class="grow" placeholder="Search your notes">
+      <select id="vn-period"><option value="all">Any time</option><option value="today">Today</option><option value="week">Last 7 days</option><option value="month">Last 30 days</option></select>
+    </div>
+    <div class="status" id="vn-status" style="margin:-6px 0 10px"></div>
+    <div id="vn-list"></div>
+  </section>
+
   <section class="page wide" id="notes">
     <div class="nl">
       <div class="ask"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>
@@ -320,11 +334,51 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<":
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 1600); }
 async function save(part, msg = "Saved") { Object.assign(S.config, part); await api().save_config(part); toast(msg); }
 
+// ---- voice notes
+async function renderVoiceNotes() {
+  const list = await api().notes_list($("vn-q").value.trim(), $("vn-period").value, "");
+  $("vn-list").innerHTML = list.length ? list.map(n => `<div class="card" data-id="${n.id}" style="margin-bottom:10px">
+      <div class="row"><b class="grow">${esc(n.title || "Untitled")}</b><span style="color:var(--muted);font-size:12px">${esc(new Date(n.created_at * 1000).toLocaleString())}${n.secs ? " · " + Math.round(n.secs) + " s" : ""}</span></div>
+      <div class="vn-text" style="white-space:pre-wrap;margin:8px 0">${esc(n.text)}</div>
+      <div class="row"><button class="btn ghost" data-act="copy">Copy</button><button class="btn ghost" data-act="edit">Edit</button><button class="btn ghost" data-act="del" style="color:var(--danger)">Delete</button></div>
+    </div>`).join("") : `<div class="card" style="color:var(--muted)">${$("vn-q").value.trim() ? "No notes match." : "No voice notes yet. Press New voice note and start talking."}</div>`;
+}
+let vnTimer = null;
+async function pollNote() {
+  clearTimeout(vnTimer);
+  const s = await api().note_status();
+  if (s.error) { $("vn-status").className = "status bad"; $("vn-status").textContent = s.error; $("vn-toggle").textContent = "New voice note"; return; }
+  $("vn-toggle").textContent = s.recording ? "Finish note" : "New voice note";
+  $("vn-status").className = "status";
+  $("vn-status").textContent = s.recording ? "Recording… press Finish note when you are done." : s.busy ? "Writing it down…" : "";
+  if (s.recording || s.busy) vnTimer = setTimeout(pollNote, 1200); else renderVoiceNotes();
+}
+$("vn-toggle").onclick = async () => {
+  const r = await api().note_toggle();
+  if (r.error) { $("vn-status").className = "status bad"; $("vn-status").textContent = r.error; return; }
+  pollNote();
+};
+$("vn-q").oninput = () => renderVoiceNotes();
+$("vn-period").onchange = () => renderVoiceNotes();
+$("vn-list").onclick = async (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  const card = b.closest("[data-id]"), id = card.dataset.id;
+  if (b.dataset.act === "copy") { await api().copy(card.querySelector(".vn-text").textContent); toast("Copied"); }
+  else if (b.dataset.act === "del") { await api().note_delete(id); renderVoiceNotes(); }
+  else if (b.dataset.act === "edit") {
+    const t = card.querySelector(".vn-text");
+    t.outerHTML = `<textarea class="mynotes vn-edit" style="min-height:110px">${esc(t.textContent)}</textarea>`;
+    b.dataset.act = "save"; b.textContent = "Save";
+  } else if (b.dataset.act === "save") {
+    await api().note_edit(id, card.querySelector("b").textContent, card.querySelector(".vn-edit").value); renderVoiceNotes();
+  }
+};
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button").forEach(x => x.classList.toggle("active", x === b));
   document.querySelectorAll(".page").forEach(p => p.classList.toggle("active", p.id === b.dataset.page));
   if (b.dataset.page === "home") refresh();
   if (b.dataset.page === "notes") enterNotes();
+  if (b.dataset.page === "voicenotes") { renderVoiceNotes(); pollNote(); }
 });
 
 function styleOptions(sel, value) { sel.innerHTML = STYLES.map(([v, l]) => `<option value="${v}">${l}</option>`).join(""); sel.value = value || "neutral"; }

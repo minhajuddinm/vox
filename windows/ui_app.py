@@ -11,6 +11,7 @@ import webview
 
 import audio_devices
 import meeting
+import notes
 import vcalendar
 import providers
 import vox_core as core
@@ -163,6 +164,31 @@ class Api:
         except Exception as e:
             log.warning("engine call %s failed: %s", path, e)
             return {"error": "Vox is not running in the tray. Start Vox from the Start menu."}
+
+    def note_toggle(self):
+        """Start a voice note, or finish the one being recorded (the engine does the recording)."""
+        return self._engine("/note/toggle", {})
+
+    def note_status(self):
+        return self._engine("/note/status", {})
+
+    def notes_list(self, query="", period="all", tag=""):
+        """Voice notes, newest first. period: all, today, week or month."""
+        now = time.time()
+        lt = time.localtime(now)
+        midnight = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+        since = {"today": midnight, "week": now - 7 * 86400, "month": now - 30 * 86400}.get(period)
+        try:
+            return notes.search(query or "", source=notes.SOURCE_NOTE, since=since, tag=(tag or "").strip() or None)
+        except Exception as e:
+            log.warning("notes search failed: %s", e)
+            return []
+
+    def note_edit(self, nid, title, text):
+        return notes.update(nid, title=title, text=text)
+
+    def note_delete(self, nid):
+        return notes.delete(nid)
 
     def meeting_status(self):
         return self._engine("/meeting/status")

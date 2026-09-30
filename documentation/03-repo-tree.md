@@ -49,6 +49,7 @@ windows/                Windows app (Python) and its installer scripts
 | `windows/logo.py` | Draws the tray icons and generates `windows/vox.ico`. |
 | `windows/ui_app.py` | The main window's Python side: pywebview window and the `Api` class the page calls. |
 | `windows/providers.py` | Which server, key and model each role (speech, cleanup) uses; model list from `GET /models` and its classification; the Test button; reasoning-field retry. |
+| `windows/notes.py` | Voice notes store: SQLite with search and filters, delete markers for a later sync. |
 | `windows/ui/index.html` | The main window's screens: Home, Notes (meetings), Dictionary, Styles, Settings. One file with CSS and JavaScript. |
 | `windows/meeting.py` | Meeting notes: records mic and PC audio, live transcript, final pass, speaker naming, notes generation, saved-meeting search. |
 | `windows/gcal.py` | Optional Google sign-in (OAuth with PKCE, loopback redirect) and calendar reading. |
@@ -104,6 +105,8 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_warmup.py` | Connection warm-up (`vox_core.warm`) and the shared session. |
 | `tests/test_user_context.py` | The "about you" context: cleaning, prompt placement, sent with cleanup. |
 | `tests/test_level.py` | The meter curve and the scrolling level history. |
+| `tests/test_notes.py` | The notes store: add, edit, delete, search with FTS5 and the LIKE fallback, filters. |
+| `tests/test_engine_notes.py` | The engine's voice-note mode (skipped where the Windows runtime packages are missing). |
 | `tests/test_docs_todo.py` | The path-to-page rules of `documentation/tools/docs_todo.py`. |
 | `spec/golden.txt` | Shared expected results (sanitize, looks_valid, replacements, whisper prompt, terms, system prompt, spoken commands, silence). Read by the Python and Java parity tests. |
 | `android/test/com/minhaj/vox/GroqClientTest.java` | Prompt, sanitize, replacements, retry policy, silence phrases. |
@@ -166,10 +169,12 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/decisions/0016-per-role-server-and-model-discovery.md` | ADR (proposed): separate server per role, model list classified by id. |
 | `documentation/decisions/0017-warm-connections-not-an-open-microphone.md` | ADR: warm the server connections at key-down; the microphone is never open while idle. |
 | `documentation/decisions/0018-about-you-context-in-the-prompt.md` | ADR: the "About you" context is constant, fenced and capped. |
+| `documentation/decisions/0019-voice-notes-in-sqlite.md` | ADR: voice notes in SQLite, separate from history and meetings for now. |
 | `documentation/specs/README.md` | Index of design specs (written before the code they describe). |
 | `documentation/specs/p1-providers-and-models.md` | Spec for sub-project P1: any provider, per-role server, model list, Test button. |
 | `documentation/specs/p2a-keydown-warmup.md` | Spec for P2a: warm connections at key-down. |
 | `documentation/specs/p3-about-you-context.md` | Spec for P3: "About you" context. |
 | `documentation/specs/p4-live-voice-level.md` | Spec for P4: live voice level. |
+| `documentation/specs/p5-voice-notes-windows.md` | Spec for P5: voice notes on Windows. |
 | `documentation/tools/check_docs.py` | The documentation checker (tree, config keys, links, ADR index). |
 | `documentation/tools/docs_todo.py` | Prints which pages to update for the code that changed (checklist only, edits nothing). |

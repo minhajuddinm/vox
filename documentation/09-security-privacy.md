@@ -65,3 +65,7 @@ There is no analytics, crash reporting or Vox backend.
 ## The "About you" text
 
 `user_context` is personal text the user writes. It is stored in the settings (Windows `config.json`, Android preferences; not encrypted) and sent, with each cleanup request, to the cleanup server only, never to the speech-to-text server. Users should not put secrets in it.
+
+## Voice notes
+
+Notes are stored in `%APPDATA%\Vox\notes.db` (SQLite, not encrypted; a deleted note keeps only an empty marker row). Recording a note sends the audio to the speech server and the text to the cleanup server exactly like a dictation, but without the name of the focused app. Nothing else leaves the device.
