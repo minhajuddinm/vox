@@ -14,6 +14,7 @@ import argparse
 import collections
 import contextlib
 import hmac
+import http.client
 import ipaddress
 import json
 import math
@@ -22,6 +23,7 @@ import platform
 import re
 import secrets
 import signal
+import socket
 import sqlite3
 import sys
 import threading
@@ -37,6 +39,12 @@ MAX_PROFILE = 64_000        # bytes of profile JSON
 MAX_URL = 2048              # characters in an upstream server address
 MAX_KEY = 1024              # characters in an upstream API key
 UPSTREAM_ROLES = ("stt", "llm")
+MAX_DRAIN = 5 * MAX_BODY    # bytes of a refused upload that are read and dropped so the client can still read our answer
+DRAIN_IDLE = 1.0            # seconds a refused upload may go quiet while being dropped before we answer anyway
+PROXY_SLOTS = 4             # upstream requests in flight at once; the next one is answered 429 at once
+PROXY_TIMEOUT = {"stt": 180, "llm": 60, "models": 15}   # seconds for a whole upstream exchange, by kind of call
+MAX_PROXY_BODY = {"stt": 25_000_000, "llm": 1_000_000, "models": 0}   # bytes a client may send, by kind of call
+MAX_PROXY_REPLY = 8_000_000   # bytes of an upstream answer that are passed on; more is a 502
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 ID_IN_PATH = re.compile(r"[0-9a-f]{32}")
 SECRET_WORDS = ("key", "token", "secret", "password")
@@ -429,6 +437,107 @@ def upstream_settings(block):
     return out
 
 
+# The four routes that forward to an upstream server: (method, exact path) -> (role, suffix added to the role's address, kind).
+# The kind picks the timeout and the body limit. Nothing from a request reaches the upstream address except this choice.
+PROXY_ROUTES = {
+    ("POST", "/proxy/stt/audio/transcriptions"): ("stt", "/audio/transcriptions", "stt"),
+    ("GET", "/proxy/stt/models"): ("stt", "/models", "models"),
+    ("POST", "/proxy/llm/chat/completions"): ("llm", "/chat/completions", "llm"),
+    ("GET", "/proxy/llm/models"): ("llm", "/models", "models"),
+}
+ROLE_NAMES = {"stt": "speech to text", "llm": "text cleanup"}
+
+
+class UpstreamError(Exception):
+    """An upstream server could not be used. `message` is fixed text that is safe to show to the client."""
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
+
+
+def _plain_header(value, limit=256):
+    """A header value that is safe to copy to another request or response: printable ASCII only (no control
+    characters, so no line breaks or folding), not empty, not long. None when it is not."""
+    if not isinstance(value, str) or len(value) > limit or not value.strip() or any(ord(c) < 32 or ord(c) > 126 for c in value):
+        return None
+    return value.strip()
+
+
+def _scrub(data, key):
+    """`data` (bytes) with the upstream key hidden, for a server that repeats the credentials it was sent in an error
+    message. A key shorter than 8 characters is left alone: it cannot be told from ordinary words."""
+    if len(key) < 8:
+        return data
+    for form in (key, json.dumps(key)[1:-1]):
+        data = data.replace(form.encode("utf-8"), b"***")
+    return data
+
+
+def forward_upstream(base_url, api_key, suffix, method, body, content_type, accept, timeout):
+    """One request to an upstream server. Returns (status, content type, retry-after or None, body bytes).
+
+    The address is `base_url` plus `suffix`, nothing else. The only headers sent are the ones built here (the client's
+    Authorization is never among them); the key is sent as a bearer token when there is one. `timeout` is the total for
+    the whole exchange, not per read. The answer is capped at MAX_PROXY_REPLY bytes, a redirect is not followed, and
+    the key is hidden if the server echoes it. Raises UpstreamError for anything that goes wrong; its text never holds
+    the address or the key."""
+    u = urlparse(base_url)
+    https = u.scheme == "https"
+    headers = {"User-Agent": "vox-relay"}
+    if content_type:
+        headers["Content-Type"] = content_type
+    if accept:
+        headers["Accept"] = accept
+    if api_key:
+        headers["Authorization"] = "Bearer " + api_key
+    if method == "POST":
+        headers["Content-Length"] = str(len(body))
+    deadline = time.monotonic() + timeout
+    conn = (http.client.HTTPSConnection if https else http.client.HTTPConnection)(u.hostname, u.port or (443 if https else 80), timeout=timeout)
+    try:
+        conn.request(method, u.path.rstrip("/") + suffix, body=body if method == "POST" else None, headers=headers)
+        sock = conn.sock     # kept now: http.client lets go of it when the server says it will close the connection
+
+        def budget():
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise UpstreamError("upstream unreachable")
+            if sock is not None:
+                sock.settimeout(left)
+
+        budget()
+        resp = conn.getresponse()
+        status = resp.status
+        if 300 <= status < 400:
+            raise UpstreamError("upstream answered with a redirect")
+        if status < 200:
+            raise UpstreamError("upstream unreachable")
+        declared = resp.getheader("Content-Length") or ""
+        if re.fullmatch(r"[0-9]{1,12}", declared.strip()) and int(declared) > MAX_PROXY_REPLY:
+            raise UpstreamError("upstream reply too large")
+        chunks, total = [], 0
+        while True:
+            budget()
+            chunk = resp.read1(65536)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_PROXY_REPLY:
+                raise UpstreamError("upstream reply too large")
+            chunks.append(chunk)
+        if resp.length:      # it promised more bytes than it sent
+            raise UpstreamError("upstream unreachable")
+        return (status, _plain_header(resp.getheader("Content-Type")) or "application/json",
+                _plain_header(resp.getheader("Retry-After"), 64), _scrub(b"".join(chunks), api_key))
+    except UpstreamError:
+        raise
+    except (OSError, http.client.HTTPException, ValueError):
+        raise UpstreamError("upstream unreachable") from None
+    finally:
+        conn.close()
+
+
 # ------------------------------------------------------------------- server
 class Handler(BaseHTTPRequestHandler):
     server_version = "VoxRelay"
@@ -471,18 +580,31 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             raise BadRequest("bad Content-Length")
         if n > MAX_BODY:
-            remaining = min(n, 5 * MAX_BODY)   # read and drop the upload so the client can still read our answer
-            while remaining > 0:
-                chunk = self.rfile.read(min(65536, remaining))
-                if not chunk:
-                    break
-                remaining -= len(chunk)
-            self.close_connection = True
+            self._drain(n)
             raise BodyTooLarge()
         try:
             return json.loads(self.rfile.read(n) or b"null")
         except (ValueError, UnicodeDecodeError):
             raise BadRequest("the body is not valid JSON")
+
+    def _drain(self, n):
+        """Reads and drops what a client sends of a body we are not going to use (up to MAX_DRAIN bytes, and only while
+        it keeps coming), so it can still read our answer instead of hitting a broken pipe. Makes this the last request
+        on the connection, because the rest of the body cannot be skipped."""
+        self.close_connection = True
+        remaining = min(n, MAX_DRAIN)
+        try:
+            self.connection.settimeout(DRAIN_IDLE)
+            while remaining > 0:
+                chunk = self.rfile.read1(min(65536, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        except OSError:     # it went quiet or hung up: answer anyway
+            pass
+        finally:
+            with contextlib.suppress(OSError):
+                self.connection.settimeout(self.timeout)
 
     def _page(self):
         nonce = secrets.token_urlsafe(16)
@@ -494,7 +616,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _route(self, method):
         self._status = 0
-        u = urlparse(self.path)
+        try:
+            u = urlparse(self.path)
+        except ValueError:      # for example an absolute-form target with a broken host
+            return self._send(400, {"error": "bad request target"})
         parts = [p for p in u.path.split("/") if p]
         if method == "GET" and parts in ([], ["ui"]):
             return self._page()   # only the page shell: no data, the token is asked for in the browser
@@ -511,6 +636,8 @@ class Handler(BaseHTTPRequestHandler):
                 pass
         try:
             self._dispatch(method, u, parts, device)
+        except (ConnectionError, socket.timeout):   # the client went away while we were reading from it or answering it
+            pass
         finally:
             self.server.record(method, ID_IN_PATH.sub("{id}", u.path), self._status, device)
 
@@ -518,6 +645,8 @@ class Handler(BaseHTTPRequestHandler):
         store = self.server.store
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         try:
+            if parts and parts[0] == "proxy":
+                return self._proxy(method)
             if parts and parts[0] == "admin":
                 return self._admin(method, parts, q)
             if parts == ["health"] and method == "GET":
@@ -557,6 +686,81 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, {"error": str(e) or "bad request"})
         except Exception:
             return self._send(500, {"error": "the relay hit an error"})
+
+    # ------------------------------------------------------------------ proxy
+    def _body_length(self):
+        """What the client declared about its body, as (size, problem). `size` is None when there is no Content-Length;
+        `problem` is (status, message) when the framing cannot be trusted (chunked, repeated or malformed Content-Length)."""
+        if self.headers.get("Transfer-Encoding") is not None:
+            return None, (411, "send a Content-Length (chunked uploads are not supported)")
+        values = self.headers.get_all("Content-Length") or []
+        if not values:
+            return None, None
+        if len(values) > 1 or not re.fullmatch(r"[0-9]{1,12}", values[0].strip()):
+            return None, (400, "bad Content-Length")
+        return int(values[0]), None
+
+    def _refuse(self, status, payload, n=0):
+        """Answers without using the request body: what the client already sent of it is dropped first."""
+        if n:
+            self._drain(n)
+        self._send(status, payload)
+
+    def _proxy(self, method):
+        """The four proxy routes: checks, then one request to the role's upstream server, then its answer.
+        The order is: route (404), framing (411 or 400), role configured (503), size (413), free slot (429)."""
+        srv = self.server
+        route = PROXY_ROUTES.get((method, self.path.split("?", 1)[0]))    # exact text of the path: no decoding, no ".." handling
+        n, problem = self._body_length()
+        if route is None:
+            return self._refuse(404, {"error": "unknown request"}, n or 0)
+        if problem:
+            return self._send(problem[0], {"error": problem[1]})
+        if method == "POST" and n is None:
+            return self._send(411, {"error": "Content-Length is required"})
+        n = n or 0
+        role, suffix, kind = route
+        if n and not MAX_PROXY_BODY[kind]:      # a body on a GET means nothing
+            self._drain(n)
+            n = 0
+        entry = srv.upstream[role]      # looked up once: a save replaces the whole entry, so address and key always belong together
+        base, key = entry["base_url"], entry["api_key"]
+        if not base:
+            return self._refuse(503, {"error": f"The {ROLE_NAMES[role]} server is not configured on the relay. "
+                                               "Set its address on the relay's management page (AI server tab)."}, n)
+        if upstream_problem(base) or len(key) > MAX_KEY or not _KEY_RE.fullmatch(key):    # relay.json edited by hand
+            return self._refuse(503, {"error": f"The {ROLE_NAMES[role]} server is not configured correctly on the relay. "
+                                               "Check its address and key on the management page."}, n)
+        if n > MAX_PROXY_BODY[kind]:
+            return self._refuse(413, {"error": "request too large"}, n)
+        if not srv.proxy_slots.acquire(blocking=False):
+            return self._refuse(429, {"error": "busy"}, n)
+        try:
+            reply = self._exchange(n, base, key, suffix, kind, method)
+        finally:
+            srv.proxy_slots.release()
+        self._send(*reply)
+
+    def _exchange(self, n, base, key, suffix, kind, method):
+        """Reads the request body and makes the upstream call. Returns the arguments for `_send`. Holds a proxy slot."""
+        body = b""
+        if n:
+            try:
+                body = self.rfile.read(n)
+            except OSError:
+                pass
+            if len(body) != n:
+                return 400, {"error": "the request body was cut short"}
+        content_type = _plain_header(self.headers.get("Content-Type")) if method == "POST" else None
+        try:
+            status, ctype, retry_after, data = forward_upstream(base, key, suffix, method, body, content_type,
+                                                                _plain_header(self.headers.get("Accept")), PROXY_TIMEOUT[kind])
+        except UpstreamError as e:
+            return 502, {"error": {"message": e.message}}
+        headers = {"Content-Security-Policy": "default-src 'none'; sandbox"}    # an answer is data, never a page on the relay's origin
+        if retry_after:
+            headers["Retry-After"] = retry_after
+        return status, data, ctype, headers
 
     def _admin(self, method, parts, q):
         srv, store = self.server, self.server.store
@@ -628,6 +832,7 @@ class RelayServer(ThreadingHTTPServer):
         self.store, self.token, self.owner, self.data_dir = store, token, owner, data_dir
         self.upstream = upstream_settings(upstream)   # replaced as a whole, never changed in place
         self.config_lock = threading.Lock()           # one writer at a time for relay.json
+        self.proxy_slots = threading.BoundedSemaphore(PROXY_SLOTS)   # upstream exchanges in flight (and their bodies in memory)
         self.started = time.time()
         self._events = collections.deque(maxlen=100)
         self._counts = {"requests": 0, "errors": 0, "auth_failures": 0, "last_auth_failure": None}

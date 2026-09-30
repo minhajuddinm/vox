@@ -14,7 +14,8 @@ UMask=0077
 Restart=on-failure
 RestartSec=3
 
-# It only listens on 127.0.0.1 and writes only to its state folder.
+# It only listens on 127.0.0.1 and writes only to its state folder. It connects out only when the proxy routes
+# forward a request to the AI server address saved for a role, which can be IPv4 or IPv6.
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 ProtectSystem=strict
@@ -24,7 +25,7 @@ PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
-RestrictAddressFamilies=AF_INET AF_UNIX
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictNamespaces=yes
 LockPersonality=yes
 
