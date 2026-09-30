@@ -1,0 +1,49 @@
+# 11. Logs and diagnostics
+
+## Windows logs
+
+Both processes write to `%APPDATA%\Vox` with a `RotatingFileHandler` (1,000,000 bytes per file, 2 backups: `vox.log`, `vox.log.1`, `vox.log.2`; same for `window.log`). Format: `YYYY-MM-DD HH:MM:SS,mmm LEVEL logger: message`. Level is INFO. Uncaught exceptions in the main thread and in worker threads are logged (`uncaught`, `thread crashed`) with tracebacks. The code does not log the API key; the logs do contain app (exe) names and error text from the server.
+
+| File | Written by | Logger names |
+|---|---|---|
+| `vox.log` | engine process (`Vox.exe`) | `vox`, `vox.overlay`, `vox.meeting`, `vox.calendar`, `vox.gcal`, `vox.secret` |
+| `window.log` | window process (`Vox.exe --window`) | `vox.ui` and pywebview's own logger (WebView2 errors land here) |
+
+Messages worth knowing:
+
+| Message | Meaning |
+|---|---|
+| `engine started, hotkey=[...]` | Engine is up and listening for the shortcut |
+| `overlay ready WxH scale=... geometry=...` | The pill window was created (it appears only while recording) |
+| `overlay shown (rec)` | The pill became visible for a recording |
+| `recording started (app=Code.exe)` | Hotkey accepted; the exe that will receive the text |
+| `hands-free mode` | Double-tap detected |
+| `notify: ...` | A tray notification was shown (text included), e.g. "Vox did not hear anything (loudest sound N of 32768)..." |
+| `api error: ...` | The server answered with an error status |
+| `settings reloaded, hotkey=...` | `config.json` changed and was re-read |
+| `uncaught` / `thread crashed` | A bug; read the traceback that follows |
+| `KeyboardInterrupt` traceback in `overlay.run` | Ctrl+C in the launching terminal (the engine now quits cleanly on it) |
+| `WebView2 initialization failed ... Invalid window handle` in `window.log` | The window was started somewhere WebView2 cannot attach (for example a hidden desktop session); start Vox from the user's own terminal |
+
+## Android
+
+The Android app writes no logs (it does not use `android.util.Log`). Problems are shown as toasts. Use `adb logcat` only for crashes of the process itself.
+
+## Diagnosing common problems
+
+| Symptom | Check |
+|---|---|
+| Shortcut does nothing | `vox.log` for `engine started` and `recording started`. No `recording started`: the engine is not running or the key names in `hotkey` are wrong. |
+| "Vox did not hear anything (loudest sound 1 ...)" | The selected microphone delivers silence (muted, dead, or a wireless headset whose mic is off). Pick another in Settings > Microphone. A live microphone in a quiet room usually shows a small but non-trivial value (25 to 30 was seen on one laptop). |
+| Nothing pasted, no error | The target app blocked Ctrl+V, or the engine was busy (`busy` state) |
+| Notification "The server rejected the API key" | Key wrong or expired; Settings > Test |
+| Notification "Rate limit reached" | Groq free limit; wait, then tray > Retry last dictation |
+| Recording pill missing but dictation works | Vox was started from a session the user cannot see, or the overlay failed (`overlay failed to start` in `vox.log`) |
+| Window will not open | `window.log`; see the WebView2 line above |
+| Android bubble never appears | Accessibility service off, or "bubble only while typing" is on and no field is focused |
+| Android "Vox did not hear anything" | Silent recording (mic covered, wrong source) |
+| Android dictation fails with a network message | The recording is kept; tap Retry in the Vox notification |
+
+## Quick level check (Windows microphone)
+
+A one-off script that prints the loudest sample per second from the default input device is enough to tell a dead microphone from a live one: with `sounddevice`, open an `InputStream(samplerate=16000, channels=1, dtype="int16")` and print `abs(indata).max()` per callback. A live microphone in a quiet room shows a small noise value (25 to 30 was seen on one laptop); a value of 1 means digital silence.

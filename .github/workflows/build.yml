@@ -17,6 +17,8 @@ jobs:
         with: { python-version: '3.13' }
       - run: pip install -r tests/requirements.txt
       - run: python -m pytest -q
+      - name: Documentation matches the code
+        run: python documentation/tools/check_docs.py
 
   windows:
     needs: tests
