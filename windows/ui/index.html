@@ -216,6 +216,7 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <select id="vn-period"><option value="all">Any time</option><option value="today">Today</option><option value="week">Last 7 days</option><option value="month">Last 30 days</option></select>
     </div>
     <div class="status" id="vn-status" style="margin:-6px 0 10px"></div>
+    <div class="row" style="margin:-4px 0 12px"><span class="status" id="vn-sync"></span><button class="btn ghost" id="vn-sync-now" hidden>Sync now</button></div>
     <div id="vn-list"></div>
   </section>
 
@@ -309,6 +310,13 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="setting"><div><div class="t">Keep dictation on the clipboard</div><div class="d">After pasting, your text stays copied so you can paste it again with Ctrl + V.</div></div><label class="switch"><input type="checkbox" id="keep-clip"><span></span></label></div>
       <div class="setting"><div><div class="t">Start Vox with Windows</div><div class="d">Runs in the tray after you sign in.</div></div><label class="switch"><input type="checkbox" id="autostart"><span></span></label></div>
     </div>
+    <h2>Sync between devices</h2>
+    <div class="card list">
+      <div class="setting"><div><div class="t">Sync voice notes with my relay</div><div class="d">Keeps your voice notes the same on your phone and PCs through a relay you run yourself (a small server, for example on a Raspberry Pi, reached over Tailscale). Needs its address and token.</div></div><label class="switch"><input type="checkbox" id="relay-sync"><span></span></label></div>
+      <div class="setting"><div><div class="t">Relay address</div><div class="d">For example https://yuvipi.your-tailnet.ts.net. Plain http is only allowed for this PC, your local network and Tailscale.</div></div><input type="text" id="relay-url" style="width:280px" placeholder="https://..."></div>
+      <div class="setting"><div><div class="t">Relay token</div><div class="d">Stored only on this PC. Find it in the relay's management page setup or its relay.json.</div></div><input type="password" id="relay-token" style="width:220px"><button class="btn ghost" id="relay-test">Test</button><span class="status" id="relay-status"></span></div>
+      <div class="setting"><div><div class="t">This device's name</div><div class="d">Shown on the relay's page and on the notes made here. Blank uses the computer name.</div></div><input type="text" id="device-name" style="width:220px" placeholder="e.g. laptop-uv"></div>
+    </div>
     <h2>Advanced</h2>
     <div class="card list">
       <div class="setting"><div><div class="t">Data folder</div><div class="d" id="data-dir"></div></div><button class="btn ghost" id="open-data">Open</button></div>
@@ -343,6 +351,17 @@ async function renderVoiceNotes() {
       <div class="row"><button class="btn ghost" data-act="copy">Copy</button><button class="btn ghost" data-act="edit">Edit</button><button class="btn ghost" data-act="del" style="color:var(--danger)">Delete</button></div>
     </div>`).join("") : `<div class="card" style="color:var(--muted)">${$("vn-q").value.trim() ? "No notes match." : "No voice notes yet. Press New voice note and start talking."}</div>`;
 }
+function agoText(t) { if (!t) return "never"; const s = Math.round(Date.now() / 1000 - t); return s < 10 ? "just now" : s < 90 ? s + " s ago" : s < 5400 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago"; }
+async function renderSync() {
+  const s = await api().sync_status();
+  const el = $("vn-sync"), btn = $("vn-sync-now");
+  if (s.error && !s.enabled && !("last_run" in s)) { el.className = "status"; el.textContent = ""; btn.hidden = true; return s; }
+  btn.hidden = !s.enabled;
+  el.className = "status" + (s.enabled && s.error ? " bad" : "");
+  el.textContent = !s.enabled ? "Sync is off (Settings, Sync between devices)." : s.running ? "Syncing…" : s.error ? "Not synced: " + s.error : "Synced " + agoText(s.last_ok);
+  return s;
+}
+$("vn-sync-now").onclick = async () => { await api().sync_now(); $("vn-sync").textContent = "Syncing…"; setTimeout(async () => { await renderSync(); renderVoiceNotes(); }, 2500); };
 let vnTimer = null;
 async function pollNote() {
   clearTimeout(vnTimer);
@@ -378,7 +397,7 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   document.querySelectorAll(".page").forEach(p => p.classList.toggle("active", p.id === b.dataset.page));
   if (b.dataset.page === "home") refresh();
   if (b.dataset.page === "notes") enterNotes();
-  if (b.dataset.page === "voicenotes") { renderVoiceNotes(); pollNote(); }
+  if (b.dataset.page === "voicenotes") { renderVoiceNotes(); pollNote(); renderSync(); }
 });
 
 function styleOptions(sel, value) { sel.innerHTML = STYLES.map(([v, l]) => `<option value="${v}">${l}</option>`).join(""); sel.value = value || "neutral"; }
@@ -541,6 +560,10 @@ function renderSettings() {
   $("auto-notes").checked = !!c.auto_notes;
   $("keep-clip").checked = c.keep_clipboard !== false;
   $("keep-history").checked = c.keep_history !== false;
+  $("relay-sync").checked = !!c.relay_sync;
+  if (document.activeElement !== $("relay-url")) $("relay-url").value = c.relay_url || "";
+  if (document.activeElement !== $("relay-token")) $("relay-token").value = c.relay_token || "";
+  if (document.activeElement !== $("device-name")) $("device-name").value = c.device_name || "";
   renderProvider();
 }
 $("key").onchange = async () => { await save({ api_key: $("key").value.trim() }); $("key-status").textContent = ""; renderWelcome(); refreshModels(); };
@@ -629,6 +652,20 @@ $("your-name").onchange = (e) => save({ your_name: e.target.value.trim() });
 $("my-email").onchange = (e) => save({ my_email: e.target.value.trim() });
 $("keep-clip").onchange = (e) => save({ keep_clipboard: e.target.checked });
 $("keep-history").onchange = (e) => save({ keep_history: e.target.checked });
+$("relay-sync").onchange = (e) => { save({ relay_sync: e.target.checked }); if (e.target.checked) api().sync_now(); };
+$("relay-url").onchange = async () => {
+  const v = $("relay-url").value.trim(), s = $("relay-status");
+  const problem = v ? await api().endpoint_problem(v) : "";
+  if (problem) { s.className = "status bad"; s.textContent = problem; return; }
+  s.textContent = ""; save({ relay_url: v });
+};
+$("relay-token").onchange = () => { save({ relay_token: $("relay-token").value.trim() }); $("relay-status").textContent = ""; };
+$("device-name").onchange = () => save({ device_name: $("device-name").value.trim() });
+$("relay-test").onclick = async () => {
+  const s = $("relay-status"); s.className = "status"; s.textContent = "Checking…";
+  const r = await api().sync_test($("relay-url").value.trim(), $("relay-token").value.trim());
+  s.className = "status " + (r.ok ? "ok" : "bad"); s.textContent = r.message;
+};
 $("auto-notes").onchange = (e) => save({ auto_notes: e.target.checked });
 $("open-data").onclick = () => api().open_data_folder();
 $("clear-hist").onclick = async () => { await api().clear_history(); await refresh(); toast("History cleared"); };

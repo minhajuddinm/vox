@@ -20,6 +20,10 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `llm_api_key` | string | `""` | Key for `llm_base_url` (DPAPI-protected). |
 | `llm_reasoning` | string | `auto` | `auto` sends `reasoning_effort` only to gpt-oss models (and stops if the server refuses it); `off` never sends it. |
 | `user_context` | string | `""` | Free text about the user (work, projects, style, terms) added to every cleanup request; at most 8,000 characters are used. |
+| `relay_sync` | bool | `false` | Sync voice notes with a relay (see [14-relay.md](14-relay.md)). |
+| `relay_url` | string | `""` | Address of the relay (for example `https://yuvipi.your-tailnet.ts.net`). Same rule as the server address: plain http only for private hosts. |
+| `relay_token` | string | `""` | The relay's bearer token. DPAPI-protected like the API keys. |
+| `device_name` | string | `""` | This PC's name on the relay and on the notes it records; blank uses the computer name. |
 | `language` | string | `""` | Whisper language code; empty = auto detect. |
 | `input_device` | string | `""` | Microphone name for dictation; empty = Windows default. Not used by meeting notes. |
 | `cleanup` | bool | `true` | Run the AI cleanup. |
@@ -82,7 +86,7 @@ The relay's data lives next to it in `relay.db` (SQLite: tables `notes` with a `
 |---|---|---|
 | `config.json` | window, engine (migration) | Settings above. |
 | `history.jsonl` | engine | One JSON object per line: `t` (Unix seconds), `app` (exe name), `raw`, `text`, `words`, `secs`. Grows without limit; the window shows the newest 300. |
-| `notes.db` (+ `notes.db-wal`, `notes.db-shm`) | engine, window | SQLite, table `notes`: `id` (32 hex chars), `source` (`voice note`), `title`, `text`, `raw`, `created_at` and `updated_at` (Unix seconds), `secs`, `device`, `tags` (JSON list), `deleted` (0 or 1; a deleted note keeps only the marker row). Table `notes_fts` (FTS5: `id`, `title`, `text`) exists when SQLite has FTS5. Not encrypted. |
+| `notes.db` (+ `notes.db-wal`, `notes.db-shm`) | engine, window | SQLite, table `notes`: `id` (32 hex chars), `source` (`voice note`), `title`, `text`, `raw`, `created_at` and `updated_at` (Unix seconds), `secs`, `device`, `tags` (JSON list), `deleted` (0 or 1; a deleted note keeps only the marker row). Sync columns: `dirty` (1 = changed here and not yet accepted by the relay; notes from before sync count as changed) and `seq` (the relay's sequence number, 0 if unknown). Table `sync_meta` (`key`, `value`) holds `relay_cursor`. Table `notes_fts` (FTS5: `id`, `title`, `text`) exists when SQLite has FTS5. Not encrypted. |
 | `vox.log`, `vox.log.1`, `vox.log.2` | engine | Rotating log (1 MB each). |
 | `window.log` (+ backups) | window | Same for the window process. |
 | `engine.json` | engine | `{"port", "token", "pid"}` for the control server. Deleted on quit. |

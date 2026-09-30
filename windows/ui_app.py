@@ -12,6 +12,7 @@ import webview
 import audio_devices
 import meeting
 import notes
+import sync
 import vcalendar
 import providers
 import vox_core as core
@@ -185,10 +186,35 @@ class Api:
             return []
 
     def note_edit(self, nid, title, text):
-        return notes.update(nid, title=title, text=text)
+        out = notes.update(nid, title=title, text=text)
+        self._sync_soon()
+        return out
 
     def note_delete(self, nid):
-        return notes.delete(nid)
+        out = notes.delete(nid)
+        self._sync_soon()
+        return out
+
+    def _sync_soon(self):
+        """Ask the engine (which owns the sync thread) to send the change; harmless when it is not running."""
+        try:
+            self._engine("/sync/now", {})
+        except Exception:
+            pass
+
+    def sync_status(self):
+        return self._engine("/sync/status", {})
+
+    def sync_now(self):
+        return self._engine("/sync/now", {})
+
+    def sync_test(self, url, token):
+        """{"ok", "message"}: can this relay address and token be used?"""
+        try:
+            return sync.test_relay(url, token, sync.device_name(core.load_config()))
+        except Exception as e:
+            log.warning("relay test failed: %s", e)
+            return {"ok": False, "message": "The test could not run."}
 
     def meeting_status(self):
         return self._engine("/meeting/status")

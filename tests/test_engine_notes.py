@@ -25,6 +25,7 @@ def eng(tmp_path, monkeypatch):
     e.recording = e.busy = e.hands_free = e.note_mode = False
     e.chunks, e.cfg, e.target, e.pending = [], {"keep_history": False}, "notepad.exe", None
     e.messages, e.pasted, e.states = [], [], []
+    e.sync = type("S", (), {"triggered": 0, "trigger": lambda self: setattr(self, "triggered", self.triggered + 1)})()
     e.notify = e.messages.append
     e.set_state = e.states.append
     e.paste = e.pasted.append
@@ -58,6 +59,7 @@ def test_toggle_starts_a_hands_free_note_and_a_second_toggle_finishes_it(eng, mo
     assert seen == [("", "")]                                    # no app name: notes use the default style
     assert eng.pasted == [] and eng.messages == ["Note saved: Call the dentist tomorrow."]
     assert [n["text"] for n in notes.search("dentist")] == ["Call the dentist tomorrow."]
+    assert eng.sync.triggered == 1   # a saved note asks the sync thread to send it
 
 
 def test_a_normal_dictation_still_pastes_and_saves_no_note(eng, monkeypatch):
