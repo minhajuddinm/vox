@@ -6,7 +6,7 @@ Both processes write to `%APPDATA%\Vox` with a `RotatingFileHandler` (1,000,000 
 
 | File | Written by | Logger names |
 |---|---|---|
-| `vox.log` | engine process (`Vox.exe`) | `vox`, `vox.overlay`, `vox.meeting`, `vox.calendar`, `vox.gcal`, `vox.secret` |
+| `vox.log` | engine process (`Vox.exe`) | `vox`, `vox.overlay`, `vox.meeting`, `vox.calendar`, `vox.gcal`, `vox.secret`, `vox.sync` |
 | `window.log` | window process (`Vox.exe --window`) | `vox.ui` and pywebview's own logger (WebView2 errors land here) |
 
 Messages worth knowing:
@@ -47,3 +47,7 @@ The Android app writes no logs (it does not use `android.util.Log`). Problems ar
 ## Quick level check (Windows microphone)
 
 A one-off script that prints the loudest sample per second from the default input device is enough to tell a dead microphone from a live one: with `sounddevice`, open an `InputStream(samplerate=16000, channels=1, dtype="int16")` and print `abs(indata).max()` per callback. A live microphone in a quiet room shows a small noise value (25 to 30 was seen on one laptop); a value of 1 means digital silence.
+
+## Sync and the relay
+
+Sync problems do not appear as errors in the app: the Voice notes page shows "Not synced: <reason>" (wrong token, cannot reach the relay, another Tailscale user) and Settings has a Test button. Only unexpected failures are written to `vox.log` under `vox.sync`. The relay writes no access log on purpose; its management page (Devices and activity) shows the last 100 requests, refused tokens and errors from memory only, and the service manager's own log holds anything the process prints (on a Raspberry Pi: `journalctl -u vox-relay`).
