@@ -56,6 +56,25 @@ public final class NoteLogicTest {
         eq("fts drops quotes", "\"x\"* \"OR\"* \"y\"*", NoteLogic.ftsQuery("x\" OR \"y"));
         eq("fts of punctuation only", "", NoteLogic.ftsQuery("*()-:^"));
 
+        // searchWords: what the LIKE fallback of the notes store matches one by one (ftsQuery is built from the same words)
+        eq("words of null", tags(), NoteLogic.searchWords(null));
+        eq("words of empty", tags(), NoteLogic.searchWords(""));
+        eq("words split on punctuation", tags("hello", "world"), NoteLogic.searchWords("  hello,   world! "));
+        eq("words keep underscore and digits", tags("a_1", "b", "c"), NoteLogic.searchWords("a_1 b-c"));
+        eq("words drop quotes", tags("x", "OR", "y"), NoteLogic.searchWords("x\" OR \"y"));
+        eq("words of punctuation only", tags(), NoteLogic.searchWords("*()-:^"));
+        eq("words keep accents", tags("café", "naïve"), NoteLogic.searchWords("café naïve"));
+        eq("words skip an emoji", tags("x"), NoteLogic.searchWords("😀 x"));
+
+        // strip: Python's str.strip() (used for the text and the title a note is saved with)
+        eq("strip of null", "", NoteLogic.strip(null));
+        eq("strip of blanks", "", NoteLogic.strip(" \t\n　"));
+        eq("strip keeps the inside", "a  b", NoteLogic.strip("  a  b \n"));
+        for (int cp : PY_SPACE) {
+            String c = new String(Character.toChars(cp));
+            eq("strip U+" + Integer.toHexString(cp), "a b", NoteLogic.strip(c + "a b" + c));
+        }
+
         // remoteWins: a note from the relay replaces the local copy only when it is strictly newer (or new)
         eq("unknown id, live note", true, NoteLogic.remoteWins(false, 0, 5, false));
         eq("unknown id, delete marker is ignored", false, NoteLogic.remoteWins(false, 0, 5, true));

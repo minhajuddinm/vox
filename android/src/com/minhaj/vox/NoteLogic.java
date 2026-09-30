@@ -44,16 +44,26 @@ final class NoteLogic {
     }
 
     /**
+     * The words of the search box text (notes._words): runs of letters, digits and underscores, in order. The store
+     * matches each one (as a word start with FTS5, or anywhere in the title or text with LIKE). Empty for null.
+     */
+    static List<String> searchWords(String q) {
+        List<String> out = new ArrayList<>();
+        if (q == null) return out;
+        Matcher m = WORD.matcher(q);
+        while (m.find()) out.add(m.group());
+        return out;
+    }
+
+    /**
      * The FTS5 MATCH string for the search box text (notes.fts_query): each word as a quoted prefix token,
      * {@code "tok"*}, joined by spaces, so every word must start some word of the note. "" when there is no word.
      */
     static String ftsQuery(String q) {
-        if (q == null) return "";
         StringBuilder out = new StringBuilder();
-        Matcher m = WORD.matcher(q);
-        while (m.find()) {
+        for (String w : searchWords(q)) {
             if (out.length() > 0) out.append(' ');
-            out.append('"').append(m.group()).append("\"*");
+            out.append('"').append(w).append("\"*");
         }
         return out.toString();
     }
@@ -98,8 +108,8 @@ final class NoteLogic {
         return out;
     }
 
-    /** Python's {@code s.strip()}; null counts as "". */
-    private static String strip(String s) {
+    /** Python's {@code s.strip()}; null counts as "". The store saves the text and the title of a note this way. */
+    static String strip(String s) {
         if (s == null) return "";
         int from = 0, to = s.length();
         while (from < to && isSpace(s.charAt(from))) from++;

@@ -9,3 +9,5 @@ android/src/com/minhaj/vox/Corrections.java
 android/src/com/minhaj/vox/Terms.java
 android/src/com/minhaj/vox/Providers.java
 android/src/com/minhaj/vox/NoteLogic.java
+android/src/com/minhaj/vox/Note.java
+android/src/com/minhaj/vox/SyncStore.java

@@ -95,7 +95,7 @@ Details: [04-windows-app.md](04-windows-app.md), [06-pipeline.md](06-pipeline.md
 - **`DictationService`** (`android/src/com/minhaj/vox/DictationService.java`): foreground service with the microphone type. Android only allows it to start from a visible activity, so the bubble uses `TrampolineActivity` (an invisible activity shown for 400 ms) when the service is not running yet. It records, uploads, cleans up, and reports through the static `Listener`.
 - **`VoxAccessibilityService`**: draws the bubble as an accessibility overlay (no "draw over apps" permission), tracks the focused editable field and its package, and inserts the result. It is the `Listener` of the service.
 - **`MainActivity`**: a `WebView` showing `android/assets/index.html`. The page calls Java through the `Vox` JavaScript interface (`Bridge`) to read/save settings, test the key, list apps, and so on.
-- **`Prefs`**: the only persistent store (SharedPreferences file `vox`).
+- **`Prefs`**: the store for settings and dictation history (SharedPreferences file `vox`). Voice notes have their own SQLite database, `NotesStore` (`notes.db`; not used by the app yet, see [05-android-app.md](05-android-app.md)).
 
 States of `DictationService`: `IDLE` -> `RECORDING` -> `PROCESSING` -> `IDLE`. A monotonically increasing `jobId` makes every result and state change conditional on the job still being current, so a cancelled or replaced dictation cannot touch state or insert text.
 
