@@ -70,7 +70,7 @@ If cleanup fails or is rejected the raw transcript is used and the user is told 
 
 ## Dictionary
 
-Both platforms store the dictionary as lines: a plain line is a **term** (spelling hint for Whisper and the cleanup prompt); `wrong => right` is a **replacement** (applied at the end; its right side also counts as a term). **People** are extra terms. Terms are de-duplicated in order: people first, then dictionary lines. Comments start with `#`.
+Both platforms store the dictionary as lines: a plain line is a **term** (spelling hint for Whisper and the cleanup prompt); `wrong => right` is a **replacement** (applied at the end; its right side also counts as a term). **People** are extra terms. Terms are de-duplicated in order: people first, then dictionary lines. Comments start with `#`. Windows keeps the dictionary and the people as lists of lines in `config.json`, the phone as text with a line break after each; with relay sync both travel as lists of text, and the phone's comment lines are not shared (`ProfileMap`, see [05-android-app.md](05-android-app.md)).
 
 `suggest_corrections` / `Corrections.suggest` compare a dictation with the user's fixed version at word level and propose replacements: swaps of at most 3 words, wrong text of at least 2 characters, and a capitalization-only change at the start of a sentence is ignored. The user confirms each one in the history "Fix a word" panel.
 

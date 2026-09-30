@@ -67,9 +67,9 @@ Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_de
 | `relay_sync` | bool | `false` | Sync voice notes with a relay (the Settings switch "Sync voice notes with my relay"). Read with `Prefs.relaySync`. |
 | `relay_url` | string | `""` | Address of the relay. Saved only when `Endpoint.error` accepts it (plain http only for private hosts); a trailing slash is removed. Read with `Prefs.relayUrl`. |
 | `relay_token` | string | `""` | The relay's bearer token. A secret like `api_key`: stored in these private preferences only, never logged. Read with `Prefs.relayToken`. |
-| `relay_sync_keys` | bool | `false` | Also share the provider settings and API keys through the relay ("Also share my provider settings and API keys"). Read with `Prefs.relaySyncKeys`. |
-| `dictionary` | string (lines) | comment header | Terms and `wrong => right` lines, one per line. |
-| `people` | string (lines) | `""` | Names, one per line. |
+| `relay_sync_keys` | bool | `false` | Also share the provider settings and API keys through the relay ("Also share my provider settings and API keys"): `provider`, `base_url`, `stt_base_url`, `llm_base_url`, `stt_model`, `llm_model`, `api_key`, `stt_api_key`, `llm_api_key` (not `llm_reasoning`, which the phone has no setting for). Off removes them from the relay on the next sync. Read with `Prefs.relaySyncKeys`. |
+| `dictionary` | string (lines) | comment header | Terms and `wrong => right` lines, one per line. With relay sync it is shared as a list of text, without the comment lines (`ProfileMap`). |
+| `people` | string (lines) | `""` | Names, one per line. Shared like `dictionary`. |
 | `app_styles` | string (lines) | `Prefs.DEFAULT_APP_STYLES` | `package = style` per line. |
 | `default_style` | string | `neutral` | Style for other apps. |
 | `cleanup` | bool | `true` | Run the AI cleanup. |
@@ -112,7 +112,7 @@ Files written by the app while it runs: `history.jsonl` is appended; `config.jso
 
 ## Files on the phone
 
-The SharedPreferences file above, plus `cache/vox_pending.wav` while a dictation is waiting to be sent or retried (deleted on success, on cancel, and when the service stops), plus the voice notes database `databases/notes.db` (with `notes.db-wal` and `notes.db-shm` while it is open; created by `NotesStore` the first time it is used). It has the same tables and columns as `notes.db` on the PC (see above): `notes` (`id`, `source`, `title`, `text`, `raw`, `created_at`, `updated_at`, `secs`, `device`, `tags`, `deleted`, `dirty`, `seq`), `sync_meta` (`key`, `value`) and, when the phone's SQLite has FTS5, `notes_fts`. A note's `id` is 32 lowercase hex characters and times are Unix seconds. Not encrypted; the app does not allow Android backup (`allowBackup="false"`), so the database is not copied to Google's cloud.
+The SharedPreferences file above, plus `cache/vox_pending.wav` while a dictation is waiting to be sent or retried (deleted on success, on cancel, and when the service stops), plus the voice notes database `databases/notes.db` (with `notes.db-wal` and `notes.db-shm` while it is open; created by `NotesStore` the first time it is used). It has the same tables and columns as `notes.db` on the PC (see above): `notes` (`id`, `source`, `title`, `text`, `raw`, `created_at`, `updated_at`, `secs`, `device`, `tags`, `deleted`, `dirty`, `seq`), `sync_meta` (`key`, `value`) and, when the phone's SQLite has FTS5, `notes_fts`. A note's `id` is 32 lowercase hex characters and times are Unix seconds. On the phone `sync_meta` holds `relay_cursor` (the relay's sequence number up to which notes were fetched, written after every page), `profile_version` and `profile_snapshot` (the shared settings as of the last profile sync, as JSON written by `PlainJson`; a damaged value counts as none); the relay sync reads and writes them (see [05-android-app.md](05-android-app.md), "Relay sync"). Not encrypted; the app does not allow Android backup (`allowBackup="false"`), so the database is not copied to Google's cloud.
 
 ## Never commit
 

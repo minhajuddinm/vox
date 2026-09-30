@@ -124,6 +124,8 @@ The same functions exist in both languages:
 | Voice-note title (first 7 words) and search string (`"word"*` tokens) | `notes.auto_title`, `notes.fts_query` | `NoteLogic.autoTitle`, `NoteLogic.ftsQuery` |
 | Which version wins a note sync (strictly newer; a tie keeps the local one; a delete of an unknown note is ignored) | `notes.apply_remote` | `NoteLogic.remoteWins` |
 | Profile sync merge (per field: the side that changed since the last sync wins, the relay wins a clash, an absent result drops the field) and which settings travel | `sync.merge3`, `sync.PROFILE_FIELDS`, `sync.PROFILE_KEY_FIELDS` | `ProfileMerge.merge3`, `mergeProfile`, `SHARED_FIELDS`, `KEY_FIELDS` |
+| A note the relay refuses for good (a 4xx other than 401, 403, 429) is skipped for that run and does not stop the others; any other failure stops the run | `sync.SyncError.permanent`, `sync_once` | `RelayApi.RelayError.permanent()`, `SyncEngine.push` (not in the golden file; each side has its own test) |
+| Dictionary and people in the profile (a list of text on the relay; the phone keeps them as lines) | `config.json` lists (`dictionary`, `people`) | `ProfileMap.lines`, `joinLines`, `toProfile`, `toStored` (see [05-android-app.md](05-android-app.md), "Relay sync") |
 | Tag clean-up (quotes removed, trim, no empties, no repeats) | `notes._tags` | `NoteLogic.cleanTags` (not in the golden file; see [12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md)) |
 | Device name on the relay and on notes (typed name trimmed and cut at 60 characters, counted as code points) | `sync.device_name` | `NoteLogic.deviceName` (the fallback when no name is typed, computer name or phone model, is not shared) |
 
@@ -134,7 +136,7 @@ The same functions exist in both languages:
 | Service | Used for | Where |
 |---|---|---|
 | Groq (or your own server) | Whisper speech-to-text, chat cleanup, meeting notes | `vox_core.py`, `providers.py`, `meeting.py`, `ApiClient.java`, `Providers.java` |
-| Relay (optional, your own machine, over Tailscale) | Voice notes and profile shared between devices; management web page | `relay/relay.py` (server), `windows/sync.py` (Windows client) |
+| Relay (optional, your own machine, over Tailscale) | Voice notes and profile shared between devices; management web page | `relay/relay.py` (server), `windows/sync.py` (Windows client), `SyncEngine.java`, `RelayClient.java`, `SyncWorker.java` (Android client) |
 | Google Calendar API (optional, Windows) | Read-only event list for meeting notes | `gcal.py` |
 | Private iCal (ICS) link (optional, Windows) | Same, without sign-in | `vcalendar.py` |
 | GitHub Actions | Tests and builds | `.github/workflows/build.yml` |
@@ -152,4 +154,4 @@ There is no telemetry and no Vox backend.
 | `windows/relay_host.py` | Starts and stops the relay as a child process of the engine (tray item "Run relay on this PC") |
 | `relay/relay.py` | The optional relay server with a management web page; runs on a PC, Linux box or Raspberry Pi, or inside `Vox.exe --relay` |
 
-Sync in one line: the engine's `SyncWorker` sends changed notes to the relay (`PUT /notes/{id}`), fetches what changed elsewhere (`GET /changes`), then merges the shared profile settings; notes and settings always work without the relay. Details: [14-relay.md](14-relay.md), [decisions/0022-sync-client-dirty-flag-and-cursor.md](decisions/0022-sync-client-dirty-flag-and-cursor.md).
+Sync in one line (the Android client, `SyncEngine` run by `SyncWorker`, does the same in the same order): the engine's `SyncWorker` sends changed notes to the relay (`PUT /notes/{id}`), fetches what changed elsewhere (`GET /changes`), then merges the shared profile settings; notes and settings always work without the relay. Details: [14-relay.md](14-relay.md), [decisions/0022-sync-client-dirty-flag-and-cursor.md](decisions/0022-sync-client-dirty-flag-and-cursor.md).

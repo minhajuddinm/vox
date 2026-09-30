@@ -94,6 +94,42 @@ public final class Prefs {
 
     public SharedPreferences.Editor edit() { return sp.edit(); }
 
+    /**
+     * The settings that follow the user between devices, in the stored form ProfileMap reads: the effective value of
+     * each (defaults filled in), {@code dictionary} and {@code people} as lines, {@code cleanup} as a boolean. Provider
+     * settings and keys are included; SyncEngine sends them only while "also share my provider settings and API keys"
+     * is on. This class only reads: ProfileMap decides how each one is shared.
+     */
+    public Map<String, Object> profileStored() {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("user_context", userContext());
+        m.put("dictionary", dictionaryRaw());
+        m.put("people", peopleRaw());
+        m.put("default_style", defaultStyle());
+        m.put("cleanup", cleanupEnabled());
+        m.put("language", language());
+        m.put("provider", provider());
+        m.put("base_url", baseUrl());
+        m.put("stt_base_url", raw("stt_base_url"));
+        m.put("llm_base_url", raw("llm_base_url"));
+        m.put("stt_model", sttModel());
+        m.put("llm_model", llmModel());
+        m.put("api_key", apiKey());
+        m.put("stt_api_key", raw("stt_api_key"));
+        m.put("llm_api_key", raw("llm_api_key"));
+        return m;
+    }
+
+    /** Saves settings received from the relay: a value from ProfileMap.toStored is text or, for {@code cleanup}, a boolean. */
+    public void applyProfile(Map<String, Object> stored) {
+        SharedPreferences.Editor e = sp.edit();
+        for (Map.Entry<String, Object> kv : stored.entrySet()) {
+            if (kv.getValue() instanceof Boolean) e.putBoolean(kv.getKey(), (Boolean) kv.getValue());
+            else if (kv.getValue() instanceof String) e.putString(kv.getKey(), (String) kv.getValue());
+        }
+        e.apply();
+    }
+
     public void saveBubblePos(int x, int y) {
         sp.edit().putInt("bubble_x", x).putInt("bubble_y", y).apply();
     }

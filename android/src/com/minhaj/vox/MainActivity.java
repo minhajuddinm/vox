@@ -84,6 +84,15 @@ public class MainActivity extends Activity {
         super.onResume();
         refreshJs();
         main.postDelayed(this::refreshJs, 700);
+        // settings another device changed arrive while the page is open: show them (a stale page could save over them)
+        SyncWorker.setProfileListener(() -> main.post(this::refreshJs));
+        SyncWorker.kick(this);
+    }
+
+    @Override
+    protected void onPause() {
+        SyncWorker.setProfileListener(null);
+        super.onPause();
     }
 
     @Override
@@ -192,6 +201,7 @@ public class MainActivity extends Activity {
                     e.putString("app_styles", sb.toString());
                 }
                 e.apply();
+                SyncWorker.kick(MainActivity.this);   // the profile settings may have changed, or sync was just switched on
                 main.post(() -> { VoxAccessibilityService a = VoxAccessibilityService.instance; if (a != null) a.refreshVisibility(); });
             } catch (Exception ignored) { }
         }
@@ -495,40 +505,46 @@ public class MainActivity extends Activity {
             return o.toString();
         }
 
-        // ------------------------------------------------------------ relay sync
-        // The sync itself is not built yet: these answer in the shape the page reads so it renders and shows why
-        // nothing syncs. They are replaced when the sync engine is added.
+        // ------------------------------------------------------------ relay sync (SyncWorker runs it, see there)
 
-        /** {"enabled", "running", "last_run", "last_ok", "error", "pushed", "pulled"}, the same fields as the Windows app's /sync/status. */
+        /**
+         * {"enabled", "running", "last_run", "last_ok", "error", "pushed", "pulled"}, the same fields as the Windows app's
+         * /sync/status. {@code enabled} is the switch on with an address and a token; the times are Unix seconds (0 when
+         * there was no run yet in this process) and {@code error} is "" after a run that went through.
+         */
         @JavascriptInterface
         public String syncStatus() {
             JSONObject o = new JSONObject();
-            put(o, "enabled", prefs.relaySync());
-            put(o, "running", false);
-            put(o, "last_run", 0);
-            put(o, "last_ok", 0);
-            put(o, "error", SYNC_NOT_BUILT);
-            put(o, "pushed", 0);
-            put(o, "pulled", 0);
+            put(o, "enabled", SyncWorker.enabled(prefs));
+            put(o, "running", SyncWorker.running());
+            put(o, "last_run", SyncWorker.lastRun());
+            put(o, "last_ok", SyncWorker.lastOk());
+            put(o, "error", SyncWorker.error());
+            put(o, "pushed", SyncWorker.pushed());
+            put(o, "pulled", SyncWorker.pulled());
             return o.toString();
         }
 
-        /** Runs a sync and answers callback("{ok, message}"). */
+        /** Runs a sync and answers callback("{ok, message}") when it is over; the page then reads syncStatus. */
         @JavascriptInterface
         public void syncNow(String callback) {
-            answerSync(callback);
+            SyncWorker.syncNow(MainActivity.this, r -> answerSync(callback, r.ok(), r.ok() ? "Synced." : r.error));
         }
 
         /** Tries the saved relay address and token and answers callback("{ok, message}"). */
         @JavascriptInterface
         public void syncTest(String callback) {
-            answerSync(callback);
+            final String url = prefs.relayUrl(), token = prefs.relayToken(), device = prefs.deviceName();
+            new Thread(() -> {
+                RelayClient.Check c = RelayClient.check(url, token, device);
+                answerSync(callback, c.ok, c.message);
+            }, "vox-sync-test").start();
         }
 
-        private void answerSync(String callback) {
+        private void answerSync(String callback, boolean ok, String message) {
             JSONObject res = new JSONObject();
-            put(res, "ok", false);
-            put(res, "message", SYNC_NOT_BUILT);
+            put(res, "ok", ok);
+            put(res, "message", message);
             js(callback + "(" + JSONObject.quote(res.toString()) + ")");
         }
     }
@@ -540,8 +556,6 @@ public class MainActivity extends Activity {
 
     /** The "app" a voice note is recorded for, in the cleanup request: the note is not typed into another app. */
     private static final String NOTE_LABEL = "Vox";
-
-    private static final String SYNC_NOT_BUILT = "Relay sync is not built into this version of the app yet.";
 
     /** A string that may be null (JavaScript null) as "". */
     private static String nz(String s) {
