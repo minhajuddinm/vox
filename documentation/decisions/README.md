@@ -21,7 +21,8 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0013](0013-raw-fallback-when-cleanup-fails.md) | Raw transcript is the fallback when cleanup fails | Accepted |
 | [0014](0014-documentation-checked-in-ci.md) | This documentation is machine-checked in CI | Accepted |
 | [0015](0015-sync-docs-every-session.md) | Sync the documentation at the end of every session | Accepted |
-| [0016](0016-per-role-server-and-model-discovery.md) | Per-role server and model discovery by id | Proposed |
+| [0016](0016-per-role-server-and-model-discovery.md) | Per-role server and model discovery by id | Accepted |
+| [0017](0017-warm-connections-not-an-open-microphone.md) | Warm the connections at key-down; never keep the microphone open | Accepted |
 
 ## Template
 

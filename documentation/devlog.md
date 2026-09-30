@@ -28,6 +28,9 @@ Chronological notes on how the improvement series was made, what was found, and 
 
 Later the same day: PR 2 (the documentation folder) was merged upstream as `de839c8`. Added `documentation/tools/docs_todo.py` (maps changed files to the pages that describe them, tested in `tests/test_docs_todo.py`) and the project skill `vox-doc-sync`, so the documentation is synced at the end of every session ([decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)). The tool was tried on its own branch: it listed the three new files and the pages to update.
 
+## 2026-09-30, P2a built (warm connections at key-down)
+PRs 4 and 5 merged first. Added `vox_core.warm` and a shared HTTP session (Windows) and `GroqClient.warm` plus connection reuse (Android); `startRecording` now validates each role address. 5 new tests (238 total); `tests/conftest.py` routes the shared session back through `requests.post` for older tests. Verified: pytest. Not verified: real time saved (an estimate of one to two round trips), the Java code before CI. Decision 0017: no always-open microphone.
+
 ## 2026-09-30, P1 built (providers and model list)
 Implemented spec P1 on `feat/providers`: `windows/providers.py` and `Providers.java` (per-role address/key/model, model discovery and classification, Test, reasoning retry), Windows and Android settings screens, golden `models` rows, 37 new Python tests (233 total) and `ProvidersTest`. Verified: pytest, page scripts parse, every element id used exists, Playwright not used. Not verified: the Java code (compiled only in CI), the settings screens in a real window and on a phone, the datalist dropdown in the Android WebView, and any real provider other than the stub tests. Decision: keep the Java class name `GroqClient` (rename deferred); the model list drops hidden models instead of returning them.
 

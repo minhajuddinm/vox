@@ -240,6 +240,16 @@ public final class GroqClient {
         return out;
     }
 
+    /** Opens the connection a dictation is about to use (TLS handshake included), so the upload does not wait for it. */
+    public void warm() {
+        try {
+            if (Endpoint.error(base) != null) return;
+            HttpURLConnection c = get(base + "/models");
+            InputStream in = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
+            if (in != null) readAll(in);   // reading to the end returns the connection to the pool for reuse
+        } catch (Exception ignored) { }
+    }
+
     // ------------------------------------------------------- models and connection test
 
     /** Models this server offers for a role ("stt" or "llm") as {id, kind} pairs. */
@@ -334,8 +344,7 @@ public final class GroqClient {
     private static JSONObject readJson(HttpURLConnection c) throws IOException {
         int code = c.getResponseCode();
         InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
-        String body = in == null ? "" : readAll(in);
-        c.disconnect();
+        String body = in == null ? "" : readAll(in);   // read to the end and not disconnected: the connection is reused
         if (code >= 400) {
             String msg = body;
             try { msg = new JSONObject(body).getJSONObject("error").optString("message", body); }
