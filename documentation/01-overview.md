@@ -8,14 +8,14 @@ A free, open-source replacement for paid voice-typing tools. The user speaks; Vo
 |---|---|---|
 | Trigger | Hold a shortcut (default Ctrl+Win); double-tap for hands-free | Tap the floating mic bubble; tap again to send |
 | Output | Pasted with Ctrl+V into the focused app | Inserted into the focused text field through the accessibility service |
-| Extra | Meeting notes (mic + PC audio), calendar link, history, stats | History, dictionary, per-app styles |
+| Extra | Meeting notes (mic + PC audio), calendar link, history, stats, voice notes, "About you" context, optional sync through your own relay | History, dictionary, per-app styles, "About you" context |
 | Language | Python 3.13 | Java (no Gradle, no Kotlin), HTML for the screens |
 
 Both apps talk to an OpenAI-compatible HTTP API for two jobs: speech-to-text (Whisper) and text cleanup (a chat model). By default that is Groq with the user's own free API key. The user can instead enter their own server address.
 
 ## Who made it
 
-Original author: Muhammad Minhajuddin (repository `minhajuddinm/vox`, commits up to `9aa4d28`). An improvement series (17 commits, merged as PR 1) was added afterwards by Yuvraj Singh with Claude Code assistance. See [../CHANGELOG.md](../CHANGELOG.md).
+Original author: Muhammad Minhajuddin (repository `minhajuddinm/vox`, commits up to `9aa4d28`). An improvement series (17 commits, merged as PR 1) was added afterwards by Yuvraj Singh with Claude Code assistance. See [../CHANGELOG.md](../CHANGELOG.md). The v2 series followed (PRs 4 to 16: providers and model pickers, connection warm-up, About you, live level, voice notes, the relay and its sync, streaming of long recordings, lighter build).
 
 ## Design goals (as built)
 
@@ -28,7 +28,7 @@ Original author: Muhammad Minhajuddin (repository `minhajuddinm/vox`, commits up
 ## Non-goals and limits
 
 - No iOS or macOS or Linux app. The Windows code has some non-Windows branches only so tests can run on Linux CI.
-- No cloud sync of settings or history between PC and phone.
+- No Vox cloud. The only sync is optional and goes through a relay the user runs (see [14-relay.md](14-relay.md)); today only the Windows app uses it (voice notes and profile), the phone does not sync yet, and dictation history and meetings never sync.
 - Android meeting notes do not exist.
 - Speech is not processed on the device: audio always goes to the configured server.
 - No Vox-run service of any kind. The maintainer receives no data.

@@ -28,6 +28,9 @@ Chronological notes on how the improvement series was made, what was found, and 
 
 Later the same day: PR 2 (the documentation folder) was merged upstream as `de839c8`. Added `documentation/tools/docs_todo.py` (maps changed files to the pages that describe them, tested in `tests/test_docs_todo.py`) and the project skill `vox-doc-sync`, so the documentation is synced at the end of every session ([decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)). The tool was tried on its own branch: it listed the three new files and the pages to update.
 
+## 2026-09-30, final documentation sync of the day
+PR 16 merged (main `50094d0`). Ran the sync routine by hand again: the overview still said "no cloud sync" and did not mention voice notes, About you or the relay; the architecture flow described the old `stop`/`_process`; the logs page lacked `vox.sync`; the verified-against line was two merges old. Fixed all four and added a "modules added by the v2 series" table. Everything the v2 series built is untested on real devices: see the note in the README's Verified-against section.
+
 ## 2026-09-30, P2b built (long recordings in pieces, Windows)
 PR 15 merged first (main `a7f4faa`). `Segmenter` (pure, tested with synthetic tone and silence and with arbitrary block sizes), `StreamingStt` worker with fallback, `process_text` split out of `process_detailed`, context appended to the Whisper prompt, engine hook, Settings switch. 18 new tests (348 pass, 1 skipped). Surprises: the shell tool turned `\\x00` in a test script into real null bytes (repaired with a script file), and two tests were wrong about 30 ms frame alignment and about the leftover pause after a cut. Not measured: the actual time saved on a real network or a real Groq key; not seen in the running app.
 

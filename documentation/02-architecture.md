@@ -61,17 +61,22 @@ Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording)
 ## Windows dictation flow
 
 ```
- hotkey down -> start(): check endpoint/key, remember foreground exe, open mic stream (chosen device)
+ hotkey down -> start(): check endpoint/key, remember foreground exe, start the StreamingStt worker,
+                open the server connections (core.warm), open mic stream (chosen device)
+                while recording: _audio feeds the level meter and the worker; the worker sends finished pieces
+                (pauses, at least 12 s) of a LONG recording to speech-to-text (streaming.py)
  hotkey up   -> stop():  atomically leave recording
                   too short (< 0.4 s)?  -> idle
                   silent (peak < 655)?  -> notify "did not hear anything (loudest sound N)"
-                  else                  -> _process(pcm, exe) on a worker thread
- _process: core.process_detailed()
+                  else                  -> _process(pcm, exe, note, streamer) on a worker thread
+ _process: streamer.finish() gave text (long recording cut into pieces)?  -> core.process_text(text)
+           otherwise                                                        -> core.process_detailed(whole pcm)
               transcribe (Whisper)  -> silence-hallucination filter
               cleanup (chat model)  -> looks_valid guard  (fallback: raw text + spoken commands)
               apply_replacements (dictionary "wrong => right")
            -> paste (Ctrl+V), history line (unless keep_history is off)
-           on error: keep (pcm, exe) in Engine.pending, notify, tray "Retry last dictation"
+              or, in note mode (tray / Voice notes page): save to notes.db and ask the sync worker to send it
+           on error: keep (pcm, exe, note) in Engine.pending, notify, tray "Retry last dictation"
 ```
 
 Details: [04-windows-app.md](04-windows-app.md), [06-pipeline.md](06-pipeline.md).
@@ -124,8 +129,21 @@ The same functions exist in both languages:
 | Service | Used for | Where |
 |---|---|---|
 | Groq (or your own server) | Whisper speech-to-text, chat cleanup, meeting notes | `vox_core.py`, `providers.py`, `meeting.py`, `GroqClient.java`, `Providers.java` |
+| Relay (optional, your own machine, over Tailscale) | Voice notes and profile shared between devices; management web page | `relay/relay.py` (server), `windows/sync.py` (Windows client) |
 | Google Calendar API (optional, Windows) | Read-only event list for meeting notes | `gcal.py` |
 | Private iCal (ICS) link (optional, Windows) | Same, without sign-in | `vcalendar.py` |
 | GitHub Actions | Tests and builds | `.github/workflows/build.yml` |
 
 There is no telemetry and no Vox backend.
+
+## Modules added by the v2 series
+
+| Module | Role |
+|---|---|
+| `windows/providers.py`, `Providers.java` | Which server, key and model each role uses; model lists; the Test button |
+| `windows/notes.py` | Voice notes store (SQLite, search, sync flags) |
+| `windows/sync.py` | Windows sync client (notes and profile) and its background worker |
+| `windows/streaming.py` | Sends the finished pieces of a long recording while the user speaks |
+| `relay/relay.py` | The optional relay server with a management web page; runs on a PC, Linux box or Raspberry Pi |
+
+Sync in one line: the engine's `SyncWorker` sends changed notes to the relay (`PUT /notes/{id}`), fetches what changed elsewhere (`GET /changes`), then merges the shared profile settings; notes and settings always work without the relay. Details: [14-relay.md](14-relay.md), [decisions/0022-sync-client-dirty-flag-and-cursor.md](decisions/0022-sync-client-dirty-flag-and-cursor.md).
