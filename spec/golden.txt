@@ -94,3 +94,45 @@ level	0.05	0.958
 level	0.1	0.999
 level	0.3	1.000
 level	1	1.000
+# Voice notes: title = first 7 words (notes.auto_title / NoteLogic.autoTitle), ftsq = FTS5 match string
+# (notes.fts_query / NoteLogic.ftsQuery), remotewins = hasLocal localUpdated remoteUpdated remoteDeleted expected
+# (whether a note from the relay replaces the local copy: notes.apply_remote / NoteLogic.remoteWins).
+# Expected values were produced by running the Python functions.
+title		
+title	Hello	Hello
+title	one two three four five six seven	one two three four five six seven
+title	one two three four five six seven eight	one two three four five six seven...
+title	   padded words here   	padded words here
+title	alpha\tbeta\ngamma\n\ndelta\t\tepsilon	alpha beta gamma delta epsilon
+title	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+title	one two　three four five six seven eight nine	one two three four five six seven...
+title	He said "hello" to me and then left the room	He said "hello" to me and then...
+title	École café naïve über señor ñandú straße résumé	École café naïve über señor ñandú straße...
+ftsq		
+ftsq	hello	"hello"*
+ftsq	hello world	"hello"* "world"*
+ftsq	say "hi" there	"say"* "hi"* "there"*
+ftsq	x" OR "y	"x"* "OR"* "y"*
+ftsq	a"b	"a"* "b"*
+ftsq	"	
+ftsq	!!! ???	
+ftsq	  spaced   out  	"spaced"* "out"*
+ftsq	foo_bar 42	"foo_bar"* "42"*
+ftsq	well-known don't	"well"* "known"* "don"* "t"*
+ftsq	École café	"École"* "café"*
+ftsq	hi 😀 𝒜bc	"hi"* "𝒜bc"*
+ftsq	tab\tsep\nnl	"tab"* "sep"* "nl"*
+ftsq	café bar	"cafe"* "bar"*
+ftsq	one two	"one"* "two"*
+ftsq	x² Ⅷ ½	"x²"* "Ⅷ"* "½"*
+ftsq	١٢٣ abc	"١٢٣"* "abc"*
+ftsq	日本語 テスト	"日本語"* "テスト"*
+ftsq	_	"_"*
+remotewins	false	0	5	false	true
+remotewins	false	0	5	true	false
+remotewins	true	5	6	false	true
+remotewins	true	6	6	false	false
+remotewins	true	7	6	false	false
+remotewins	true	5	6	true	true
+remotewins	true	6	6	true	false
+remotewins	true	7	6	true	false

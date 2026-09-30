@@ -85,6 +85,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/Endpoint.java` | Server address rules (which hosts may use plain http). |
 | `android/src/com/minhaj/vox/Pcm.java` | Silence gate for raw 16-bit audio. |
 | `android/src/com/minhaj/vox/Corrections.java` | Suggests dictionary entries from a user's fix to a dictation. |
+| `android/src/com/minhaj/vox/NoteLogic.java` | Pure voice-note rules shared with `windows/notes.py`: automatic title, search string, which side wins a sync merge, tag clean-up, push batch size. |
 | `android/res/values/strings.xml` | App name and the accessibility service label and description. |
 | `android/res/xml/accessibility_config.xml` | Accessibility service configuration (event types, content access). |
 | `android/res/xml/network_security_config.xml` | Allows cleartext at OS level; the app enforces the private-host rule itself. |
@@ -120,11 +121,12 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_streaming.py` | The pause finder (`Segmenter`), the streaming worker, and the text half of the pipeline. |
 | `tests/test_engine_notes.py` | The engine's voice-note mode (skipped where the Windows runtime packages are missing). |
 | `tests/test_docs_todo.py` | The path-to-page rules of `documentation/tools/docs_todo.py`. |
-| `spec/golden.txt` | Shared expected results (sanitize, looks_valid, replacements, whisper prompt, terms, system prompt, spoken commands, silence). Read by the Python and Java parity tests. |
+| `spec/golden.txt` | Shared expected results (sanitize, looks_valid, replacements, whisper prompt, terms, system prompt, spoken commands, silence, note titles, note search strings, sync merge). Read by the Python and Java parity tests. |
 | `android/test/com/minhaj/vox/ApiClientTest.java` | Prompt, sanitize, replacements, retry policy, silence phrases. |
 | `android/test/com/minhaj/vox/EndpointTest.java` | Server address rules. |
 | `android/test/com/minhaj/vox/PcmTest.java` | Silence gate. |
 | `android/test/com/minhaj/vox/CorrectionsTest.java` | Correction suggestions. |
+| `android/test/com/minhaj/vox/NoteLogicTest.java` | Note rules beyond the golden rows: Python-style whitespace, tag clean-up and its cap, null inputs, merge edge cases. |
 | `android/test/com/minhaj/vox/ParityTest.java` | Runs `spec/golden.txt` against the Java helpers. |
 | `android/test/com/minhaj/vox/ProvidersTest.java` | Per-role settings, key rule, reasoning fields, messages (Java twin of part of `tests/test_providers.py`). |
 

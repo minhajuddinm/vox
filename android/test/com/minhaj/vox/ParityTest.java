@@ -97,6 +97,16 @@ public final class ParityTest {
                 case "silence":
                     eq(ln, kind, f[1], ApiClient.isSilenceHallucination(f[0]) ? "true" : "false");
                     break;
+                case "title":
+                    eq(ln, kind, f[1], NoteLogic.autoTitle(f[0]));
+                    break;
+                case "ftsq":
+                    eq(ln, kind, f[1], NoteLogic.ftsQuery(f[0]));
+                    break;
+                case "remotewins":
+                    eq(ln, kind, f[4], NoteLogic.remoteWins(f[0].equals("true"), Double.parseDouble(f[1]),
+                            Double.parseDouble(f[2]), f[3].equals("true")) ? "true" : "false");
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);

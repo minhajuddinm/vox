@@ -121,6 +121,9 @@ The same functions exist in both languages:
 | Per-role settings, model classification | `providers.role_settings`, `providers.classify` | `Providers.roleSettings`, `Providers.classify` |
 | About-you cleaning and the prompt with context | `clean_context`, `system_prompt` | `ApiClient.cleanContext`, `systemPrompt` |
 | Meter level | `level_from_rms` | `Pcm.levelFromRms` |
+| Voice-note title (first 7 words) and search string (`"word"*` tokens) | `notes.auto_title`, `notes.fts_query` | `NoteLogic.autoTitle`, `NoteLogic.ftsQuery` |
+| Which version wins a note sync (strictly newer; a tie keeps the local one; a delete of an unknown note is ignored) | `notes.apply_remote` | `NoteLogic.remoteWins` |
+| Tag clean-up (trim, no empties, no repeats) | `notes._tags` | `NoteLogic.cleanTags` (not in the golden file; see [12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md)) |
 
 `spec/golden.txt` holds expected results for the first eight rows; `tests/test_parity.py` and `android/test/.../ParityTest.java` both run it. See [decisions/0007-shared-golden-file.md](decisions/0007-shared-golden-file.md).
 

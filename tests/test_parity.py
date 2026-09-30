@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+import notes
 import providers
 import vox_core as core
 
@@ -36,8 +37,18 @@ def items(field, sep="|"):
     return [x for x in field.split(sep) if x]
 
 
+def remote_wins(has_local, local_updated, remote_updated, remote_deleted):
+    """True when notes.apply_remote lets a note from the relay replace the local copy (run against a temporary notes.db)."""
+    remote = {"id": "n1", "created_at": 1.0, "updated_at": remote_updated, "title": "remote", "text": "remote",
+              "deleted": remote_deleted}
+    if has_local:
+        notes.apply_remote(dict(remote, updated_at=local_updated, title="local", text="local", deleted=False))
+    return notes.apply_remote(remote)
+
+
 @pytest.mark.parametrize("kind,f", cases())
-def test_golden(kind, f):
+def test_golden(kind, f, tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))   # the notes rows use a real (temporary) notes.db
     if kind == "sanitize":
         assert core.sanitize(f[0]) == f[1]
     elif kind == "looks_valid":
@@ -64,5 +75,11 @@ def test_golden(kind, f):
         assert providers.classify(f[0]) == f[1]
     elif kind == "silence":
         assert core.is_silence_hallucination(f[0]) == (f[1] == "true")
+    elif kind == "title":
+        assert notes.auto_title(f[0]) == f[1]
+    elif kind == "ftsq":
+        assert notes.fts_query(f[0]) == f[1]
+    elif kind == "remotewins":
+        assert remote_wins(f[0] == "true", float(f[1]), float(f[2]), f[3] == "true") == (f[4] == "true")
     else:
         pytest.fail(f"unknown case kind {kind}")

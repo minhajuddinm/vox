@@ -74,7 +74,7 @@ Both platforms store the dictionary as lines: a plain line is a **term** (spelli
 
 ## The shared golden file (`spec/golden.txt`)
 
-One case per line, fields separated by TAB; `\n`, `\t`, `\\` are escapes; lists use `|`; replacement pairs use `;` between pairs and `=>` inside one. Kinds: `sanitize`, `looks_valid`, `replace`, `whisper`, `terms`, `prompt`, `spoken`, `silence`. `tests/test_parity.py` (Python) and `android/test/com/minhaj/vox/ParityTest.java` (Java) run every line. If you change any of these behaviours, change both implementations and the affected lines in the file (compute the expected value from the Python implementation and review it by hand). Never edit the file just to make one side pass.
+One case per line, fields separated by TAB; `\n`, `\t`, `\\` are escapes; lists use `|`; replacement pairs use `;` between pairs and `=>` inside one. Kinds: `sanitize`, `looks_valid`, `replace`, `whisper`, `terms`, `prompt`, `spoken`, `silence`, `title`, `ftsq`, `remotewins` (the last three are the voice-note rules: `notes.auto_title`, `notes.fts_query`, and `notes.apply_remote` against a temporary `notes.db`; Java: `NoteLogic`; a `remotewins` row is `hasLocal localUpdated remoteUpdated remoteDeleted expected`). `tests/test_parity.py` (Python) and `android/test/com/minhaj/vox/ParityTest.java` (Java) run every line. If you change any of these behaviours, change both implementations and the affected lines in the file (compute the expected value from the Python implementation and review it by hand). Never edit the file just to make one side pass.
 
 ## Per-role servers, model discovery and reasoning fields
 

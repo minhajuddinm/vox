@@ -73,7 +73,7 @@ Keys, defaults and formats: [07-config-and-data.md](07-config-and-data.md). Hist
 
 ## Helper classes (pure Java, unit-tested)
 
-`ApiClient` static helpers, `Terms`, `Endpoint`, `Pcm`, `Corrections`. They avoid Android APIs on purpose so CI can test them with plain `javac` and `java`. See [10-build-test-release.md](10-build-test-release.md).
+`ApiClient` static helpers, `Terms`, `Endpoint`, `Pcm`, `Corrections`, `NoteLogic` (the voice-note rules: title, search string, sync merge, tag clean-up; nothing in the app calls it yet, it is the groundwork for notes on the phone). They avoid Android APIs on purpose so CI can test them with plain `javac` and `java`. See [10-build-test-release.md](10-build-test-release.md).
 
 ## Not present on Android
 
