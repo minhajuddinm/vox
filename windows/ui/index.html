@@ -538,7 +538,16 @@ function renderStyles() {
     <td style="width:40px"><button class="icon-btn" data-rm="${esc(a)}">${ICON_DEL}</button></td></tr>`).join("") : '<tr><td class="empty">No apps yet.</td></tr>';
   const availableApps = S.apps.filter(a => !m[a]);
   $("new-app").innerHTML = availableApps.map(a => `<option value="${esc(a)}">${esc(a.replace(/\.exe$/i, ""))}</option>`).join("") + `<option value="">-- Select app --</option><option value="__other__">Other...</option>`;
-  $("new-app").value = "";
+
+  // Preserve "Other..." state if text box was visible and has content
+  const wasOther = $("new-app-other").style.display !== "none";
+  if (wasOther && $("new-app-other").value) {
+    $("new-app").value = "__other__";
+  } else {
+    $("new-app").value = "";
+    $("new-app-other").value = "";
+    $("new-app-other").style.display = "none";
+  }
 }
 $("default-style").onchange = (e) => save({ default_style: e.target.value });
 $("app-styles").onchange = (e) => { const a = e.target.dataset.app; if (!a) return; save({ app_styles: { ...S.config.app_styles, [a]: e.target.value } }); };
