@@ -8,7 +8,8 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 |---|---|---|---|---|---|
 | Speech to text with Whisper | yes | yes | orig | `vox_core.transcribe` / `ApiClient.transcribe` | py `test_endpoint_config` |
 | AI cleanup (fillers, self-corrections, punctuation, lists, numbers); phrases shorter than the `cleanup_min_words` setting (default 3) skip it | yes | yes | orig | `vox_core.cleanup`, `needs_cleanup` / `ApiClient.cleanup`, `needsCleanup` | py `test_vox_core`, `test_parity`; java `ApiClientTest`, `ParityTest` |
-| Tone per app (formal / neutral / casual / very casual / raw) | yes | yes | orig | `vox_core.style_for` / `Prefs.styleFor` | py `test_vox_core` || Personal dictionary: terms, people, `wrong => right` replacements | yes | yes | orig | `vox_core.dictionary_terms`, `apply_replacements` / `Terms`, `ApiClient.applyReplacements` | py + java parity |
+| Tone per app (formal / neutral / casual / very casual / raw) | yes | yes | orig | `vox_core.style_for` / `Prefs.styleFor` | py `test_vox_core` |
+| Personal dictionary: terms, people, `wrong => right` replacements | yes | yes | orig | `vox_core.dictionary_terms`, `apply_replacements` / `Terms`, `ApiClient.applyReplacements` | py + java parity |
 | Hold-to-talk shortcut, five choices | yes | - | orig | `Engine.on_combo_down/up` | - |
 | Hands-free mode (double-tap, press to finish, Esc cancels) | yes | - | orig | `Engine` | - |
 | Floating mic bubble (tap to start/stop, drag, long press) | - | yes | orig | `VoxAccessibilityService`, `BubbleView` | - |
