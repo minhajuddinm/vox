@@ -27,7 +27,7 @@ Put the API key in the window's Settings, or in `%APPDATA%\Vox\config.json` (it 
 
 | Suite | Command | Covers |
 |---|---|---|
-| Python | `python -m pytest -q` (from the repo root) | 349 tests at the time of writing: `tests/test_*.py` |
+| Python | `python -m pytest -q` (from the repo root) | 371 tests at the time of writing: `tests/test_*.py` (includes `tests/test_ui_static.py`, the text-only checks of the two HTML pages) |
 | Java | `bash android/run-tests.sh` (needs a JDK and `ANDROID_JAR`; see below) | 6 programs in `android/test/com/minhaj/vox/`, no device, no JUnit |
 | Parity | part of both suites | `spec/golden.txt` |
 | Docs | `python documentation/tools/check_docs.py` | tree, config keys, links, ADR index |
@@ -39,7 +39,9 @@ CI and local runs share one script, `android/run-tests.sh`. With a JDK (17) on `
 
 To type-check the Android code that the tests do not reach (`DictationService`, the services, `MainActivity`) without build-tools, run `bash android/compile-check.sh` (same `ANDROID_JAR`, JDK 17 on `PATH`): it compiles every file under `android/src` with `javac --release 8` against `android.jar` and prints `compile-check: OK (N files)`, or javac's errors and a non-zero exit. The `R.java` that aapt2 would generate is replaced by a stub built from the `R.<type>.<name>` uses in the sources, so a misspelled resource name is only a warning there (no match under `android/res`); only `android/build.sh` and CI fail on it. It is a local aid; CI does not run it.
 
-Not covered by tests: `engine.py`, `meeting.py`, `overlay.py`, `gcal.py`, `vcalendar.py`, `ui_app.py`, both HTML pages, `DictationService`, `VoxAccessibilityService`, `MainActivity`, `BubbleView`, `Prefs`. Verify those by hand or add tests when you touch them.
+Not covered by tests: `engine.py`, `meeting.py`, `overlay.py`, `gcal.py`, `vcalendar.py`, `ui_app.py`, what both HTML pages do, `DictationService`, `VoxAccessibilityService`, `MainActivity`, `BubbleView`, `Prefs`. Verify those by hand or add tests when you touch them.
+
+The two HTML pages get only static checks, in `tests/test_ui_static.py` (no browser, plain text and `ast`): every id a page looks up (`$("x")`, `getElementById`, `querySelector("#x")`, `setVal("x", ...)`) exists as `id="x"`; no id is used twice in the markup; every `pywebview.api.NAME` / `api().NAME` in the Windows page is a public method of `Api` in `ui_app.py` (parsed, not imported); every `V.NAME(` / `Vox.NAME(` in the Android page is a `@JavascriptInterface` method in `MainActivity.java`. Ids looked up through a computed name (`$(role + "-status")`) are listed by hand in `DYNAMIC_LOOKUPS` in that file, and a new computed lookup fails the test until it is added there with the ids it can resolve to. The checks do not see callbacks that Java calls in the page (`window.keyResult`, `window.modelsStt`, ...), `label for=` targets, or calls made through a variable.
 
 UI pages can be checked in a browser without the apps: Android's `index.html` runs with a built-in mock bridge; the Windows page needs a stub `window.pywebview.api` before it loads.
 
