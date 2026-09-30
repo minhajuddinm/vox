@@ -69,6 +69,7 @@ public class MainActivity extends Activity {
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 2);
         }
+        NoteEntry.applySettings(this);   // brings the "Record note" notification back (Android 14 lets users swipe it away)
     }
 
     private boolean isDark() {
@@ -121,6 +122,8 @@ public class MainActivity extends Activity {
                 cfg.put("cleanup_min_words", ApiClient.cleanMinWords(prefs.cleanupMinWords()));
                 cfg.put("keep_history", prefs.keepHistory());
                 cfg.put("only_typing", prefs.onlyWhenTyping());
+                cfg.put("note_bubble", prefs.noteBubble());
+                cfg.put("note_notification", prefs.noteNotification());
                 cfg.put("default_style", prefs.defaultStyle());
                 cfg.put("stt_model", prefs.sttModel());
                 cfg.put("llm_model", prefs.llmModel());
@@ -158,6 +161,8 @@ public class MainActivity extends Activity {
                 if (c.has("cleanup_min_words")) e.putString("cleanup_min_words", String.valueOf(ApiClient.cleanMinWords(c.getString("cleanup_min_words"))));
                 if (c.has("keep_history")) e.putBoolean("keep_history", c.getBoolean("keep_history"));
                 if (c.has("only_typing")) e.putBoolean("only_typing", c.getBoolean("only_typing"));
+                if (c.has("note_bubble")) e.putBoolean("note_bubble", c.getBoolean("note_bubble"));
+                if (c.has("note_notification")) e.putBoolean("note_notification", c.getBoolean("note_notification"));
                 if (c.has("default_style")) e.putString("default_style", c.getString("default_style"));
                 if (c.has("stt_model")) e.putString("stt_model", c.getString("stt_model"));
                 if (c.has("llm_model")) e.putString("llm_model", c.getString("llm_model"));
@@ -178,7 +183,11 @@ public class MainActivity extends Activity {
                     e.putString("app_styles", sb.toString());
                 }
                 e.apply();
-                main.post(() -> { VoxAccessibilityService a = VoxAccessibilityService.instance; if (a != null) a.refreshVisibility(); });
+                main.post(() -> {
+                    VoxAccessibilityService a = VoxAccessibilityService.instance;
+                    if (a != null) a.refreshVisibility();   // also shows or hides the note bubble
+                    NoteEntry.applySettings(MainActivity.this);   // and posts or removes the "Record note" notification
+                });
             } catch (Exception ignored) { }
         }
 

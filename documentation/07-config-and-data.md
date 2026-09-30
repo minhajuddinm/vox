@@ -73,6 +73,9 @@ Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_de
 | `keep_history` | bool | `true` | Save dictations. |
 | `only_typing` | bool | `true` | Show the bubble only while a text field is focused. |
 | `bubble_x`, `bubble_y` | int | -1 (default spot) | Saved bubble position. |
+| `note_bubble` | bool | `false` | Show the second, always-visible bubble that starts and stops a voice note (drawn by the accessibility service, independent of the focused field and of `only_typing`). |
+| `note_bubble_x`, `note_bubble_y` | int | -1 (default spot: right edge, 55% down) | Saved position of the note bubble. |
+| `note_notification` | bool | `false` | Keep an ongoing "Record note" notification in the shade. `Bridge.state` reports `note_bubble` and `note_notification`; `Bridge.save` accepts them. |
 | `history` | string (JSON array) | `[]` | Up to 500 entries, newest first. |
 
 ## Relay settings (`relay.json` in the relay's data folder: Windows `%APPDATA%\VoxRelay`, macOS `~/Library/Application Support/VoxRelay`, otherwise `~/.local/share/vox-relay`)
@@ -108,7 +111,7 @@ Files written by the app while it runs: `history.jsonl` is appended; `config.jso
 
 ## Files on the phone
 
-The SharedPreferences file above, plus `cache/vox_pending.wav` while a dictation is waiting to be sent or retried (deleted on success, on cancel, and when the service stops), plus the voice notes database `databases/notes.db` (with `notes.db-wal` and `notes.db-shm` while it is open; created by `NotesStore` the first time it is used). It has the same tables and columns as `notes.db` on the PC (see above): `notes` (`id`, `source`, `title`, `text`, `raw`, `created_at`, `updated_at`, `secs`, `device`, `tags`, `deleted`, `dirty`, `seq`), `sync_meta` (`key`, `value`) and, when the phone's SQLite has FTS5, `notes_fts`. A note's `id` is 32 lowercase hex characters and times are Unix seconds. Not encrypted; the app does not allow Android backup (`allowBackup="false"`), so the database is not copied to Google's cloud.
+The SharedPreferences file above, plus `cache/vox_pending.wav` while a dictation or a voice note is waiting to be sent or retried (deleted on success, on cancel, and when the service stops), plus the voice notes database `databases/notes.db` (with `notes.db-wal` and `notes.db-shm` while it is open; created by `NotesStore` the first time it is used). It has the same tables and columns as `notes.db` on the PC (see above): `notes` (`id`, `source`, `title`, `text`, `raw`, `created_at`, `updated_at`, `secs`, `device`, `tags`, `deleted`, `dirty`, `seq`), `sync_meta` (`key`, `value`) and, when the phone's SQLite has FTS5, `notes_fts`. A note's `id` is 32 lowercase hex characters and times are Unix seconds. Notes recorded on the phone (note mode) are added by `DictationService` with `source` `voice note`, the cleaned text in `text`, the transcript before cleanup in `raw`, `secs` from the recording and `device` from `Prefs.deviceName()`. Not encrypted; the app does not allow Android backup (`allowBackup="false"`), so the database is not copied to Google's cloud.
 
 ## Never commit
 
