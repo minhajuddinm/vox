@@ -27,7 +27,7 @@ Put the API key in the window's Settings, or in `%APPDATA%\Vox\config.json` (it 
 
 | Suite | Command | Covers |
 |---|---|---|
-| Python | `python -m pytest -q` (from the repo root) | 294 tests at the time of writing: `tests/test_*.py` |
+| Python | `python -m pytest -q` (from the repo root) | 313 tests at the time of writing: `tests/test_*.py` |
 | Java | compiled and run by CI (see below) | 5 programs in `android/test/com/minhaj/vox/`, no device, no JUnit |
 | Parity | part of both suites | `spec/golden.txt` |
 | Docs | `python documentation/tools/check_docs.py` | tree, config keys, links, ADR index |
@@ -88,3 +88,7 @@ Measured on 2026-09-30 by building with the CI flags (PyInstaller 6.22.3, `--one
 | Android APK | 56 KB (the CI artifact zip) | | no libraries, no fonts; nothing left to shrink |
 
 The rebuilt Windows app was started with a temporary settings folder: the engine and overlay came up and stayed running for 12 seconds with no errors in `vox.log`. What is left is mostly numpy, which `soundcard` (PC audio for meeting notes) and the dictation meter need; removing it would mean dropping or rewriting the meeting audio capture. Pillow's `_imagingft` (2 MB) and Tcl's `tzdata` (3 MB) could also go but were not tried.
+
+## Relay tests in CI
+
+Job `relay` (in `.github/workflows/build.yml`) runs `tests/test_relay.py` and `tests/test_relay_admin.py` with only pytest installed (the relay is standard library only) on Python 3.9 and 3.13 on x86 Linux and on Python 3.13 on arm64 Linux (`ubuntu-24.04-arm`, free for public repositories). This is what checks the relay on Linux, on the oldest supported Python and on the Raspberry Pi's processor family. `tests/conftest.py` puts `relay/` on the import path and skips its `vox_core` routing fixture when the Windows packages are missing.
