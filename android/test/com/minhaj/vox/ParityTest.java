@@ -36,6 +36,16 @@ public final class ParityTest {
         return out;
     }
 
+    /** ProfileMerge.merge3 on one field whose value on each side is a string, or "~" when the field is absent there. */
+    private static String mergedValue(String base, String local, String remote) {
+        Object v = ProfileMerge.merge3(absentIfTilde(base), absentIfTilde(local), absentIfTilde(remote));
+        return v == null ? "~" : (String) v;
+    }
+
+    private static String absentIfTilde(String v) {
+        return v.equals("~") ? null : v;
+    }
+
     private static void eq(int line, String kind, String expected, String actual) {
         checks++;
         if (!expected.equals(actual)) {
@@ -106,6 +116,12 @@ public final class ParityTest {
                 case "remotewins":
                     eq(ln, kind, f[4], NoteLogic.remoteWins(f[0].equals("true"), Double.parseDouble(f[1]),
                             Double.parseDouble(f[2]), f[3].equals("true")) ? "true" : "false");
+                    break;
+                case "merge3":
+                    eq(ln, kind, f[3], mergedValue(f[0], f[1], f[2]));
+                    break;
+                case "profilefields":
+                    eq(ln, kind, f[1], String.join("|", f[0].equals("keys") ? ProfileMerge.KEY_FIELDS : ProfileMerge.SHARED_FIELDS));
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);

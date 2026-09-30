@@ -73,7 +73,7 @@ Keys, defaults and formats: [07-config-and-data.md](07-config-and-data.md). Hist
 
 ## Helper classes (pure Java, unit-tested)
 
-`ApiClient` static helpers, `Terms`, `Endpoint`, `Pcm`, `Corrections`, `NoteLogic` (the voice-note rules: title, search words and string, sync merge, tag clean-up), `Note` (plain value class for one note) and `SyncStore` (interface for the sync; see the next section). Nothing in the app calls the note classes yet; they are the groundwork for notes on the phone. They avoid Android APIs on purpose so CI can test them with plain `javac` and `java`. See [10-build-test-release.md](10-build-test-release.md).
+`ApiClient` static helpers, `Terms`, `Endpoint`, `Pcm`, `Corrections`, `NoteLogic` (the voice-note rules: title, search words and string, sync merge, tag clean-up), `Note` (plain value class for one note), `SyncStore` (interface for the sync; see the next section) and `ProfileMerge` (the three-way merge of the profile that will follow the user between devices, and the lists of fields that travel; the same rule as `sync.merge3` on Windows). Nothing in the app calls the note classes yet; they are the groundwork for notes on the phone. They avoid Android APIs on purpose so CI can test them with plain `javac` and `java`. See [10-build-test-release.md](10-build-test-release.md).
 
 ## Voice notes store (`NotesStore`)
 

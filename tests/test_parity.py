@@ -6,6 +6,7 @@ import pytest
 
 import notes
 import providers
+import sync
 import vox_core as core
 
 GOLDEN = os.path.join(os.path.dirname(__file__), "..", "spec", "golden.txt")
@@ -46,6 +47,14 @@ def remote_wins(has_local, local_updated, remote_updated, remote_deleted):
     return notes.apply_remote(remote)
 
 
+def merged_value(base, local, remote):
+    """sync.merge3 on one profile field whose value on each side is a string, or "~" when the field is absent there;
+    the result in the same notation."""
+    def side(v):
+        return {} if v == "~" else {"k": v}
+    return sync.merge3(side(base), side(local), side(remote)).get("k", "~")
+
+
 @pytest.mark.parametrize("kind,f", cases())
 def test_golden(kind, f, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))   # the notes rows use a real (temporary) notes.db
@@ -81,5 +90,9 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert notes.fts_query(f[0]) == f[1]
     elif kind == "remotewins":
         assert remote_wins(f[0] == "true", float(f[1]), float(f[2]), f[3] == "true") == (f[4] == "true")
+    elif kind == "merge3":
+        assert merged_value(f[0], f[1], f[2]) == f[3]
+    elif kind == "profilefields":
+        assert "|".join(sync.PROFILE_KEY_FIELDS if f[0] == "keys" else sync.PROFILE_FIELDS) == f[1]
     else:
         pytest.fail(f"unknown case kind {kind}")
