@@ -11,6 +11,7 @@ import re
 import socket
 import threading
 import time
+import types
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -452,6 +453,235 @@ def test_a_trickling_upstream_hits_the_total_deadline_not_just_the_per_read_one(
     assert free_slots(server)
 
 
+# An upstream that keeps the exchange alive with a steady trickle of bytes that http.client takes for progress. Each
+# script below misbehaves for 4 s; the relay must give up after the total deadline (0.5 s here) whatever it does.
+def _for_four_seconds():
+    end = time.monotonic() + 4
+    while time.monotonic() < end:
+        yield
+
+
+def endless_continue(h, rec):
+    """'100 Continue' over and over: http.client loops over them inside one getresponse() call."""
+    try:
+        for _ in _for_four_seconds():
+            h.wfile.write(b"HTTP/1.1 100 Continue\r\n\r\n")
+            time.sleep(0.05)
+    except OSError:
+        pass
+
+
+def endless_trailers(h, rec):
+    """A complete chunked body, then trailer lines without end: one read1() loops over them."""
+    try:
+        h.wfile.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n")
+        for _ in _for_four_seconds():
+            h.wfile.write(b"X-Trailer: t\r\n")
+            time.sleep(0.05)
+        h.wfile.write(b"\r\n")
+    except OSError:
+        pass
+
+
+def trickled_status_line(h, rec):
+    """The status line, one byte every 100 ms: every single read is quick, the line as a whole is not."""
+    try:
+        for byte in b"HTTP/1.1 200 " + b"O" * 40 + b"\r\nContent-Length: 0\r\n\r\n":
+            h.wfile.write(bytes([byte]))
+            time.sleep(0.1)
+    except OSError:
+        pass
+
+
+def timers_running():
+    return [t for t in threading.enumerate() if isinstance(t, threading.Timer)]
+
+
+def wait_for_no_timers(seconds=2):
+    end = time.monotonic() + seconds
+    while timers_running() and time.monotonic() < end:
+        time.sleep(0.02)
+    return timers_running()
+
+
+@pytest.mark.parametrize("misbehaviour", [endless_continue, endless_trailers, trickled_status_line],
+                         ids=["endless-100-continue", "endless-trailer-lines", "trickled-status-line"])
+@pytest.mark.parametrize("route", [ROUTES[1], ROUTES[3]], ids=route_id)
+def test_an_upstream_that_keeps_the_exchange_moving_still_hits_the_total_deadline(server, stubs, monkeypatch, route, misbehaviour):
+    monkeypatch.setitem(relay.PROXY_TIMEOUT, "models", 0.5)
+    stub = stubs[0] if route[2] == "stt" else stubs[1]
+    stub.script = misbehaviour
+    t0 = time.monotonic()
+    resp = call(server, "GET", route[1])
+    took = time.monotonic() - t0
+    assert resp.status == 502 and resp.json() == {"error": {"message": "upstream unreachable"}}
+    assert took < 2.0
+    assert free_slots(server)
+    stub.script = None       # and the relay is fine afterwards
+    assert call(server, "GET", route[1]).status == 200
+
+
+def test_four_stuck_upstream_calls_do_not_use_up_the_slots_for_good(server, stubs, monkeypatch):
+    monkeypatch.setitem(relay.PROXY_TIMEOUT, "models", 0.5)
+    stubs[0].script = endless_continue
+    stubs[1].script = endless_trailers
+    results = []
+    threads = [threading.Thread(target=lambda r=r: results.append(call(server, "GET", r[1]).status)) for r in (ROUTES[1], ROUTES[3]) * 2]
+    t0 = time.monotonic()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert results == [502] * 4 and time.monotonic() - t0 < 3
+    assert free_slots(server)
+    stubs[0].script = stubs[1].script = None
+    assert call(server, "GET", STT_MODELS).status == 200 and call(server, "GET", LLM_MODELS).status == 200
+
+
+def crippled_sockets(monkeypatch, no_shutdown=False, no_clamp=False):
+    """The relay's sockets with one of its two safeguards switched off, to show that each one works on its own:
+    the watchdog's shutdown (on Windows a shutdown does not wake a read that is waiting with a timeout; on Linux a
+    read after the shutdown gives end-of-file, which http.client can take for a normal end) and the per-read timeout
+    that shrinks with the time left."""
+    class Sock(socket.socket):
+        def shutdown(self, how):
+            if not no_shutdown:
+                super().shutdown(how)
+
+        def settimeout(self, value):
+            super().settimeout(max(value, 10) if no_clamp else value)
+    fake_sockets(monkeypatch, socket.getaddrinfo, Sock)
+
+
+def test_an_end_that_looks_clean_after_the_cut_off_is_still_a_502(server, llm_stub, monkeypatch):
+    """With no shutdown and no clamp, the upstream finishes its chunked reply (trailers and all) only after the
+    deadline, so http.client sees a normal end: only the watchdog's flag can turn that 200 into a 502."""
+    monkeypatch.setitem(relay.PROXY_TIMEOUT, "models", 0.5)
+    crippled_sockets(monkeypatch, no_shutdown=True, no_clamp=True)
+
+    def late_end(h, rec):
+        h.wfile.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n")
+        time.sleep(0.9)
+        h.wfile.write(b"\r\n")
+    llm_stub.script = late_end
+    resp = call(server, "GET", LLM_MODELS)
+    assert resp.status == 502 and resp.json() == {"error": {"message": "upstream unreachable"}}
+    assert free_slots(server)
+
+    def in_time(h, rec):       # the same reply without the delay is an ordinary 200
+        h.wfile.write(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n")
+    monkeypatch.setattr(relay, "socket", socket)
+    llm_stub.script = in_time
+    resp = call(server, "GET", LLM_MODELS)
+    assert resp.status == 200 and resp.body == b"hello"
+
+
+def test_a_read_that_goes_quiet_is_cut_at_the_deadline_even_where_a_shutdown_cannot_wake_it(server, llm_stub, monkeypatch):
+    monkeypatch.setitem(relay.PROXY_TIMEOUT, "models", 1.0)
+    crippled_sockets(monkeypatch, no_shutdown=True)
+
+    def goes_quiet(h, rec):
+        h.wfile.write(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n" + b"x" * 10)
+        time.sleep(0.8)
+        h.wfile.write(b"x" * 10)    # a read starts right after this one, 0.2 s before the deadline, then nothing
+        time.sleep(4)
+    llm_stub.script = goes_quiet
+    t0 = time.monotonic()
+    resp = call(server, "GET", LLM_MODELS)
+    assert resp.status == 502 and time.monotonic() - t0 < 1.4      # (a whole new 1 s for the last read would end at 1.8 s)
+    assert free_slots(server)
+
+
+def test_the_watchdog_timer_is_gone_after_every_kind_of_exchange(server, stubs):
+    assert call(server, "GET", LLM_MODELS).status == 200
+    assert wait_for_no_timers() == []
+    hang_up(stubs[1])
+    assert call(server, "GET", LLM_MODELS).status == 502
+    assert wait_for_no_timers() == []
+    stubs[1].script = lambda h, rec: h.reply(302, b"", {"Location": "/x"})
+    assert call(server, "GET", LLM_MODELS).status == 502
+    assert wait_for_no_timers() == []
+
+
+# The connect phase is on the clock too: one deadline for the name lookup and all the connection attempts together.
+def fake_sockets(monkeypatch, lookup, sock_class):
+    """Replaces the `socket` module as the relay sees it (nothing else in the process changes)."""
+    ns = types.SimpleNamespace(**vars(socket))
+    ns.getaddrinfo, ns.socket = lookup, sock_class
+    monkeypatch.setattr(relay, "socket", ns)
+
+
+class Unreachable:
+    """A socket whose connect fails after 0.3 s, or when its timeout is over if that comes first."""
+    made = []
+
+    def __init__(self, *args):
+        self.timeout = None
+        Unreachable.made.append(self)
+
+    def settimeout(self, t):
+        self.timeout = t
+
+    def connect(self, address):
+        time.sleep(min(self.timeout, 0.3))
+        raise OSError("timed out")
+
+    def close(self):
+        pass
+
+
+def test_the_connection_attempts_share_the_deadline_instead_of_each_getting_the_whole_timeout(monkeypatch):
+    Unreachable.made = []
+    looked_up = []
+
+    def lookup(host, port, **kw):
+        looked_up.append((host, port))
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.%d" % i, port)) for i in range(1, 8)]
+    fake_sockets(monkeypatch, lookup, Unreachable)
+    t0 = time.monotonic()
+    with pytest.raises(relay.UpstreamError) as err:
+        relay.forward_upstream("http://many.example.test:8080/v1", "", "/models", "GET", b"", None, None, 0.5)
+    assert err.value.message == "upstream unreachable"
+    assert looked_up == [("many.example.test", 8080)]          # the fake was used, not the real resolver
+    assert time.monotonic() - t0 < 1.2                         # (seven attempts with a whole timeout each would be 2.1 s)
+    tries = [s.timeout for s in Unreachable.made]
+    assert 1 <= len(tries) <= 3 and tries[0] <= 0.5 and all(b < a for a, b in zip(tries, tries[1:]))   # each gets what is left
+
+
+def test_a_name_lookup_that_never_ends_is_cut_off_by_the_deadline(monkeypatch):
+    looked_up = []
+
+    def slow_lookup(host, port, **kw):
+        looked_up.append(host)
+        time.sleep(2)
+        return []
+    fake_sockets(monkeypatch, slow_lookup, Unreachable)
+    t0 = time.monotonic()
+    with pytest.raises(relay.UpstreamError) as err:
+        relay.forward_upstream("http://slow-dns.example.test/v1", "", "/models", "GET", b"", None, None, 0.4)
+    assert looked_up == ["slow-dns.example.test"]          # the fake was used, not the real resolver
+    assert err.value.message == "upstream unreachable" and time.monotonic() - t0 < 1.2
+
+
+@pytest.mark.parametrize("failure", [socket.gaierror(11001, "getaddrinfo failed"), UnicodeError("label empty or too long")],
+                         ids=["lookup-fails", "name-the-idna-codec-refuses"])
+def test_a_failed_name_lookup_is_the_same_502_text_at_once_and_does_not_show_the_name(monkeypatch, failure):
+    looked_up = []
+
+    def failing_lookup(host, port, **kw):
+        looked_up.append(host)
+        raise failure
+    fake_sockets(monkeypatch, failing_lookup, Unreachable)
+    crashed = []
+    monkeypatch.setattr(threading, "excepthook", crashed.append)     # the lookup runs in a helper thread: no traceback from it
+    t0 = time.monotonic()
+    with pytest.raises(relay.UpstreamError) as err:
+        relay.forward_upstream("http://secret-name.example.test/v1", "", "/models", "GET", b"", None, None, 5)
+    assert looked_up == ["secret-name.example.test"]
+    assert err.value.message == "upstream unreachable" and "secret-name" not in str(err.value)
+    assert time.monotonic() - t0 < 1 and crashed == []        # at once, not after the whole timeout
+
+
 def test_a_reply_cut_short_by_the_upstream_is_a_502_not_a_short_200(server, llm_stub):
     def script(h, rec):
         h.wfile.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n" + b"x" * 10)
@@ -496,6 +726,9 @@ def test_https_addresses_use_a_certificate_checking_connection(server, monkeypat
     class Fake:
         def __init__(self, host, port=None, timeout=None, **kw):
             made.append({"host": host, "port": port, "timeout": timeout, "kw": kw})
+
+        def connect(self):
+            raise OSError("no network in tests")
 
         def request(self, *a, **k):
             raise OSError("no network in tests")

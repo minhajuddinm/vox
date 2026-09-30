@@ -474,14 +474,52 @@ def _scrub(data, key):
     return data
 
 
+def _open_socket(host, port, deadline):
+    """A connected TCP socket to host:port, like socket.create_connection, except that the name lookup and all the
+    connection attempts share one deadline (a time.monotonic() value) instead of each getting a whole timeout. The
+    socket comes back with what is left as its timeout, which also bounds an https handshake. Raises OSError."""
+    found = []
+
+    def look_up():
+        try:
+            found.append(socket.getaddrinfo(host, port, type=socket.SOCK_STREAM))
+        except (OSError, ValueError) as e:     # (a host name the idna codec refuses is a UnicodeError, a ValueError)
+            found.append(e)
+    # getaddrinfo cannot be given a timeout: a helper thread lets us stop waiting for it (it ends when the resolver does)
+    t = threading.Thread(target=look_up, daemon=True)
+    t.start()
+    t.join(max(deadline - time.monotonic(), 0))
+    if not found:
+        raise OSError("name lookup timed out")
+    if isinstance(found[0], Exception):
+        raise found[0]
+    err = OSError("no address to connect to")
+    for family, kind, proto, _name, address in found[0]:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        s = socket.socket(family, kind, proto)
+        try:
+            s.settimeout(left)
+            s.connect(address)
+            s.settimeout(max(deadline - time.monotonic(), 0.001))
+            return s
+        except OSError as e:
+            err = e
+            s.close()
+    raise err
+
+
 def forward_upstream(base_url, api_key, suffix, method, body, content_type, accept, timeout):
     """One request to an upstream server. Returns (status, content type, retry-after or None, body bytes).
 
     The address is `base_url` plus `suffix`, nothing else. The only headers sent are the ones built here (the client's
     Authorization is never among them); the key is sent as a bearer token when there is one. `timeout` is the total for
-    the whole exchange, not per read. The answer is capped at MAX_PROXY_REPLY bytes, a redirect is not followed, and
-    the key is hidden if the server echoes it. Raises UpstreamError for anything that goes wrong; its text never holds
-    the address or the key."""
+    the whole exchange, not per read: name lookup and connecting share it (`_open_socket`), and once connected a timer
+    shuts the socket down when the time is up, because http.client has loops of its own (any number of "100 Continue"
+    answers, header bytes that trickle in, trailer lines without end) in which every single read is quick. The answer
+    is capped at MAX_PROXY_REPLY bytes, a redirect is not followed, and the key is hidden if the server echoes it.
+    Raises UpstreamError for anything that goes wrong; its text never holds the address or the key."""
     u = urlparse(base_url)
     https = u.scheme == "https"
     headers = {"User-Agent": "vox-relay"}
@@ -495,9 +533,23 @@ def forward_upstream(base_url, api_key, suffix, method, body, content_type, acce
         headers["Content-Length"] = str(len(body))
     deadline = time.monotonic() + timeout
     conn = (http.client.HTTPSConnection if https else http.client.HTTPConnection)(u.hostname, u.port or (443 if https else 80), timeout=timeout)
+    # http.client calls this (an instance attribute, set here) to open the TCP connection; https still wraps it its own way
+    conn._create_connection = lambda address, *_ignored: _open_socket(address[0], address[1], deadline)
+    expired = threading.Event()
+    watchdog = None
     try:
-        conn.request(method, u.path.rstrip("/") + suffix, body=body if method == "POST" else None, headers=headers)
+        conn.connect()
         sock = conn.sock     # kept now: http.client lets go of it when the server says it will close the connection
+
+        def time_up():
+            expired.set()
+            try:     # shutdown wakes a blocked read or write at once (close would not, on Linux); called on the base class
+                socket.socket.shutdown(sock, socket.SHUT_RDWR)    # so that an ssl socket is not touched from this thread
+            except (OSError, ValueError):
+                pass
+        watchdog = threading.Timer(max(deadline - time.monotonic(), 0), time_up)
+        watchdog.daemon = True
+        watchdog.start()
 
         def budget():
             left = deadline - time.monotonic()
@@ -506,6 +558,7 @@ def forward_upstream(base_url, api_key, suffix, method, body, content_type, acce
             if sock is not None:
                 sock.settimeout(left)
 
+        conn.request(method, u.path.rstrip("/") + suffix, body=body if method == "POST" else None, headers=headers)
         budget()
         resp = conn.getresponse()
         status = resp.status
@@ -526,8 +579,8 @@ def forward_upstream(base_url, api_key, suffix, method, body, content_type, acce
             if total > MAX_PROXY_REPLY:
                 raise UpstreamError("upstream reply too large")
             chunks.append(chunk)
-        if resp.length:      # it promised more bytes than it sent
-            raise UpstreamError("upstream unreachable")
+        if resp.length or expired.is_set():     # it promised more bytes than it sent, or the time ran out and the
+            raise UpstreamError("upstream unreachable")     # cut-off looked like a normal end (as it does after trailers)
         return (status, _plain_header(resp.getheader("Content-Type")) or "application/json",
                 _plain_header(resp.getheader("Retry-After"), 64), _scrub(b"".join(chunks), api_key))
     except UpstreamError:
@@ -535,6 +588,8 @@ def forward_upstream(base_url, api_key, suffix, method, body, content_type, acce
     except (OSError, http.client.HTTPException, ValueError):
         raise UpstreamError("upstream unreachable") from None
     finally:
+        if watchdog is not None:
+            watchdog.cancel()
         conn.close()
 
 
