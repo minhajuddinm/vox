@@ -28,6 +28,9 @@ Chronological notes on how the improvement series was made, what was found, and 
 
 Later the same day: PR 2 (the documentation folder) was merged upstream as `de839c8`. Added `documentation/tools/docs_todo.py` (maps changed files to the pages that describe them, tested in `tests/test_docs_todo.py`) and the project skill `vox-doc-sync`, so the documentation is synced at the end of every session ([decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)). The tool was tried on its own branch: it listed the three new files and the pages to update.
 
+## 2026-09-30, lighter Windows build (P8a, measured)
+Built Vox three ways in a throwaway environment: CI flags 85 MB (1,694 files); with Pillow's AVIF and WebP codecs excluded 77 MB. The biggest item is numpy (28 MB), needed by `soundcard` for meeting notes, so dropping `psutil` and `pyperclip` (small) was not worth the risk and numpy stays. The excluded build started with a temporary `APPDATA` (engine and overlay up, no errors). Android's CI artifact is 56 KB. Not measured: installer size, idle memory. First attempt failed because PyInstaller resolves a relative `--icon` against the spec folder.
+
 ## 2026-09-30, documentation sync after P1 to P4
 Ran the vox-doc-sync routine by hand (the skill is not listed in a session started outside `vox\`, and `/reload-skills` does not change that). Found stale: the privacy page (still said Groq only), the accessibility description string, the roadmap (item "run CI on pull requests" was done, numbering broken), the "CI only on tags" sentences in `AGENTS.md` and the skill itself, the verified-against line and test counts, missing glossary and architecture rows. Fixed all; no code behaviour changed except the accessibility description text.
 
