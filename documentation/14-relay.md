@@ -1,6 +1,6 @@
 # 14. The relay
 
-An optional server the user runs on their own machine (PC, Raspberry Pi, any Linux box) so a phone and a PC can share voice notes and a profile. **This page describes what exists in the code today: the server, its management page, and the Windows client (voice notes only). The Android app does not use it yet.** Set-up steps for a Raspberry Pi are in [../relay/README.md](../relay/README.md).
+An optional server the user runs on their own machine (PC, Raspberry Pi, any Linux box) so a phone and a PC can share voice notes and a profile. **This page describes what exists in the code today: the server, its management page, its proxy routes, and the Windows client (voice notes only). The Android app does not use it yet, and no app calls the proxy routes yet.** Set-up steps for a Raspberry Pi are in [../relay/README.md](../relay/README.md).
 
 ## What it is
 
@@ -10,11 +10,12 @@ An optional server the user runs on their own machine (PC, Raspberry Pi, any Lin
 |---|---|
 | Start | `python relay.py [--data-dir DIR] [--port N] [--owner LOGIN] [--show-token]`, or the same options after `Vox.exe --relay`; stops cleanly on Ctrl+C and on SIGTERM (systemd) |
 | Files | `relay/relay.py`, `relay/vox-relay.service` (systemd unit for Linux), `relay/README.md` (set-up guide) |
-| Data folder | Windows `%APPDATA%\VoxRelay`, macOS `~/Library/Application Support/VoxRelay`, elsewhere `$XDG_DATA_HOME/vox-relay` (default `~/.local/share/vox-relay`): `relay.json` (token, port, owner) and `relay.db` (SQLite, WAL). On POSIX the folder is `0700` and `relay.json` is created `0600`. |
+| Data folder | Windows `%APPDATA%\VoxRelay`, macOS `~/Library/Application Support/VoxRelay`, elsewhere `$XDG_DATA_HOME/vox-relay` (default `~/.local/share/vox-relay`): `relay.json` (token, port, owner, AI server settings) and `relay.db` (SQLite, WAL). On POSIX the folder is `0700` and `relay.json` is created `0600`. |
 | Reaching it | publish to the user's own tailnet: `tailscale serve --bg 8765` (HTTPS with a `*.ts.net` certificate, tailnet only). Never Funnel. |
 | Auth | every data request needs `Authorization: Bearer <token>` (constant-time compare). If `owner` is set, the `Tailscale-User-Login` header (added by `tailscale serve`) must match it. |
-| Limits | body 1 MB (a bigger upload is read and dropped, up to 5 MB, then answered 413 so the client sees the answer); note text 100,000 characters; 20 tags; profile 64 KB; a connection that stalls for 30 s is dropped |
-| Logging | no access log (paths carry search words and note ids); the management page keeps the last 100 requests in memory only (method, path with ids replaced, result, device name) |
+| Limits | body 1 MB (a bigger upload is read and dropped, up to 5 MB, then answered 413 so the client sees the answer); note text 100,000 characters; 20 tags; profile 64 KB; a connection that stalls for 30 s is dropped. The proxy routes have their own limits (see below). |
+| Logging | no access log (paths carry search words and note ids); the management page keeps the last 100 requests in memory only (method, path with ids replaced, result, device name). No request or answer body is ever logged, including on the proxy routes. |
+| Outgoing connections | only the proxy routes make any: one request at a time per call to the address saved for that role, with its key. Nothing else in the relay connects out. |
 
 ## Management page
 
@@ -26,6 +27,7 @@ An optional server the user runs on their own machine (PC, Raspberry Pi, any Lin
 | Notes | search, list, delete one note, export everything as JSON |
 | Devices and activity | devices that sent `X-Vox-Device` (last seen, request count, Tailscale user) and the last 100 requests |
 | Profile | the profile with keys, tokens, secrets and passwords hidden (any JSON key containing `key`, `token`, `secret` or `password`) |
+| AI server (proxy) | one block per role (speech to text, text cleanup): an address field, "key set: yes/no", a write-only key field, Save and Clear; the key is never shown again |
 | Maintenance | download a backup of the database, compact it, purge old delete markers, make a new token (the old one stops working at once) |
 
 The page is served with a Content-Security-Policy that allows only its own inline script and style through a fresh nonce per response, no framing, `connect-src 'self'`; it builds the page with `textContent` only, so note text is never interpreted as HTML (a test and a browser check with a `<script>` note confirm this).
@@ -47,9 +49,12 @@ The page is served with a Content-Security-Policy that allows only its own inlin
 | `GET /admin/profile` | the profile with secrets hidden |
 | `GET /admin/export` | all live notes as a JSON download |
 | `GET /admin/backup` | a consistent copy of `relay.db` (SQLite backup API) as a download |
+| `GET /admin/upstream` | `{stt: {base_url, key_set}, llm: {base_url, key_set}}`: the AI server address of each role and whether a key is stored; never the key |
+| `PUT /admin/upstream` with `{role, base_url, api_key?}` | sets one role (`stt` or `llm`); `api_key` omitted keeps the stored key (only while the address is unchanged), `""` clears it; `base_url` `""` clears the address and the key. Answer: the same shape as the GET. 400 with a message for a bad role, address or key; 409 when the relay has no data folder. |
 | `POST /admin/vacuum` | compacts the database |
 | `POST /admin/purge` with `{days}` | forgets delete markers older than `days` |
 | `POST /admin/rotate-token` | writes a new token to `relay.json` and adopts it; answer `{token}` |
+| `POST /proxy/stt/audio/transcriptions`, `GET /proxy/stt/models`, `POST /proxy/llm/chat/completions`, `GET /proxy/llm/models` | forwarded to the role's AI server; see "Proxy routes" below |
 
 Any client may send `X-Vox-Device: <name>` on every request so the page can show which devices use the relay. The `/admin` endpoints use the same token as the data endpoints (single user).
 
@@ -61,6 +66,35 @@ Note fields: `id` (32 lowercase hex characters, made by the client), `source`, `
 - **Sequence numbers:** the relay assigns `seq` (SQLite `AUTOINCREMENT`), so clients never compare clocks with each other to know what is new.
 - **Deletes:** kept as markers with no content so other devices learn about them. Purging markers means a device that was offline for longer than the purge age could bring a deleted note back.
 - **Profile:** an opaque JSON object; the relay does not look inside. If clients put API keys in it, they sit in `relay.db` unencrypted (see [09-security-privacy.md](09-security-privacy.md)).
+
+## AI server settings (proxy mode)
+
+Each role, `stt` (speech to text) and `llm` (text cleanup), can have an address and a key for an OpenAI-compatible server. They live in `relay.json` under `upstream` (see [07-config-and-data.md](07-config-and-data.md)); `rotate-token` and every save keep the rest of the file. The proxy routes below use them; the page and `GET /admin/upstream` show the address and whether a key is set, never the key.
+
+- **Address rules** (`upstream_problem` in `relay.py`; a short copy of the app's rule in `windows/vox_core.py`, because the relay cannot import app code): `http` or `https` only, a host, no user name or password, no query and no fragment (the relay will add fixed paths), no spaces or non-ASCII characters, at most 2048 characters. Plain `http` only for this machine, the home or office network and Tailscale (loopback, private and link-local addresses, `100.64.0.0/10`, one-label names, `.local`, `.lan` and `.ts.net` names); any other server needs `https`. A trailing `/` is dropped. The error messages never repeat the address.
+- **The key is write-only.** It is stored in `relay.json` in plain text (mode `0600` on POSIX), used only by the relay, and returned by no endpoint: not by `/admin/upstream` (only `key_set`), `/admin/status`, `/admin/activity`, `/admin/profile`, `/admin/export`, `/admin/backup` (the database does not hold it), `/profile`, error messages or the process output; tests check each of these. A key is 1 to 1024 printable ASCII characters without spaces (surrounding spaces are trimmed).
+- **A key belongs to its address.** Saving a different address without a new key removes the stored key, so a device that holds the token cannot point a role at another server and have the old key sent there. To move a role and keep working, send the new address together with its key.
+- Saves are written through a temporary file and a rename, one at a time, so `relay.json` is never half written.
+
+## Proxy routes
+
+Four routes let a client make its speech-to-text and text-cleanup calls through the relay, so the API key stays on the relay and the client only needs the relay token. They use the role's address and key from the settings above.
+
+| Request | Forwarded to |
+|---|---|
+| `POST /proxy/stt/audio/transcriptions` | `<stt address>/audio/transcriptions` (multipart audio upload) |
+| `GET /proxy/stt/models` | `<stt address>/models` |
+| `POST /proxy/llm/chat/completions` | `<llm address>/chat/completions` (JSON) |
+| `GET /proxy/llm/models` | `<llm address>/models` |
+
+- **The upstream URL is fixed.** It is the saved address plus the suffix in the table and nothing from the request: the path must equal a route exactly and the method must match (no decoding, no `..`, no `//`, no `;params`, no extra segments, no absolute-form target); anything else under `/proxy/` is 404. A query string is ignored and never forwarded.
+- **Order of checks.** Token (401) and owner (403) come first, before anything else, even where the role is not configured. Then: unknown route 404, unusable body framing 411 or 400, role not configured 503, body too large 413, no free slot 429, then the upstream call.
+- **What is sent upstream.** `Content-Type` (this keeps the multipart boundary; POST only), `Accept`, `Content-Length`, `User-Agent: vox-relay`, and `Authorization: Bearer <key>` only when a key is stored. Nothing else of the client's request goes on: its own `Authorization` (the relay token), `Tailscale-User-Login`, `X-Vox-Device`, cookies and forwarding headers stay behind, and a copied header value must be printable ASCII. The key goes only to the address of its own role. Outgoing connections use `http.client`; `https` addresses check the certificate (the default context, never switched off). A redirect from the upstream is not followed (502).
+- **What comes back.** The upstream status and body. Of its headers only `Content-Type` and `Retry-After` are copied (an upstream 429 keeps its `Retry-After`; the relay's own "busy" 429 is told apart by its body). The answer is read whole, up to 8 MB (more is a 502), so streaming answers are not supported. If the upstream repeats the key in its answer, as some servers do in error messages, the key is replaced with `***` (keys under 8 characters are not covered). Answers carry `Content-Security-Policy: default-src 'none'; sandbox`.
+- **Timeouts** are for the whole exchange (name lookup, connect, upload, wait, download): 180 s speech to text, 60 s text cleanup, 15 s model lists. The lookup and the connection attempts share the one deadline, and once connected a timer shuts the connection down when the time is up. That is what stops an upstream that keeps a reply moving so that no single read times out (endless `100 Continue` lines, a status line one byte at a time, trailer lines without end) from holding one of the four slots for ever; a reply that ends at the cut-off is never passed on as a success. On Linux a shut-down connection wakes a waiting read at once, so the cut is at the deadline (only CI runs the tests there; they were written and run on Windows). On Windows it does not wake it, so a read that is already waiting ends with its own timeout, which is never longer than the time left when it started: there the total can be almost twice the limit. A name lookup that never ends is abandoned at the deadline (its helper thread ends when the system resolver does and holds no slot). An upstream that is unreachable, too slow, hangs up or sends less than it promised gives 502 with `{"error": {"message": "upstream unreachable"}}` (the OpenAI shape, so the apps' existing error path shows the message; it never contains the address).
+- **Limits.** Request body: 25 MB for speech to text, 1 MB for text cleanup; both need a `Content-Length` (missing is 411, and chunked uploads are not supported, also 411). Too large is 413 by the same rule as the notes endpoints: up to 5 MB of the upload is read and dropped, and only while it keeps arriving, so the client sees the 413 and not a broken pipe. A body on a GET is read and dropped. At most 4 calls are in flight at once (a call holds its body in memory); the fifth gets 429 `{"error": "busy"}` at once.
+- **Errors made by the relay** use `{"error": "text"}` like the rest of the relay: 400 (bad or repeated `Content-Length`, body cut short), 404, 411, 413, 429, 503 ("not configured": the role has no address, or `relay.json` holds one that fails the address rules). An upstream's own errors pass through unchanged.
+- **Device counting and activity** work as for every other request (`X-Vox-Device`); no request or answer body is logged or kept.
 
 ## Clients
 
@@ -80,4 +114,4 @@ The tray menu has a checkbox **Run relay on this PC** (setting `relay_run`, port
 
 ## Not built yet
 
-Android client and outbox, syncing dictation history, meetings and per-app styles, audio blobs, proxy mode (the relay making the speech and cleanup calls so keys never leave it), restoring a backup from the page, a guided `tailscale serve` set-up inside the apps (today the tray item shows the command once), a Settings-page switch for the PC's own relay (only the tray item exists). Verified only on Windows and, through CI, on x86 and arm64 Linux; the systemd unit, the Raspberry Pi steps and a real phone or PC reaching the relay through `tailscale serve` have not been tried. Decision records: [decisions/0020-relay-design.md](decisions/0020-relay-design.md), [decisions/0021-relay-portable-with-a-web-page.md](decisions/0021-relay-portable-with-a-web-page.md).
+Android client and outbox, syncing dictation history, meetings and per-app styles, audio blobs, the apps' switch that sends their speech and cleanup calls through the proxy routes (only the routes exist; they have been tested against a stand-in server, not a real speech or chat server), restoring a backup from the page, a guided `tailscale serve` set-up inside the apps (today the tray item shows the command once), a Settings-page switch for the PC's own relay (only the tray item exists). Verified only on Windows and, through CI, on x86 and arm64 Linux; the systemd unit, the Raspberry Pi steps and a real phone or PC reaching the relay through `tailscale serve` have not been tried. Decision records: [decisions/0020-relay-design.md](decisions/0020-relay-design.md), [decisions/0021-relay-portable-with-a-web-page.md](decisions/0021-relay-portable-with-a-web-page.md).
