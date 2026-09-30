@@ -60,12 +60,18 @@ def _llm(cfg, system, user, max_tokens=4096, effort="medium"):
         "max_tokens": max_tokens,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
     }
-    if "gpt-oss" in model:
-        body["reasoning_effort"] = effort
-        body["include_reasoning"] = False
-    r = core.post_with_retry(f"{core.api_base(cfg)}/chat/completions", headers=core.auth_headers(cfg),
+    base = core.api_base(cfg, "llm")
+    extra = {"reasoning_effort": effort, "include_reasoning": False} if core.providers.reasoning_params(cfg, base, model) else {}
+    body.update(extra)
+    r = core.post_with_retry(f"{base}/chat/completions", headers=core.auth_headers(cfg, "llm"),
                    json=body, timeout=240)
-    return core.sanitize(core.check_response(r)["choices"][0]["message"].get("content", ""))
+    if extra and r.status_code in (400, 422):
+        core.providers.remember_rejected(base, model)
+        for k in extra:
+            body.pop(k, None)
+        r = core.post_with_retry(f"{base}/chat/completions", headers=core.auth_headers(cfg, "llm"),
+                       json=body, timeout=240)
+    return core.sanitize(core.providers.strip_think(core.check_response(r)["choices"][0]["message"].get("content", "")))
 
 
 # --------------------------------------------------------------------- prompts

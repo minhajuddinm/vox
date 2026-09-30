@@ -61,3 +61,20 @@ silence	Thank you for the update on Friday	false
 silence		false
 silence	you you	false
 silence	Bye bye	false
+models	whisper-large-v3-turbo	stt
+models	whisper-large-v3	stt
+models	distil-whisper-large-v3-en	stt
+models	gpt-4o-transcribe	stt
+models	voxtral-mini-latest	stt
+models	Systran/faster-whisper-large-v3	stt
+models	openai/gpt-oss-20b	llm
+models	llama-3.1-8b-instant	llm
+models	qwen2.5:3b	llm
+models	mistral-large-latest	llm
+models	canopylabs/orpheus-v1-english	hidden
+models	playai-tts	hidden
+models	meta-llama/llama-prompt-guard-2-86m	hidden
+models	openai/gpt-oss-safeguard-20b	hidden
+models	text-embedding-3-small	hidden
+models	gpt-4o-mini-tts	hidden
+models	dall-e-3	hidden

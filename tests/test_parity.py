@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+import providers
 import vox_core as core
 
 GOLDEN = os.path.join(os.path.dirname(__file__), "..", "spec", "golden.txt")
@@ -53,6 +54,8 @@ def test_golden(kind, f):
         assert core.system_prompt(f[0], items(f[1]), f[2]) == f[3]
     elif kind == "spoken":
         assert core.apply_spoken_commands(f[0]) == f[1]
+    elif kind == "models":
+        assert providers.classify(f[0]) == f[1]
     elif kind == "silence":
         assert core.is_silence_hallucination(f[0]) == (f[1] == "true")
     else:
