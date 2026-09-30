@@ -14,6 +14,7 @@ import argparse
 import collections
 import contextlib
 import hmac
+import ipaddress
 import json
 import math
 import os
@@ -33,6 +34,9 @@ MAX_BODY = 1_000_000        # bytes accepted in one request
 MAX_TEXT = 100_000          # characters kept per text field
 MAX_TAGS = 20
 MAX_PROFILE = 64_000        # bytes of profile JSON
+MAX_URL = 2048              # characters in an upstream server address
+MAX_KEY = 1024              # characters in an upstream API key
+UPSTREAM_ROLES = ("stt", "llm")
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 ID_IN_PATH = re.compile(r"[0-9a-f]{32}")
 SECRET_WORDS = ("key", "token", "secret", "password")
@@ -356,6 +360,75 @@ def rotate_token(data_dir):
     return cfg["token"]
 
 
+# --------------------------------------------------------- upstream servers
+# Proxy mode: for each role ("stt" speech to text, "llm" text cleanup) the relay keeps the address of an
+# OpenAI-compatible server and the key for it, so the apps never need the key. The key is write-only: it lives in
+# relay.json, only the relay uses it, and no endpoint returns it.
+_KEY_RE = re.compile(r"[\x21-\x7e]*")      # printable ASCII without spaces: safe in an Authorization header
+_HOST_RE = re.compile(r"[a-z0-9._-]+")
+
+
+def is_private_host(host):
+    """True for hosts where plain http is acceptable: this machine, the home or office LAN and Tailscale.
+    The same rule as windows/vox_core.py (the relay cannot import app code)."""
+    host = (host or "").strip("[]").lower().rstrip(".")
+    if not host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        # A name: single-label names, .local/.lan and Tailscale MagicDNS names never leave the private network.
+        return "." not in host or host.endswith((".local", ".lan", ".ts.net"))
+    return ip.is_loopback or ip.is_private or ip.is_link_local or ip in ipaddress.ip_network("100.64.0.0/10")
+
+
+def upstream_problem(url):
+    """Why `url` cannot be an upstream server address, or None when it is fine.
+
+    Only http and https, a host, no user name or password, no query and no fragment (the relay adds fixed paths to the
+    address), and plain http only for private hosts because the key and the audio travel to it. The messages never
+    repeat the address, which might hold a secret."""
+    if not isinstance(url, str) or not url:
+        return "The server address is empty."
+    if len(url) > MAX_URL or any(ord(c) <= 32 or ord(c) >= 127 for c in url):
+        return "The server address is too long or has spaces or unusual characters."
+    try:
+        u = urlparse(url)
+        host = u.hostname
+        u.port   # raises ValueError when the port is not a number in range
+    except ValueError:
+        return "The server address is not valid."
+    if u.scheme not in ("http", "https") or not host:
+        return "The server address must start with http:// or https:// and name a host."
+    if "@" in u.netloc:
+        return "The server address must not contain a user name or password. The key goes in the key field."
+    if "#" in url or "?" in url:
+        return "The server address must not contain a query (?) or a fragment (#)."
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        if not _HOST_RE.fullmatch(host):
+            return "The server address has an invalid host name."
+    if u.scheme == "http" and not is_private_host(host):
+        return "Plain http is only allowed for this PC, your local network or Tailscale. Use https:// for other servers."
+    return None
+
+
+def _clean_url(text):
+    return text.strip().rstrip("/")
+
+
+def upstream_settings(block):
+    """The `upstream` value of relay.json as {"stt": {"base_url", "api_key"}, "llm": {...}}: both roles always there,
+    every value a string (anything else, for example from a hand edit, reads as not set)."""
+    block = block if isinstance(block, dict) else {}
+    out = {}
+    for role in UPSTREAM_ROLES:
+        entry = block.get(role) if isinstance(block.get(role), dict) else {}
+        out[role] = {k: entry[k] if isinstance(entry.get(k), str) else "" for k in ("base_url", "api_key")}
+    return out
+
+
 # ------------------------------------------------------------------- server
 class Handler(BaseHTTPRequestHandler):
     server_version = "VoxRelay"
@@ -518,8 +591,20 @@ class Handler(BaseHTTPRequestHandler):
         if method == "POST" and what == "rotate-token":
             if not srv.data_dir:
                 return self._send(409, {"error": "this relay was started without a data folder"})
-            srv.token = rotate_token(srv.data_dir)
+            with srv.config_lock:
+                srv.token = rotate_token(srv.data_dir)
             return self._send(200, {"token": srv.token})
+        if method == "GET" and what == "upstream":
+            return self._send(200, srv.upstream_view())   # addresses and "key set" flags, never a key
+        if method == "PUT" and what == "upstream":
+            if not srv.data_dir:
+                return self._send(409, {"error": "this relay was started without a data folder"})
+            body = self._json_body()
+            if not isinstance(body, dict):
+                raise BadRequest("the body must be a JSON object")
+            if "base_url" not in body:
+                raise BadRequest('base_url is required (use "" to clear the address)')
+            return self._send(200, srv.set_upstream(body.get("role"), body["base_url"], body.get("api_key")))
         return self._send(404 if method == "GET" else 405, {"error": "unknown request"})
 
     def do_GET(self):
@@ -538,9 +623,11 @@ class Handler(BaseHTTPRequestHandler):
 class RelayServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, addr, store, token, owner="", data_dir=None):
+    def __init__(self, addr, store, token, owner="", data_dir=None, upstream=None):
         super().__init__(addr, Handler)
         self.store, self.token, self.owner, self.data_dir = store, token, owner, data_dir
+        self.upstream = upstream_settings(upstream)   # replaced as a whole, never changed in place
+        self.config_lock = threading.Lock()           # one writer at a time for relay.json
         self.started = time.time()
         self._events = collections.deque(maxlen=100)
         self._counts = {"requests": 0, "errors": 0, "auth_failures": 0, "last_auth_failure": None}
@@ -557,6 +644,45 @@ class RelayServer(ThreadingHTTPServer):
         with self._mlock:
             self._counts["auth_failures"] += 1
             self._counts["last_auth_failure"] = time.time()
+
+    def upstream_view(self):
+        """Each role's address and whether a key is stored: what the management page and GET /admin/upstream show."""
+        return {role: {"base_url": s["base_url"], "key_set": bool(s["api_key"])} for role, s in self.upstream.items()}
+
+    def set_upstream(self, role, base_url, api_key=None):
+        """Saves one role's server address and key in relay.json and returns the new view.
+
+        `api_key` None keeps the stored key, but only while the address is unchanged: a key belongs to the address it was
+        saved for, so moving a role to another server drops it unless a new key comes with the move. "" clears it.
+        `base_url` "" clears the address. Raises BadRequest; its message never repeats the address or the key."""
+        if not isinstance(role, str) or role not in UPSTREAM_ROLES:
+            raise BadRequest('role must be "stt" or "llm"')
+        if not isinstance(base_url, str):
+            raise BadRequest("base_url must be text")
+        base_url = _clean_url(base_url)
+        if base_url:
+            problem = upstream_problem(base_url)
+            if problem:
+                raise BadRequest(problem)
+        if api_key is not None:
+            if not isinstance(api_key, str):
+                raise BadRequest("api_key must be text")
+            api_key = api_key.strip()
+            if len(api_key) > MAX_KEY or not _KEY_RE.fullmatch(api_key):
+                raise BadRequest("The key is too long or has spaces or unusual characters.")
+        with self.config_lock:
+            cfg = load_config(self.data_dir)   # the file is the truth: keeps the token and every key this code does not know
+            block = dict(cfg["upstream"]) if isinstance(cfg.get("upstream"), dict) else {}
+            entry = dict(block[role]) if isinstance(block.get(role), dict) else {}
+            old = upstream_settings(block)[role]
+            if api_key is None:
+                api_key = old["api_key"] if _clean_url(old["base_url"]) == base_url else ""
+            entry.update(base_url=base_url, api_key=api_key)
+            block[role] = entry
+            cfg["upstream"] = block
+            _write_config(os.path.join(self.data_dir, "relay.json"), cfg)
+            self.upstream = upstream_settings(block)
+        return self.upstream_view()
 
     def recent(self):
         with self._mlock:
@@ -577,7 +703,7 @@ def make_server(data_dir, port=None, owner=None, use_fts=True):
     cfg = load_config(data_dir, port=port if port else None, owner=owner)
     listen = cfg["port"] if port is None else port
     store = RelayStore(os.path.join(data_dir, "relay.db"), use_fts=use_fts)
-    return RelayServer(("127.0.0.1", listen), store, cfg["token"], cfg.get("owner", ""), data_dir=data_dir)
+    return RelayServer(("127.0.0.1", listen), store, cfg["token"], cfg.get("owner", ""), data_dir=data_dir, upstream=cfg.get("upstream"))
 
 
 def main(argv=None):
@@ -676,7 +802,7 @@ const h = (tag, attrs, ...kids) => {
 };
 let token = sessionStorage.getItem("vrt") || localStorage.getItem("vrt") || "";
 let tab = "overview", timer = null;
-const TABS = [["overview", "Overview"], ["notes", "Notes"], ["activity", "Devices and activity"], ["profile", "Profile"], ["tools", "Maintenance"]];
+const TABS = [["overview", "Overview"], ["notes", "Notes"], ["activity", "Devices and activity"], ["profile", "Profile"], ["upstream", "AI server (proxy)"], ["tools", "Maintenance"]];
 
 async function api(path, opts) {
   const o = opts || {};
@@ -704,7 +830,7 @@ async function signIn(t, remember) {
 function show(name) {
   tab = name; clearInterval(timer);
   $("#tabs").replaceChildren(...TABS.map(([id, label]) => h("button", { class: id === name ? "on" : "", onclick: () => show(id) }, label)));
-  const draw = { overview, notes, activity, profile, tools }[name];
+  const draw = { overview, notes, activity, profile, upstream, tools }[name];
   const run = () => draw().catch((e) => { $("#view").replaceChildren(h("div", { class: "box bad" }, "Could not load: " + e.message)); });
   run();
   if (name === "overview" || name === "activity") { timer = setInterval(run, 10000); $("#live").textContent = "refreshes every 10 s"; } else $("#live").textContent = "";
@@ -753,6 +879,41 @@ async function profile() {
   const p = await getJson("/admin/profile");
   $("#view").replaceChildren(h("div", { class: "box" }, h("h2", {}, "Profile, version " + p.version),
     h("p", { class: "muted" }, "Keys, tokens and passwords are hidden here. The devices get the real values."), h("pre", {}, JSON.stringify(p.data, null, 2))));
+}
+
+async function upstream() {
+  const d = await getJson("/admin/upstream");
+  const role = (id, title, what) => {
+    const url = h("input", { class: "grow", placeholder: "https://api.example.com/v1", autocomplete: "off", spellcheck: "false", "aria-label": title + ": server address" });
+    const key = h("input", { type: "password", class: "grow", autocomplete: "new-password", "aria-label": title + ": API key (write-only)" });
+    const state = h("p", {}), msg = h("p", { class: "muted" });
+    const paint = (v) => {   // the key field is never filled in: the relay does not send keys back
+      url.value = v.base_url; key.value = "";
+      key.placeholder = v.key_set ? "A key is saved. Type a new one to replace it." : "API key (leave empty if the server needs none)";
+      state.replaceChildren("key set: ", h("strong", { class: v.key_set ? "ok" : "muted" }, v.key_set ? "yes" : "no"));
+    };
+    const send = async (body, done) => {
+      try {
+        const r = await api("/admin/upstream", { method: "PUT", body: JSON.stringify(Object.assign({ role: id }, body)) });
+        const out = await r.json();
+        if (!r.ok) { msg.className = "bad"; msg.textContent = out.error || "Could not save."; return; }
+        paint(out[id]); msg.className = "ok"; msg.textContent = done;
+      } catch (e) { msg.className = "bad"; msg.textContent = e.message; }
+    };
+    paint(d[id]);
+    return h("div", { class: "box" }, h("h2", {}, title), h("p", { class: "muted" }, what),
+      h("div", { class: "row" }, h("label", { class: "muted" }, "Address"), url), state,
+      h("div", { class: "row" }, h("label", { class: "muted" }, "Key"), key),
+      h("div", { class: "row" },
+        h("button", { class: "b", onclick: () => send(key.value ? { base_url: url.value.trim(), api_key: key.value } : { base_url: url.value.trim() }, "Saved.") }, "Save"),
+        h("button", { class: "b g", onclick: () => { if (confirm("Remove the address and the key for " + title + "?")) send({ base_url: "", api_key: "" }, "Cleared."); } }, "Clear")),
+      msg);
+  };
+  $("#view").replaceChildren(
+    h("div", { class: "box" }, h("h2", {}, "AI server (proxy)"),
+      h("p", { class: "muted" }, "The server the relay sends each kind of request to, and the key it uses there. A key is write-only: it is stored on this machine and used by the relay, and it is never shown again, not even here. Changing the address removes the saved key unless you type a new one. Plain http is only accepted for this machine, your local network and Tailscale.")),
+    role("stt", "Speech to text", "Turns a recording into text."),
+    role("llm", "Text cleanup", "Tidies the text after it has been transcribed."));
 }
 
 async function download(path, name) {

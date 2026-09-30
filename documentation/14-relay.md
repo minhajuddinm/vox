@@ -10,7 +10,7 @@ An optional server the user runs on their own machine (PC, Raspberry Pi, any Lin
 |---|---|
 | Start | `python relay.py [--data-dir DIR] [--port N] [--owner LOGIN] [--show-token]`; stops cleanly on Ctrl+C and on SIGTERM (systemd) |
 | Files | `relay/relay.py`, `relay/vox-relay.service` (systemd unit for Linux), `relay/README.md` (set-up guide) |
-| Data folder | Windows `%APPDATA%\VoxRelay`, macOS `~/Library/Application Support/VoxRelay`, elsewhere `$XDG_DATA_HOME/vox-relay` (default `~/.local/share/vox-relay`): `relay.json` (token, port, owner) and `relay.db` (SQLite, WAL). On POSIX the folder is `0700` and `relay.json` is created `0600`. |
+| Data folder | Windows `%APPDATA%\VoxRelay`, macOS `~/Library/Application Support/VoxRelay`, elsewhere `$XDG_DATA_HOME/vox-relay` (default `~/.local/share/vox-relay`): `relay.json` (token, port, owner, AI server settings) and `relay.db` (SQLite, WAL). On POSIX the folder is `0700` and `relay.json` is created `0600`. |
 | Reaching it | publish to the user's own tailnet: `tailscale serve --bg 8765` (HTTPS with a `*.ts.net` certificate, tailnet only). Never Funnel. |
 | Auth | every data request needs `Authorization: Bearer <token>` (constant-time compare). If `owner` is set, the `Tailscale-User-Login` header (added by `tailscale serve`) must match it. |
 | Limits | body 1 MB (a bigger upload is read and dropped, up to 5 MB, then answered 413 so the client sees the answer); note text 100,000 characters; 20 tags; profile 64 KB; a connection that stalls for 30 s is dropped |
@@ -26,6 +26,7 @@ An optional server the user runs on their own machine (PC, Raspberry Pi, any Lin
 | Notes | search, list, delete one note, export everything as JSON |
 | Devices and activity | devices that sent `X-Vox-Device` (last seen, request count, Tailscale user) and the last 100 requests |
 | Profile | the profile with keys, tokens, secrets and passwords hidden (any JSON key containing `key`, `token`, `secret` or `password`) |
+| AI server (proxy) | one block per role (speech to text, text cleanup): an address field, "key set: yes/no", a write-only key field, Save and Clear; the key is never shown again |
 | Maintenance | download a backup of the database, compact it, purge old delete markers, make a new token (the old one stops working at once) |
 
 The page is served with a Content-Security-Policy that allows only its own inline script and style through a fresh nonce per response, no framing, `connect-src 'self'`; it builds the page with `textContent` only, so note text is never interpreted as HTML (a test and a browser check with a `<script>` note confirm this).
@@ -47,6 +48,8 @@ The page is served with a Content-Security-Policy that allows only its own inlin
 | `GET /admin/profile` | the profile with secrets hidden |
 | `GET /admin/export` | all live notes as a JSON download |
 | `GET /admin/backup` | a consistent copy of `relay.db` (SQLite backup API) as a download |
+| `GET /admin/upstream` | `{stt: {base_url, key_set}, llm: {base_url, key_set}}`: the AI server address of each role and whether a key is stored; never the key |
+| `PUT /admin/upstream` with `{role, base_url, api_key?}` | sets one role (`stt` or `llm`); `api_key` omitted keeps the stored key (only while the address is unchanged), `""` clears it; `base_url` `""` clears the address and the key. Answer: the same shape as the GET. 400 with a message for a bad role, address or key; 409 when the relay has no data folder. |
 | `POST /admin/vacuum` | compacts the database |
 | `POST /admin/purge` with `{days}` | forgets delete markers older than `days` |
 | `POST /admin/rotate-token` | writes a new token to `relay.json` and adopts it; answer `{token}` |
@@ -62,6 +65,15 @@ Note fields: `id` (32 lowercase hex characters, made by the client), `source`, `
 - **Deletes:** kept as markers with no content so other devices learn about them. Purging markers means a device that was offline for longer than the purge age could bring a deleted note back.
 - **Profile:** an opaque JSON object; the relay does not look inside. If clients put API keys in it, they sit in `relay.db` unencrypted (see [09-security-privacy.md](09-security-privacy.md)).
 
+## AI server settings (proxy mode, settings only)
+
+Each role, `stt` (speech to text) and `llm` (text cleanup), can have an address and a key for an OpenAI-compatible server. They live in `relay.json` under `upstream` (see [07-config-and-data.md](07-config-and-data.md)); `rotate-token` and every save keep the rest of the file. **Nothing uses them yet:** the proxy routes that would send requests to these servers are the next step, so today the relay stores the settings and shows whether a key is set.
+
+- **Address rules** (`upstream_problem` in `relay.py`; a short copy of the app's rule in `windows/vox_core.py`, because the relay cannot import app code): `http` or `https` only, a host, no user name or password, no query and no fragment (the relay will add fixed paths), no spaces or non-ASCII characters, at most 2048 characters. Plain `http` only for this machine, the home or office network and Tailscale (loopback, private and link-local addresses, `100.64.0.0/10`, one-label names, `.local`, `.lan` and `.ts.net` names); any other server needs `https`. A trailing `/` is dropped. The error messages never repeat the address.
+- **The key is write-only.** It is stored in `relay.json` in plain text (mode `0600` on POSIX), used only by the relay, and returned by no endpoint: not by `/admin/upstream` (only `key_set`), `/admin/status`, `/admin/activity`, `/admin/profile`, `/admin/export`, `/admin/backup` (the database does not hold it), `/profile`, error messages or the process output; tests check each of these. A key is 1 to 1024 printable ASCII characters without spaces (surrounding spaces are trimmed).
+- **A key belongs to its address.** Saving a different address without a new key removes the stored key, so a device that holds the token cannot point a role at another server and have the old key sent there. To move a role and keep working, send the new address together with its key.
+- Saves are written through a temporary file and a rename, one at a time, so `relay.json` is never half written.
+
 ## Clients
 
 - **Windows:** `windows/sync.py` (settings `relay_sync`, `relay_url`, `relay_token`, `device_name`). It sends changed voice notes with `PUT /notes/{id}`, fetches `GET /changes` from its stored cursor and merges by `updated_at`; it runs at start, every 90 seconds and after each saved note, and sends `X-Vox-Device`. See [decisions/0022-sync-client-dirty-flag-and-cursor.md](decisions/0022-sync-client-dirty-flag-and-cursor.md).
@@ -70,4 +82,4 @@ Note fields: `id` (32 lowercase hex characters, made by the client), `source`, `
 
 ## Not built yet
 
-Android client and outbox, syncing dictation history, meetings and per-app styles, audio blobs, proxy mode (the relay making the speech and cleanup calls so keys never leave it), a tray toggle or `Vox.exe --relay`, restoring a backup from the page, `tailscale serve` set-up help inside the apps. Verified only on Windows and, through CI, on x86 and arm64 Linux; the systemd unit, the Raspberry Pi steps and a real phone or PC reaching the relay through `tailscale serve` have not been tried. Decision records: [decisions/0020-relay-design.md](decisions/0020-relay-design.md), [decisions/0021-relay-portable-with-a-web-page.md](decisions/0021-relay-portable-with-a-web-page.md).
+Android client and outbox, syncing dictation history, meetings and per-app styles, audio blobs, the rest of proxy mode (the routes that make the speech and cleanup calls so keys never leave the relay; only the settings exist), a tray toggle or `Vox.exe --relay`, restoring a backup from the page, `tailscale serve` set-up help inside the apps. Verified only on Windows and, through CI, on x86 and arm64 Linux; the systemd unit, the Raspberry Pi steps and a real phone or PC reaching the relay through `tailscale serve` have not been tried. Decision records: [decisions/0020-relay-design.md](decisions/0020-relay-design.md), [decisions/0021-relay-portable-with-a-web-page.md](decisions/0021-relay-portable-with-a-web-page.md).

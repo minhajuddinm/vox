@@ -114,7 +114,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_level.py` | The meter curve and the scrolling level history. |
 | `tests/test_notes.py` | The notes store: add, edit, delete, search with FTS5 and the LIKE fallback, filters. |
 | `tests/test_relay.py` | The relay over real HTTP: auth, sync cursor, conflicts, delete markers, search, profile versions, limits. |
-| `tests/test_relay_admin.py` | The relay's management page and endpoints, portability and file permissions. |
+| `tests/test_relay_admin.py` | The relay's management page and endpoints, portability and file permissions, and the AI server (proxy) settings: address rules, write-only keys that never appear in any response, download or output. |
 | `tests/test_sync.py` | The Windows sync client against a real relay: two devices, edits, deletes, conflicts, failures, upgrade of old databases. |
 | `tests/test_sync_profile.py` | Profile sync between two devices through a real relay: merge rules, keys switch, races. |
 | `tests/test_streaming.py` | The pause finder (`Segmenter`), the streaming worker, and the text half of the pipeline. |
@@ -138,7 +138,7 @@ windows/                Windows app (Python) and its installer scripts
 
 | Path | What it is |
 |---|---|
-| `relay/relay.py` | The optional relay server (standard library only, Python 3.9+): notes with a change cursor, one versioned profile, bearer-token auth, management web page; listens on 127.0.0.1. |
+| `relay/relay.py` | The optional relay server (standard library only, Python 3.9+): notes with a change cursor, one versioned profile, bearer-token auth, management web page, AI server (proxy) settings with write-only keys; listens on 127.0.0.1. |
 | `relay/vox-relay.service` | systemd unit to run the relay as a service on Linux (Raspberry Pi). |
 | `relay/README.md` | Set-up guide for the relay: Raspberry Pi, Linux, Windows, macOS. |
 

@@ -2,7 +2,7 @@
 
 A small server that keeps your voice notes and profile in one place, so your phone and PC (and anything else on your Tailscale network) share them. One file, `relay.py`, standard library only. It runs on a Raspberry Pi (arm64 Linux), any other Linux box, macOS or Windows, with **Python 3.9 or newer**.
 
-It listens on `127.0.0.1` only. You publish it to your own tailnet with `tailscale serve`, which adds HTTPS. Open the address in a browser for the management page (status, notes, devices and activity, profile, backup and clean-up, token).
+It listens on `127.0.0.1` only. You publish it to your own tailnet with `tailscale serve`, which adds HTTPS. Open the address in a browser for the management page (status, notes, devices and activity, profile, AI server settings, backup and clean-up, token).
 
 The full description is in [documentation/14-relay.md](../documentation/14-relay.md). This page is the set-up guide.
 
@@ -64,6 +64,7 @@ The data folder is `%APPDATA%\VoxRelay` on Windows, `~/Library/Application Suppo
 ## Things to know
 
 - Anyone who has the token and can reach the relay can read every note and the profile. Keep the token private; the Maintenance tab can make a new one at any time (all devices then need it).
+- The **AI server (proxy)** tab keeps an address and a key for a speech-to-text server and a text-cleanup server. A key is write-only: you can replace or clear it, but neither the page nor any endpoint shows it again, and a backup does not contain it (it lives in `relay.json`, so keep that file private). Changing an address removes its saved key unless you type a new one. Plain `http` is accepted only for this machine, your local network and Tailscale; use `https` for anything else. The relay does not send any requests to these servers yet.
 - Nothing is encrypted on disk. The systemd unit keeps the folder private to the service; on a shared machine, protect it yourself.
 - The unit's hardening settings were written for a normal Raspberry Pi OS or Debian system and have not been tried on a real Pi yet; if the service will not start, `journalctl -u vox-relay` says why, and removing lines from the "It only listens" block is safe.
 - Phones and PCs must have Tailscale running to reach the relay. The apps are meant to keep working when it is unreachable (they do not use it yet).
