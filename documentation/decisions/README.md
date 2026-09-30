@@ -20,6 +20,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0012](0012-no-gradle-android-build.md) | Build the APK with plain SDK tools | Accepted |
 | [0013](0013-raw-fallback-when-cleanup-fails.md) | Raw transcript is the fallback when cleanup fails | Accepted |
 | [0014](0014-documentation-checked-in-ci.md) | This documentation is machine-checked in CI | Accepted |
+| [0015](0015-sync-docs-every-session.md) | Sync the documentation at the end of every session | Accepted |
 
 ## Template
 

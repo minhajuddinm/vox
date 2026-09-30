@@ -6,7 +6,7 @@ Vox is a voice-dictation tool with two independent apps: a Windows app in Python
 
 ## Ground rules
 
-1. **Docs move with code.** New or moved file: update `documentation/03-repo-tree.md`. New setting: `documentation/07-config-and-data.md`. User-visible change: `documentation/08-features.md` and a line under `Unreleased` in `CHANGELOG.md`. A decision worth explaining later: a new record in `documentation/decisions/`. Run `python documentation/tools/check_docs.py` (CI does too).
+1. **Docs move with code, and are synced at the end of every session.** Run `python documentation/tools/docs_todo.py` for the checklist and follow the skill `.claude/skills/vox-doc-sync/SKILL.md`. New or moved file: update `documentation/03-repo-tree.md`. New setting: `documentation/07-config-and-data.md`. User-visible change: `documentation/08-features.md` and a line under `Unreleased` in `CHANGELOG.md`. A decision worth explaining later: a new record in `documentation/decisions/`. Run `python documentation/tools/check_docs.py` (CI does too).
 2. **Python and Java share behaviour.** The cleanup rules exist in both languages. If you change one, change the other and `spec/golden.txt`, then run both suites (details: `documentation/06-pipeline.md`).
 3. **Run the tests:** `python -m pytest -q` from the repo root. The Java helpers are tested in CI (`documentation/10-build-test-release.md`). There is no local Android SDK requirement.
 4. **Never handle secrets.** Do not read, print or commit `config.json`, `google_client.json`, keystores or API keys. Tests must use a temporary `APPDATA`.

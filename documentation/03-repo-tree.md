@@ -13,6 +13,7 @@ android/                Android app (Java, no Gradle)
   test/com/minhaj/vox/  plain-Java tests (no device, no JUnit)
 docs/                   the public website (GitHub Pages): landing page and privacy policy
 documentation/          THIS folder: developer and agent documentation
+.claude/skills/         project skills for Claude Code (documentation sync)
 spec/                   golden.txt, expected results shared by Python and Java tests
 tests/                  pytest tests for the Windows Python code
 windows/                Windows app (Python) and its installer scripts
@@ -97,12 +98,19 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_spoken_commands.py` | Spoken "new line" and the cleanup-failure result. |
 | `tests/test_audio_devices.py` | Microphone name resolution. |
 | `tests/test_parity.py` | Runs `spec/golden.txt` against the Python helpers. |
+| `tests/test_docs_todo.py` | The path-to-page rules of `documentation/tools/docs_todo.py`. |
 | `spec/golden.txt` | Shared expected results (sanitize, looks_valid, replacements, whisper prompt, terms, system prompt, spoken commands, silence). Read by the Python and Java parity tests. |
 | `android/test/com/minhaj/vox/GroqClientTest.java` | Prompt, sanitize, replacements, retry policy, silence phrases. |
 | `android/test/com/minhaj/vox/EndpointTest.java` | Server address rules. |
 | `android/test/com/minhaj/vox/PcmTest.java` | Silence gate. |
 | `android/test/com/minhaj/vox/CorrectionsTest.java` | Correction suggestions. |
 | `android/test/com/minhaj/vox/ParityTest.java` | Runs `spec/golden.txt` against the Java helpers. |
+
+## Agent tooling (`.claude/`)
+
+| Path | What it is |
+|---|---|
+| `.claude/skills/vox-doc-sync/SKILL.md` | Project skill for Claude Code: the end-of-session routine that syncs the documentation with the code (uses `documentation/tools/docs_todo.py` and `check_docs.py`). |
 
 ## Public website (`docs/`)
 
@@ -147,4 +155,6 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/decisions/0012-no-gradle-android-build.md` | ADR: build the APK with plain SDK tools. |
 | `documentation/decisions/0013-raw-fallback-when-cleanup-fails.md` | ADR: raw transcript as the safe fallback. |
 | `documentation/decisions/0014-documentation-checked-in-ci.md` | ADR: this folder is machine-checked. |
+| `documentation/decisions/0015-sync-docs-every-session.md` | ADR: documentation sync at the end of every session. |
 | `documentation/tools/check_docs.py` | The documentation checker (tree, config keys, links, ADR index). |
+| `documentation/tools/docs_todo.py` | Prints which pages to update for the code that changed (checklist only, edits nothing). |
