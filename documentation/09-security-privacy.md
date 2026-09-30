@@ -57,7 +57,6 @@ There is no analytics, crash reporting or Vox backend.
 - The API key goes to whatever address is configured; a tampered `config.json` could redirect it (mitigated only by the https/private rule).
 - Whisper and the chat model are third parties; their handling of the data is covered by their own policies.
 - `ACTION_SET_TEXT` rewrites the whole field, which can drop rich text or race with typing.
-- The accessibility description in `android/res/values/strings.xml` still says audio goes to Groq; it should mention the configurable server.
 
 ## Keys per role
 

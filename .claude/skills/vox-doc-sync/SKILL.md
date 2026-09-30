@@ -45,7 +45,7 @@ Fix every reported problem. If the checker fails because of a rule that is genui
 
 ## 4. Ship it with the code
 
-Documentation changes go in the same branch and pull request as the code they describe (or a follow-up PR straight after, if the code is already merged). Mention in the PR description which pages changed. CI runs the checker in the `tests` job; CI itself only runs on tags or by hand, so trigger it: `gh workflow run build.yml --ref <branch>`.
+Documentation changes go in the same branch and pull request as the code they describe (or a follow-up PR straight after, if the code is already merged). Mention in the PR description which pages changed. CI runs the checker in the `tests` job on every pull request (the Windows build only runs on tags or by hand: `gh workflow run build.yml --ref <branch>`).
 
 ## 5. Report
 

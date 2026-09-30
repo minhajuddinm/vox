@@ -24,6 +24,7 @@ Documentation verified against commit: see the `Verified against` line at the bo
 | Open problems and the roadmap | [12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md) |
 | Terms used in the code and docs | [13-glossary.md](13-glossary.md) |
 | Why things are the way they are | [decisions/README.md](decisions/README.md) (architecture decision records) |
+| Designs written before the code (one per sub-project) | [specs/README.md](specs/README.md) |
 | What changed and when | [../CHANGELOG.md](../CHANGELOG.md) and [devlog.md](devlog.md) |
 
 ## Rules for keeping these docs true
@@ -44,4 +45,4 @@ Documentation verified against commit: see the `Verified against` line at the bo
 
 ## Verified against
 
-Commit `cb3f679` (merge of PR 1) plus the documentation branch that adds this folder. Tests at that point: 196 pytest tests (including 58 shared golden cases) and 5 plain-Java test programs, all passing in CI.
+Commit `2a0d601` (merge of PR 8, the last of the v2 series P1 to P4; earlier: `cb3f679` merge of PR 1, `de839c8` documentation). Tests at that point: 262 pytest tests (including 91 shared golden cases) and 6 plain-Java test programs (`GroqClientTest`, `EndpointTest`, `PcmTest`, `CorrectionsTest`, `ProvidersTest`, `ParityTest`); pytest, the docs checker and the Java tests passed in CI on each pull request. The new screens (providers, About you) and the level meters have not been checked on a device.

@@ -11,7 +11,7 @@ Vox is a voice-dictation tool with two independent apps: a Windows app in Python
 3. **Run the tests:** `python -m pytest -q` from the repo root. The Java helpers are tested in CI (`documentation/10-build-test-release.md`). There is no local Android SDK requirement.
 4. **Never handle secrets.** Do not read, print or commit `config.json`, `google_client.json`, keystores or API keys. Tests must use a temporary `APPDATA`.
 5. **Do not send more than needed to the model.** Only the app name goes with the transcript; never a window title or other screen content.
-6. **Small, reviewable changes** on a branch, with a PR. CI runs only on tags or by hand (`gh workflow run build.yml --ref <branch>`), so run it yourself for branches that touch builds.
+6. **Small, reviewable changes** on a branch, with a PR. CI runs the tests and the Android build on every pull request; the Windows build and release run only on tags or by hand (`gh workflow run build.yml --ref <branch>`). Larger changes start with a short design in `documentation/specs/`.
 7. **GUI checks need a real desktop.** A GUI started from an agent shell may be invisible to the user (WebView2 can fail with "Invalid window handle"). Ask the user to start Vox from their own terminal to check anything visual; logs (`%APPDATA%\Vox\vox.log`) still work.
 
 ## Where things are, in one screen

@@ -31,3 +31,8 @@
 | Meeting notes | Windows feature that records "You" (mic) and "Others" (PC audio) and writes structured notes. |
 | Final pass | The accurate re-transcription of a meeting after it ends. |
 | ADR | Architecture decision record, in `documentation/decisions/`. |
+| Role | Which job a server does: `stt` (speech to text) or `llm` (cleanup). Each role can have its own address, key and model (`windows/providers.py`). |
+| Preset | A provider entry in Settings that fills in the address (Groq, OpenAI, and so on). Only a convenience: the address decides behaviour. |
+| About you | Free text about the user added to every cleanup request (`user_context`). |
+| Meter level | 0 to 1 loudness value of the voice, the same curve on both platforms (`level_from_rms`, `Pcm.levelFromRms`). |
+| Warm-up | Opening the server connections when recording starts, so the upload does not wait for the TLS handshake (`vox_core.warm`, `GroqClient.warm`). |

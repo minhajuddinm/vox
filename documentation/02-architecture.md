@@ -113,6 +113,9 @@ The same functions exist in both languages:
 | Silence gate | `is_silent` | `Pcm.isSilent` |
 | Server address rules | `endpoint_error`, `is_private_host` | `Endpoint.error`, `Endpoint.isPrivateHost` |
 | Correction suggestions | `suggest_corrections` | `Corrections.suggest` |
+| Per-role settings, model classification | `providers.role_settings`, `providers.classify` | `Providers.roleSettings`, `Providers.classify` |
+| About-you cleaning and the prompt with context | `clean_context`, `system_prompt` | `GroqClient.cleanContext`, `systemPrompt` |
+| Meter level | `level_from_rms` | `Pcm.levelFromRms` |
 
 `spec/golden.txt` holds expected results for the first eight rows; `tests/test_parity.py` and `android/test/.../ParityTest.java` both run it. See [decisions/0007-shared-golden-file.md](decisions/0007-shared-golden-file.md).
 
@@ -120,7 +123,7 @@ The same functions exist in both languages:
 
 | Service | Used for | Where |
 |---|---|---|
-| Groq (or your own server) | Whisper speech-to-text, chat cleanup, meeting notes | `vox_core.py`, `meeting.py`, `GroqClient.java` |
+| Groq (or your own server) | Whisper speech-to-text, chat cleanup, meeting notes | `vox_core.py`, `providers.py`, `meeting.py`, `GroqClient.java`, `Providers.java` |
 | Google Calendar API (optional, Windows) | Read-only event list for meeting notes | `gcal.py` |
 | Private iCal (ICS) link (optional, Windows) | Same, without sign-in | `vcalendar.py` |
 | GitHub Actions | Tests and builds | `.github/workflows/build.yml` |
