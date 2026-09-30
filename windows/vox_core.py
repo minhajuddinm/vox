@@ -54,6 +54,7 @@ DEFAULT_CONFIG = {
     "cleanup": True,
     "cleanup_min_words": 3,
     "keep_history": True,
+    "keep_clipboard": False,
     "default_style": "neutral",
     "dictionary": [],
     "people": [],

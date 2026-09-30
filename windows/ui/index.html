@@ -562,7 +562,7 @@ function renderSettings() {
   $("data-dir").textContent = S.data_dir;
   $("your-name").value = c.your_name || ""; $("my-email").value = c.my_email || "";
   $("auto-notes").checked = !!c.auto_notes;
-  $("keep-clip").checked = c.keep_clipboard !== false;
+  $("keep-clip").checked = !!c.keep_clipboard;
   $("keep-history").checked = c.keep_history !== false;
   $("stream-stt").checked = c.stream_stt !== false;
   $("relay-sync").checked = !!c.relay_sync;

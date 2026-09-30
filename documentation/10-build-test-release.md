@@ -27,7 +27,7 @@ Put the API key in the window's Settings, or in `%APPDATA%\Vox\config.json` (it 
 
 | Suite | Command | Covers |
 |---|---|---|
-| Python | `python -m pytest -q` (from the repo root) | 677 tests at the time of writing: `tests/test_*.py` (includes `tests/test_ui_static.py`, the text-only checks of the two HTML pages) |
+| Python | `python -m pytest -q` (from the repo root) | 691 tests at the time of writing: `tests/test_*.py` (includes `tests/test_ui_static.py`, the text-only checks of the two HTML pages) |
 | Java | `bash android/run-tests.sh` (needs a JDK and `ANDROID_JAR`; see below) | 9 programs in `android/test/com/minhaj/vox/`, no device, no JUnit |
 | Parity | part of both suites | `spec/golden.txt` |
 | Docs | `python documentation/tools/check_docs.py` | tree, config keys, links, ADR index |

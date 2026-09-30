@@ -37,7 +37,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `dictionary` | list of strings | `[]` | Terms and `wrong => right` lines. |
 | `people` | list of strings | `[]` | Names, used as terms. |
 | `app_styles` | object | see `DEFAULT_CONFIG` | Exe name (lower case) to style. Defaults: Outlook, Word: formal; Slack: neutral; Discord: very casual; WhatsApp: casual; VS Code, Windows Terminal: raw. |
-| `keep_clipboard` | bool | `true` (when absent) | Leave the dictated text on the clipboard after pasting. |
+| `keep_clipboard` | bool | `false` | Leave the dictated text on the clipboard after pasting. Off: the previous clipboard text is put back (only if the clipboard still holds the dictation). Before this default changed, an absent key meant `true`; a saved `true` is kept. When the window changed during a dictation the text is left on the clipboard whatever this says. |
 | `your_name` | string | absent | Label for your lines in meeting notes (default "You"). |
 | `my_email` | string | absent | Your calendar address, so you are not listed as an attendee. |
 | `auto_notes` | bool | absent (false) | Start meeting notes automatically when a calendar meeting with others begins. |

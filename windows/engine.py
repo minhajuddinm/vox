@@ -11,7 +11,6 @@ import time
 
 import numpy as np
 import psutil
-import pyperclip
 import pystray
 import requests
 import sounddevice as sd
@@ -20,6 +19,7 @@ from pynput import keyboard
 import audio_devices
 import logo
 import notes
+import paste as paste_mod
 import relay_host
 import streaming
 import sync
@@ -45,7 +45,6 @@ KEY_ALIASES = {
     "shift": {keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r},
     "space": {keyboard.Key.space},
 }
-MODIFIERS = set().union(*[KEY_ALIASES[k] for k in ("ctrl", "cmd", "alt", "shift")])
 
 
 def foreground_app():
@@ -414,22 +413,10 @@ class Engine:
             self.set_state("idle")
 
     def paste(self, text):
-        # Wait until the hotkey modifiers are up so Ctrl+V is not combined with Win.
-        deadline = time.time() + 2
-        while self.pressed & MODIFIERS and time.time() < deadline:
-            time.sleep(0.02)
-        try:
-            old = pyperclip.paste()
-        except Exception:
-            old = None
-        pyperclip.copy(text)
-        time.sleep(0.05)
-        with self.kb.pressed(keyboard.Key.ctrl):
-            self.kb.tap("v")
-        time.sleep(0.4)
-        # By default the dictated text stays on the clipboard so you can paste it again anywhere.
-        if old is not None and not self.cfg.get("keep_clipboard", True):
-            pyperclip.copy(old)
+        # paste.py checks the window is still the one the dictation started in, sends Ctrl+V, and restores the
+        # old clipboard only when keep_clipboard is off and the clipboard still holds our text.
+        if paste_mod.paste_text(text, self.target, self.cfg.get("keep_clipboard", False)) == paste_mod.COPIED:
+            self.notify("Copied; the window changed")
 
     # -------------------------------------------------------------- meeting
     def _event(self, uid=None):
