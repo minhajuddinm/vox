@@ -4,6 +4,7 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+  pull_request:
 
 permissions:
   contents: read
@@ -22,6 +23,7 @@ jobs:
 
   windows:
     needs: tests
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

@@ -28,6 +28,9 @@ Chronological notes on how the improvement series was made, what was found, and 
 
 Later the same day: PR 2 (the documentation folder) was merged upstream as `de839c8`. Added `documentation/tools/docs_todo.py` (maps changed files to the pages that describe them, tested in `tests/test_docs_todo.py`) and the project skill `vox-doc-sync`, so the documentation is synced at the end of every session ([decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)). The tool was tried on its own branch: it listed the three new files and the pages to update.
 
+## 2026-09-30, v2 planning
+Research (open-source dictation tools, providers and models, relay and Android limits, a code map) produced an 8-part roadmap: providers and model list first, then key-down speed, "About you" context, live level, lightweight build, notes store, Android note mode, relay, design refresh. Decisions: server-only (no bundled local models), relay serves or proxies keys (chosen in settings), Android keeps the WebView UI, notes keep transcripts only by default. Added `documentation/specs/` (spec P1) and ADR 0016 (proposed). CI now runs the `tests` and `android` jobs on pull requests; the Windows build still runs only on tags or by hand.
+
 ## How to add an entry
 
 Add a dated heading and 3 to 10 lines: what changed, what was verified and how, what surprised you. Put lasting reasons into an ADR and user-visible changes into `CHANGELOG.md`.

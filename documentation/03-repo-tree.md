@@ -156,5 +156,8 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/decisions/0013-raw-fallback-when-cleanup-fails.md` | ADR: raw transcript as the safe fallback. |
 | `documentation/decisions/0014-documentation-checked-in-ci.md` | ADR: this folder is machine-checked. |
 | `documentation/decisions/0015-sync-docs-every-session.md` | ADR: documentation sync at the end of every session. |
+| `documentation/decisions/0016-per-role-server-and-model-discovery.md` | ADR (proposed): separate server per role, model list classified by id. |
+| `documentation/specs/README.md` | Index of design specs (written before the code they describe). |
+| `documentation/specs/p1-providers-and-models.md` | Spec for sub-project P1: any provider, per-role server, model list, Test button. |
 | `documentation/tools/check_docs.py` | The documentation checker (tree, config keys, links, ADR index). |
 | `documentation/tools/docs_todo.py` | Prints which pages to update for the code that changed (checklist only, edits nothing). |
