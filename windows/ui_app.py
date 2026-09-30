@@ -108,6 +108,10 @@ class Api:
         """Text to show under the server address field, or '' when the address is acceptable."""
         return core.endpoint_error({"base_url": base_url})
 
+    def proxy_problem(self):
+        """Text for the "Use my relay as the AI server" switch: why it cannot work yet, or '' (off counts as fine)."""
+        return providers.proxy_problem(core.load_config())
+
     def set_hotkey(self, hid):
         for h in HOTKEYS:
             if h["id"] == hid:

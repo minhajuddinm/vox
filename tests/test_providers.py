@@ -1,5 +1,11 @@
 """Tests for windows/providers.py: per-role settings, model discovery, Test button, reasoning retry."""
+import os
+from html.parser import HTMLParser
+
+import pytest
+
 import providers
+import secret
 import vox_core as core
 
 
@@ -196,3 +202,217 @@ def test_cleanup_retries_once_without_reasoning_fields_and_remembers(monkeypatch
 def test_strip_think_removes_a_leading_block_only():
     assert providers.strip_think("<think>hmm\nlong</think>\nHi.") == "Hi."
     assert providers.strip_think("Hi <think>x</think> there") == "Hi <think>x</think> there"
+
+
+# ------------------------------------------------------------ the relay as the AI server
+
+RELAY = {"relay_proxy": True, "relay_url": "https://yuvipi.tail1234.ts.net", "relay_token": "RELAY-TOKEN"}
+PROVIDER_KEYS = {"api_key": "MAIN-PROVIDER-KEY", "stt_api_key": "STT-PROVIDER-KEY", "llm_api_key": "LLM-PROVIDER-KEY"}
+RELAY_HINT = "check the relay token and the AI server key set on the relay page"
+# the four requests the relay forwards (relay/relay.py PROXY_ROUTES): nothing else may be asked of it
+RELAY_ROUTES = {RELAY["relay_url"] + p for p in ("/proxy/stt/models", "/proxy/stt/audio/transcriptions",
+                                                   "/proxy/llm/models", "/proxy/llm/chat/completions")}
+
+
+def test_proxy_on_sends_each_role_to_the_relay_with_the_relay_token():
+    cfg = dict(RELAY, llm_model="gpt-4o-mini")
+    assert providers.role_settings(cfg, "stt") == (RELAY["relay_url"] + "/proxy/stt", "RELAY-TOKEN", "whisper-large-v3-turbo")
+    assert providers.role_settings(cfg, "llm") == (RELAY["relay_url"] + "/proxy/llm", "RELAY-TOKEN", "gpt-4o-mini")
+
+
+def test_proxy_off_changes_nothing_even_with_a_relay_filled_in():
+    cfg = dict(RELAY, relay_proxy=False, api_key="main", llm_model="gpt-4o-mini")
+    assert providers.role_settings(cfg, "stt") == (core.BASE, "main", "whisper-large-v3-turbo")
+    assert providers.role_settings(cfg, "llm") == (core.BASE, "main", "gpt-4o-mini")
+    assert providers.proxy_problem(cfg) == ""
+    assert not providers.uses_relay(cfg)
+
+
+@pytest.mark.parametrize("missing", [{"relay_url": ""}, {"relay_token": ""}, {"relay_url": "  ", "relay_token": " "}, {"relay_token": None}])
+def test_proxy_on_without_a_relay_falls_back_and_reports_the_problem(missing):
+    cfg = dict(RELAY, api_key="main", **missing)
+    assert providers.role_settings(cfg, "stt") == (core.BASE, "main", "whisper-large-v3-turbo")
+    assert providers.proxy_problem(cfg) == "Turn on the relay first"
+    assert not providers.uses_relay(cfg)
+
+
+def test_a_working_relay_has_no_problem():
+    assert providers.proxy_problem(RELAY) == ""
+    assert providers.uses_relay(RELAY)
+
+
+def test_relay_address_and_token_are_stripped():
+    cfg = dict(RELAY, relay_url="  https://r.example.ts.net///  ", relay_token="  tok\t")
+    assert providers.role_settings(cfg, "llm")[:2] == ("https://r.example.ts.net/proxy/llm", "tok")
+
+
+def test_proxy_ignores_the_per_role_servers_and_provider_keys():
+    cfg = dict(RELAY, **PROVIDER_KEYS, stt_base_url="https://stt.example.com/v1", llm_base_url="http://localhost:11434/v1")
+    assert providers.role_settings(cfg, "stt")[:2] == (RELAY["relay_url"] + "/proxy/stt", "RELAY-TOKEN")
+    assert providers.role_settings(cfg, "llm")[:2] == (RELAY["relay_url"] + "/proxy/llm", "RELAY-TOKEN")
+
+
+def test_core_helpers_follow_the_relay():
+    assert core.api_base(RELAY, "llm") == RELAY["relay_url"] + "/proxy/llm"
+    assert core.auth_headers(RELAY, "stt") == {"Authorization": "Bearer RELAY-TOKEN"}
+    assert not core.key_missing(RELAY)   # the relay token is the key
+
+
+def test_relay_proxy_is_off_by_default():
+    assert core.DEFAULT_CONFIG["relay_proxy"] is False
+
+
+def test_the_saved_relay_token_is_read_back_in_plain_text(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr(secret, "_backend", (lambda b: b[::-1], lambda b: b[::-1]))   # a reversible stand-in for DPAPI
+    core.save_config(dict(core.DEFAULT_CONFIG, **RELAY))
+    assert "RELAY-TOKEN" not in (tmp_path / "Vox" / "config.json").read_text(encoding="utf-8")
+    assert providers.role_settings(core.load_config(), "stt")[:2] == (RELAY["relay_url"] + "/proxy/stt", "RELAY-TOKEN")
+
+
+def test_endpoint_error_checks_the_relay_address_when_the_proxy_is_on():
+    plain_public = dict(RELAY, relay_url="http://relay.example.com")
+    assert "http" in core.endpoint_error(plain_public)   # the token must not travel in the clear
+    assert core.endpoint_error(dict(RELAY, relay_url="http://100.64.1.2:8765")) == ""
+    assert core.endpoint_error(dict(RELAY, base_url="ftp://unused")) == ""   # the provider address is not used now
+    assert core.endpoint_error(dict(plain_public, relay_proxy=False)) == ""   # and the relay address is not used when off
+    assert core.endpoint_error({"relay_proxy": True, "base_url": "ftp://x"})   # no relay filled in: the normal check runs
+
+
+def record_traffic(monkeypatch):
+    """Every request Vox makes, as (url, headers, all other arguments as text), whichever way it is sent."""
+    sent = []
+
+    def fake(url, **kw):
+        sent.append((url, dict(kw.get("headers") or {}), repr({k: v for k, v in kw.items() if k != "headers"})))
+        if url.endswith("/chat/completions"):
+            return Resp({"choices": [{"message": {"content": "Hello there."}}]})
+        if url.endswith("/models"):
+            return Resp({"data": [{"id": "whisper-large-v3-turbo"}, {"id": "openai/gpt-oss-20b"}]})
+        return Resp({"text": "hello there"})
+
+    monkeypatch.setattr(core.requests, "get", fake)
+    monkeypatch.setattr(core.requests, "post", fake)
+    monkeypatch.setattr(core._session, "get", fake)
+    return sent
+
+
+def use_every_server_call(cfg):
+    """One of everything Vox sends to an AI server: model lists, both Test buttons, warm-up, a dictation."""
+    for role in providers.ROLES:
+        assert providers.list_models(cfg, role)["models"]
+        assert providers.test(cfg, role)["ok"]
+    core.warm(cfg).join(5)
+    assert core.transcribe(cfg, b"RIFF")
+    assert core.cleanup(cfg, "hello there", "neutral", "")
+
+
+def test_with_the_proxy_on_only_the_relay_is_called_and_no_provider_key_leaves(monkeypatch):
+    sent = record_traffic(monkeypatch)
+    cfg = dict(RELAY, **PROVIDER_KEYS, stt_base_url="https://stt.example.com/v1", llm_base_url="http://localhost:11434/v1")
+    use_every_server_call(cfg)
+    assert {url for url, _, _ in sent} == RELAY_ROUTES
+    for url, headers, rest in sent:
+        assert headers == {"Authorization": "Bearer RELAY-TOKEN"}, url
+        assert not any(key in url + str(headers) + rest for key in PROVIDER_KEYS.values()), url
+
+
+def test_with_the_proxy_off_the_relay_token_is_never_sent_to_a_provider(monkeypatch):
+    sent = record_traffic(monkeypatch)
+    cfg = dict(RELAY, relay_proxy=False, api_key="MAIN-PROVIDER-KEY", llm_base_url="http://localhost:11434/v1", llm_api_key="LLM-PROVIDER-KEY")
+    use_every_server_call(cfg)
+    assert sent
+    for url, headers, rest in sent:
+        assert "/proxy/" not in url and "yuvipi" not in url, url
+        assert "RELAY-TOKEN" not in url + str(headers) + rest, url
+    assert {h.get("Authorization") for u, h, _ in sent if u.startswith(core.BASE)} == {"Bearer MAIN-PROVIDER-KEY"}
+    assert {h.get("Authorization") for u, h, _ in sent if u.startswith("http://localhost")} == {"Bearer LLM-PROVIDER-KEY"}
+
+
+def test_with_the_proxy_on_but_no_relay_the_provider_key_still_goes_only_to_its_own_server(monkeypatch):
+    sent = record_traffic(monkeypatch)
+    use_every_server_call(dict(RELAY, relay_token="", api_key="MAIN-PROVIDER-KEY"))
+    assert {u.split("/openai/v1")[0] for u, _, _ in sent} == {"https://api.groq.com"}
+    assert not any("RELAY" in str(h) for _, h, _ in sent)
+
+
+def test_a_refused_request_through_the_relay_says_where_to_look(monkeypatch):
+    monkeypatch.setattr(core.requests, "get", lambda url, **kw: Resp(status=401))
+    monkeypatch.setattr(core.requests, "post", lambda url, **kw: Resp(status=403))
+    assert RELAY_HINT in providers.list_models(RELAY, "llm")["error"]
+    assert RELAY_HINT in providers.test(RELAY, "stt")["message"]
+    assert RELAY_HINT in providers.test(RELAY, "llm")["message"]
+    # the same refusals from a provider keep their own wording
+    assert "relay" not in providers.list_models({"api_key": "k"}, "llm")["error"]
+    assert "relay" not in providers.test({"api_key": "k"}, "llm")["message"]
+
+
+def test_a_refused_dictation_through_the_relay_carries_the_hint(monkeypatch):
+    monkeypatch.setattr(core.requests, "post", lambda url, **kw: Resp({"error": "unauthorised"}, status=401))
+    with pytest.raises(core.ApiError) as ei:
+        core.transcribe(RELAY, b"RIFF")
+    assert ei.value.code == 401 and RELAY_HINT in str(ei.value)
+    with pytest.raises(core.ApiError) as ei:
+        core.cleanup(RELAY, "hello there", "neutral", "")
+    assert ei.value.code == 401 and RELAY_HINT in str(ei.value)
+    with pytest.raises(core.ApiError) as ei:   # not through the relay: no hint
+        core.transcribe({"api_key": "k"}, b"RIFF")
+    assert "relay" not in str(ei.value)
+
+
+# what the relay answers when it cannot serve a request: plain text errors, except 502 which is OpenAI-shaped
+RELAY_ERRORS = [
+    (411, {"error": "Content-Length is required"}, "Content-Length is required", "Content-Length is required"),
+    (413, {"error": "request too large"}, "request too large", "request too large"),
+    (429, {"error": "busy"}, "busy", "Rate limit"),
+    (503, {"error": "The speech to text server is not configured on the relay. Set its address on the relay's management page (AI server tab)."},
+     "is not configured on the relay", "is not configured on the relay"),
+    (502, {"error": {"message": "the AI server could not be reached"}}, "the AI server could not be reached",
+     "the AI server could not be reached"),
+]
+
+
+@pytest.mark.parametrize("status,body,text,on_the_test_button", RELAY_ERRORS)
+def test_relay_errors_reach_the_user_as_plain_text(monkeypatch, status, body, text, on_the_test_button):
+    monkeypatch.setattr(core.time, "sleep", lambda s: None)   # 502 and 503 are retried after a pause
+    monkeypatch.setattr(core.requests, "post", lambda url, **kw: Resp(body, status=status))
+    with pytest.raises(core.ApiError) as ei:
+        core.transcribe(RELAY, b"RIFF")
+    assert ei.value.code == status and text in str(ei.value) and "{" not in str(ei.value)
+    message = providers.test(RELAY, "stt")["message"]
+    assert on_the_test_button in message and "{" not in message
+
+
+# ------------------------------------------------------------ the Settings page
+
+class _OwnServerFields(HTMLParser):
+    """Ids of the inputs and selects of windows/ui/index.html, split by whether an element with class `own-server` holds them."""
+    VOID = {"input", "br", "img", "meta", "link", "hr"}
+
+    def __init__(self):
+        super().__init__()
+        self.stack, self.inside, self.outside = [], set(), set()
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag in ("input", "select") and a.get("id"):
+            (self.inside if any(own for _, own in self.stack) else self.outside).add(a["id"])
+        if tag not in self.VOID:
+            self.stack.append((tag, "own-server" in (a.get("class") or "").split()))
+
+    def handle_endtag(self, tag):
+        while self.stack and self.stack.pop()[0] != tag:
+            pass
+
+
+def test_settings_page_hides_the_provider_fields_while_the_relay_is_the_ai_server():
+    path = os.path.join(os.path.dirname(__file__), "..", "windows", "ui", "index.html")
+    with open(path, encoding="utf-8") as f:
+        page = f.read()
+    parsed = _OwnServerFields()
+    parsed.feed(page)
+    # every provider address and key field is in a row the `proxy-on` class hides; the switch and the model fields are not
+    assert {"provider", "base-url", "key", "stt-url", "stt-key", "llm-url", "llm-key", "split"} <= parsed.inside
+    assert {"relay-proxy", "stt", "llm"} <= parsed.outside
+    assert ".proxy-on .own-server { display: none !important; }" in page
+    assert 'classList.toggle("proxy-on"' in page
