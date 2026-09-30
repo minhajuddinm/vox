@@ -24,6 +24,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `relay_url` | string | `""` | Address of the relay (for example `https://yuvipi.your-tailnet.ts.net`). Same rule as the server address: plain http only for private hosts. |
 | `relay_token` | string | `""` | The relay's bearer token. DPAPI-protected like the API keys. |
 | `relay_sync_keys` | bool | `false` | Also share the provider settings and API keys through the relay (`provider`, `base_url`, `stt_base_url`, `llm_base_url`, `stt_model`, `llm_model`, `llm_reasoning`, `api_key`, `stt_api_key`, `llm_api_key`). Off removes them from the relay on the next sync. |
+| `stream_stt` | bool | `true` | Send long recordings to speech-to-text in pieces while the user is still speaking (recordings shorter than about 13 s are unaffected). |
 | `device_name` | string | `""` | This PC's name on the relay and on the notes it records; blank uses the computer name. |
 | `language` | string | `""` | Whisper language code; empty = auto detect. |
 | `input_device` | string | `""` | Microphone name for dictation; empty = Windows default. Not used by meeting notes. |

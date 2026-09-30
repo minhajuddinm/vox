@@ -14,6 +14,7 @@ The roadmap these come from (v2: any provider, lighter, faster, personal context
 | [p7a-relay-server.md](p7a-relay-server.md) | The relay server (no clients yet) | Implemented (PR 12) |
 | [p7b-relay-portable-and-web-page.md](p7b-relay-portable-and-web-page.md) | Relay on a Raspberry Pi, with a management web page | Implemented (PR 13) |
 | [p7c-windows-sync-client.md](p7c-windows-sync-client.md) | Windows sync client for voice notes | Implemented (PR 14) |
-| [p7d-profile-sync.md](p7d-profile-sync.md) | Profile sync (About you, dictionary, people, optional keys) | Implemented |
+| [p7d-profile-sync.md](p7d-profile-sync.md) | Profile sync (About you, dictionary, people, optional keys) | Implemented (PR 15) |
+| [p2b-stream-long-dictations.md](p2b-stream-long-dictations.md) | Send long recordings in pieces while speaking | Implemented |
 
 Later specs (write each just before its work starts): key-down speed, "About you" context, live voice level, lightweight build, notes store, Android note mode, relay, design and privacy refresh.

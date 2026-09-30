@@ -25,6 +25,7 @@ def eng(tmp_path, monkeypatch):
     e.recording = e.busy = e.hands_free = e.note_mode = False
     e.chunks, e.cfg, e.target, e.pending = [], {"keep_history": False}, "notepad.exe", None
     e.messages, e.pasted, e.states = [], [], []
+    e.streaming = None
     e.sync = type("S", (), {"triggered": 0, "trigger": lambda self: setattr(self, "triggered", self.triggered + 1)})()
     e.notify = e.messages.append
     e.set_state = e.states.append
@@ -109,3 +110,50 @@ def test_silent_note_is_not_saved(eng, monkeypatch):
     eng.chunks = speech()
     eng.stop()
     assert notes.count() == 0 and eng.pasted == []
+
+
+class FakeStreamer:
+    def __init__(self, text):
+        self.text, self.cancelled, self.finished = text, False, 0
+
+    def finish(self):
+        self.finished += 1
+        return self.text
+
+    def cancel(self):
+        self.cancelled = True
+
+
+def test_a_streamed_recording_skips_the_whole_transcription(eng, monkeypatch):
+    def whole(*a, **k):
+        raise AssertionError("the whole recording should not be transcribed again")
+
+    monkeypatch.setattr(core, "process_detailed", whole)
+    monkeypatch.setattr(core, "process_text", lambda cfg, raw, exe, label: core.Result(raw, "Streamed text.", True, ""))
+    eng.start()
+    eng.streaming = FakeStreamer("streamed raw")
+    streamer = eng.streaming
+    eng.chunks = speech()
+    eng.stop()
+    assert eng.pasted == ["Streamed text."] and streamer.finished == 1 and eng.streaming is None
+
+
+def test_when_streaming_gives_nothing_the_whole_recording_is_transcribed(eng, monkeypatch):
+    monkeypatch.setattr(core, "process_detailed", lambda cfg, pcm, exe, label: ok_result("From the whole recording."))
+    eng.start()
+    eng.streaming = FakeStreamer(None)
+    eng.chunks = speech()
+    eng.stop()
+    assert eng.pasted == ["From the whole recording."]
+
+
+def test_cancel_and_too_short_recordings_drop_the_streamer(eng):
+    eng.start()
+    eng.streaming = s1 = FakeStreamer("x")
+    eng.cancel()
+    assert s1.cancelled and eng.streaming is None
+    eng.start()
+    eng.streaming = s2 = FakeStreamer("x")
+    eng.chunks = [b"\x00\x00" * 10]
+    eng.stop()
+    assert s2.cancelled and eng.streaming is None

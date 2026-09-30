@@ -306,6 +306,7 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="setting"><div><div class="t">Language</div><div class="d">Auto detect can switch language on short phrases. Pick one to lock it.</div></div>
         <select id="language"><option value="">Auto detect</option><option value="en">English</option><option value="ur">Urdu</option><option value="hi">Hindi</option><option value="ar">Arabic</option><option value="fr">French</option><option value="es">Spanish</option></select></div>
       <div class="setting"><div><div class="t">AI cleanup</div><div class="d">Removes fillers, applies self-corrections, fixes punctuation and formats lists.</div></div><label class="switch"><input type="checkbox" id="cleanup"><span></span></label></div>
+      <div class="setting"><div><div class="t">Send long recordings while I speak</div><div class="d">For long dictations, the finished parts are turned into text while you are still talking, so less is left to wait for when you stop. Short recordings are not affected. Uses a few more requests.</div></div><label class="switch"><input type="checkbox" id="stream-stt"><span></span></label></div>
       <div class="setting"><div><div class="t">Keep dictation history</div><div class="d">Saves what you dictate on this PC (used for Home stats and the history list). Off means nothing is saved.</div></div><label class="switch"><input type="checkbox" id="keep-history"><span></span></label></div>
       <div class="setting"><div><div class="t">Keep dictation on the clipboard</div><div class="d">After pasting, your text stays copied so you can paste it again with Ctrl + V.</div></div><label class="switch"><input type="checkbox" id="keep-clip"><span></span></label></div>
       <div class="setting"><div><div class="t">Start Vox with Windows</div><div class="d">Runs in the tray after you sign in.</div></div><label class="switch"><input type="checkbox" id="autostart"><span></span></label></div>
@@ -561,6 +562,7 @@ function renderSettings() {
   $("auto-notes").checked = !!c.auto_notes;
   $("keep-clip").checked = c.keep_clipboard !== false;
   $("keep-history").checked = c.keep_history !== false;
+  $("stream-stt").checked = c.stream_stt !== false;
   $("relay-sync").checked = !!c.relay_sync;
   $("relay-keys").checked = !!c.relay_sync_keys;
   if (document.activeElement !== $("relay-url")) $("relay-url").value = c.relay_url || "";
@@ -647,6 +649,7 @@ $("hotkey").onchange = async (e) => { const label = await api().set_hotkey(e.tar
 $("language").onchange = (e) => save({ language: e.target.value });
 $("mic").onchange = (e) => save({ input_device: e.target.value }, e.target.value ? "Microphone changed" : "Using the Windows default microphone");
 $("cleanup").onchange = (e) => save({ cleanup: e.target.checked });
+$("stream-stt").onchange = (e) => save({ stream_stt: e.target.checked });
 $("autostart").onchange = async (e) => { S.autostart = await api().set_autostart(e.target.checked); e.target.checked = S.autostart; toast(S.autostart ? "Vox will start with Windows" : "Autostart off"); };
 $("stt").onchange = (e) => save({ stt_model: e.target.value.trim() });
 $("llm").onchange = (e) => save({ llm_model: e.target.value.trim() });
