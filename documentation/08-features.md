@@ -26,6 +26,10 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 |---|---|---|---|---|
 | Server address (own Whisper/LLM server), key optional | yes | yes | `vox_core.api_base`, `endpoint_error`, `key_missing` / `Endpoint`, `Prefs.baseUrl` | py `test_endpoint_config`, `test_endpoint_safety`; java `EndpointTest` |
 | Plain http only for this device, LAN and Tailscale; https otherwise | yes | yes | `vox_core.is_private_host` / `Endpoint.isPrivateHost` | py `test_endpoint_safety`; java `EndpointTest` |
+| Separate server and key for speech and for cleanup | yes | yes | `providers.role_settings` / `Providers.roleSettings`, `Prefs.role` | py `test_providers`; java `ProvidersTest` |
+| Model list and picker from the server's `/models`, with free-text fallback | yes | yes | `providers.list_models`, `classify` / `GroqClient.listModels`, `Providers.classify` | py `test_providers`, `test_parity` (`models` rows); java `ParityTest` |
+| Test button per role (real call, plain-language failure reasons) | yes | yes | `providers.test` / `GroqClient.test` | py `test_providers` |
+| Reasoning fields only where accepted; `<think>` stripped | yes | yes | `providers.reasoning_params`, `strip_think` / `Providers.sendReasoning`, `stripThink` | py `test_providers`; java `ProvidersTest` |
 | Only the app name is sent to the model (no window title) | yes | (already) | `engine.foreground_app` | - |
 | API key protected by the Windows login (DPAPI) | yes | - | `secret.py`, `vox_core.load_config/save_config` | py `test_secret` |
 | "Keep dictation history" switch | yes | yes | `keep_history` | - |

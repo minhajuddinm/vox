@@ -4,7 +4,7 @@ All notable changes to Vox. Format follows [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
-Documentation: added the `documentation/` folder, `AGENTS.md` and this changelog; a checker (`documentation/tools/check_docs.py`) runs in CI. `.venv/` is now git-ignored. Added a documentation-sync routine for the end of every session: `documentation/tools/docs_todo.py` (checklist from `git diff`) and the project skill `.claude/skills/vox-doc-sync/`. Added `documentation/specs/` (design specs written before the code; first: providers and model list) and proposed ADR 0016. CI now also runs the tests and the Android build on pull requests.
+Documentation: added the `documentation/` folder, `AGENTS.md` and this changelog; a checker (`documentation/tools/check_docs.py`) runs in CI. `.venv/` is now git-ignored. Added a documentation-sync routine for the end of every session: `documentation/tools/docs_todo.py` (checklist from `git diff`) and the project skill `.claude/skills/vox-doc-sync/`. Added `documentation/specs/` (design specs written before the code; first: providers and model list) and proposed ADR 0016. CI now also runs the tests and the Android build on pull requests. Providers: any OpenAI-compatible server works for speech and cleanup separately (own address and key per role), Settings shows a model list from the server's `/models` with free-text fallback and a Test button per role, and reasoning parameters are sent only where accepted (new `windows/providers.py`, `Providers.java`, `models` rows in `spec/golden.txt`).
 
 ## Improvement series (PR 1, merged 2026-09-29 as `cb3f679`; not yet released as a tag)
 

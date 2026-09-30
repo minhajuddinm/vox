@@ -13,6 +13,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -101,11 +102,13 @@ public final class GroqClient {
 
     public String cleanup(String raw, String style, String model, List<String> terms, String appLabel) throws IOException {
         JSONObject body = new JSONObject();
+        boolean reason = false;
         try {
             body.put("model", model);
             body.put("temperature", 0.2);
             body.put("max_tokens", Math.max(1024, raw.length() * 2));
-            if (model.contains("gpt-oss")) {
+            reason = Providers.sendReasoning("auto", base, model);
+            if (reason) {
                 body.put("reasoning_effort", "low");
                 body.put("include_reasoning", false);
             }
@@ -116,20 +119,23 @@ public final class GroqClient {
         } catch (Exception e) {
             throw new IOException(e);
         }
-        HttpURLConnection c = open(base + "/chat/completions");
-        c.setRequestProperty("Content-Type", "application/json");
-        c.setDoOutput(true);
-        try (OutputStream out = c.getOutputStream()) {
-            out.write(body.toString().getBytes(StandardCharsets.UTF_8));
+        JSONObject res;
+        try {
+            res = postChat(body);
+        } catch (ApiException e) {
+            if (!reason || (e.code != 400 && e.code != 422)) throw e;
+            Providers.rememberRejected(base, model);   // this server does not know the reasoning fields: retry without them
+            body.remove("reasoning_effort");
+            body.remove("include_reasoning");
+            res = postChat(body);
         }
-        JSONObject res = readJson(c);
         String text;
         try {
             text = res.getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content", "");
         } catch (Exception e) {
             throw new IOException("Unexpected cleanup response");
         }
-        return sanitize(text);
+        return sanitize(Providers.stripThink(text));
     }
 
     static String systemPrompt(String style, List<String> terms, String appLabel) {
@@ -232,6 +238,84 @@ public final class GroqClient {
             out = p.matcher(out).replaceAll(Matcher.quoteReplacement(e.getValue()));
         }
         return out;
+    }
+
+    // ------------------------------------------------------- models and connection test
+
+    /** Models this server offers for a role ("stt" or "llm") as {id, kind} pairs. */
+    public List<String[]> listModels(String role) throws IOException {
+        String problem = Endpoint.error(base);
+        if (problem != null) throw new IOException(problem);
+        HttpURLConnection c = get(base + "/models");
+        int code = c.getResponseCode();
+        if (code == 404 && base.endsWith("/v1")) {   // Ollama also answers on its own path
+            c.disconnect();
+            c = get(base.substring(0, base.length() - 3) + "/api/tags");
+            code = c.getResponseCode();
+        }
+        InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+        String body = in == null ? "" : readAll(in);
+        c.disconnect();
+        if (code != 200) throw new ApiException(code, Providers.explain(code, role, ""));
+        List<String[]> out = new ArrayList<>();
+        for (String[] m : Providers.parseModels(body)) if (m[1].equals(role)) out.add(m);
+        return out;
+    }
+
+    /** One real call to this server for a role. Throws ApiException (with the status) when it fails. */
+    public void test(String role, String model) throws IOException {
+        if (Providers.STT.equals(role)) {
+            File f = File.createTempFile("vox-test", ".wav");
+            try {
+                writeSilentWav(f);
+                transcribe(f, model, "", null);
+            } finally {
+                f.delete();
+            }
+        } else {
+            JSONObject body = new JSONObject();
+            try {
+                body.put("model", model);
+                body.put("max_tokens", 8);
+                JSONArray msgs = new JSONArray();
+                msgs.put(new JSONObject().put("role", "user").put("content", "Reply with the word OK."));
+                body.put("messages", msgs);
+            } catch (Exception e) {
+                throw new IOException(e);
+            }
+            postChat(body);
+        }
+    }
+
+    private static void writeSilentWav(File f) throws IOException {
+        int rate = 16000, bytes = rate * 2;   // one second of silence, 16-bit mono
+        java.nio.ByteBuffer b = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        b.put("RIFF".getBytes(StandardCharsets.US_ASCII)).putInt(36 + bytes).put("WAVE".getBytes(StandardCharsets.US_ASCII));
+        b.put("fmt ".getBytes(StandardCharsets.US_ASCII)).putInt(16).putShort((short) 1).putShort((short) 1);
+        b.putInt(rate).putInt(rate * 2).putShort((short) 2).putShort((short) 16);
+        b.put("data".getBytes(StandardCharsets.US_ASCII)).putInt(bytes);
+        try (OutputStream o = new java.io.FileOutputStream(f)) {
+            o.write(b.array());
+            o.write(new byte[bytes]);
+        }
+    }
+
+    private JSONObject postChat(JSONObject body) throws IOException {
+        HttpURLConnection c = open(base + "/chat/completions");
+        c.setRequestProperty("Content-Type", "application/json");
+        c.setDoOutput(true);
+        try (OutputStream out = c.getOutputStream()) {
+            out.write(body.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        return readJson(c);
+    }
+
+    private HttpURLConnection get(String url) throws IOException {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(5000);
+        c.setReadTimeout(5000);
+        if (!apiKey.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + apiKey);
+        return c;
     }
 
     // ---------------------------------------------------------------- http

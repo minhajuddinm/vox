@@ -27,7 +27,7 @@ Put the API key in the window's Settings, or in `%APPDATA%\Vox\config.json` (it 
 
 | Suite | Command | Covers |
 |---|---|---|
-| Python | `python -m pytest -q` (from the repo root) | 196 tests at the time of writing: `tests/test_*.py` |
+| Python | `python -m pytest -q` (from the repo root) | 233 tests at the time of writing: `tests/test_*.py` |
 | Java | compiled and run by CI (see below) | 5 programs in `android/test/com/minhaj/vox/`, no device, no JUnit |
 | Parity | part of both suites | `spec/golden.txt` |
 | Docs | `python documentation/tools/check_docs.py` | tree, config keys, links, ADR index |
@@ -43,13 +43,13 @@ UI pages can be checked in a browser without the apps: Android's `index.html` ru
 
 ## CI (`.github/workflows/build.yml`)
 
-Triggers: push of a tag `v*`, or manual run (`workflow_dispatch`). It does **not** run on ordinary pushes or pull requests; run it by hand on a branch: `gh workflow run build.yml --ref <branch>`.
+Triggers: push of a tag `v*`, manual run (`workflow_dispatch`), or a pull request (the `tests` and `android` jobs only; the Windows build and release are skipped). It does **not** run on ordinary pushes; run it by hand on a branch: `gh workflow run build.yml --ref <branch>`.
 
 | Job | Runner | Steps |
 |---|---|---|
 | `tests` | ubuntu | install `tests/requirements.txt`; `pytest -q`; documentation checker |
 | `windows` (needs `tests`) | windows | optional Google client from secret; `pip install -r windows/requirements.txt pyinstaller==6.22.3`; PyInstaller `--onedir --windowed`; Inno Setup; upload `VoxSetup` artifact |
-| `android` (needs `tests`) | ubuntu | install SDK parts; optional keystore from secret; compile and run the Java tests (`GroqClientTest`, `EndpointTest`, `PcmTest`, `CorrectionsTest`, `ParityTest spec/golden.txt`); `android/build.sh`; upload `Vox-android` artifact (`Vox.apk`) |
+| `android` (needs `tests`) | ubuntu | install SDK parts; optional keystore from secret; compile and run the Java tests (`GroqClientTest`, `EndpointTest`, `PcmTest`, `CorrectionsTest`, `ProvidersTest`, `ParityTest spec/golden.txt`); `android/build.sh`; upload `Vox-android` artifact (`Vox.apk`) |
 | `release` (tags only) | ubuntu | download artifacts, publish a GitHub Release with `VoxSetup.exe` and `Vox.apk` |
 
 Workflow permissions are `contents: read`; only `release` has `contents: write`. All third-party Actions are pinned by commit SHA (comments give the version).

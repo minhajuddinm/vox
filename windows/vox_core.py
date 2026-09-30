@@ -14,11 +14,13 @@ from urllib.parse import urlparse
 
 import requests
 
+import providers
 import secret
 
-BASE = "https://api.groq.com/openai/v1"
-DEFAULT_STT = "whisper-large-v3-turbo"
-DEFAULT_LLM = "openai/gpt-oss-20b"
+BASE = providers.GROQ_BASE
+DEFAULT_STT = providers.DEFAULT_MODELS["stt"]
+DEFAULT_LLM = providers.DEFAULT_MODELS["llm"]
+KEY_FIELDS = ("api_key", "stt_api_key", "llm_api_key")   # stored protected by the Windows login
 SAMPLE_RATE = 16000
 SILENCE_PEAK = 655          # 16-bit peak (about -34 dBFS) below which a recording is treated as silence
 RETRY_STATUS = (500, 502, 503, 504)   # server trouble worth retrying; 429 is left to the callers
@@ -26,6 +28,12 @@ RETRY_STATUS = (500, 502, 503, 504)   # server trouble worth retrying; 429 is le
 DEFAULT_CONFIG = {
     "api_key": "",
     "base_url": BASE,
+    "provider": "groq",
+    "stt_base_url": "",
+    "stt_api_key": "",
+    "llm_base_url": "",
+    "llm_api_key": "",
+    "llm_reasoning": "auto",
     "hotkey": ["ctrl_l", "cmd"],
     "stt_model": DEFAULT_STT,
     "llm_model": DEFAULT_LLM,
@@ -72,7 +80,7 @@ def save_config(cfg):
     """Writes the settings; the API key is stored protected by the Windows login (see secret.py)."""
     path = config_path()
     tmp = path + ".tmp"
-    on_disk = dict(cfg, api_key=secret.protect(cfg.get("api_key") or ""))
+    on_disk = dict(cfg, **{k: secret.protect(cfg.get(k) or "") for k in KEY_FIELDS})
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(on_disk, f, indent=2)
     os.replace(tmp, path)
@@ -121,9 +129,10 @@ def load_config():
         cfg = json.load(f)
     merged = dict(DEFAULT_CONFIG)
     merged.update(cfg)
-    stored = merged.get("api_key") or ""
-    merged["api_key"] = secret.unprotect(stored)
-    if stored and not secret.is_protected(stored) and secret.available():
+    stored = {k: merged.get(k) or "" for k in KEY_FIELDS}
+    for k, v in stored.items():
+        merged[k] = secret.unprotect(v)
+    if secret.available() and any(v and not secret.is_protected(v) for v in stored.values()):
         save_config(merged)   # a key typed into config.json by hand: protect it from now on
     return merged
 
@@ -334,14 +343,19 @@ def post_with_retry(url, retries=2, **kw):
         time.sleep(0.7 * (attempt + 1))
 
 
-def api_base(cfg):
-    """Base URL of the OpenAI-compatible API. Blank falls back to Groq."""
+def api_base(cfg, role=None):
+    """Base URL of the OpenAI-compatible API (for a role: "stt" or "llm"). Blank falls back to Groq."""
+    if role:
+        return providers.role_settings(cfg, role)[0]
     return (cfg.get("base_url") or "").strip().rstrip("/") or BASE
 
 
-def auth_headers(cfg):
+def auth_headers(cfg, role=None):
     """Authorization header, or none when no key is set (some self-hosted servers need no key)."""
-    key = (cfg.get("api_key") or "").strip()
+    if role:
+        key = providers.role_settings(cfg, role)[1]
+    else:
+        key = (cfg.get("api_key") or "").strip()
     return {"Authorization": f"Bearer {key}"} if key else {}
 
 
@@ -373,32 +387,33 @@ def endpoint_error(cfg):
 
     The API key and your voice go to this address, so plain http is only allowed for private hosts.
     """
-    url = (cfg.get("base_url") or "").strip()
-    if not url:
-        return ""
-    u = urlparse(url)
-    if u.scheme not in ("http", "https") or not u.hostname:
-        return "The server address must start with http:// or https://"
-    if u.scheme == "http" and not is_private_host(u.hostname):
-        return "Plain http is only allowed for this PC, your local network or Tailscale. Use https:// for other servers."
+    for field in ("base_url", "stt_base_url", "llm_base_url"):
+        url = (cfg.get(field) or "").strip()
+        if not url:
+            continue
+        u = urlparse(url)
+        if u.scheme not in ("http", "https") or not u.hostname:
+            return "The server address must start with http:// or https://"
+        if u.scheme == "http" and not is_private_host(u.hostname):
+            return "Plain http is only allowed for this PC, your local network or Tailscale. Use https:// for other servers."
     return ""
 
 
 def key_missing(cfg):
-    """True when Groq is the endpoint and no key is set. A self-hosted server may need no key."""
-    return not (cfg.get("api_key") or "").strip() and api_base(cfg) == BASE
+    """True when a role talks to a server outside the private network without a key (self-hosted needs none)."""
+    return providers.key_missing(cfg)
 
 
 def transcribe(cfg, wav_bytes):
-    data = {"model": cfg.get("stt_model") or DEFAULT_STT, "response_format": "json", "temperature": "0"}
+    data = {"model": providers.role_settings(cfg, "stt")[2], "response_format": "json", "temperature": "0"}
     if cfg.get("language"):
         data["language"] = cfg["language"]
     prompt = whisper_prompt(dictionary_terms(cfg))
     if prompt:
         data["prompt"] = prompt
     r = post_with_retry(
-        f"{api_base(cfg)}/audio/transcriptions",
-        headers=auth_headers(cfg),
+        f"{api_base(cfg, 'stt')}/audio/transcriptions",
+        headers=auth_headers(cfg, "stt"),
         data=data,
         files={"file": ("audio.wav", wav_bytes, "audio/wav")},
         timeout=60,
@@ -412,14 +427,14 @@ def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
     Returns [{"start", "end", "text", "logprob", "no_speech", "compression"}, ...].
     `prompt` is passed as-is (for meetings: the previous sentences, which keeps Whisper consistent).
     """
-    data = {"model": model or cfg.get("stt_model") or DEFAULT_STT, "response_format": "verbose_json", "temperature": "0"}
+    data = {"model": model or providers.role_settings(cfg, "stt")[2], "response_format": "verbose_json", "temperature": "0"}
     if cfg.get("language"):
         data["language"] = cfg["language"]
     if prompt:
         data["prompt"] = prompt[-800:]
     r = post_with_retry(
-        f"{api_base(cfg)}/audio/transcriptions",
-        headers=auth_headers(cfg),
+        f"{api_base(cfg, 'stt')}/audio/transcriptions",
+        headers=auth_headers(cfg, "stt"),
         data=data,
         files={"file": ("audio.wav", wav_bytes, "audio/wav")},
         timeout=180,
@@ -439,7 +454,7 @@ def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
 
 
 def cleanup(cfg, raw, style, app_label):
-    model = cfg.get("llm_model") or DEFAULT_LLM
+    base, _, model = providers.role_settings(cfg, "llm")
     body = {
         "model": model,
         "temperature": 0.2,
@@ -449,16 +464,16 @@ def cleanup(cfg, raw, style, app_label):
             {"role": "user", "content": f"<transcript>\n{raw}\n</transcript>"},
         ],
     }
-    if "gpt-oss" in model:
-        body["reasoning_effort"] = "low"
-        body["include_reasoning"] = False
-    r = post_with_retry(
-        f"{api_base(cfg)}/chat/completions",
-        headers=auth_headers(cfg),
-        json=body,
-        timeout=60,
-    )
-    return sanitize(check_response(r)["choices"][0]["message"].get("content", ""))
+    extra = providers.reasoning_params(cfg, base, model)
+    body.update(extra)
+    r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=60)
+    if extra and r.status_code in (400, 422):   # this server does not know the reasoning fields: retry without them
+        providers.remember_rejected(base, model)
+        for k in extra:
+            body.pop(k, None)
+        r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=60)
+    text = check_response(r)["choices"][0]["message"].get("content", "")
+    return sanitize(providers.strip_think(text))
 
 
 Result = namedtuple("Result", "raw text cleaned cleanup_error")

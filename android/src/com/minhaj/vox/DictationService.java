@@ -279,7 +279,9 @@ public class DictationService extends Service {
         Prefs p = new Prefs(this);
         File wav = pendingFile();
         try {
-            GroqClient g = new GroqClient(p.apiKey(), p.baseUrl());
+            String[] stt = p.role(Providers.STT), llm = p.role(Providers.LLM);
+            GroqClient g = new GroqClient(stt[1], stt[0]);
+            GroqClient gl = new GroqClient(llm[1], llm[0]);
             String raw = null;
             for (int attempt = 1; attempt <= SEND_ATTEMPTS && raw == null; attempt++) {
                 if (!isCurrent(job)) return;
@@ -303,7 +305,7 @@ public class DictationService extends Service {
             boolean doClean = p.cleanupEnabled() && !"raw".equals(style) && raw.split("\\s+").length >= 3;
             if (doClean) {
                 try {
-                    String c = g.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label);
+                    String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label);
                     if (GroqClient.looksValid(raw, c)) { out = c; cleaned = true; }
                     else cleanupFailed = true;
                 } catch (IOException e) {

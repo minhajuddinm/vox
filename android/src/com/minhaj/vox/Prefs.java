@@ -40,10 +40,25 @@ public final class Prefs {
     public String apiKey() { return sp.getString("api_key", "").trim(); }
     /** Server address; Groq unless the user set their own. */
     public String baseUrl() { return nonEmpty(Endpoint.normalize(sp.getString("base_url", "")), GroqClient.DEFAULT_BASE); }
-    /** True when Groq is the server and no key is set. A server of your own may need no key. */
-    public boolean keyMissing() { return apiKey().isEmpty() && baseUrl().equals(GroqClient.DEFAULT_BASE); }
-    public String sttModel() { return nonEmpty(sp.getString("stt_model", ""), DEFAULT_STT_MODEL); }
-    public String llmModel() { return nonEmpty(sp.getString("llm_model", ""), DEFAULT_LLM_MODEL); }
+    /** {address, key, model} for a role ("stt" or "llm"); a role with its own address never gets the main key. */
+    public String[] role(String role) {
+        return Providers.roleSettings(baseUrl(), apiKey(), sp.getString(role + "_base_url", ""), sp.getString(role + "_api_key", ""),
+                sp.getString(role + "_model", ""), Providers.STT.equals(role) ? DEFAULT_STT_MODEL : DEFAULT_LLM_MODEL);
+    }
+    /** True when a role talks to a server outside the private network without a key (a server of your own needs none). */
+    public boolean keyMissing() {
+        for (String r : new String[]{Providers.STT, Providers.LLM}) {
+            String[] s = role(r);
+            if (s[1].isEmpty() && Providers.keyRequired(s[0])) return true;
+        }
+        return false;
+    }
+    public String sttModel() { return role(Providers.STT)[2]; }
+    public String llmModel() { return role(Providers.LLM)[2]; }
+    /** Preset chosen in Settings (a convenience only: the address decides behaviour). */
+    public String provider() { return nonEmpty(sp.getString("provider", ""), "groq"); }
+    /** A stored setting as typed (blank when unset), for the provider form. */
+    public String raw(String key) { return sp.getString(key, ""); }
     public String language() { return sp.getString("language", "").trim(); }
     public String dictionaryRaw() { return sp.getString("dictionary", DEFAULT_DICTIONARY); }
     public String peopleRaw() { return sp.getString("people", ""); }

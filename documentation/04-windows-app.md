@@ -84,7 +84,7 @@ A small Tk pill at the bottom of the work area: live waveform while recording, b
 | Styles | Default style and a style per app exe |
 | Settings | API key + Test, Server address, shortcut, microphone, language, AI cleanup, keep history, keep clipboard, your name, calendar email, auto notes, start with Windows, clear history, data folder |
 
-`Api` methods (called from JavaScript as `pywebview.api.<name>`): `get_state`, `save_config`, `set_hotkey`, `check_key`, `endpoint_problem`, `suggest_corrections`, `copy`, `delete_history`, `clear_history`, `open_url`, `open_data_folder`, the `meeting_*` and `meetings*` group, `calendar`, `google_*`, `connect_calendar`, `get_autostart`, `set_autostart`. Live meeting calls go through `Api._engine` to the control server; everything else reads or writes files directly.
+`Api` methods (called from JavaScript as `pywebview.api.<name>`): `get_state`, `save_config`, `set_hotkey`, `check_key`, `list_models`, `test_role`, `endpoint_problem`, `suggest_corrections`, `copy`, `delete_history`, `clear_history`, `open_url`, `open_data_folder`, the `meeting_*` and `meetings*` group, `calendar`, `google_*`, `connect_calendar`, `get_autostart`, `set_autostart`. Live meeting calls go through `Api._engine` to the control server; everything else reads or writes files directly.
 
 Start with Windows is a `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value named `Vox`.
 
@@ -119,3 +119,7 @@ All model calls go through `core.post_with_retry` to the configured server. Deta
 ## Build and install
 
 See [10-build-test-release.md](10-build-test-release.md). Installed per user to `%LOCALAPPDATA%\Programs\Vox` (no admin rights).
+
+## AI provider settings
+
+Settings starts with an **AI provider** block: a preset list (`providers.PRESETS`, delivered to the page in `get_state` as `presets`), the server address, the key, a Voice model box and a Cleanup model box. Each model box is a text field with a `<datalist>`: the list comes from `Api.list_models(role, form)` (which calls `providers.list_models` with the unsaved form values laid over the saved settings), and any model name can still be typed. The Test buttons call `Api.test_role`. A switch reveals separate server and key fields for voice and for cleanup. Choosing a preset fills the address and, for Groq, OpenAI and Mistral, suggested models; other presets clear the model boxes. The sidebar footer shows the preset name and the speech model. The list loads once when Settings first renders (only if a key is set or the preset needs none) and again on Refresh or after an address or key change. Design: [specs/p1-providers-and-models.md](specs/p1-providers-and-models.md).

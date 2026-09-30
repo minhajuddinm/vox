@@ -12,9 +12,11 @@ import webview
 import audio_devices
 import meeting
 import vcalendar
+import providers
 import vox_core as core
 
 log = logging.getLogger("vox.ui")
+FORM_KEYS = ("base_url", "api_key", "stt_base_url", "stt_api_key", "llm_base_url", "llm_api_key", "stt_model", "llm_model")
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 HOTKEYS = [
@@ -66,6 +68,7 @@ class Api:
             },
             "apps": apps,
             "mics": audio_devices.input_names(),
+            "presets": providers.PRESETS,
             "autostart": self.get_autostart(),
             "data_dir": core.data_dir(),
         }
@@ -76,6 +79,28 @@ class Api:
         merged.update(cfg)
         core.save_config(merged)
         return True
+
+    def _form_cfg(self, form):
+        """Saved settings with the (not yet saved) values of the provider form laid over them."""
+        cfg = core.load_config()
+        cfg.update({k: (v or "").strip() for k, v in (form or {}).items() if k in FORM_KEYS and isinstance(v, str)})
+        return cfg
+
+    def list_models(self, role, form=None):
+        """Models the role's server offers: {"models": [{"id", "kind"}], "error": str}."""
+        try:
+            return providers.list_models(self._form_cfg(form), role)
+        except Exception as e:
+            log.warning("model list failed: %s", e)
+            return {"models": [], "error": "Could not load the model list."}
+
+    def test_role(self, role, form=None):
+        """One real call to the role's server: {"ok", "status", "ms", "message"}."""
+        try:
+            return providers.test(self._form_cfg(form), role)
+        except Exception as e:
+            log.warning("provider test failed: %s", e)
+            return {"ok": False, "status": 0, "ms": 0, "message": "The test could not run."}
 
     def endpoint_problem(self, base_url):
         """Text to show under the server address field, or '' when the address is acceptable."""

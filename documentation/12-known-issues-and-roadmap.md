@@ -36,7 +36,7 @@ State of the code, honestly. Update this page when you fix or discover something
 
 ### Build and release
 
-- CI runs only on tags or by hand, not on pushes or pull requests.
+- CI runs the tests and the Android build on pull requests; the Windows build runs only on tags or by hand.
 - Without the `ANDROID_KEYSTORE_B64` secret, every CI APK has a new signing key and cannot update an installed app.
 - `windows/build_app.bat` installs an unpinned PyInstaller (CI pins one) and its failure text tells the user to "send it to Claude" (original wording).
 - Uploaded audio is uncompressed WAV (about 32 KB per second of speech).
@@ -54,5 +54,7 @@ Ordered by how much they would help:
 7. Make the Microphone setting apply to meeting notes.
 8. Put address rules (`is_private_host`) into `spec/golden.txt` so both platforms agree exactly.
 9. Merge the two hallucination lists.
+
+10. Rename the Java `GroqClient` to `ApiClient` (deferred from P1). Verify the model-list datalist dropdown in the Android WebView on a device.
 
 Not planned: Android meeting notes, iOS, on-device speech recognition.

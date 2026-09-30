@@ -58,3 +58,7 @@ There is no analytics, crash reporting or Vox backend.
 - Whisper and the chat model are third parties; their handling of the data is covered by their own policies.
 - `ACTION_SET_TEXT` rewrites the whole field, which can drop rich text or race with typing.
 - The accessibility description in `android/res/values/strings.xml` still says audio goes to Groq; it should mention the configurable server.
+
+## Keys per role
+
+`api_key`, `stt_api_key` and `llm_api_key` are all stored DPAPI-protected on Windows (`vox_core.KEY_FIELDS`). A role with its own server address never receives the main key: `role_settings` returns only that role's key for it, and `tests/test_providers.py` checks this. The model list request and the Test buttons go to the role's own address and are subject to the same private-host rule for plain http.

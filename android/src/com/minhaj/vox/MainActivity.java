@@ -123,10 +123,13 @@ public class MainActivity extends Activity {
                 cfg.put("default_style", prefs.defaultStyle());
                 cfg.put("stt_model", prefs.sttModel());
                 cfg.put("llm_model", prefs.llmModel());
+                cfg.put("provider", prefs.provider());
+                for (String f : new String[]{"stt_base_url", "stt_api_key", "llm_base_url", "llm_api_key"}) cfg.put(f, prefs.raw(f));
                 cfg.put("dictionary", lines(prefs.dictionaryRaw()));
                 cfg.put("people", lines(prefs.peopleRaw()));
                 cfg.put("app_styles", appStyles());
                 o.put("config", cfg);
+                o.put("presets", Providers.presetsJson());
                 o.put("mic", checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED);
                 o.put("a11y", VoxAccessibilityService.instance != null);
                 o.put("service", DictationService.instance != null);
@@ -155,6 +158,12 @@ public class MainActivity extends Activity {
                 if (c.has("default_style")) e.putString("default_style", c.getString("default_style"));
                 if (c.has("stt_model")) e.putString("stt_model", c.getString("stt_model"));
                 if (c.has("llm_model")) e.putString("llm_model", c.getString("llm_model"));
+                if (c.has("provider")) e.putString("provider", c.getString("provider"));
+                for (String f : new String[]{"stt_base_url", "llm_base_url"}) {
+                    if (c.has(f) && Endpoint.error(c.getString(f)) == null) e.putString(f, Endpoint.normalize(c.getString(f)));
+                }
+                if (c.has("stt_api_key")) e.putString("stt_api_key", c.getString("stt_api_key").trim());
+                if (c.has("llm_api_key")) e.putString("llm_api_key", c.getString("llm_api_key").trim());
                 if (c.has("dictionary")) e.putString("dictionary", join(c.getJSONArray("dictionary")));
                 if (c.has("people")) e.putString("people", join(c.getJSONArray("people")));
                 if (c.has("app_styles")) {
@@ -216,6 +225,69 @@ public class MainActivity extends Activity {
                 try { res = new GroqClient(key.trim(), baseUrl).checkKey() ? "ok" : "bad"; }
                 catch (Exception e) { res = "offline"; }
                 js(callback + "('" + res + "')");
+            }).start();
+        }
+
+        private String[] formRole(String role, String form) throws Exception {
+            JSONObject f = new JSONObject(form);
+            return Providers.roleSettings(f.optString("base_url", prefs.baseUrl()), f.optString("api_key", prefs.apiKey()),
+                    f.optString(role + "_base_url", ""), f.optString(role + "_api_key", ""), f.optString(role + "_model", ""),
+                    Providers.STT.equals(role) ? Prefs.DEFAULT_STT_MODEL : Prefs.DEFAULT_LLM_MODEL);
+        }
+
+        private void put(JSONObject o, String k, Object v) {
+            try { o.put(k, v); } catch (Exception ignored) { }
+        }
+
+        /** Models a role's server offers. `form` holds the settings as typed; answers callback("{models, error}"). */
+        @JavascriptInterface
+        public void listModels(String role, String form, String callback) {
+            new Thread(() -> {
+                JSONArray arr = new JSONArray();
+                String err = "";
+                try {
+                    String[] s = formRole(role, form);
+                    for (String[] m : new GroqClient(s[1], s[0]).listModels(role)) arr.put(m[0]);
+                    if (arr.length() == 0) err = "The server listed no models for this. Type the model name instead.";
+                } catch (GroqClient.ApiException e) {
+                    err = Providers.explain(e.code, role, "");
+                } catch (Exception e) {
+                    String m = e.getMessage();
+                    err = m != null && m.startsWith("Plain http") ? m : "Could not reach the server.";
+                }
+                JSONObject res = new JSONObject();
+                put(res, "models", arr);
+                put(res, "error", err);
+                js(callback + "(" + JSONObject.quote(res.toString()) + ")");
+            }).start();
+        }
+
+        /** One real call to a role's server; answers callback("{ok, message}"). */
+        @JavascriptInterface
+        public void testRole(String role, String form, String callback) {
+            new Thread(() -> {
+                boolean ok = false;
+                String msg;
+                long t0 = System.currentTimeMillis();
+                try {
+                    String[] s = formRole(role, form);
+                    String problem = Endpoint.error(s[0]);
+                    if (problem != null) msg = problem;
+                    else if (s[1].isEmpty() && Providers.keyRequired(s[0])) msg = "Add an API key for this server first.";
+                    else {
+                        new GroqClient(s[1], s[0]).test(role, s[2]);
+                        ok = true;
+                        msg = "Works (" + (System.currentTimeMillis() - t0) + " ms) with " + s[2] + ".";
+                    }
+                } catch (GroqClient.ApiException e) {
+                    msg = Providers.explain(e.code, role, "");
+                } catch (Exception e) {
+                    msg = "Could not reach the server.";
+                }
+                JSONObject res = new JSONObject();
+                put(res, "ok", ok);
+                put(res, "message", msg);
+                js(callback + "(" + JSONObject.quote(res.toString()) + ")");
             }).start();
         }
 
