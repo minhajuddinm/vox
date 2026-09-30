@@ -15,8 +15,8 @@ Messages worth knowing:
 | Message | Meaning |
 |---|---|
 | `engine started, hotkey=[...]` | Engine is up and listening for the shortcut |
-| `overlay ready WxH scale=... geometry=...` | The pill window was created (it appears only while recording) |
-| `overlay shown (rec)` | The pill became visible for a recording |
+| `overlay ready WxH scale=... geometry=...` | The pill window was created (it appears only while recording, sending or showing a result signal) |
+| `overlay shown (rec)` | The pill became visible for a recording (the word in brackets is the state drawn: `rec`, `busy`, `meet`, or `sent` / `error` for the short result signal) |
 | `recording started (app=Code.exe)` | Hotkey accepted; the exe that will receive the text |
 | `hands-free mode` | Double-tap detected |
 | `notify: ...` | A tray notification was shown (text included), e.g. "Vox did not hear anything (loudest sound N of 32768)..." |

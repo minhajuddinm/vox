@@ -56,7 +56,7 @@ Threads in the engine process:
 | `control` | `Engine.run` | localhost HTTP server for the window |
 | Meeting threads | `Meeting.start` | one recorder per source (You, Others), one STT worker, one finisher |
 
-Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording) -> `busy` (sending) -> `idle`. `hands_free` is a flag on `rec`. `Engine.pending` holds `(pcm, exe)` of a dictation that failed to send.
+Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording) -> `busy` (sending) -> `idle`. `hands_free` is a flag on `rec`. `Engine.pending` holds `(pcm, exe)` of a dictation that failed to send. A dictation's end is also signalled on the pill for a moment (`Engine.flash`: a green check or a red !) without changing `Engine.state`; see [04-windows-app.md](04-windows-app.md#result-signal-on-the-pill).
 
 ## Windows dictation flow
 

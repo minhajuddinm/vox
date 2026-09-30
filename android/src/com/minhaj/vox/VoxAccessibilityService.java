@@ -271,12 +271,16 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
 
     @Override
     public void onResult(String text, String targetPkg) {
-        insertText(text, targetPkg);
+        boolean typed = insertText(text, targetPkg);
+        if (bubble != null) bubble.flash(typed ? BubbleView.SENT : BubbleView.ERROR);   // ERROR: it only reached the clipboard
     }
 
     @Override
     public void onError(String message) {
         toast(message);
+        // A warning that still ends in a result (cleanup fell back to the raw words) is followed by onResult,
+        // whose flash replaces this one.
+        if (bubble != null) bubble.flash(BubbleView.ERROR);
     }
 
     // ------------------------------------------------------------ insertion
@@ -285,7 +289,8 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         return n != null && n.isPassword();
     }
 
-    private void insertText(String text, String targetPkg) {
+    /** Types the text into the focused field. False when it did not land there (copied to the clipboard instead, or refused). */
+    private boolean insertText(String text, String targetPkg) {
         AccessibilityNodeInfo node = null;
         try { node = findFocus(AccessibilityNodeInfo.FOCUS_INPUT); } catch (Exception ignored) { }
         if (node == null || !node.isEditable()) {
@@ -295,18 +300,18 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         if (node == null) {
             copyToClipboard(text);
             toast("No text field found. Copied to clipboard.");
-            return;
+            return false;
         }
         if (isPasswordField(node)) {
             toast("Vox does not type into password fields");
-            return;
+            return false;
         }
         CharSequence nodePkg = node.getPackageName();
         if (targetPkg != null && nodePkg != null && !targetPkg.contentEquals(nodePkg)) {
             // The user switched apps while Vox was working: do not type into the wrong one.
             copyToClipboard(text);
             toast("You switched apps. Dictation copied to clipboard.");
-            return;
+            return false;
         }
 
         CharSequence curCs = node.getText();
@@ -340,7 +345,7 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
             sel.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, caret);
             sel.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, caret);
             node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, sel);
-            return;
+            return true;
         }
 
         // Fallback: paste through the clipboard, then restore what was there.
@@ -355,6 +360,7 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         } else {
             toast("This app blocked typing. Text copied to clipboard.");
         }
+        return pasted;
     }
 
     private void copyToClipboard(String t) {

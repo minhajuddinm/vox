@@ -24,13 +24,13 @@ The engine and window modes set DPI awareness, install `sys.excepthook` / `threa
 
 ### Recording (`Engine.start`, `_audio`, `stop`)
 
-1. `start` refuses (with a tray notification and by opening the window) if `core.endpoint_error(cfg)` reports a bad server address or `core.key_missing(cfg)` is true.
+1. `start` refuses (with a tray notification, a red ! on the pill and by opening the window) if `core.endpoint_error(cfg)` reports a bad server address or `core.key_missing(cfg)` is true.
 2. It remembers the foreground app's exe name (`foreground_app`, via psutil; the window title is never read); `paste` later checks the focused window against it.
 3. It opens a `sounddevice.InputStream` (16 kHz, mono, int16) on the device chosen in Settings (`audio_devices.input_index(cfg["input_device"])`; empty means the Windows default; a missing device falls back to the default with a notification).
 4. `_audio` appends chunks and computes the level for the overlay.
 5. `stop` calls `_end_recording` (atomic under `_rec_lock`, because the audio callback and the hotkey thread can both stop), joins the chunks, then:
    - shorter than 0.4 s (`MIN_SECONDS`): back to idle;
-   - `core.is_silent(pcm)` (peak below 655 of 32768): notification "Vox did not hear anything (loudest sound N of 32768)…", back to idle;
+   - `core.is_silent(pcm)` (peak below 655 of 32768): notification "Vox did not hear anything (loudest sound N of 32768)…" and a red ! on the pill, back to idle;
    - otherwise `busy`, and `_process` runs on a new thread.
 
 ### Processing and paste (`_process`, `paste`)
@@ -42,8 +42,10 @@ The engine and window modes set DPI awareness, install `sys.excepthook` / `threa
   2. compares the focused window's exe name (`GetForegroundWindow` and `QueryFullProcessImageNameW`, never the title) with `target`, ignoring case. If it differs, the text is left on the clipboard, **no Ctrl+V is sent**, and the engine shows "Copied; the window changed". If the target was never captured, the window cannot be named, or the lookup fails (logged as a warning), the paste goes ahead rather than losing the text;
   3. otherwise copies the text, sends Ctrl+V and waits 0.4 s;
   4. restores the old clipboard text only when `keep_clipboard` is false (the default) **and** the clipboard still holds the dictated text, so something the user copied in the meantime is never overwritten. If the old clipboard could not be read it is not restored (the text stays).
+
+  Afterwards `Engine.paste` flashes the pill: green for `"pasted"`, red for `"copied"` ([Result signal on the pill](#result-signal-on-the-pill)).
 - History: one JSON line appended to `history.jsonl` unless `keep_history` is false.
-- Errors: `ApiError` (401 key rejected, 429 rate limit, other) and `requests.RequestException` set `Engine.pending = (pcm, exe)` and notify with "Your recording is kept: tray icon > Retry last dictation." `retry_last` re-runs `_process` on the kept audio. Success clears `pending`.
+- Errors: `ApiError` (401 key rejected, 429 rate limit, other) and `requests.RequestException` set `Engine.pending = (pcm, exe)` and notify with "Your recording is kept: tray icon > Retry last dictation." `retry_last` re-runs `_process` on the kept audio. Success clears `pending`. Each of these failures also flashes a red ! on the pill; a saved voice note flashes the green check.
 
 ### Tray menu (pystray)
 
@@ -84,7 +86,20 @@ Every 30 s, if a calendar is connected and no meeting is running, the engine loo
 
 ## Overlay (`windows/overlay.py`)
 
-A small Tk pill at the bottom of the work area: live waveform while recording, bouncing dots while sending, a timer while taking meeting notes. Created with extended window styles so it is click-through, never takes focus, has no taskbar button and stays on top. Tk runs on the main thread and polls `Engine.state` and `Engine.level` every 16 ms; other threads only set those fields. If the overlay fails to start the engine logs it and keeps running without it.
+A small Tk pill at the bottom of the work area: live waveform while recording, bouncing dots while sending, a timer while taking meeting notes, and for a moment after a dictation a green check or a red ! (next section). Created with extended window styles so it is click-through, never takes focus, has no taskbar button and stays on top. Tk runs on the main thread and polls `Engine.state`, `Engine.level` and `Engine.active_flash()` every 33 ms (`FPS_MS`); other threads only set those fields. If the overlay fails to start the engine logs it and keeps running without it.
+
+## Result signal on the pill
+
+`Engine.flash(kind)` makes the pill show **sent** (a green check, 0.7 s) or **error** (a red !, 1.8 s) and then go back to whatever the real state is. It is only a signal: `Engine.state` keeps its values (`idle`, `rec`, `busy`) and every error keeps its tray notification text, because the pill says *that* something failed, not *what*.
+
+- **State:** `flash_kind` (`"sent"`, `"error"` or `""`) and `flash_until` (`time.monotonic()` deadline, `FLASH_SECONDS` gives the durations). `active_flash(now=None)` returns the kind while the deadline has not passed, else `""`; it never writes, so the Tk thread and the worker threads do not race on clearing it. `flash` does nothing when `Engine.overlay` is `None` (the pill failed to start), and raises `KeyError` for any other kind.
+- **Cancelling:** `set_state("rec")` and `set_state("busy")` clear the flash, so a new recording or a retry replaces it at once; `set_state("idle")` keeps it (the result is flashed while the state is still `busy`, then the engine goes idle). A flash is also not drawn while the state is `rec` or `busy`.
+- **Drawing (`overlay.py`):** when the state is `idle`, the overlay asks `active_flash()` first; a flash is shown instead of the meeting timer, then the timer (or nothing) returns. `_draw_sent` and `_draw_error` draw one line, and one line plus a dot, from coordinates worked out once in `Overlay.__init__`; each frame clears and redraws the canvas as before. The pill stays click-through. Not yet seen on a real screen: the canvas items were checked in a live Tk window and the shapes previewed from the same coordinates, but a screenshot of the layered window could not be taken from the agent's shell.
+- **Green (`sent`):** a pasted dictation (`paste_text` returned `"pasted"`) and a saved voice note.
+- **Red (`error`):** the dictation text only reached the clipboard (`"copied"`, together with "Copied; the window changed"); "Add your API key" or a bad server address; a microphone error; nothing heard; every send failure (`ApiError`, network error, an unexpected exception in `_process`).
+- **Nothing:** a recording cancelled or shorter than 0.4 s, a dictation with no text, the "Cleanup did not work" notice (the words were still pasted, so that one is `sent`), and the informational notices (chosen microphone missing, meeting notes).
+
+The phone does the same with `BubbleView.flash` ([05-android-app.md](05-android-app.md#result-flash-on-the-bubble)).
 
 ## Main window (`windows/ui_app.py` and `windows/ui/index.html`)
 

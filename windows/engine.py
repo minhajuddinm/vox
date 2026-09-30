@@ -34,6 +34,7 @@ MIN_SECONDS = 0.4
 MAX_SECONDS = 360
 TAP_SECONDS = 0.3       # a press shorter than this is a tap
 DOUBLE_TAP_GAP = 0.5    # second tap within this starts hands-free mode
+FLASH_SECONDS = {"sent": 0.7, "error": 1.8}   # how long the pill shows a green check / a red ! (see Engine.flash)
 
 KEY_ALIASES = {
     "ctrl": {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r},
@@ -76,6 +77,11 @@ def open_window():
 
 
 class Engine:
+    # Class-level defaults, so an Engine built without __init__ (tests) still has a valid "no pill, no flash".
+    overlay = None
+    flash_kind = ""       # "sent" | "error" | "" : what the pill signals for a moment (read by the overlay)
+    flash_until = 0.0     # time.monotonic() when flash_kind stops showing
+
     def __init__(self):
         self.cfg = core.load_config()
         self.cfg_mtime = self._mtime()
@@ -178,7 +184,26 @@ class Engine:
         self.state = name
         if name != "rec":
             self.level = 0.0
+        if name != "idle":
+            self.flash_kind = ""   # a new recording or send replaces whatever the pill was signalling
         self.icon.icon = ICONS[name]
+
+    def flash(self, kind):
+        """Makes the pill show "sent" (green check, 0.7 s) or "error" (red !, 1.8 s), then go back to the real
+        state. Only a signal: the state is unchanged and the tray balloon keeps the words. Does nothing without
+        a pill. Any thread may call it; the overlay reads flash_kind and flash_until on the Tk thread."""
+        seconds = FLASH_SECONDS[kind]
+        if self.overlay is None:
+            return
+        self.flash_until = time.monotonic() + seconds   # the deadline before the kind
+        self.flash_kind = kind
+
+    def active_flash(self, now=None):
+        """The flash the pill should show at `now` ("sent", "error", or "" when there is none or it has run out)."""
+        kind = self.flash_kind
+        if not kind:
+            return ""
+        return kind if (time.monotonic() if now is None else now) < self.flash_until else ""
 
     # ----------------------------------------------------------------- relay
     def start_relay(self):
@@ -258,6 +283,7 @@ class Engine:
             "Add your API key in Vox > Settings" if core.key_missing(self.cfg) else "")
         if problem:
             self.notify(problem)
+            self.flash("error")
             open_window()
             return
         self.target = foreground_app()
@@ -276,6 +302,7 @@ class Engine:
             self.stream.start()
         except Exception as e:
             self.notify(f"Microphone error: {e}")
+            self.flash("error")
             if self.streaming:
                 self.streaming.cancel()
                 self.streaming = None
@@ -340,6 +367,7 @@ class Engine:
                 streamer.cancel()
             self.notify(f"Vox did not hear anything (loudest sound {core.peak_level(pcm)} of 32768). Check the microphone in Vox > Settings.")
             self.set_state("idle")
+            self.flash("error")
             return
         self.busy = True
         self.set_state("busy")
@@ -387,6 +415,7 @@ class Engine:
                 saved = notes.add(text, raw=raw, secs=secs, source=notes.SOURCE_NOTE, device=sync.device_name(self.cfg))
                 self.sync.trigger()
                 self.notify("Note saved: " + saved["title"])
+                self.flash("sent")
             elif text:
                 self.paste(text)
                 if self.cfg.get("keep_history", True):
@@ -403,11 +432,14 @@ class Engine:
                 self.notify("Rate limit reached. Try again shortly." + keep)
             else:
                 self.notify(str(e) + keep)
+            self.flash("error")
         except requests.RequestException as e:
             self.pending = (pcm, exe, note)
             self.notify(f"Network error: {e}." + keep)
+            self.flash("error")
         except Exception:
             log.exception("processing failed")
+            self.flash("error")
         finally:
             self.busy = False
             self.set_state("idle")
@@ -417,6 +449,9 @@ class Engine:
         # old clipboard only when keep_clipboard is off and the clipboard still holds our text.
         if paste_mod.paste_text(text, self.target, self.cfg.get("keep_clipboard", False)) == paste_mod.COPIED:
             self.notify("Copied; the window changed")
+            self.flash("error")   # the text did not land in the window
+        else:
+            self.flash("sent")
 
     # -------------------------------------------------------------- meeting
     def _event(self, uid=None):
