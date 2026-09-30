@@ -228,6 +228,7 @@ class Engine:
         self.target = foreground_app()
         self.chunks = []
         self.started_at = time.time()
+        core.warm(self.cfg)   # open the server connections while the user speaks
         try:
             device = audio_devices.input_index(self.cfg.get("input_device"))
             if self.cfg.get("input_device") and device is None:

@@ -1,6 +1,6 @@
 # 0016. Per-role server and model discovery by id
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-30
 
 ## Context

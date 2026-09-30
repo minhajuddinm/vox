@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import wave
 from collections import namedtuple
@@ -324,6 +325,35 @@ class ApiError(Exception):
         self.code = code
 
 
+_session = requests.Session()   # keeps connections open, so a dictation does not pay the TLS handshake again
+
+
+def _post(url, **kw):
+    return _session.post(url, **kw)
+
+
+def warm(cfg):
+    """Opens, in the background, the connections a dictation is about to use (TLS handshake included).
+
+    Called when the hotkey goes down; the upload after the key is released then reuses an open connection.
+    Failures are ignored: the real request reports them. Returns the thread (tests wait for it).
+    """
+    targets = {}
+    for role in providers.ROLES:
+        targets.setdefault(api_base(cfg, role), auth_headers(cfg, role))
+
+    def run():
+        for base, headers in targets.items():
+            try:
+                _session.get(f"{base}/models", headers=headers, timeout=3)
+            except Exception:
+                pass
+
+    t = threading.Thread(target=run, name="vox-warm", daemon=True)
+    t.start()
+    return t
+
+
 def post_with_retry(url, retries=2, **kw):
     """POST with a quick retry on dropped connections (flaky Wi-Fi, VPNs, antivirus TLS inspection)
     and on temporary server errors (500, 502, 503, 504). The last response is returned as it is."""
@@ -333,7 +363,7 @@ def post_with_retry(url, retries=2, **kw):
                 for name, spec in kw["files"].items():
                     if hasattr(spec[1], "seek"):
                         spec[1].seek(0)
-            r = requests.post(url, **kw)
+            r = _post(url, **kw)
         except (requests.ConnectionError, requests.Timeout):
             if attempt == retries:
                 raise

@@ -138,7 +138,8 @@ public class DictationService extends Service {
     public synchronized void startRecording(String pkg, String label) {
         if (state != IDLE) return;
         Prefs p = new Prefs(this);
-        String problem = Endpoint.error(p.baseUrl());
+        String problem = Endpoint.error(p.role(Providers.STT)[0]);
+        if (problem == null) problem = Endpoint.error(p.role(Providers.LLM)[0]);
         if (problem != null) {
             postError(problem);
             return;
@@ -149,6 +150,11 @@ public class DictationService extends Service {
         }
         targetPkg = pkg;
         targetLabel = label;
+        final String[] warmStt = p.role(Providers.STT), warmLlm = p.role(Providers.LLM);
+        new Thread(() -> {   // open the server connections while the user speaks
+            new GroqClient(warmStt[1], warmStt[0]).warm();
+            if (!warmLlm[0].equals(warmStt[0])) new GroqClient(warmLlm[1], warmLlm[0]).warm();
+        }, "vox-warm").start();
         int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         final AudioRecord rec;
         try {

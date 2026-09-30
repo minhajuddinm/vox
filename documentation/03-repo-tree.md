@@ -101,6 +101,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_audio_devices.py` | Microphone name resolution. |
 | `tests/test_parity.py` | Runs `spec/golden.txt` against the Python helpers. |
 | `tests/test_providers.py` | Per-role settings, key isolation, model discovery, Test button, reasoning retry. |
+| `tests/test_warmup.py` | Connection warm-up (`vox_core.warm`) and the shared session. |
 | `tests/test_docs_todo.py` | The path-to-page rules of `documentation/tools/docs_todo.py`. |
 | `spec/golden.txt` | Shared expected results (sanitize, looks_valid, replacements, whisper prompt, terms, system prompt, spoken commands, silence). Read by the Python and Java parity tests. |
 | `android/test/com/minhaj/vox/GroqClientTest.java` | Prompt, sanitize, replacements, retry policy, silence phrases. |
@@ -161,7 +162,9 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/decisions/0014-documentation-checked-in-ci.md` | ADR: this folder is machine-checked. |
 | `documentation/decisions/0015-sync-docs-every-session.md` | ADR: documentation sync at the end of every session. |
 | `documentation/decisions/0016-per-role-server-and-model-discovery.md` | ADR (proposed): separate server per role, model list classified by id. |
+| `documentation/decisions/0017-warm-connections-not-an-open-microphone.md` | ADR: warm the server connections at key-down; the microphone is never open while idle. |
 | `documentation/specs/README.md` | Index of design specs (written before the code they describe). |
 | `documentation/specs/p1-providers-and-models.md` | Spec for sub-project P1: any provider, per-role server, model list, Test button. |
+| `documentation/specs/p2a-keydown-warmup.md` | Spec for P2a: warm connections at key-down. |
 | `documentation/tools/check_docs.py` | The documentation checker (tree, config keys, links, ADR index). |
 | `documentation/tools/docs_todo.py` | Prints which pages to update for the code that changed (checklist only, edits nothing). |

@@ -6,6 +6,7 @@ The roadmap these come from (v2: any provider, lighter, faster, personal context
 
 | Spec | Sub-project | Status |
 |---|---|---|
-| [p1-providers-and-models.md](p1-providers-and-models.md) | Any provider, per-role server, model list and Test button | Draft, awaiting review |
+| [p1-providers-and-models.md](p1-providers-and-models.md) | Any provider, per-role server, model list and Test button | Implemented (PR 5) |
+| [p2a-keydown-warmup.md](p2a-keydown-warmup.md) | Warm connections at key-down | Implemented |
 
 Later specs (write each just before its work starts): key-down speed, "About you" context, live voice level, lightweight build, notes store, Android note mode, relay, design and privacy refresh.

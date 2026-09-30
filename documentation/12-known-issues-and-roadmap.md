@@ -57,4 +57,6 @@ Ordered by how much they would help:
 
 10. Rename the Java `GroqClient` to `ApiClient` (deferred from P1). Verify the model-list datalist dropdown in the Android WebView on a device.
 
+11. Speed: shorten the Android start delay (400 ms + 350 ms, needs a device test), skip cleanup for short phrases, streaming cleanup, chunked speech-to-text for long dictation. The connection warm-up saving is an estimate, not measured.
+
 Not planned: Android meeting notes, iOS, on-device speech recognition.

@@ -82,3 +82,7 @@ One case per line, fields separated by TAB; `\n`, `\t`, `\\` are escapes; lists 
 - **Model list.** `GET {base}/models` with a 5 s timeout. Each entry is classified `stt`, `llm` or `hidden`: an explicit provider field first (OpenRouter `architecture.output_modalities`, `task`/`type`, Groq `active: false` is hidden), otherwise the model id (`whisper`, `transcribe`, `voxtral`, `parakeet`, `moonshine`, `canary` mean speech; `orpheus`, `tts`, `guard`, `embed`, `rerank`, image models are hidden). The id rules are checked on both platforms by the `models` rows of `spec/golden.txt`.
 - **Test.** Speech: a silent one-second WAV to `/audio/transcriptions`; cleanup: a tiny `chat/completions` call. Success is HTTP 200; failures are explained (401 key, 404 no such endpoint, 429 rate limit).
 - **Reasoning fields.** `reasoning_effort: "low"` and `include_reasoning: false` are sent only for models with `gpt-oss` in the name and `llm_reasoning` not `off`. If the server answers 400 or 422 the request is repeated once without them and that address and model are remembered for the rest of the run. A leading `<think>...</think>` block in the answer is removed.
+
+## Connection reuse
+
+Windows posts through one shared `requests.Session` (`vox_core._post`); `vox_core.warm` opens the role servers' connections at key-down. Android reuses connections by reading responses fully and not disconnecting; `GroqClient.warm` does the opening. Without this each request paid a fresh TLS handshake.
