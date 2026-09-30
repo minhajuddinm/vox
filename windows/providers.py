@@ -15,11 +15,14 @@ ROLES = ("stt", "llm")
 
 # id = stored in the `provider` setting (a UI convenience only: the address decides behaviour).
 PRESETS = [
-    {"id": "groq", "name": "Groq (free tier)", "base_url": GROQ_BASE, "key_url": "https://console.groq.com/keys"},
-    {"id": "openai", "name": "OpenAI", "base_url": "https://api.openai.com/v1", "key_url": "https://platform.openai.com/api-keys"},
+    {"id": "groq", "name": "Groq (free tier)", "base_url": GROQ_BASE, "key_url": "https://console.groq.com/keys",
+     "stt_model": "whisper-large-v3-turbo", "llm_model": "openai/gpt-oss-20b"},
+    {"id": "openai", "name": "OpenAI", "base_url": "https://api.openai.com/v1", "key_url": "https://platform.openai.com/api-keys",
+     "stt_model": "whisper-1", "llm_model": "gpt-4o-mini"},
     {"id": "openrouter", "name": "OpenRouter", "base_url": "https://openrouter.ai/api/v1", "key_url": "https://openrouter.ai/keys"},
     {"id": "together", "name": "Together AI", "base_url": "https://api.together.xyz/v1", "key_url": "https://api.together.ai/settings/api-keys"},
-    {"id": "mistral", "name": "Mistral", "base_url": "https://api.mistral.ai/v1", "key_url": "https://console.mistral.ai/api-keys"},
+    {"id": "mistral", "name": "Mistral", "base_url": "https://api.mistral.ai/v1", "key_url": "https://console.mistral.ai/api-keys",
+     "stt_model": "voxtral-mini-latest", "llm_model": "mistral-small-latest"},
     {"id": "ollama", "name": "Ollama (this PC)", "base_url": "http://localhost:11434/v1", "key_url": ""},
     {"id": "lmstudio", "name": "LM Studio (this PC)", "base_url": "http://localhost:1234/v1", "key_url": ""},
     {"id": "speaches", "name": "Speaches / faster-whisper server", "base_url": "http://localhost:8000/v1", "key_url": ""},
