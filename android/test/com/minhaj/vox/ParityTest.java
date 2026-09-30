@@ -82,6 +82,9 @@ public final class ParityTest {
                 case "spoken":
                     eq(ln, kind, f[1], GroqClient.applySpokenCommands(f[0]));
                     break;
+                case "models":
+                    eq(ln, kind, f[1], Providers.classify(f[0]));
+                    break;
                 case "silence":
                     eq(ln, kind, f[1], GroqClient.isSilenceHallucination(f[0]) ? "true" : "false");
                     break;

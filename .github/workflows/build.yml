@@ -79,8 +79,8 @@ jobs:
           javac -nowarn -encoding UTF-8 -cp "$JAR" -d android/build/test \
             android/src/com/minhaj/vox/GroqClient.java android/src/com/minhaj/vox/Endpoint.java \
             android/src/com/minhaj/vox/Pcm.java android/src/com/minhaj/vox/Corrections.java \
-            android/src/com/minhaj/vox/Terms.java android/test/com/minhaj/vox/*.java
-          for t in GroqClientTest EndpointTest PcmTest CorrectionsTest; do
+            android/src/com/minhaj/vox/Terms.java android/src/com/minhaj/vox/Providers.java android/test/com/minhaj/vox/*.java
+          for t in GroqClientTest EndpointTest PcmTest CorrectionsTest ProvidersTest; do
             java -cp "android/build/test:$JAR" "com.minhaj.vox.$t"
           done
           java -cp "android/build/test:$JAR" com.minhaj.vox.ParityTest spec/golden.txt

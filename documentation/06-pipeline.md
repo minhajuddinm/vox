@@ -27,6 +27,7 @@ The server is `base_url` (default `https://api.groq.com/openai/v1`); trailing sl
 | Speech to text | `POST /audio/transcriptions`, multipart: `file` (WAV), `model` (`stt_model`, default `whisper-large-v3-turbo`), `response_format=json`, `temperature=0`, optional `language`, optional `prompt` | `prompt` is the dictionary terms joined by commas, at most about 600 characters (`whisper_prompt`) |
 | Cleanup | `POST /chat/completions`, JSON: `model` (`llm_model`, default `openai/gpt-oss-20b`), `temperature=0.2`, `max_tokens=max(1024, 2 x transcript length)`, system prompt + user message `<transcript>\n...\n</transcript>` | For models whose name contains `gpt-oss`: `reasoning_effort="low"`, `include_reasoning=false` |
 | Key test | `GET /models` | 200 means the key (and server) work |
+| Model list | `GET /models` per role (Ollama fallback `GET /api/tags`) | Parsed and classified into speech and chat models by `providers.parse_models` / `Providers.parseModels` |
 | Meeting speech | `POST /audio/transcriptions` with `response_format=verbose_json` | Segments carry quality scores used to drop hallucinations |
 | Meeting notes and questions | `POST /chat/completions` with `notes_model` (default `openai/gpt-oss-120b`) | |
 
@@ -74,3 +75,10 @@ Both platforms store the dictionary as lines: a plain line is a **term** (spelli
 ## The shared golden file (`spec/golden.txt`)
 
 One case per line, fields separated by TAB; `\n`, `\t`, `\\` are escapes; lists use `|`; replacement pairs use `;` between pairs and `=>` inside one. Kinds: `sanitize`, `looks_valid`, `replace`, `whisper`, `terms`, `prompt`, `spoken`, `silence`. `tests/test_parity.py` (Python) and `android/test/com/minhaj/vox/ParityTest.java` (Java) run every line. If you change any of these behaviours, change both implementations and the affected lines in the file (compute the expected value from the Python implementation and review it by hand). Never edit the file just to make one side pass.
+
+## Per-role servers, model discovery and reasoning fields
+
+- **Role settings.** `providers.role_settings(cfg, role)` / `Providers.roleSettings` return the address, key and model for `stt` or `llm`. A role with its own address (`stt_base_url`, `llm_base_url`) uses only its own key; the main key is never sent to a different server. `vox_core.transcribe` and `cleanup` (and the meeting code) call `api_base(cfg, role)` and `auth_headers(cfg, role)`. `key_missing` is true when a role talks to a server outside the private network without a key.
+- **Model list.** `GET {base}/models` with a 5 s timeout. Each entry is classified `stt`, `llm` or `hidden`: an explicit provider field first (OpenRouter `architecture.output_modalities`, `task`/`type`, Groq `active: false` is hidden), otherwise the model id (`whisper`, `transcribe`, `voxtral`, `parakeet`, `moonshine`, `canary` mean speech; `orpheus`, `tts`, `guard`, `embed`, `rerank`, image models are hidden). The id rules are checked on both platforms by the `models` rows of `spec/golden.txt`.
+- **Test.** Speech: a silent one-second WAV to `/audio/transcriptions`; cleanup: a tiny `chat/completions` call. Success is HTTP 200; failures are explained (401 key, 404 no such endpoint, 429 rate limit).
+- **Reasoning fields.** `reasoning_effort: "low"` and `include_reasoning: false` are sent only for models with `gpt-oss` in the name and `llm_reasoning` not `off`. If the server answers 400 or 422 the request is repeated once without them and that address and model are remembered for the rest of the run. A leading `<think>...</think>` block in the answer is removed.

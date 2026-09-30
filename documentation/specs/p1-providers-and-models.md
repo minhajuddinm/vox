@@ -1,6 +1,6 @@
 # Spec P1: any provider, per-role server, model list, Test button
 
-Status: Draft, awaiting review. Date: 2026-09-30. Decision record: [0016](../decisions/0016-per-role-server-and-model-discovery.md).
+Status: Implemented on branch `feat/providers` (awaiting on-device checks). Date: 2026-09-30. Decision record: [0016](../decisions/0016-per-role-server-and-model-discovery.md).
 
 ## Goal
 Any OpenAI-compatible provider, any open-source model and any key works in both apps. With a Groq key the user picks the voice model and the cleanup model from a list. Nothing in the UI or code assumes Groq.

@@ -9,10 +9,16 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `api_key` | string | `""` | Key for the server. May stay empty for a self-hosted `base_url`. |
-| `base_url` | string | `https://api.groq.com/openai/v1` | Server address. Blank means Groq. `http://` only for private hosts (`vox_core.endpoint_error`). |
+| `base_url` | string | `https://api.groq.com/openai/v1` | Main server address for both roles. Blank means Groq. `http://` only for private hosts (`vox_core.endpoint_error`, applied to each role address too). |
 | `hotkey` | list of strings | `["ctrl_l", "cmd"]` | Key names from `engine.KEY_ALIASES`. |
 | `stt_model` | string | `whisper-large-v3-turbo` | Speech model. |
 | `llm_model` | string | `openai/gpt-oss-20b` | Cleanup model. |
+| `provider` | string | `groq` | Preset chosen in Settings (`groq`, `openai`, `openrouter`, `together`, `mistral`, `ollama`, `lmstudio`, `speaches`, `whispercpp`, `custom`). A UI convenience only: the address decides behaviour. |
+| `stt_base_url` | string | `""` | Separate server for speech to text. Blank means the main `base_url`. |
+| `stt_api_key` | string | `""` | Key for `stt_base_url` (DPAPI-protected like `api_key`). Blank means the main key, but only while the address is the main one. |
+| `llm_base_url` | string | `""` | Separate server for cleanup. Blank means the main `base_url`. |
+| `llm_api_key` | string | `""` | Key for `llm_base_url` (DPAPI-protected). |
+| `llm_reasoning` | string | `auto` | `auto` sends `reasoning_effort` only to gpt-oss models (and stops if the server refuses it); `off` never sends it. |
 | `language` | string | `""` | Whisper language code; empty = auto detect. |
 | `input_device` | string | `""` | Microphone name for dictation; empty = Windows default. Not used by meeting notes. |
 | `cleanup` | bool | `true` | Run the AI cleanup. |
@@ -32,7 +38,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `keep_audio` | bool | absent (false) | Keep the raw meeting audio after the notes are written. |
 | `notes_folder` | string | absent | Where a copy of each meeting's notes is written (default `Documents\Vox Notes`). |
 
-Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_device`, `language`, `cleanup`, `keep_history`, `keep_clipboard`, `your_name`, `my_email`, `auto_notes`, `stt_model`, `llm_model`, `default_style`, `app_styles`, `dictionary`, `people`, `calendar_url`. The others (`notes_model`, `final_stt_model`, `final_pass`, `keep_audio`, `notes_folder`) are only settable by editing the file.
+Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_device`, `language`, `cleanup`, `keep_history`, `keep_clipboard`, `your_name`, `my_email`, `auto_notes`, `provider`, `stt_base_url`, `stt_api_key`, `llm_base_url`, `llm_api_key`, `stt_model`, `llm_model`, `default_style`, `app_styles`, `dictionary`, `people`, `calendar_url`. The others (`notes_model`, `final_stt_model`, `final_pass`, `keep_audio`, `notes_folder`) are only settable by editing the file.
 
 ## Android preferences (SharedPreferences file `vox`, private to the app)
 
@@ -42,6 +48,9 @@ Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_de
 | `base_url` | string | Groq address | Server address; validated by `Endpoint.error` before saving. |
 | `stt_model` | string | `whisper-large-v3-turbo` | Speech model. |
 | `llm_model` | string | `openai/gpt-oss-20b` | Cleanup model. |
+| `provider` | string | `groq` | Preset chosen in Settings (a UI convenience; the address decides behaviour). |
+| `stt_base_url`, `llm_base_url` | string | blank | Separate server for speech or cleanup; blank means the main `base_url`. Validated by `Endpoint.error`. |
+| `stt_api_key`, `llm_api_key` | string | blank | Key for that role's own server; used only with its own address. |
 | `language` | string | `""` | Whisper language code. |
 | `dictionary` | string (lines) | comment header | Terms and `wrong => right` lines, one per line. |
 | `people` | string (lines) | `""` | Names, one per line. |
