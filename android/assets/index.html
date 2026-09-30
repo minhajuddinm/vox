@@ -178,7 +178,7 @@ nav button.on .pill { background:var(--accent-soft); }
     <div class="item" id="battery"><div class="grow"><div class="t">Battery: Unrestricted</div><div class="d">Stops Android from closing Vox. Tap, find Vox, allow.</div></div><span style="color:var(--muted)">›</span></div>
   </div>
   <button class="btn full danger" id="clear">Clear history</button>
-  <p class="note" style="text-align:center;margin-top:18px" id="about"></p>
+  <p class="note" style="text-align:center;margin-top:18px" id="about-vox"></p>
 </section>
 </main>
 
@@ -376,7 +376,7 @@ function renderSettings() {
   $("cleanup").checked = c.cleanup !== false; $("only-typing").checked = c.only_typing !== false;
   $("keep-history").checked = c.keep_history !== false;
   $("language").value = c.language || ""; $("service").checked = S.service;
-  $("about").textContent = `Vox ${S.version} · audio goes to ${presetFor(c.base_url).id === "custom" ? "your own server" : presetFor(c.base_url).name} · everything else stays on this phone`;
+  $("about-vox").textContent = `Vox ${S.version} · audio goes to ${presetFor(c.base_url).id === "custom" ? "your own server" : presetFor(c.base_url).name} · everything else stays on this phone`;
 }
 window.keyResult = (r) => {
   const s = $("key-status");
