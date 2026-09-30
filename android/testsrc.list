@@ -2,7 +2,7 @@
 # One path per line, relative to the repository root. Blank lines and lines starting with # are ignored.
 # Only pure Java classes belong here (no Android framework calls at class-load time):
 # add one line for each new pure class and its *Test.java goes in android/test/.
-android/src/com/minhaj/vox/GroqClient.java
+android/src/com/minhaj/vox/ApiClient.java
 android/src/com/minhaj/vox/Endpoint.java
 android/src/com/minhaj/vox/Pcm.java
 android/src/com/minhaj/vox/Corrections.java

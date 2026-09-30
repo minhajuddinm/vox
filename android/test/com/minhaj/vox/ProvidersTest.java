@@ -14,7 +14,7 @@ public final class ProvidersTest {
     }
 
     public static void main(String[] args) {
-        String groq = GroqClient.DEFAULT_BASE;
+        String groq = ApiClient.DEFAULT_BASE;
         check("defaults", same(Providers.roleSettings("", "", "", "", "", "m"), groq, "", "m"));
         check("inherits address, key and model", same(
                 Providers.roleSettings("https://api.openai.com/v1/", " k ", "", "", "whisper-1", "m"),

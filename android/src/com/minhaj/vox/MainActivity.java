@@ -224,7 +224,7 @@ public class MainActivity extends Activity {
         public void testKey(String key, String baseUrl, String callback) {
             new Thread(() -> {
                 String res;
-                try { res = new GroqClient(key.trim(), baseUrl).checkKey() ? "ok" : "bad"; }
+                try { res = new ApiClient(key.trim(), baseUrl).checkKey() ? "ok" : "bad"; }
                 catch (Exception e) { res = "offline"; }
                 js(callback + "('" + res + "')");
             }).start();
@@ -249,9 +249,9 @@ public class MainActivity extends Activity {
                 String err = "";
                 try {
                     String[] s = formRole(role, form);
-                    for (String[] m : new GroqClient(s[1], s[0]).listModels(role)) arr.put(m[0]);
+                    for (String[] m : new ApiClient(s[1], s[0]).listModels(role)) arr.put(m[0]);
                     if (arr.length() == 0) err = "The server listed no models for this. Type the model name instead.";
-                } catch (GroqClient.ApiException e) {
+                } catch (ApiClient.ApiException e) {
                     err = Providers.explain(e.code, role, "");
                 } catch (Exception e) {
                     String m = e.getMessage();
@@ -277,11 +277,11 @@ public class MainActivity extends Activity {
                     if (problem != null) msg = problem;
                     else if (s[1].isEmpty() && Providers.keyRequired(s[0])) msg = "Add an API key for this server first.";
                     else {
-                        new GroqClient(s[1], s[0]).test(role, s[2]);
+                        new ApiClient(s[1], s[0]).test(role, s[2]);
                         ok = true;
                         msg = "Works (" + (System.currentTimeMillis() - t0) + " ms) with " + s[2] + ".";
                     }
-                } catch (GroqClient.ApiException e) {
+                } catch (ApiClient.ApiException e) {
                     msg = Providers.explain(e.code, role, "");
                 } catch (Exception e) {
                     msg = "Could not reach the server.";

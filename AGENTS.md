@@ -19,7 +19,7 @@ Vox is a voice-dictation tool with two independent apps: a Windows app in Python
 | Want to change | Look at |
 |---|---|
 | Hotkey, recording, paste, tray, retry (Windows) | `windows/engine.py` |
-| Prompts, server calls, config, dictionary, silence gate | `windows/vox_core.py` (Java twin: `android/src/com/minhaj/vox/GroqClient.java`) |
+| Prompts, server calls, config, dictionary, silence gate | `windows/vox_core.py` (Java twin: `android/src/com/minhaj/vox/ApiClient.java`) |
 | Windows window and its Python side | `windows/ui/index.html`, `windows/ui_app.py` |
 | Meeting notes and calendar | `windows/meeting.py`, `windows/gcal.py`, `windows/vcalendar.py` |
 | Android recording, retry, state | `android/src/com/minhaj/vox/DictationService.java` |

@@ -39,7 +39,7 @@ public final class Prefs {
 
     public String apiKey() { return sp.getString("api_key", "").trim(); }
     /** Server address; Groq unless the user set their own. */
-    public String baseUrl() { return nonEmpty(Endpoint.normalize(sp.getString("base_url", "")), GroqClient.DEFAULT_BASE); }
+    public String baseUrl() { return nonEmpty(Endpoint.normalize(sp.getString("base_url", "")), ApiClient.DEFAULT_BASE); }
     /** {address, key, model} for a role ("stt" or "llm"); a role with its own address never gets the main key. */
     public String[] role(String role) {
         return Providers.roleSettings(baseUrl(), apiKey(), sp.getString(role + "_base_url", ""), sp.getString(role + "_api_key", ""),

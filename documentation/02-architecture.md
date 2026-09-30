@@ -88,7 +88,7 @@ Details: [04-windows-app.md](04-windows-app.md), [06-pipeline.md](06-pipeline.md
  assets/index.html             (foreground detection, bubble,     (foreground service, type
  Java bridge "Vox"             text insertion)                    microphone)
       |  settings, setup           |  tap -> startRecording/stop       |  AudioRecord 16 kHz
-      v                            |<---- Listener callbacks ----------|  GroqClient (HTTP)
+      v                            |<---- Listener callbacks ----------|  ApiClient (HTTP)
    Prefs (SharedPreferences "vox") |  onState/onLevel/onResult/onError |  retry, pending audio
 ```
 
@@ -107,19 +107,19 @@ The same functions exist in both languages:
 
 | Behaviour | Python (`windows/vox_core.py`) | Java (`android/src/com/minhaj/vox/`) |
 |---|---|---|
-| Cleanup system prompt | `system_prompt` | `GroqClient.systemPrompt` |
-| Whisper spelling hint | `whisper_prompt` | `GroqClient.whisperPrompt` |
-| Strip model tags/quotes | `sanitize` | `GroqClient.sanitize` |
-| Reject runaway cleanup answers | `looks_valid` | `GroqClient.looksValid` |
-| Dictionary replacements | `apply_replacements` | `GroqClient.applyReplacements` |
+| Cleanup system prompt | `system_prompt` | `ApiClient.systemPrompt` |
+| Whisper spelling hint | `whisper_prompt` | `ApiClient.whisperPrompt` |
+| Strip model tags/quotes | `sanitize` | `ApiClient.sanitize` |
+| Reject runaway cleanup answers | `looks_valid` | `ApiClient.looksValid` |
+| Dictionary replacements | `apply_replacements` | `ApiClient.applyReplacements` |
 | Dictionary terms | `dictionary_terms` | `Terms.terms` |
-| Spoken "new line" | `apply_spoken_commands` | `GroqClient.applySpokenCommands` |
-| Silence hallucinations | `is_silence_hallucination` | `GroqClient.isSilenceHallucination` |
+| Spoken "new line" | `apply_spoken_commands` | `ApiClient.applySpokenCommands` |
+| Silence hallucinations | `is_silence_hallucination` | `ApiClient.isSilenceHallucination` |
 | Silence gate | `is_silent` | `Pcm.isSilent` |
 | Server address rules | `endpoint_error`, `is_private_host` | `Endpoint.error`, `Endpoint.isPrivateHost` |
 | Correction suggestions | `suggest_corrections` | `Corrections.suggest` |
 | Per-role settings, model classification | `providers.role_settings`, `providers.classify` | `Providers.roleSettings`, `Providers.classify` |
-| About-you cleaning and the prompt with context | `clean_context`, `system_prompt` | `GroqClient.cleanContext`, `systemPrompt` |
+| About-you cleaning and the prompt with context | `clean_context`, `system_prompt` | `ApiClient.cleanContext`, `systemPrompt` |
 | Meter level | `level_from_rms` | `Pcm.levelFromRms` |
 
 `spec/golden.txt` holds expected results for the first eight rows; `tests/test_parity.py` and `android/test/.../ParityTest.java` both run it. See [decisions/0007-shared-golden-file.md](decisions/0007-shared-golden-file.md).
@@ -128,7 +128,7 @@ The same functions exist in both languages:
 
 | Service | Used for | Where |
 |---|---|---|
-| Groq (or your own server) | Whisper speech-to-text, chat cleanup, meeting notes | `vox_core.py`, `providers.py`, `meeting.py`, `GroqClient.java`, `Providers.java` |
+| Groq (or your own server) | Whisper speech-to-text, chat cleanup, meeting notes | `vox_core.py`, `providers.py`, `meeting.py`, `ApiClient.java`, `Providers.java` |
 | Relay (optional, your own machine, over Tailscale) | Voice notes and profile shared between devices; management web page | `relay/relay.py` (server), `windows/sync.py` (Windows client) |
 | Google Calendar API (optional, Windows) | Read-only event list for meeting notes | `gcal.py` |
 | Private iCal (ICS) link (optional, Windows) | Same, without sign-in | `vcalendar.py` |

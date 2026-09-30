@@ -62,6 +62,6 @@ Ordered by how much they would help (the v2 plan; P1 to P4 are done):
 13. Make the Microphone setting apply to meeting notes.
 14. Put address rules (`is_private_host`) into `spec/golden.txt` so both platforms agree exactly.
 15. Merge the two hallucination lists.
-16. Rename the Java `GroqClient` to `ApiClient`; check the model dropdown, About you box and meters on real devices.
+16. Rename the Java `ApiClient` to `ApiClient`; check the model dropdown, About you box and meters on real devices.
 
 Not planned: Android meeting notes, iOS, on-device speech recognition.

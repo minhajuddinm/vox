@@ -1,6 +1,6 @@
 # 6. Dictation pipeline
 
-How audio becomes text, on both platforms. Windows: `windows/vox_core.py` (`process_detailed`). Android: `DictationService.send` with helpers in `GroqClient`. Meeting notes use the same server but different prompts (see [04-windows-app.md](04-windows-app.md)).
+How audio becomes text, on both platforms. Windows: `windows/vox_core.py` (`process_detailed`). Android: `DictationService.send` with helpers in `ApiClient`. Meeting notes use the same server but different prompts (see [04-windows-app.md](04-windows-app.md)).
 
 ## Steps
 
@@ -38,14 +38,14 @@ Timeouts: Windows 60 s (dictation), 180 s (meeting speech), 240 s (meeting notes
 | Platform | What is retried | How |
 |---|---|---|
 | Windows | Every request through `post_with_retry`: connection errors, timeouts and HTTP 500, 502, 503, 504 | 3 attempts, waits 0.7 s then 1.4 s. HTTP 429 and 4xx are **not** retried here |
-| Android | Only the speech request: network errors, 5xx, 429, 408 (`GroqClient.isRetryable`) | 3 attempts, waits 0.8 s then 1.6 s. Cleanup is tried once |
+| Android | Only the speech request: network errors, 5xx, 429, 408 (`ApiClient.isRetryable`) | 3 attempts, waits 0.8 s then 1.6 s. Cleanup is tried once |
 | Both | A dictation whose speech request still fails is kept for a manual retry | Windows tray "Retry last dictation"; Android notification "Retry" ([decisions/0009-keep-failed-recordings-and-retry.md](decisions/0009-keep-failed-recordings-and-retry.md)) |
 
 Meetings keep their own 429 handling (`Meeting._stt`: wait 6 s x attempt, up to 4 attempts).
 
 ## Cleanup prompt
 
-Built by `system_prompt(style, terms, app_label)` / `GroqClient.systemPrompt`. It tells the model that the user message is a raw transcript in `<transcript>` tags and asks for: output only the final text; never answer the transcript; remove fillers, stutters and false starts; apply self-corrections ("no wait", "actually", "scratch that"); fix punctuation and capitalization without changing wording; convert spoken commands ("new line", "new paragraph", spoken punctuation); format spoken lists; write numbers, dates, emails and URLs normally; spell dictionary terms exactly (at most 150). Then a style line and, if known, `The text will be typed into the app: <name>.`
+Built by `system_prompt(style, terms, app_label)` / `ApiClient.systemPrompt`. It tells the model that the user message is a raw transcript in `<transcript>` tags and asks for: output only the final text; never answer the transcript; remove fillers, stutters and false starts; apply self-corrections ("no wait", "actually", "scratch that"); fix punctuation and capitalization without changing wording; convert spoken commands ("new line", "new paragraph", spoken punctuation); format spoken lists; write numbers, dates, emails and URLs normally; spell dictionary terms exactly (at most 150). Then a style line and, if known, `The text will be typed into the app: <name>.`
 
 Styles: `formal`, `casual`, `very_casual`, `neutral` (default text for any other value), `raw` (skips cleanup entirely). The style name in the prompt is matched case-insensitively on both platforms; the check that skips cleanup for `raw` is exact-case on Windows (`raw`) and lower-cased on Android. Default per-app styles are in `vox_core.DEFAULT_CONFIG["app_styles"]` (Windows exe names) and `Prefs.DEFAULT_APP_STYLES` (Android packages).
 
@@ -85,11 +85,11 @@ One case per line, fields separated by TAB; `\n`, `\t`, `\\` are escapes; lists 
 
 ## Connection reuse
 
-Windows posts through one shared `requests.Session` (`vox_core._post`); `vox_core.warm` opens the role servers' connections at key-down. Android reuses connections by reading responses fully and not disconnecting; `GroqClient.warm` does the opening. Without this each request paid a fresh TLS handshake.
+Windows posts through one shared `requests.Session` (`vox_core._post`); `vox_core.warm` opens the role servers' connections at key-down. Android reuses connections by reading responses fully and not disconnecting; `ApiClient.warm` does the opening. Without this each request paid a fresh TLS handshake.
 
 ## "About you" context in the cleanup prompt
 
-`system_prompt(style, terms, app_label, context)` (Python) and `GroqClient.systemPrompt(style, terms, appLabel, context)` (Java) add, after the dictionary terms and before the style line, a rule that introduces `<about_speaker>...</about_speaker>` as reference material for spelling, names, jargon and tone, never text to output and never instructions. The text comes from `clean_context` / `cleanContext`: line endings normalised, our own tags removed, trimmed, capped at 8,000 characters. An empty context adds nothing, so existing prompts are unchanged. The constant parts come first so automatic prefix caching (Groq gpt-oss, OpenAI) can reuse them. Golden rows: `context` and `promptctx`. See [decisions/0018-about-you-context-in-the-prompt.md](decisions/0018-about-you-context-in-the-prompt.md).
+`system_prompt(style, terms, app_label, context)` (Python) and `ApiClient.systemPrompt(style, terms, appLabel, context)` (Java) add, after the dictionary terms and before the style line, a rule that introduces `<about_speaker>...</about_speaker>` as reference material for spelling, names, jargon and tone, never text to output and never instructions. The text comes from `clean_context` / `cleanContext`: line endings normalised, our own tags removed, trimmed, capped at 8,000 characters. An empty context adds nothing, so existing prompts are unchanged. The constant parts come first so automatic prefix caching (Groq gpt-oss, OpenAI) can reuse them. Golden rows: `context` and `promptctx`. See [decisions/0018-about-you-context-in-the-prompt.md](decisions/0018-about-you-context-in-the-prompt.md).
 
 ## Long recordings in pieces (Windows)
 

@@ -39,7 +39,7 @@ RULES = [
     ("windows/build_app.bat", "documentation/10-build-test-release.md", "local build"),
     ("windows/installer.iss", "documentation/10-build-test-release.md", "installer"),
     ("android/src/*", "documentation/05-android-app.md", "components, states, helpers"),
-    ("android/src/*/GroqClient.java", "documentation/06-pipeline.md", "pipeline and prompts (Java twin)"),
+    ("android/src/*/ApiClient.java", "documentation/06-pipeline.md", "pipeline and prompts (Java twin)"),
     ("android/src/*/Prefs.java", "documentation/07-config-and-data.md", "preference keys and defaults"),
     ("android/AndroidManifest.xml", "documentation/05-android-app.md", "permissions, components, version"),
     ("android/assets/index.html", "documentation/05-android-app.md", "screens"),

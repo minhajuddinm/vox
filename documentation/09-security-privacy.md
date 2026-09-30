@@ -33,7 +33,7 @@ There is no analytics, crash reporting or Vox backend.
 
 - Default server is `https://api.groq.com/openai/v1`.
 - `endpoint_error` / `Endpoint.error`: the address must start with `http://` or `https://`; plain `http://` is accepted only for private hosts: loopback, 10/8, 172.16/12, 192.168/16, link-local, Tailscale `100.64.0.0/10`, IPv6 loopback/fc00::/7/fe80::/10, single-label names, `*.local`, `*.lan`, `*.ts.net`. Anything else needs `https://`, so the key and voice never cross the internet unencrypted ([decisions/0005-configurable-endpoint-private-http.md](decisions/0005-configurable-endpoint-private-http.md)).
-- Android's network security config allows cleartext for the whole app because it cannot express ranges; the rule above is enforced in code (`GroqClient.open`) before every request.
+- Android's network security config allows cleartext for the whole app because it cannot express ranges; the rule above is enforced in code (`ApiClient.open`) before every request.
 - The Windows control server listens on `127.0.0.1` only, on a random port, and rejects requests without the per-run token.
 
 ## Android permissions and access

@@ -152,8 +152,8 @@ public class DictationService extends Service {
         targetLabel = label;
         final String[] warmStt = p.role(Providers.STT), warmLlm = p.role(Providers.LLM);
         new Thread(() -> {   // open the server connections while the user speaks
-            new GroqClient(warmStt[1], warmStt[0]).warm();
-            if (!warmLlm[0].equals(warmStt[0])) new GroqClient(warmLlm[1], warmLlm[0]).warm();
+            new ApiClient(warmStt[1], warmStt[0]).warm();
+            if (!warmLlm[0].equals(warmStt[0])) new ApiClient(warmLlm[1], warmLlm[0]).warm();
         }, "vox-warm").start();
         int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         final AudioRecord rec;
@@ -286,21 +286,21 @@ public class DictationService extends Service {
         File wav = pendingFile();
         try {
             String[] stt = p.role(Providers.STT), llm = p.role(Providers.LLM);
-            GroqClient g = new GroqClient(stt[1], stt[0]);
-            GroqClient gl = new GroqClient(llm[1], llm[0]);
+            ApiClient g = new ApiClient(stt[1], stt[0]);
+            ApiClient gl = new ApiClient(llm[1], llm[0]);
             String raw = null;
             for (int attempt = 1; attempt <= SEND_ATTEMPTS && raw == null; attempt++) {
                 if (!isCurrent(job)) return;
                 try {
                     raw = g.transcribe(wav, p.sttModel(), p.language(), p.dictionaryTerms());
                 } catch (IOException e) {
-                    if (!GroqClient.isRetryable(e) || attempt == SEND_ATTEMPTS) throw e;
+                    if (!ApiClient.isRetryable(e) || attempt == SEND_ATTEMPTS) throw e;
                     try { Thread.sleep(800L * attempt); } catch (InterruptedException ie) { return; }
                 }
             }
             if (!isCurrent(job)) return;
             double seconds = Math.max(0, wav.length() - 44) / (SAMPLE_RATE * 2.0);
-            if (raw.isEmpty() || GroqClient.isSilenceHallucination(raw)) {
+            if (raw.isEmpty() || ApiClient.isSilenceHallucination(raw)) {
                 wav.delete();
                 setPending(false);
                 return;
@@ -312,23 +312,23 @@ public class DictationService extends Service {
             if (doClean) {
                 try {
                     String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext());
-                    if (GroqClient.looksValid(raw, c)) { out = c; cleaned = true; }
+                    if (ApiClient.looksValid(raw, c)) { out = c; cleaned = true; }
                     else cleanupFailed = true;
                 } catch (IOException e) {
                     // Cleanup failure should never lose the dictation. Fall back to the raw transcript.
                     cleanupFailed = true;
                 }
             }
-            if (!cleaned) out = GroqClient.applySpokenCommands(out);
+            if (!cleaned) out = ApiClient.applySpokenCommands(out);
             if (cleanupFailed) postError("Cleanup did not work, so Vox typed your words as spoken");
-            out = GroqClient.applyReplacements(out, p.replacements());
+            out = ApiClient.applyReplacements(out, p.replacements());
             if (!isCurrent(job)) return;
             p.addHistory(label, raw, out, seconds);
             wav.delete();
             setPending(false);
             final String result = out;
             main.post(() -> { if (isCurrent(job) && listener != null) listener.onResult(result, pkg); });
-        } catch (GroqClient.ApiException e) {
+        } catch (ApiClient.ApiException e) {
             if (!isCurrent(job)) return;
             if (e.code == 401) postError("The server rejected the API key. Fix it, then tap Retry in the notification.");
             else if (e.code == 429) postError("Rate limit reached. Tap Retry in the notification.");

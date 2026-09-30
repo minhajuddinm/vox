@@ -77,7 +77,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/VoxAccessibilityService.java` | The floating bubble, focused-field tracking and text insertion. |
 | `android/src/com/minhaj/vox/BubbleView.java` | Draws the bubble (idle, recording with level ring, processing spinner). |
 | `android/src/com/minhaj/vox/TrampolineActivity.java` | Invisible activity that lets the microphone service start from the foreground. |
-| `android/src/com/minhaj/vox/GroqClient.java` | HTTP calls to the server plus the pure cleanup helpers (prompt, sanitize, replacements, spoken commands, silence filter, retry policy). |
+| `android/src/com/minhaj/vox/ApiClient.java` | HTTP calls to the server plus the pure cleanup helpers (prompt, sanitize, replacements, spoken commands, silence filter, retry policy). |
 | `android/src/com/minhaj/vox/Prefs.java` | All settings and the history, in SharedPreferences. |
 | `android/src/com/minhaj/vox/Providers.java` | Java twin of `windows/providers.py`: per-role settings, model classification and parsing, messages, reasoning fields. |
 | `android/src/com/minhaj/vox/Terms.java` | Parses the dictionary text into terms and replacements. |
@@ -120,7 +120,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_engine_notes.py` | The engine's voice-note mode (skipped where the Windows runtime packages are missing). |
 | `tests/test_docs_todo.py` | The path-to-page rules of `documentation/tools/docs_todo.py`. |
 | `spec/golden.txt` | Shared expected results (sanitize, looks_valid, replacements, whisper prompt, terms, system prompt, spoken commands, silence). Read by the Python and Java parity tests. |
-| `android/test/com/minhaj/vox/GroqClientTest.java` | Prompt, sanitize, replacements, retry policy, silence phrases. |
+| `android/test/com/minhaj/vox/ApiClientTest.java` | Prompt, sanitize, replacements, retry policy, silence phrases. |
 | `android/test/com/minhaj/vox/EndpointTest.java` | Server address rules. |
 | `android/test/com/minhaj/vox/PcmTest.java` | Silence gate. |
 | `android/test/com/minhaj/vox/CorrectionsTest.java` | Correction suggestions. |

@@ -21,7 +21,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Speech-to-text and text cleanup over an OpenAI-compatible API (Groq by default, or a server of your own). */
-public final class GroqClient {
+public final class ApiClient {
     public static final String DEFAULT_BASE = "https://api.groq.com/openai/v1";
 
     public static class ApiException extends IOException {
@@ -32,7 +32,7 @@ public final class GroqClient {
     private final String apiKey;
     private final String base;
 
-    public GroqClient(String apiKey, String baseUrl) {
+    public ApiClient(String apiKey, String baseUrl) {
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         String b = Endpoint.normalize(baseUrl);
         this.base = b.isEmpty() ? DEFAULT_BASE : b;
