@@ -85,6 +85,7 @@ Measured on 2026-09-30 by building with the CI flags (PyInstaller 6.22.3, `--one
 |---|---|---|---|
 | Windows folder before | 85 MB | 1,694 | numpy 28 MB (`numpy.libs` 21 MB is OpenBLAS), Pillow 13 MB, `libcrypto` 8 MB, `python313.dll` 6 MB, Tcl/Tk about 9 MB |
 | Windows folder now | 77 MB | 1,692 | the build excludes Pillow's AVIF and WebP codecs (`PIL._avif` alone was 7.5 MB), which Vox never uses (the tray icon only needs basic drawing and ICO/BMP saving) |
+| Windows folder after the v2 series | 79 MB | 1,694 | same excludes; the extra 2 MB is SQLite (voice notes), measured by building `main` at `50094d0` |
 | Android APK | 56 KB (the CI artifact zip) | | no libraries, no fonts; nothing left to shrink |
 
 The rebuilt Windows app was started with a temporary settings folder: the engine and overlay came up and stayed running for 12 seconds with no errors in `vox.log`. What is left is mostly numpy, which `soundcard` (PC audio for meeting notes) and the dictation meter need; removing it would mean dropping or rewriting the meeting audio capture. Pillow's `_imagingft` (2 MB) and Tcl's `tzdata` (3 MB) could also go but were not tried.
