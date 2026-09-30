@@ -359,6 +359,7 @@ def rotate_token(data_dir):
 # ------------------------------------------------------------------- server
 class Handler(BaseHTTPRequestHandler):
     server_version = "VoxRelay"
+    timeout = 30   # seconds a client may stall before its connection is dropped
 
     def log_message(self, *args):   # no access log: paths carry search words and note ids
         pass
@@ -397,6 +398,13 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             raise BadRequest("bad Content-Length")
         if n > MAX_BODY:
+            remaining = min(n, 5 * MAX_BODY)   # read and drop the upload so the client can still read our answer
+            while remaining > 0:
+                chunk = self.rfile.read(min(65536, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+            self.close_connection = True
             raise BodyTooLarge()
         try:
             return json.loads(self.rfile.read(n) or b"null")
