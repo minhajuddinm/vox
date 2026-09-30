@@ -64,6 +64,18 @@ Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_de
 | `bubble_x`, `bubble_y` | int | -1 (default spot) | Saved bubble position. |
 | `history` | string (JSON array) | `[]` | Up to 500 entries, newest first. |
 
+## Relay settings (`relay.json` in the relay's data folder, default `%APPDATA%\VoxRelay`)
+
+Written by `windows/relay.py` on first start; not part of Vox's own `config.json`. See [14-relay.md](14-relay.md).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `token` | string | random, 43 characters | Bearer token every client must send. Created once and reused. Keep the file private. |
+| `port` | int | `8765` | Port on `127.0.0.1` (change with `--port`; publish with `tailscale serve --bg PORT`). |
+| `owner` | string | `""` | When set, requests must also carry this Tailscale login in `Tailscale-User-Login`. |
+
+The relay's data lives next to it in `relay.db` (SQLite: tables `notes` with a `seq` cursor, and `profile`).
+
 ## Files on the PC (`%APPDATA%\Vox`)
 
 | File | Written by | Contents |

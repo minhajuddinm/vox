@@ -28,6 +28,9 @@ Chronological notes on how the improvement series was made, what was found, and 
 
 Later the same day: PR 2 (the documentation folder) was merged upstream as `de839c8`. Added `documentation/tools/docs_todo.py` (maps changed files to the pages that describe them, tested in `tests/test_docs_todo.py`) and the project skill `vox-doc-sync`, so the documentation is synced at the end of every session ([decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)). The tool was tried on its own branch: it listed the three new files and the pages to update.
 
+## 2026-09-30, P7a built (relay server)
+`windows/relay.py` with 17 tests over real HTTP (auth, owner header, cursor paging, last-writer-wins, tombstones, search with and without FTS5, profile If-Match, limits, restart), and a smoke run as a real process (health with token 200, without 401, put and search worked). Tailscale itself was not involved: nothing was published to a tailnet and no phone connected. New page 14-relay.md, ADR 0020.
+
 ## 2026-09-30, P5 built on Windows (voice notes)
 `windows/notes.py` (SQLite, FTS5 with LIKE fallback, delete markers), engine note mode (`toggle_note`, `pending` now a triple), tray item, control endpoints, Voice notes page. 15 new tests (277 total): 9 for the store, 6 that drive the engine's note logic with stubs (they skip where pynput and friends are missing, so CI's test job does not run them). The first store test failed only because I miscounted the words in an expected title. Not seen on a screen. Decision 0019.
 

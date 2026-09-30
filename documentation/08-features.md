@@ -33,6 +33,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | "About you" context added to every cleanup request (fenced, capped) | yes | yes | `vox_core.clean_context`, `system_prompt` / `GroqClient.cleanContext`, `systemPrompt` | py `test_user_context`, `test_parity` (`context`, `promptctx` rows); java `ParityTest` |
 | Live voice level on the pill and bubble (same curve, real history on Windows) | yes | yes | `vox_core.level_from_rms`, `LevelHistory`, `overlay._draw_recording` / `Pcm.levelFromRms`, `BubbleView.setLevel` | py `test_level`, `test_parity` (`level` rows); java `ParityTest` |
 | Voice notes: record from the tray or the window, saved (not pasted), searchable with time filter, editable, deletable | yes | no | `notes.py`, `Engine.toggle_note`, `Engine._process`, `Api.notes_list` | py `test_notes`, `test_engine_notes` |
+| Relay server: notes with a change cursor, delete markers, search, versioned profile, token auth (server only; no client uses it yet) | server | no | `relay.py` | py `test_relay` |
 | Only the app name is sent to the model (no window title) | yes | (already) | `engine.foreground_app` | - |
 | API key protected by the Windows login (DPAPI) | yes | - | `secret.py`, `vox_core.load_config/save_config` | py `test_secret` |
 | "Keep dictation history" switch | yes | yes | `keep_history` | - |
