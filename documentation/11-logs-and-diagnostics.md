@@ -31,7 +31,7 @@ Messages worth knowing:
 
 ## Android
 
-The Android app writes no logs (it does not use `android.util.Log`). Problems are shown as toasts. Use `adb logcat` only for crashes of the process itself.
+The Android app writes no log files. Problems are shown as toasts. The one exception is a debug line under the tag `vox`, `tap->recording ms=N`: the time from a bubble tap to the first audio frame (`adb logcat -s vox`). Otherwise use `adb logcat` only for crashes of the process itself.
 
 ## Diagnosing common problems
 

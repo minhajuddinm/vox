@@ -92,7 +92,7 @@ Details: [04-windows-app.md](04-windows-app.md), [06-pipeline.md](06-pipeline.md
    Prefs (SharedPreferences "vox") |  onState/onLevel/onResult/onError |  retry, pending audio
 ```
 
-- **`DictationService`** (`android/src/com/minhaj/vox/DictationService.java`): foreground service with the microphone type. Android only allows it to start from a visible activity, so the bubble uses `TrampolineActivity` (an invisible activity shown for 400 ms) when the service is not running yet. It records, uploads, cleans up, and reports through the static `Listener`.
+- **`DictationService`** (`android/src/com/minhaj/vox/DictationService.java`): foreground service with the microphone type. Android only allows it to start from a visible activity, so the bubble uses `TrampolineActivity` (an invisible activity that stays up only until the service is in the foreground and recording, at most 1500 ms) when the service is not running yet. The service starts recording itself from the extras of that start intent. It records, uploads, cleans up, and reports through the static `Listener`.
 - **`VoxAccessibilityService`**: draws the bubble as an accessibility overlay (no "draw over apps" permission), tracks the focused editable field and its package, and inserts the result. It is the `Listener` of the service.
 - **`MainActivity`**: a `WebView` showing `android/assets/index.html`. The page calls Java through the `Vox` JavaScript interface (`Bridge`) to read/save settings, test the key, list apps, and so on.
 - **`Prefs`**: the only persistent store (SharedPreferences file `vox`).

@@ -11,6 +11,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
@@ -34,7 +35,6 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
     private BubbleView bubble;
     private WindowManager.LayoutParams lp;
     private boolean bubbleShown;
-    private boolean pendingStart;
 
     private AccessibilityNodeInfo editNode;
     private String editPkg;
@@ -206,12 +206,23 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
     }
 
     private void onBubbleTap() {
+        final long tapAt = SystemClock.elapsedRealtime(); // for the "tap->recording" log in DictationService
         DictationService svc = DictationService.instance;
         if (svc == null) {
-            // The mic service can only start from a visible activity. Flash a transparent one.
-            pendingStart = true;
+            if (isPasswordField(editNode)) {
+                toast("Vox does not type into password fields");
+                return;
+            }
+            // The mic service can only start from a visible activity. Flash a transparent one: it passes these
+            // extras on, the service starts recording itself as soon as it is in the foreground, then closes it.
+            bubble.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
             Intent i = new Intent(this, TrampolineActivity.class)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                    .putExtra(DictationService.EXTRA_START, true)
+                    .putExtra(DictationService.EXTRA_PKG, editPkg)
+                    .putExtra(DictationService.EXTRA_LABEL, appLabel(editPkg))
+                    .putExtra(DictationService.EXTRA_DEST, DictationService.DEST_DICTATION)
+                    .putExtra(DictationService.EXTRA_TAP_AT, tapAt);
             startActivity(i);
             return;
         }
@@ -222,7 +233,7 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
                     break;
                 }
                 bubble.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-                svc.startRecording(editPkg, appLabel(editPkg));
+                svc.startRecording(editPkg, appLabel(editPkg), DictationService.DEST_DICTATION, tapAt);
                 break;
             case DictationService.RECORDING:
                 bubble.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
@@ -243,19 +254,6 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         } else {
             startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         }
-    }
-
-    /** Called by DictationService once it is running in the foreground. */
-    void onDictationServiceReady() {
-        if (!pendingStart) return;
-        pendingStart = false;
-        main.postDelayed(() -> {
-            DictationService svc = DictationService.instance;
-            if (svc != null) {
-                if (bubble != null) bubble.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-                svc.startRecording(editPkg, appLabel(editPkg));
-            }
-        }, 350);
     }
 
     // ------------------------------------------------------ service events
