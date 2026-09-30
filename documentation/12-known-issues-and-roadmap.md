@@ -17,6 +17,7 @@ State of the code, honestly. Update this page when you fix or discover something
 | `Api.meeting_catchup` and `/meeting/catchup` exist but the window never calls them | `.catchup` CSS in `ui/index.html` is also unused. |
 | Windows history is unbounded | `history.jsonl` only grows; the window shows the newest 300. Android keeps 500. |
 | New screens and meters are unchecked on devices | The providers settings, the About you box, the recording pill history and the phone bubble level were verified only by tests, script checks and CI; nobody has looked at them on a Windows screen or a phone yet. |
+| Voice notes exist on Windows only and are a separate list | The Voice notes page lists notes only; dictation history and meetings are not in it, and Android has no notes yet. `Voice notes` was verified by tests (store and engine logic) but not seen on a screen. |
 
 ### Security and privacy (see [09-security-privacy.md](09-security-privacy.md))
 
@@ -46,7 +47,7 @@ State of the code, honestly. Update this page when you fix or discover something
 Ordered by how much they would help (the v2 plan; P1 to P4 are done):
 
 1. Lighter builds, rest of P8a (the Pillow codec excludes are done: 85 MB to 77 MB, see [10-build-test-release.md](10-build-test-release.md)): numpy is 28 MB and needed by the meeting audio capture; Pillow's `_imagingft` (2 MB) and Tcl's `tzdata` (3 MB) could go; create the WebView window on demand; on Android drop the manual "start service" step (needs a device test; the APK is already 56 KB). Idle memory has not been measured.
-2. Notes store with search and filters (P5): SQLite (FTS5 with a `LIKE` fallback) unifying dictations, meetings and voice notes.
+2. Notes, rest of P5: the Windows voice notes store and page are done; still to do are Android notes, one list for dictations and meetings, tags in the UI, and a hotkey for notes.
 3. Android note mode (P6): a persistent bubble without a text box, a notification action and a Quick Settings tile. Test on Android 14 and 15 first: starting the microphone service from an overlay tap is not guaranteed.
 4. Relay over Tailscale (P7): profile and notes sync; keys served to devices or proxied by the relay.
 5. More speed (P2b, P2c): shorten the Android start delay (400 ms + 350 ms, needs a device test), skip cleanup for short phrases, stream the cleanup, chunk speech-to-text for long dictation. The connection warm-up saving is an estimate, not measured.

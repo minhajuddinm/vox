@@ -84,7 +84,7 @@ A small Tk pill at the bottom of the work area: live waveform while recording, b
 | Styles | Default style and a style per app exe |
 | Settings | API key + Test, Server address, shortcut, microphone, language, AI cleanup, keep history, keep clipboard, your name, calendar email, auto notes, start with Windows, clear history, data folder |
 
-`Api` methods (called from JavaScript as `pywebview.api.<name>`): `get_state`, `save_config`, `set_hotkey`, `check_key`, `list_models`, `test_role`, `endpoint_problem`, `suggest_corrections`, `copy`, `delete_history`, `clear_history`, `open_url`, `open_data_folder`, the `meeting_*` and `meetings*` group, `calendar`, `google_*`, `connect_calendar`, `get_autostart`, `set_autostart`. Live meeting calls go through `Api._engine` to the control server; everything else reads or writes files directly.
+`Api` methods (called from JavaScript as `pywebview.api.<name>`): `get_state`, `save_config`, `set_hotkey`, `check_key`, `list_models`, `test_role`, `note_toggle`, `note_status`, `notes_list`, `note_edit`, `note_delete`, `endpoint_problem`, `suggest_corrections`, `copy`, `delete_history`, `clear_history`, `open_url`, `open_data_folder`, the `meeting_*` and `meetings*` group, `calendar`, `google_*`, `connect_calendar`, `get_autostart`, `set_autostart`. Live meeting calls go through `Api._engine` to the control server; everything else reads or writes files directly.
 
 Start with Windows is a `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value named `Vox`.
 
@@ -135,3 +135,7 @@ The Dictionary page starts with an **About you** card: a text box bound to `user
 ## Recording meter
 
 `Engine._audio` (the PortAudio callback) stores `core.level_from_rms(rms)` in `self.level`. The overlay polls it on the Tk thread every 33 ms and, every 80 ms, pushes the smoothed value into a `core.LevelHistory` of 11 values; `_draw_recording` draws one bar per value, newest on the right. The history is cleared when the pill appears. The curve is shared with the phone ([specs/p4-live-voice-level.md](specs/p4-live-voice-level.md)).
+
+## Voice notes
+
+`Engine.toggle_note` (tray menu "New voice note" / "Finish voice note", and the control endpoints `/note/toggle` and `/note/status` that the window calls through `Api.note_toggle` and `note_status`) records in note mode: `note_mode` is true, `hands_free` is set so recording continues until it is toggled again, Esc cancels (`cancel` clears `note_mode`), and the dictation hotkey also finishes it. `stop` hands `note` to `_process(pcm, exe, note)`, which calls `process_detailed` with an empty app name (so the default style applies and no app name is sent) and saves the text with `notes.add` instead of pasting; the tray notification says "Note saved: <title>". A failed note stays in `Engine.pending` as `(pcm, exe, note)` so "Retry last dictation" saves it as a note. The **Voice notes** page (`renderVoiceNotes`, `pollNote` in `ui/index.html`) has a New voice note button, a search box, a time filter (any time, today, 7 days, 30 days) and cards with Copy, Edit and Delete; `Api.notes_list` maps the filter to `notes.search`. Store details: [decisions/0019-voice-notes-in-sqlite.md](decisions/0019-voice-notes-in-sqlite.md).

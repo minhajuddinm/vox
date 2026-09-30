@@ -19,6 +19,7 @@ from pynput import keyboard
 
 import audio_devices
 import logo
+import notes
 import vox_core as core
 import vcalendar
 from meeting import Meeting
@@ -80,7 +81,7 @@ class Engine:
         self.pressed = set()
         self.recording = False
         self.busy = False
-        self.pending = None           # (pcm, exe) of a dictation that could not be sent; kept for Retry
+        self.pending = None           # (pcm, exe, note) of a dictation that could not be sent; kept for Retry
         self._rec_lock = threading.Lock()
         self.chunks = []
         self.stream = None
@@ -90,6 +91,7 @@ class Engine:
         self.level = 0.0
         self.overlay = None
         self.hands_free = False
+        self.note_mode = False        # the current recording is a voice note: saved, not pasted
         self.combo_was_down = False
         self.press_t = 0.0
         self.last_tap_t = 0.0
@@ -100,6 +102,8 @@ class Engine:
             menu=pystray.Menu(
                 pystray.MenuItem("Open Vox", lambda *_: open_window(), default=True),
                 pystray.MenuItem("Retry last dictation", self.retry_last, visible=lambda _: self.pending is not None),
+                pystray.MenuItem(lambda _: "Finish voice note" if self.note_mode and self.recording else "New voice note",
+                                 self.toggle_note),
                 pystray.MenuItem(lambda _: "Stop meeting notes" if self.meeting.active else "Start meeting notes",
                                  self.toggle_meeting),
                 pystray.MenuItem("Quit Vox", self.quit),
@@ -271,12 +275,14 @@ class Engine:
 
     def cancel(self):
         """Discard the current recording."""
+        self.note_mode = False
         if self._end_recording():
             self.set_state("idle")
 
     def stop(self):
         if not self._end_recording():
             return
+        note, self.note_mode = self.note_mode, False
         pcm = b"".join(self.chunks)
         if len(pcm) < core.SAMPLE_RATE * 2 * MIN_SECONDS:
             self.set_state("idle")
@@ -287,27 +293,45 @@ class Engine:
             return
         self.busy = True
         self.set_state("busy")
-        threading.Thread(target=self._process, args=(pcm, self.target), daemon=True).start()
+        threading.Thread(target=self._process, args=(pcm, self.target, note), daemon=True).start()
+
+    def toggle_note(self, *_):
+        """Starts a voice note, or finishes the one being recorded (tray menu, window). The text is saved as a
+        note instead of being pasted. Esc cancels; the dictation hotkey also finishes it."""
+        if self.recording and self.note_mode:
+            self.stop()
+            return
+        if self.recording or self.busy:
+            return
+        self.note_mode = True
+        self.start()
+        if self.recording:
+            self.hands_free = True   # keeps recording until finished
+        else:
+            self.note_mode = False
 
     def retry_last(self, *_):
         """Sends again the last recording that could not be sent."""
         if self.busy or self.recording or self.pending is None:
             return
-        pcm, exe = self.pending
+        pcm, exe, note = self.pending
         self.busy = True
         self.set_state("busy")
-        threading.Thread(target=self._process, args=(pcm, exe), daemon=True).start()
+        threading.Thread(target=self._process, args=(pcm, exe, note), daemon=True).start()
 
-    def _process(self, pcm, exe):
+    def _process(self, pcm, exe, note=False):
         secs = len(pcm) / (core.SAMPLE_RATE * 2)
         keep = " Your recording is kept: tray icon > Retry last dictation."
         try:
-            res = core.process_detailed(self.cfg, pcm, exe, exe)
+            res = core.process_detailed(self.cfg, pcm, "" if note else exe, "" if note else exe)
             raw, text = res.raw, res.text
             self.pending = None
             if res.cleanup_error:
-                self.notify("Cleanup did not work, so Vox pasted your words as spoken: " + res.cleanup_error[:120])
-            if text:
+                self.notify(("Cleanup did not work, so Vox saved your words as spoken: " if note else "Cleanup did not work, so Vox pasted your words as spoken: ") + res.cleanup_error[:120])
+            if text and note:
+                saved = notes.add(text, raw=raw, secs=secs, source=notes.SOURCE_NOTE, device="windows")
+                self.notify("Note saved: " + saved["title"])
+            elif text:
                 self.paste(text)
                 if self.cfg.get("keep_history", True):
                     core.add_history({
@@ -316,7 +340,7 @@ class Engine:
                     })
         except core.ApiError as e:
             log.error("api error: %s", e)
-            self.pending = (pcm, exe)
+            self.pending = (pcm, exe, note)
             if e.code == 401:
                 self.notify("The server rejected the API key. Check Vox > Settings." + keep)
             elif e.code == 429:
@@ -324,7 +348,7 @@ class Engine:
             else:
                 self.notify(str(e) + keep)
         except requests.RequestException as e:
-            self.pending = (pcm, exe)
+            self.pending = (pcm, exe, note)
             self.notify(f"Network error: {e}." + keep)
         except Exception:
             log.exception("processing failed")
@@ -432,6 +456,11 @@ class Engine:
                         body = json.loads(self.rfile.read(n) or b"{}") if n else {}
                         ok = engine.start_meeting(body.get("uid"), body.get("manual"))
                         return self._send(200, {"ok": ok, "error": m.last_error})
+                    if self.path == "/note/toggle":
+                        engine.toggle_note()
+                        return self._send(200, {"recording": engine.recording and engine.note_mode, "busy": engine.busy})
+                    if self.path == "/note/status":
+                        return self._send(200, {"recording": engine.recording and engine.note_mode, "busy": engine.busy})
                     if self.path == "/meeting/stop":
                         return self._send(200, {"ok": m.stop()})
                     if self.path == "/meeting/status":

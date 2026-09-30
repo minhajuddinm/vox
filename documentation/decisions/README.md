@@ -24,6 +24,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0016](0016-per-role-server-and-model-discovery.md) | Per-role server and model discovery by id | Accepted |
 | [0017](0017-warm-connections-not-an-open-microphone.md) | Warm the connections at key-down; never keep the microphone open | Accepted |
 | [0018](0018-about-you-context-in-the-prompt.md) | "About you" context: constant, fenced, capped | Accepted |
+| [0019](0019-voice-notes-in-sqlite.md) | Voice notes in SQLite, separate from history and meetings for now | Accepted |
 
 ## Template
 
