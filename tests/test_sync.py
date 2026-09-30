@@ -113,6 +113,60 @@ def test_failures_are_messages_and_lose_nothing(dev, srv):
     assert sync.sync_once(a)["error"] == "" and srv.store.stats()["notes"] == 1
 
 
+def add_unsendable(text="the relay will refuse this", updated_at=1.0):
+    """A note row the relay answers 400 for ("bad note id"), the oldest one, so it is the first to be sent."""
+    notes.search("")   # makes sure the database exists
+    con = sqlite3.connect(notes.db_path())
+    con.execute("INSERT INTO notes (id, title, text, created_at, updated_at) VALUES ('NOT-A-VALID-ID', 'bad', ?, 1, ?)", (text, updated_at))
+    con.commit()
+    con.close()
+    return "NOT-A-VALID-ID"
+
+
+def test_a_note_the_relay_refuses_for_good_does_not_block_the_others(dev, srv):
+    a = dev("A")
+    bad = add_unsendable()
+    good = [notes.add("good one"), notes.add("good two")]
+    elsewhere = {"id": "c" * 32, "source": "voice note", "title": "", "text": "from another device", "raw": "", "created_at": 5,
+                 "updated_at": 5, "secs": 0, "device": "B", "tags": [], "deleted": False}
+    srv.store.upsert_note(elsewhere)
+    res = sync.sync_once(a)
+    assert (res["pushed"], res["pulled"]) == (2, 1)                       # the other notes and the pull still complete
+    assert res["error"].startswith("1 note could not be sent") and "HTTP 400" in res["error"]
+    assert srv.store.get_note(good[0]["id"]) and srv.store.get_note(good[1]["id"])
+    assert [x["id"] for x in notes.dirty_notes()] == [bad]               # the refused note stays here, nothing is lost
+    assert notes.get(elsewhere["id"])["text"] == "from another device"
+    again = sync.sync_once(a)                                             # tried once more, never in a loop
+    assert (again["pushed"], again["pulled"]) == (0, 0) and "1 note could not be sent" in again["error"]
+
+
+def test_several_refused_notes_are_counted_and_the_profile_still_syncs(dev, srv):
+    a = dev("A")
+    add_unsendable("one", 1.0)
+    notes.add("fine")
+    con = sqlite3.connect(notes.db_path())
+    con.execute("INSERT INTO notes (id, title, text, created_at, updated_at) VALUES ('ALSO-BAD', 'bad', 'two', 1, 2)")
+    con.commit()
+    con.close()
+    res = sync.sync_once(a)
+    assert res["pushed"] == 1 and res["error"].startswith("2 notes could not be sent")
+    assert res["profile"] == "sent" and srv.store.get_profile()["version"] == 1
+
+
+def test_a_failure_that_is_not_about_one_note_still_stops_the_run(dev):
+    a = dev("A")
+    add_unsendable()
+    notes.add("waits for the next run")
+    res = sync.sync_once(dict(a, relay_token="wrong"))
+    assert "refused the token" in res["error"] and res["pushed"] == 0      # 401 is not "this note is bad": stop, keep everything
+    assert len(notes.dirty_notes()) == 2
+
+
+def test_permanent_errors_are_the_4xx_the_same_request_will_always_get():
+    perm = [s for s in range(0, 600) if sync.SyncError("x", s).permanent]
+    assert perm == [s for s in range(400, 500) if s not in (401, 403, 429)]
+
+
 def test_an_owner_mismatch_is_reported(dev, tmp_path):
     server = relay.make_server(str(tmp_path / "owned"), port=0, owner="someone@example.com")
     threading.Thread(target=server.serve_forever, daemon=True).start()
