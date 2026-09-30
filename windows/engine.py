@@ -20,6 +20,7 @@ from pynput import keyboard
 import audio_devices
 import logo
 import notes
+import streaming
 import sync
 import vox_core as core
 import vcalendar
@@ -92,6 +93,7 @@ class Engine:
         self.level = 0.0
         self.overlay = None
         self.hands_free = False
+        self.streaming = None         # StreamingStt for the current recording (long ones are sent in pieces)
         self.note_mode = False        # the current recording is a voice note: saved, not pasted
         self.combo_was_down = False
         self.press_t = 0.0
@@ -236,6 +238,9 @@ class Engine:
         self.target = foreground_app()
         self.chunks = []
         self.started_at = time.time()
+        self.streaming = streaming.StreamingStt(self.cfg) if self.cfg.get("stream_stt", True) else None
+        if self.streaming:
+            self.streaming.start()
         core.warm(self.cfg)   # open the server connections while the user speaks
         try:
             device = audio_devices.input_index(self.cfg.get("input_device"))
@@ -246,6 +251,9 @@ class Engine:
             self.stream.start()
         except Exception as e:
             self.notify(f"Microphone error: {e}")
+            if self.streaming:
+                self.streaming.cancel()
+                self.streaming = None
             return
         self.recording = True
         self.set_state("rec")
@@ -253,6 +261,8 @@ class Engine:
 
     def _audio(self, indata, frames, t, status):
         self.chunks.append(bytes(indata))
+        if self.streaming:
+            self.streaming.feed(indata)
         rms = float(np.sqrt(np.mean(np.square(indata.astype(np.float32))))) / 32768.0
         self.level = core.level_from_rms(rms)
         limit = MAX_SECONDS * (3 if self.hands_free else 1)
@@ -281,23 +291,34 @@ class Engine:
         """Discard the current recording."""
         self.note_mode = False
         if self._end_recording():
+            self._drop_streaming()
             self.set_state("idle")
+
+    def _drop_streaming(self):
+        s, self.streaming = self.streaming, None
+        if s:
+            s.cancel()
 
     def stop(self):
         if not self._end_recording():
             return
         note, self.note_mode = self.note_mode, False
+        streamer, self.streaming = self.streaming, None
         pcm = b"".join(self.chunks)
         if len(pcm) < core.SAMPLE_RATE * 2 * MIN_SECONDS:
+            if streamer:
+                streamer.cancel()
             self.set_state("idle")
             return
         if core.is_silent(pcm):
+            if streamer:
+                streamer.cancel()
             self.notify(f"Vox did not hear anything (loudest sound {core.peak_level(pcm)} of 32768). Check the microphone in Vox > Settings.")
             self.set_state("idle")
             return
         self.busy = True
         self.set_state("busy")
-        threading.Thread(target=self._process, args=(pcm, self.target, note), daemon=True).start()
+        threading.Thread(target=self._process, args=(pcm, self.target, note, streamer), daemon=True).start()
 
     def toggle_note(self, *_):
         """Starts a voice note, or finishes the one being recorded (tray menu, window). The text is saved as a
@@ -323,11 +344,16 @@ class Engine:
         self.set_state("busy")
         threading.Thread(target=self._process, args=(pcm, exe, note), daemon=True).start()
 
-    def _process(self, pcm, exe, note=False):
+    def _process(self, pcm, exe, note=False, streamer=None):
         secs = len(pcm) / (core.SAMPLE_RATE * 2)
         keep = " Your recording is kept: tray icon > Retry last dictation."
         try:
-            res = core.process_detailed(self.cfg, pcm, "" if note else exe, "" if note else exe)
+            label = "" if note else exe
+            raw_streamed = streamer.finish() if streamer else None   # None: not cut into pieces, or it failed
+            if raw_streamed is not None:
+                res = core.process_text(self.cfg, raw_streamed, label, label)
+            else:
+                res = core.process_detailed(self.cfg, pcm, label, label)
             raw, text = res.raw, res.text
             self.pending = None
             if res.cleanup_error:

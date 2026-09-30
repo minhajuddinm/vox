@@ -42,6 +42,7 @@ DEFAULT_CONFIG = {
     "relay_url": "",
     "relay_token": "",
     "relay_sync_keys": False,
+    "stream_stt": True,
     "device_name": "",
     "hotkey": ["ctrl_l", "cmd"],
     "stt_model": DEFAULT_STT,
@@ -330,6 +331,51 @@ class LevelHistory:
         self.values = [0.0] * len(self.values)
 
 
+class Segmenter:
+    """Cuts a recording that is still going on into pieces at pauses, so each piece can be sent to speech-to-text
+    while the user keeps talking. `feed()` takes audio as it arrives and returns the pieces that are complete;
+    `rest()` returns what is left. The pieces and the rest together are exactly the audio that was fed."""
+    FRAME = 480          # 30 ms at 16 kHz, in samples
+    QUIET_PEAK = 900     # a frame whose loudest sample is below this counts as a pause
+
+    def __init__(self, min_seconds=12.0, max_seconds=28.0, pause_seconds=0.6):
+        self.min_bytes = int(min_seconds * SAMPLE_RATE * 2)
+        self.max_bytes = int(max_seconds * SAMPLE_RATE * 2)
+        self.pause_frames = max(1, round(pause_seconds / 0.03))
+        self.buf = bytearray()
+        self.scanned = self.quiet_run = self.last_quiet_end = 0
+
+    def feed(self, pcm):
+        self.buf += pcm
+        out = []
+        size = self.FRAME * 2
+        while len(self.buf) - self.scanned >= size:
+            frame = array.array("h")
+            frame.frombytes(bytes(self.buf[self.scanned:self.scanned + size]))
+            self.scanned += size
+            if max(max(frame), -min(frame)) < self.QUIET_PEAK:
+                self.quiet_run += 1
+                self.last_quiet_end = self.scanned
+            else:
+                self.quiet_run = 0
+            cut = 0
+            if self.scanned >= self.min_bytes and self.quiet_run >= self.pause_frames:
+                cut = self.scanned                   # long enough and a pause: cut here
+            elif self.scanned >= self.max_bytes:     # no pause for a long time: cut at the last quiet moment if there was one
+                cut = self.last_quiet_end if self.last_quiet_end >= self.max_bytes // 2 else self.scanned
+            if cut:
+                out.append(bytes(self.buf[:cut]))
+                del self.buf[:cut]
+                self.scanned = self.quiet_run = self.last_quiet_end = 0   # the remainder is scanned again from its start
+        return out
+
+    def rest(self):
+        data = bytes(self.buf)
+        self.buf = bytearray()
+        self.scanned = self.quiet_run = self.last_quiet_end = 0
+        return data
+
+
 def peak_level(pcm_bytes):
     """Loudest sample (0 to 32768) of a 16-bit mono recording."""
     n = len(pcm_bytes) // 2
@@ -476,11 +522,14 @@ def key_missing(cfg):
     return providers.key_missing(cfg)
 
 
-def transcribe(cfg, wav_bytes):
+def transcribe(cfg, wav_bytes, context=""):
+    """Speech to text. `context` is the end of the text before this piece (long recordings sent in pieces)."""
     data = {"model": providers.role_settings(cfg, "stt")[2], "response_format": "json", "temperature": "0"}
     if cfg.get("language"):
         data["language"] = cfg["language"]
     prompt = whisper_prompt(dictionary_terms(cfg))
+    if context:
+        prompt = (prompt + " " + context.strip())[-600:]   # Whisper reads the end of the prompt most
     if prompt:
         data["prompt"] = prompt
     r = post_with_retry(
@@ -557,7 +606,11 @@ def process_detailed(cfg, pcm_bytes, exe, app_label):
     Result.cleaned says whether the AI cleanup produced the text; Result.cleanup_error holds the reason when
     cleanup was wanted but failed (the raw transcript is used then, so the dictation is never lost).
     """
-    raw = transcribe(cfg, pcm_to_wav(pcm_bytes))
+    return process_text(cfg, transcribe(cfg, pcm_to_wav(pcm_bytes)), exe, app_label)
+
+
+def process_text(cfg, raw, exe, app_label):
+    """Everything after speech to text: silence phrases, style, cleanup, spoken commands, replacements."""
     if not raw or is_silence_hallucination(raw):
         return Result("", "", False, "")
     style = style_for(cfg, exe)
