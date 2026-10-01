@@ -121,8 +121,9 @@ The same functions exist in both languages:
 | Per-role settings, model classification | `providers.role_settings`, `providers.classify` | `Providers.roleSettings`, `Providers.classify` |
 | About-you cleaning and the prompt with context | `clean_context`, `system_prompt` | `ApiClient.cleanContext`, `systemPrompt` |
 | Meter level | `level_from_rms` | `Pcm.levelFromRms` |
+| Whether cleanup runs (off, `raw` style, phrase shorter than `cleanup_min_words`) | `clean_min_words`, `needs_cleanup` | `ApiClient.cleanMinWords`, `ApiClient.needsCleanup` |
 
-`spec/golden.txt` holds expected results for the first eight rows; `tests/test_parity.py` and `android/test/.../ParityTest.java` both run it. See [decisions/0007-shared-golden-file.md](decisions/0007-shared-golden-file.md).
+`spec/golden.txt` holds expected results for the prompt, spelling hint, sanitize, looks_valid, replacement, terms, spoken-command, silence-phrase, About-you, model-classification, meter-level and cleanup-gate rows (the others have their own test on each side); `tests/test_parity.py` and `android/test/.../ParityTest.java` both run it. See [decisions/0007-shared-golden-file.md](decisions/0007-shared-golden-file.md).
 
 ## External services
 

@@ -27,8 +27,8 @@ Put the API key in the window's Settings, or in `%APPDATA%\Vox\config.json` (it 
 
 | Suite | Command | Covers |
 |---|---|---|
-| Python | `python -m pytest -q` (from the repo root) | 349 tests at the time of writing: `tests/test_*.py` |
-| Java | `bash android/run-tests.sh` (needs a JDK and `ANDROID_JAR`; see below) | 6 programs in `android/test/com/minhaj/vox/`, no device, no JUnit |
+| Python | `python -m pytest -q` (from the repo root) | 387 tests collected at the time of writing (`python -m pytest --collect-only -q`): `tests/test_*.py`. On Windows 386 pass and 1 is skipped (the POSIX file-permission test in `test_relay_admin.py`, which runs in CI on Linux); 101 of the 387 are the shared golden cases in `test_parity.py` |
+| Java | `bash android/run-tests.sh` (needs a JDK and `ANDROID_JAR`; see below) | 6 programs in `android/test/com/minhaj/vox/` (`ApiClientTest` 43 checks, `CorrectionsTest` 16, `EndpointTest` 39, `ParityTest` 101 golden cases, `PcmTest` 12, `ProvidersTest`), no device, no JUnit |
 | Parity | part of both suites | `spec/golden.txt` |
 | Docs | `python documentation/tools/check_docs.py` | tree, config keys, links, ADR index |
 | Docs checklist | `python documentation/tools/docs_todo.py` | not a test: lists the pages to update for the code you changed (see [decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)) |
@@ -39,7 +39,7 @@ CI and local runs share one script, `android/run-tests.sh`. With a JDK (17) on `
 
 To type-check the Android code that the tests do not reach (`DictationService`, the services, `MainActivity`) without build-tools, run `bash android/compile-check.sh` (same `ANDROID_JAR`, JDK 17 on `PATH`): it compiles every file under `android/src` with `javac --release 8` against `android.jar` and prints `compile-check: OK (N files)`, or javac's errors and a non-zero exit. The `R.java` that aapt2 would generate is replaced by a stub built from the `R.<type>.<name>` uses in the sources, so a misspelled resource name is only a warning there (no match under `android/res`); only `android/build.sh` and CI fail on it. It is a local aid; CI does not run it.
 
-Not covered by tests: `engine.py`, `meeting.py`, `overlay.py`, `gcal.py`, `vcalendar.py`, `ui_app.py`, both HTML pages, `DictationService`, `VoxAccessibilityService`, `MainActivity`, `BubbleView`, `Prefs`. Verify those by hand or add tests when you touch them.
+Not covered by tests (except that `engine.py` has tests for voice notes and the relay tray toggle, which need the Windows runtime packages and are skipped in CI's `tests` job): `engine.py`, `meeting.py`, `overlay.py`, `gcal.py`, `vcalendar.py`, `ui_app.py`, both HTML pages, `DictationService`, `VoxAccessibilityService`, `MainActivity`, `BubbleView`, `Prefs`. Verify those by hand or add tests when you touch them.
 
 UI pages can be checked in a browser without the apps: Android's `index.html` runs with a built-in mock bridge; the Windows page needs a stub `window.pywebview.api` before it loads.
 
@@ -94,4 +94,4 @@ The rebuilt Windows app was started with a temporary settings folder: the engine
 
 ## Relay tests in CI
 
-Job `relay` (in `.github/workflows/build.yml`) runs `tests/test_relay.py` and `tests/test_relay_admin.py` with only pytest installed (the relay is standard library only) on Python 3.9 and 3.13 on x86 Linux and on Python 3.13 on arm64 Linux (`ubuntu-24.04-arm`, free for public repositories). This is what checks the relay on Linux, on the oldest supported Python and on the Raspberry Pi's processor family. `tests/conftest.py` puts `relay/` on the import path and skips its `vox_core` routing fixture when the Windows packages are missing.
+`tests/test_relay_cli.py` (running the relay from the app) is not in this job: it runs in the `tests` job on Ubuntu with everything else, where the Windows-only tests are skipped; it has only been run on Windows so far. Job `relay` (in `.github/workflows/build.yml`) runs `tests/test_relay.py` and `tests/test_relay_admin.py` with only pytest installed (the relay is standard library only) on Python 3.9 and 3.13 on x86 Linux and on Python 3.13 on arm64 Linux (`ubuntu-24.04-arm`, free for public repositories). This is what checks the relay on Linux, on the oldest supported Python and on the Raspberry Pi's processor family. `tests/conftest.py` puts `relay/` on the import path and skips its `vox_core` routing fixture when the Windows packages are missing.
