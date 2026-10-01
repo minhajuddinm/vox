@@ -388,6 +388,9 @@ public final class ParityTest {
                 case "fuzzydict":   // terms, text, the text with the dictionary's spellings applied
                     eq(ln, kind, f[2], Terms.fuzzy(f[1], items(f[0], "|")));
                     break;
+                case "notebubble":   // persistent switch, note recording, note being saved, expected
+                    eq(ln, kind, f[3], NoteBubbleLogic.visible(f[0].equals("true"), f[1].equals("true"), f[2].equals("true")) ? "true" : "false");
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);

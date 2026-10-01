@@ -207,6 +207,10 @@ def bubble_action(wanted, shown, attached):
     return "remove" if shown else "none"
 
 
+def note_bubble_visible(persistent, recording, saving):
+    return persistent or recording or saving
+
+
 @pytest.mark.parametrize("kind,f", cases())
 def test_golden(kind, f, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))   # the notes rows use a real (temporary) notes.db
@@ -301,5 +305,7 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert core.fallback_text(f[0]) == f[1]
     elif kind == "fuzzydict":   # terms, text, the text with the dictionary's spellings applied
         assert core.fuzzy_dictionary(f[1], items(f[0])) == f[2]
+    elif kind == "notebubble":   # persistent switch, note recording, note being saved, expected
+        assert note_bubble_visible(*[v == "true" for v in f[:3]]) == (f[3] == "true")
     else:
         pytest.fail(f"unknown case kind {kind}")

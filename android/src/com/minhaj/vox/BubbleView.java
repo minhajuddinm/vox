@@ -10,7 +10,8 @@ import android.view.View;
 
 /**
  * Round mic bubble. Grey when idle, red with a level ring while recording, amber spinner while processing.
- * The voice note bubble (note = true) is the same bubble with a blue idle colour and a note page instead of the mic.
+ * The voice note bubble (note = true) is the same bubble with a blue idle colour and a note page instead of the mic;
+ * while a note records, the page gives way to the recording time (m:ss).
  * After a dictation ends it flashes a green check (SENT) or a red ! (ERROR) for a moment, then shows idle again.
  */
 public class BubbleView extends View {
@@ -22,6 +23,7 @@ public class BubbleView extends View {
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glyph = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint clock = new Paint(Paint.ANTI_ALIAS_FLAG);   // the recording time of the note bubble
     private final RectF r = new RectF();
     private int state = DictationService.IDLE;
     private float level;
@@ -29,6 +31,9 @@ public class BubbleView extends View {
     private final ValueAnimator spinner;
     private int flashKind;        // 0 = none, else SENT or ERROR
     private long flashStart;      // SystemClock.uptimeMillis() when the flash began
+    private long recStart;        // SystemClock.uptimeMillis() when the recording began
+    private long clockSec = -1;   // the second clockText shows, so the text and its size are made once a second, not on every frame
+    private String clockText = "";
     private final float d;
 
     public BubbleView(Context c) {
@@ -46,6 +51,9 @@ public class BubbleView extends View {
         glyph.setColor(0xFFFFFFFF);
         glyph.setStrokeWidth(2.2f * d);
         glyph.setStrokeCap(Paint.Cap.ROUND);
+        clock.setColor(0xFFFFFFFF);
+        clock.setTextAlign(Paint.Align.CENTER);
+        clock.setFakeBoldText(true);
         spinner = ValueAnimator.ofFloat(0, 360);
         spinner.setDuration(900);
         spinner.setRepeatCount(ValueAnimator.INFINITE);
@@ -54,6 +62,7 @@ public class BubbleView extends View {
     }
 
     public void setState(int s) {
+        if (s == DictationService.RECORDING && state != s) recStart = SystemClock.uptimeMillis();
         state = s;
         level = 0;
         if (s != DictationService.IDLE) flashKind = 0;   // a new recording or send replaces the flash
@@ -73,11 +82,16 @@ public class BubbleView extends View {
         invalidate();
     }
 
+    /** How long {@link #flash} shows a kind of flash (milliseconds), so the owner can keep the bubble up that long. */
+    public static long flashMs(int kind) {
+        return kind == SENT ? SENT_MS : ERROR_MS;
+    }
+
     /** Milliseconds into the flash that is showing, or -1 when none is (never started, over, or the bubble is busy). */
     private long flashAge() {
         if (flashKind == 0 || state != DictationService.IDLE) return -1;
         long age = SystemClock.uptimeMillis() - flashStart;
-        if (age >= (flashKind == SENT ? SENT_MS : ERROR_MS)) { flashKind = 0; return -1; }
+        if (age >= flashMs(flashKind)) { flashKind = 0; return -1; }
         return Math.max(0, age);
     }
 
@@ -119,6 +133,10 @@ public class BubbleView extends View {
         }
 
         float s = base * 0.42f;
+        if (note && state == DictationService.RECORDING) {
+            drawClock(c, cx, cy, base);
+            return;
+        }
         if (note) {
             // Note glyph: a page with three lines of text
             glyph.setStyle(Paint.Style.STROKE);
@@ -138,6 +156,19 @@ public class BubbleView extends View {
         r.set(cx - s * 0.68f, cy - s * 0.55f, cx + s * 0.68f, cy + s * 0.55f);
         c.drawArc(r, 20, 140, false, glyph);
         c.drawLine(cx, cy + s * 0.55f, cx, cy + s * 0.9f, glyph);
+    }
+
+    /** The time the note has been recording, in the middle of the bubble; text and size are redone only when the second changes. */
+    private void drawClock(Canvas c, float cx, float cy, float base) {
+        long ms = SystemClock.uptimeMillis() - recStart;
+        if (ms / 1000 != clockSec) {
+            clockSec = ms / 1000;
+            clockText = NoteBubbleLogic.timer(ms);
+            clock.setTextSize(base * 0.62f);
+            float w = clock.measureText(clockText), room = base * 1.5f;
+            if (w > room) clock.setTextSize(base * 0.62f * room / w);   // 1:02:03 is wider than 12:05
+        }
+        c.drawText(clockText, cx, cy - (clock.ascent() + clock.descent()) / 2f, clock);
     }
 
     /** SENT: a green circle and a check that draws itself. ERROR: a red circle that shakes once, with a "!". */

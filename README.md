@@ -156,7 +156,7 @@ Logs for bug reports are in `%APPDATA%\Vox\vox.log` (type that into the File Exp
 1. **Add your free Groq key**: the same kind of key as on Windows (see [step 2](#2-get-your-free-groq-key-2-minutes)). You can use the same key on your phone and PC; they share its free limits.
 2. **Allow the microphone.**
 3. **Turn on the Vox bubble**: Settings → Accessibility → Downloaded apps (or Installed apps) → **Vox dictation bubble** → On.
-   - If it is greyed out or says **Restricted setting**: tap the switch once so Android shows the message, then open **Settings → Apps → Vox → ⋮ (top right) → Allow restricted settings**, confirm, and turn the switch on again. Android does this for every app installed outside the Play Store.
+   - If it is greyed out or says **Restricted setting**: tap the switch once so Android shows the message, then open **Settings → Apps → Vox → ⋮ (top right) → Allow restricted settings**, confirm, and turn the switch on again. Android does this for every app installed outside the Play Store. The same steps, the Play Protect "Install anyway" note and the adb way are in Vox, Settings, System, **Install help**.
 4. **Start the dictation service.** A small "Vox is ready" notification stays while it runs.
 5. Optional but recommended: Vox → Settings → **Battery: Unrestricted**, so Android does not close Vox in the background.
 

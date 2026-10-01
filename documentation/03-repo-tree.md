@@ -81,8 +81,8 @@ windows/                Windows app (Python) and its installer scripts
 | `android/assets/index.html` | The app's screens: Home (setup checklist, history), Dictionary, Styles, Settings. One file with CSS and JavaScript. |
 | `android/src/com/minhaj/vox/MainActivity.java` | The screen: a WebView plus the `Bridge` object exposed to JavaScript as `Vox`. |
 | `android/src/com/minhaj/vox/DictationService.java` | Foreground microphone service: record, save, send with retry, clean up, report. |
-| `android/src/com/minhaj/vox/VoxAccessibilityService.java` | The floating bubbles (mic bubble and optional note bubble), focused-field tracking and text insertion. |
-| `android/src/com/minhaj/vox/BubbleView.java` | Draws the bubble (idle, recording with level ring, processing spinner); the voice note variant has its own colour and icon. |
+| `android/src/com/minhaj/vox/VoxAccessibilityService.java` | The floating bubbles (mic bubble and note bubble; the note bubble is optional, or comes up by itself while a note records or saves), focused-field tracking and text insertion. |
+| `android/src/com/minhaj/vox/BubbleView.java` | Draws the bubble (idle, recording with level ring, processing spinner); the voice note variant has its own colour and icon and shows the recording time while a note records. |
 | `android/src/com/minhaj/vox/TrampolineActivity.java` | Invisible activity that lets the microphone service start from the foreground. |
 | `android/src/com/minhaj/vox/Multipart.java` | The speech upload's multipart body with its exact length known up front (`length()` equals the bytes `writeTo` writes), so `ApiClient.transcribe` can send a `Content-Length` (the relay refuses chunked uploads with 411). Pure Java. |
 | `android/src/com/minhaj/vox/ApiClient.java` | HTTP calls to the server plus the pure cleanup helpers (prompt, sanitize, replacements, spoken commands, silence filter, retry policy). |
@@ -99,6 +99,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/NotificationActions.java` | Pure choice of the foreground notification buttons (at most three) and its Retry hint line. |
 | `android/src/com/minhaj/vox/OverlayDiag.java` | Pure bubble diagnostics: a ring buffer of the last 50 events that can make the bubble appear or vanish, its one-line event text, the service and battery lines and the copyable report, kept in memory and in a small private file (`files/overlay_diag.log`). |
 | `android/src/com/minhaj/vox/BubbleLogic.java` | Pure bubble rules: `clamp` keeps a saved position on the current screen, `shouldShow` is the visibility rule (only-typing, Always show, focused field, screen on, service ready), `action` is the watchdog's decision (none, add, remove, repair) and `WATCHDOG_MS` is its 30 s period. |
+| `android/src/com/minhaj/vox/NoteBubbleLogic.java` | Pure note bubble rules: `visible` (the persistent switch, a note recording, a note being saved) and `timer` (the recording time as `m:ss` or `h:mm:ss`). |
 | `android/src/com/minhaj/vox/InsertGuard.java` | Pure typing guard: never type a restored dictation (empty target package), refuse a switched app, and the toast words. |
 | `android/src/com/minhaj/vox/PinnedUrlConfig.java` | A `SyncConfig` with the relay address fixed for one sync run (the address is read once per run). |
 | `android/src/com/minhaj/vox/Endpoint.java` | Server address rules (which hosts may use plain http). |
@@ -163,6 +164,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_sync_devices.py` | The Devices card's Windows side against a real relay: `fetch_devices` (wrong token, unreachable, relay too old, answers that are not a device list), `devices_for_ui` (rows, "this device", an empty list plus the reason on failure) and `devices_view` edge cases. |
 | `tests/test_ui_devices.py` | The Devices card on both pages: the shared `devicesHtml` builder run with node (rows, badge, empty and error states, escaping), its styles, ids, position under the relay settings, each page's bridge call, the preview stand-in. |
 | `tests/test_relay_check.py` | Test connection against a real relay: `sync.test_relay` and `relay_check` (version, token, device name, wrong token, another tailnet user, unreachable, answers that are not a relay's, no request for unusable settings, the token in no field) and the Windows `sync_test` bridge. |
+| `tests/test_android_install_safety.py` | G2: the manifest declares only permissions the code uses (no `VIBRATE`), targetSdk matches `build.sh`, no `isAccessibilityTool`, and the Settings page has the Install help card with its App info button and the adb commands. |
 | `tests/test_ui_relay_help.py` | The "How to set up the relay" card and the Test connection rows: the steps source and its parser, the generated block in both pages, every command in `relay/README.md`, copy buttons, position, escaping, `sync_ui` failing on a stale or hand-edited block, `relayCheckRows` run with node. |
 | `tests/test_relay_devices.py` | `GET /devices`: token required, newest first, same fields as the management page, owner check, other methods refused. |
 | `tests/test_relay_proxy.py` | The relay's proxy routes against a stand-in upstream server that records what it receives: fixed URL and path tricks, headers and keys (the relay token never goes on, the upstream key never comes back), size limits, 411/413/429/502/503, slots and timeouts. |
@@ -194,6 +196,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/DevicesViewTest.java` | `DevicesView` beyond the golden rows: order, entries that are not objects, unusable times, the Android header spelling of a name, age rounding. |
 | `android/test/com/minhaj/vox/NoteLogicTest.java` | Note rules beyond the golden rows: Python-style whitespace and `strip`, search words, tag clean-up and its cap, null inputs, merge edge cases. |
 | `android/test/com/minhaj/vox/NoteTest.java` | The `Note` value class: defaults and `copy`. |
+| `android/test/com/minhaj/vox/NoteBubbleLogicTest.java` | `NoteBubbleLogic`: the visibility rule for every input combination and the timer (zero, minutes, over an hour, negative). |
 | `android/test/com/minhaj/vox/BubbleLogicTest.java` | `BubbleLogic`: the clamp (inside, corners, too far right or down, negative, a screen smaller than the bubble, overflow), the visibility rule and the watchdog's decision. |
 | `android/test/com/minhaj/vox/OverlayDiagTest.java` | `OverlayDiag`: ring size and order, merging of a repeated event, event text, file round trip, damaged and unwritable file, the only-typing reason and kind (also with Always show and a dark screen), the watchdog event, the report text. |
 | `android/test/com/minhaj/vox/NoteEventsTest.java` | `NoteEvents`: order, no double add, remove, a failing listener, adding during a fire, several threads. |
@@ -297,6 +300,9 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p7d-profile-sync.md` | Spec for P7d: profile sync. |
 | `documentation/specs/p7f-relay-proxy.md` | Spec for P7f: the relay as the AI server (proxy routes, upstream settings, the apps' switch). |
 | `documentation/specs/p2b-stream-long-dictations.md` | Spec for P2b: send long recordings in pieces while speaking. |
+| `documentation/decisions/0035-sideload-warnings-are-explained-not-engineered-away.md` | ADR: explain the Play Protect and Restricted setting warnings in the app; no `isAccessibilityTool`, targetSdk stays 34, minimum permissions. |
+| `documentation/specs/p9g2-install-safety.md` | Spec for part 3 branch G task G2: the Install help card, the permission clean-up, why targetSdk stays 34, what a sideloaded APK cannot avoid, the unverified list. |
+| `documentation/specs/p9g-note-bubble.md` | Spec for part 3 branch G: the note bubble that appears while a note records or saves, with the device checklist. |
 | `documentation/specs/p6-android-note-mode.md` | Spec for P6: Android note mode (faster start, note bubble, notification, tile), with the device checklist. |
 | `documentation/specs/p7e-android-sync.md` | Spec for P7e: Android relay sync and profile merge, with the device checklist and known limits. |
 | `documentation/specs/p8c-quick-wins.md` | Spec for P8c: the quick wins (Java test runner and compile check, `ApiClient` rename, `cleanup_min_words`, the relay run from the Windows app), with what was and was not verified. |

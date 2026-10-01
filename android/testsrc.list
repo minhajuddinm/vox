@@ -35,3 +35,4 @@ android/src/com/minhaj/vox/DevicesView.java
 android/src/com/minhaj/vox/RelayCheck.java
 android/src/com/minhaj/vox/OverlayDiag.java
 android/src/com/minhaj/vox/BubbleLogic.java
+android/src/com/minhaj/vox/NoteBubbleLogic.java

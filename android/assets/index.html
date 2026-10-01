@@ -306,6 +306,20 @@ tailscale serve status</pre><button type="button" class="btn ghost rs-copy" data
     <div id="diag-events" style="margin-top:8px;font-size:12px;line-height:1.5;word-break:break-word"></div>
     <div class="row" style="margin-top:10px;gap:8px"><button class="btn ghost" id="diag-refresh" style="flex:1">Refresh</button><button class="btn" id="diag-copy" style="flex:1">Copy report</button></div>
   </div>
+  <div class="card" style="margin-top:10px">
+<details class="rsteps" id="install-help">
+<summary>Install help: warnings and Restricted setting</summary>
+<div class="rs-body">
+<p class="rs-intro">Vox is installed from a file, not from Google Play, and it types for you through an accessibility service. Android and Play Protect are careful about exactly that, so one or two warnings are normal. Nothing in the app can switch them off.</p>
+<ol class="rs-list">
+<li><div class="rs-t"><b>"Restricted setting" or the Vox switch is greyed out</b> (Android 13 and newer). Open Settings, Accessibility, Vox dictation bubble and tap the switch once so Android shows its message. Then:</div><button type="button" class="btn ghost" id="install-help-appinfo">Open App info</button><div class="rs-t" style="margin-top:6px">On that screen tap the three dots (top right), then <b>Allow restricted settings</b>, confirm with your PIN or fingerprint, and turn the switch on. The menu entry only appears after the first try.</div></li>
+<li><div class="rs-t"><b>Play Protect says "App blocked" or "Unknown app"</b> while installing. Tap <b>More details</b>, then <b>Install anyway</b> (or <b>Scan app</b> first). Play Protect does not know Vox, and apps that use accessibility and come from a browser or file manager are treated strictly. Your phone may offer no way past it; then use the next step.</div></li>
+<li><div class="rs-t"><b>Install from a computer instead.</b> Turn on USB debugging (Settings, Developer options), connect the phone and run, from the folder with the APK:</div><pre class="rs-cmd">adb install -r Vox.apk</pre><button type="button" class="btn ghost rs-copy" data-copy="adb install -r Vox.apk">Copy command</button><div class="rs-t" style="margin-top:8px">Optional, only if Allow restricted settings never shows up (it may do nothing on your phone):</div><pre class="rs-cmd">adb shell cmd appops set com.minhaj.vox ACCESS_RESTRICTED_SETTINGS allow</pre><button type="button" class="btn ghost rs-copy" data-copy="adb shell cmd appops set com.minhaj.vox ACCESS_RESTRICTED_SETTINGS allow">Copy command</button></li>
+</ol>
+<p class="rs-note">A sideloaded app cannot fully avoid these warnings. The ways that remove them are Google Play (closed testing) or an app store such as F-Droid. Update with the same kind of file every time: Android only updates an app signed with the same key.</p>
+</div>
+</details>
+  </div>
   <button class="btn full danger" id="clear">Clear history</button>
   <p class="note" style="text-align:center;margin-top:18px" id="about-vox"></p>
 </section>
@@ -491,7 +505,7 @@ function setupSteps() {
   return [
     { done: S.mic, t: "Allow the microphone", d: "So Vox can hear you.", btn: "Allow", act: () => V.requestMic() },
     { done: S.a11y, t: "Turn on the Vox bubble", d: "Settings → Accessibility → Downloaded apps → Vox dictation bubble → On.", btn: "Open", act: () => V.openAccessibility(),
-      extra: '<div class="note">Greyed out or "Restricted setting"? Open <a href="#" id="appinfo">App info</a>, tap ⋮ (top right) → <b>Allow restricted settings</b>, then try again.</div>' },
+      extra: '<div class="note">Greyed out or "Restricted setting"? Open <a href="#" id="appinfo">App info</a>, tap ⋮ (top right) → <b>Allow restricted settings</b>, then try again. Blocked while installing? <a href="#" id="installhelp">Install help</a>.</div>' },
     { done: !!S.config.api_key || !needsKey() || viaRelay(), t: "Choose your AI provider", d: "Where speech and cleanup run: Groq, OpenAI, OpenRouter, Together, Mistral or a server of your own. Pick one and paste its key if it needs one.", btn: "Choose", act: () => { go("settings"); setTimeout(() => $("provider").focus(), 200); } },
   ];
 }
@@ -538,6 +552,7 @@ function renderHome() {
        ${s.done ? "" : `<button class="btn" data-step="${i}">${s.btn}</button>`}</div>`).join("") + "</div>";
     $("setup").querySelectorAll("[data-step]").forEach(b => b.onclick = () => steps[+b.dataset.step].act());
     const a = $("appinfo"); if (a) a.onclick = (e) => { e.preventDefault(); V.openAppInfo(); };
+    const h = $("installhelp"); if (h) h.onclick = (e) => { e.preventDefault(); go("settings"); $("install-help").open = true; setTimeout(() => $("install-help").scrollIntoView(), 50); };
     $("ready").innerHTML = "";
   } else {
     $("setup").innerHTML = "";
@@ -928,6 +943,7 @@ window.relayResult = (json) => {
 };
 // The copy buttons of "How to set up the relay" (generated from ui-shared/relay-steps.txt) hold their commands in data-copy.
 document.addEventListener("click", (e) => { const b = e.target.closest(".rs-copy"); if (b) { V.copy(b.dataset.copy); toast("Copied"); } });
+$("install-help-appinfo").onclick = () => V.openAppInfo();
 // Devices on the relay (Settings): the list the relay recorded, newest first; the rows come ready from the bridge, which
 // answers devicesResult(json) when the request is over.
 window.devicesResult = (json) => { $("devices-refresh").disabled = false; $("devices-list").innerHTML = devicesHtml(JSON.parse(json)); };
