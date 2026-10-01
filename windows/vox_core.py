@@ -109,6 +109,8 @@ def config_path():
 
 def save_config(cfg):
     """Writes the settings; the API key is stored protected by the Windows login (see secret.py)."""
+    if _config_unread:
+        raise OSError("config.json could not be opened a moment ago; not saving over it")
     path = config_path()
     tmp = path + ".tmp"
     on_disk = dict(cfg, **{k: secret.protect(cfg.get(k) or "") for k in KEY_FIELDS})
@@ -173,24 +175,56 @@ def _fix_types(cfg):
             cfg[k] = ""
 
 
+_config_unread = False   # True while the last load_config could not OPEN config.json: its defaults must not be saved
+_OPEN_TRIES = 4          # another process may be replacing the file for a moment (sharing violation, antivirus)
+_OPEN_PAUSE = 0.05
+
+
+def _read_config_file(path):
+    """The parsed file. OSError (could not open or read: possibly only for a moment) is retried a few times and then
+    raised; ValueError means the file was read but is not valid."""
+    for attempt in range(_OPEN_TRIES):
+        try:
+            with open(path, encoding="utf-8-sig") as f:
+                return json.load(f)
+        except OSError:
+            if attempt == _OPEN_TRIES - 1:
+                raise
+            time.sleep(_OPEN_PAUSE)
+
+
 def load_config():
+    global _config_unread
     path = config_path()
-    if not os.path.exists(path):
+    try:
+        os.stat(path)
+    except FileNotFoundError:
+        _config_unread = False
         save_config(DEFAULT_CONFIG)
         return dict(DEFAULT_CONFIG)
+    except OSError:
+        pass   # exists() would say "missing" here, and the defaults would then be written over a good file: read it below
     try:
-        with open(path, encoding="utf-8-sig") as f:
-            cfg = json.load(f)
+        cfg = _read_config_file(path)
         if not isinstance(cfg, dict):
             raise ValueError("config.json is not a JSON object")
-    except (ValueError, OSError) as e:
+    except OSError as e:
+        # could not open it: a good file may be there. Touch nothing; use the defaults for this run only and refuse to
+        # save them (save_config) until the file has been read again.
+        _config_unread = True
+        log.warning("config.json could not be opened (%s); using the defaults for now and leaving the file alone",
+                    type(e).__name__)
+        return dict(DEFAULT_CONFIG)
+    except ValueError as e:   # includes bad UTF-8 and bad JSON: the file was read and it is damaged
         # a bad file must not stop Vox from starting: keep it aside and carry on with the defaults
+        _config_unread = False
         log.warning("config.json could not be read (%s); keeping it as .bad and using the defaults", type(e).__name__)
         try:
             os.replace(path, path + ".bad-%d" % time.time())
         except OSError:
             log.warning("config.json could not be moved aside")
         return dict(DEFAULT_CONFIG)
+    _config_unread = False
     merged = dict(DEFAULT_CONFIG)
     merged.update(cfg)
     _fix_types(merged)

@@ -95,3 +95,82 @@ def test_history_with_a_bad_byte_inside_a_line_is_still_readable(appdata):
     with open(core.history_path(), "wb") as f:
         f.write(b'{"t": 1, "text": "caf\xff"}\n{"t": 2}\n[1, 2]\n')
     assert [e["t"] for e in core.read_history()] == [1, 2]
+
+
+# ---- a failure to OPEN the file is not a damaged file (final review, Windows high 1) ----------------------------------
+
+def _opener_failing(real_open, path, times):
+    calls = {"n": 0}
+
+    def fake(file, *a, **kw):
+        if os.path.abspath(str(file)) == os.path.abspath(path) and calls["n"] < times:
+            calls["n"] += 1
+            raise PermissionError(13, "The process cannot access the file (sharing violation)")
+        return real_open(file, *a, **kw)
+
+    return fake, calls
+
+
+def test_a_blip_while_opening_is_retried_and_the_file_is_read(appdata, monkeypatch):
+    path = _write(appdata, json.dumps({"language": "de"}).encode())
+    fake, calls = _opener_failing(open, path, 2)
+    monkeypatch.setattr("builtins.open", fake)
+    assert core.load_config()["language"] == "de"
+    assert calls["n"] == 2
+    assert not glob.glob(path + ".bad-*")
+
+
+def test_a_file_that_stays_unopenable_is_not_moved_aside_nor_overwritten(appdata, monkeypatch):
+    original = json.dumps({"language": "de", "api_key": "k-keep"}).encode()
+    path = _write(appdata, original)
+    fake, _ = _opener_failing(open, path, 10 ** 6)
+    with monkeypatch.context() as m:
+        m.setattr("builtins.open", fake)
+        cfg = core.load_config()
+    assert cfg["language"] == core.DEFAULT_CONFIG["language"]       # defaults for this run only
+    assert not glob.glob(path + ".bad-*")
+    with open(path, "rb") as f:
+        assert f.read() == original
+    # nothing in this run may save the defaults over the good file
+    with pytest.raises(OSError):
+        core.save_config(cfg)
+    with open(path, "rb") as f:
+        assert f.read() == original
+
+
+def test_saving_works_again_once_the_file_has_been_read(appdata, monkeypatch):
+    path = _write(appdata, json.dumps({"language": "de"}).encode())
+    fake, _ = _opener_failing(open, path, 10 ** 6)
+    with monkeypatch.context() as m:
+        m.setattr("builtins.open", fake)
+        core.load_config()
+    cfg = core.load_config()            # the file is readable now
+    assert cfg["language"] == "de"
+    cfg["language"] = "fr"
+    core.save_config(cfg)
+    assert core.load_config()["language"] == "fr"
+
+
+def test_invalid_utf8_is_still_moved_aside(appdata):
+    path = _write(appdata, b'{"language": "caf\xff"}')
+    assert core.load_config()["language"] == core.DEFAULT_CONFIG["language"]
+    assert glob.glob(path + ".bad-*")
+
+
+def test_a_stat_error_is_not_taken_for_a_missing_file(appdata, monkeypatch):
+    original = json.dumps({"language": "de"}).encode()
+    path = _write(appdata, original)
+    real_stat, real_open = os.stat, open
+    fake_open, _ = _opener_failing(real_open, path, 10 ** 6)
+
+    def fake_stat(p, *a, **kw):
+        if os.path.abspath(str(p)) == os.path.abspath(path):
+            raise PermissionError(13, "delete pending")
+        return real_stat(p, *a, **kw)
+
+    with monkeypatch.context() as m:
+        m.setattr(os, "stat", fake_stat)
+        m.setattr("builtins.open", fake_open)
+        core.load_config()
+    with open(path, "rb") as f:
+        assert f.read() == original
