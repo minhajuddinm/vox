@@ -79,6 +79,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/VoxAccessibilityService.java` | The floating bubbles (mic bubble and optional note bubble), focused-field tracking and text insertion. |
 | `android/src/com/minhaj/vox/BubbleView.java` | Draws the bubble (idle, recording with level ring, processing spinner); the voice note variant has its own colour and icon. |
 | `android/src/com/minhaj/vox/TrampolineActivity.java` | Invisible activity that lets the microphone service start from the foreground. |
+| `android/src/com/minhaj/vox/Multipart.java` | The speech upload's multipart body with its exact length known up front (`length()` equals the bytes `writeTo` writes), so `ApiClient.transcribe` can send a `Content-Length` (the relay refuses chunked uploads with 411). Pure Java. |
 | `android/src/com/minhaj/vox/ApiClient.java` | HTTP calls to the server plus the pure cleanup helpers (prompt, sanitize, replacements, spoken commands, silence filter, retry policy). |
 | `android/src/com/minhaj/vox/Prefs.java` | All settings and the history, in SharedPreferences. |
 | `android/src/com/minhaj/vox/Providers.java` | Java twin of `windows/providers.py`: per-role settings, model classification and parsing, messages, reasoning fields. |
@@ -130,14 +131,15 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_spoken_commands.py` | Spoken "new line" and the cleanup-failure result. |
 | `tests/test_audio_devices.py` | Microphone name resolution. |
 | `tests/test_parity.py` | Runs `spec/golden.txt` against the Python helpers. |
-| `tests/test_providers.py` | Per-role settings, key isolation, model discovery, Test button, reasoning retry. |
+| `tests/test_providers.py` | Per-role settings, key isolation, model discovery, Test button, reasoning retry, the relay as the AI server (routes, headers, no key leaks, error shapes, the Settings page hiding the provider fields). |
 | `tests/test_warmup.py` | Connection warm-up (`vox_core.warm`) and the shared session. |
 | `tests/test_user_context.py` | The "about you" context: cleaning, prompt placement, sent with cleanup. |
 | `tests/test_level.py` | The meter curve and the scrolling level history. |
 | `tests/test_notes.py` | The notes store: add, edit, delete, search with FTS5 and the LIKE fallback, filters. |
 | `tests/test_relay.py` | The relay over real HTTP: auth, sync cursor, conflicts, delete markers, search, profile versions, limits. |
-| `tests/test_relay_admin.py` | The relay's management page and endpoints, portability and file permissions. |
+| `tests/test_relay_admin.py` | The relay's management page and endpoints, portability and file permissions, and the AI server (proxy) settings: address rules, write-only keys that never appear in any response, download or output. |
 | `tests/test_relay_cli.py` | Running the relay from the app: `vox_app.py --relay` as a real subprocess (no GUI libraries loaded), the command line, `RelayHost` with a fake process, the child dying with its parent, the tray toggle, and the build inputs. |
+| `tests/test_relay_proxy.py` | The relay's proxy routes against a stand-in upstream server that records what it receives: fixed URL and path tricks, headers and keys (the relay token never goes on, the upstream key never comes back), size limits, 411/413/429/502/503, slots and timeouts. |
 | `tests/test_sync.py` | The Windows sync client against a real relay: two devices, edits, deletes, conflicts, failures, notes the relay refuses for good, upgrade of old databases. |
 | `tests/test_sync_profile.py` | Profile sync between two devices through a real relay: merge rules, keys switch, races. |
 | `tests/test_streaming.py` | The pause finder (`Segmenter`), the streaming worker, and the text half of the pipeline. |
@@ -156,6 +158,8 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/ParityTest.java` | Runs `spec/golden.txt` against the Java helpers. |
 | `android/test/com/minhaj/vox/ProfileMergeTest.java` | Profile merge beyond the golden rows: lists and booleans, removals, null maps, fields outside the set, inputs left unchanged, the field lists. |
 | `android/test/com/minhaj/vox/SyncEngineTest.java` | The sync engine against an in-memory store and a fake relay that follows the relay's rules: push, not-applied, offline and killed runs, notes the relay refuses, stopping errors, paging and cursor, delete markers, profile (version 0, both changed, 412 retry, keys on and off), "never throws", loop guards, the wire form. |
+| `android/test/com/minhaj/vox/MultipartTest.java` | The computed length equals the bytes written for empty, unicode and large combinations; the framing; a file that shrank. |
+| `android/test/com/minhaj/vox/ProxyUploadIntegrationTest.java` | Only with `run-tests.sh --integration`: `ApiClient.transcribeRaw` through the real relay's `/proxy/stt` to a stub AI server (JDK `HttpServer`): the upload arrives with a `Content-Length`, not chunked, byte for byte. |
 | `android/test/com/minhaj/vox/RelayIntegrationTest.java` | Only with `run-tests.sh --integration`: starts the real `relay/relay.py` (free port, temp data folder) and syncs two or three phones (`SyncEngine` over `RelayClient`, in-memory notes) through it: a note and its delete marker travel, an older edit loses, a note the relay refuses does not block the next, a profile conflict and a real 412, a wrong token, 201 notes over several pages. |
 | `android/test/com/minhaj/vox/RelayClientTest.java` | `RelayClient` against a real HTTP server on this computer: headers, paths, bodies, every status and error-body shape, network failure, no redirects, `check`, `problem`. |
 | `android/test/com/minhaj/vox/ProfileMapTest.java` | Phone settings to profile fields and back: round trips of each shared field, empty About you, the Windows shape, wrong types, addresses, key fields. |
@@ -172,7 +176,7 @@ windows/                Windows app (Python) and its installer scripts
 
 | Path | What it is |
 |---|---|
-| `relay/relay.py` | The optional relay server (standard library only, Python 3.9+): notes with a change cursor, one versioned profile, bearer-token auth, management web page; listens on 127.0.0.1. |
+| `relay/relay.py` | The optional relay server (standard library only, Python 3.9+): notes with a change cursor, one versioned profile, bearer-token auth, management web page, AI server (proxy) settings with write-only keys; listens on 127.0.0.1. |
 | `relay/vox-relay.service` | systemd unit to run the relay as a service on Linux (Raspberry Pi). |
 | `relay/README.md` | Set-up guide for the relay: Raspberry Pi, Linux, Windows, macOS. |
 
@@ -232,6 +236,7 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/decisions/0024-stream-long-dictations-in-pieces.md` | ADR: long dictations are transcribed in pieces while the user speaks. |
 | `documentation/decisions/0025-note-bubble-in-the-accessibility-service.md` | ADR: the note bubble is drawn by the accessibility service; the tile and the notification are other entry points. |
 | `documentation/decisions/0026-android-notes-and-sync-are-ports-with-shared-golden-rows.md` | ADR: the Android notes store and sync are ports of the Windows code, with pure logic shared through golden rows. |
+| `documentation/decisions/0027-relay-proxy-per-role-whitelisted-write-only-keys.md` | ADR: the relay proxy is per role, whitelisted, with write-only keys. |
 | `documentation/specs/README.md` | Index of design specs (written before the code they describe). |
 | `documentation/specs/p1-providers-and-models.md` | Spec for sub-project P1: any provider, per-role server, model list, Test button. |
 | `documentation/specs/p2a-keydown-warmup.md` | Spec for P2a: warm connections at key-down. |
@@ -242,6 +247,7 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p7b-relay-portable-and-web-page.md` | Spec for P7b: relay on a Raspberry Pi with a web page. |
 | `documentation/specs/p7c-windows-sync-client.md` | Spec for P7c: the Windows sync client. |
 | `documentation/specs/p7d-profile-sync.md` | Spec for P7d: profile sync. |
+| `documentation/specs/p7f-relay-proxy.md` | Spec for P7f: the relay as the AI server (proxy routes, upstream settings, the apps' switch). |
 | `documentation/specs/p2b-stream-long-dictations.md` | Spec for P2b: send long recordings in pieces while speaking. |
 | `documentation/specs/p6-android-note-mode.md` | Spec for P6: Android note mode (faster start, note bubble, notification, tile), with the device checklist. |
 | `documentation/specs/p7e-android-sync.md` | Spec for P7e: Android relay sync and profile merge, with the device checklist and known limits. |

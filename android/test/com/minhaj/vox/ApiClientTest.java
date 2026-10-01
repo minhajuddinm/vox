@@ -89,6 +89,16 @@ public final class ApiClientTest {
         eq("no retry 401", false, ApiClient.isRetryable(new ApiClient.ApiException(401, "x")));
         eq("no retry 400", false, ApiClient.isRetryable(new ApiClient.ApiException(400, "x")));
         eq("retry dropped connection", true, ApiClient.isRetryable(new IOException("reset")));
+        // through the relay: only a dropped connection, 502 and 503; never a timeout
+        eq("relay: retry 502", true, ApiClient.isRetryable(new ApiClient.ApiException(502, "x"), true));
+        eq("relay: retry 503", true, ApiClient.isRetryable(new ApiClient.ApiException(503, "x"), true));
+        eq("relay: no retry 500", false, ApiClient.isRetryable(new ApiClient.ApiException(500, "x"), true));
+        eq("relay: no retry 429 busy", false, ApiClient.isRetryable(new ApiClient.ApiException(429, "x"), true));
+        eq("relay: no retry 411", false, ApiClient.isRetryable(new ApiClient.ApiException(411, "x"), true));
+        eq("relay: retry dropped connection", true, ApiClient.isRetryable(new IOException("reset"), true));
+        eq("relay: no retry read timeout", false, ApiClient.isRetryable(new java.net.SocketTimeoutException("Read timed out"), true));
+        eq("relay: retry connect timeout", true, ApiClient.isRetryable(new java.net.SocketTimeoutException("Connect timed out"), true));
+        eq("direct: retry read timeout", true, ApiClient.isRetryable(new java.net.SocketTimeoutException("Read timed out"), false));
 
         System.out.println("OK: " + checks + " checks passed");
     }

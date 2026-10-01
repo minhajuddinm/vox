@@ -4,7 +4,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -52,31 +51,35 @@ public final class ApiClient {
     // ------------------------------------------------------------------ STT
 
     public String transcribe(File wav, String model, String language, List<String> terms) throws IOException {
-        String boundary = "----vox" + System.nanoTime();
-        HttpURLConnection c = open(base + "/audio/transcriptions");
-        c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
-        c.setDoOutput(true);
-        c.setChunkedStreamingMode(0);
-        try (DataOutputStream out = new DataOutputStream(c.getOutputStream())) {
-            field(out, boundary, "model", model);
-            field(out, boundary, "response_format", "json");
-            field(out, boundary, "temperature", "0");
-            if (language != null && !language.isEmpty()) field(out, boundary, "language", language);
-            String prompt = whisperPrompt(terms);
-            if (!prompt.isEmpty()) field(out, boundary, "prompt", prompt);
-
-            out.writeBytes("--" + boundary + "\r\n");
-            out.writeBytes("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n");
-            out.writeBytes("Content-Type: audio/wav\r\n\r\n");
-            try (InputStream in = new FileInputStream(wav)) {
-                byte[] buf = new byte[16384];
-                int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-            }
-            out.writeBytes("\r\n--" + boundary + "--\r\n");
+        String answer = transcribeRaw(wav, model, language, terms);
+        try {
+            return new JSONObject(answer).optString("text", "").trim();
+        } catch (Exception e) {
+            throw new IOException("Bad JSON from the server");
         }
-        JSONObject res = readJson(c);
-        return res.optString("text", "").trim();
+    }
+
+    /** The upload and the server's answer body, unparsed (the integration test reads it without org.json). Throws ApiException on 4xx/5xx. */
+    String transcribeRaw(File wav, String model, String language, List<String> terms) throws IOException {
+        String boundary = "----vox" + System.nanoTime();
+        long size = wav.length();
+        Multipart body = new Multipart(boundary)
+                .field("model", model)
+                .field("response_format", "json")
+                .field("temperature", "0");
+        if (language != null && !language.isEmpty()) body.field("language", language);
+        String prompt = whisperPrompt(terms);
+        if (!prompt.isEmpty()) body.field("prompt", prompt);
+        body.file("file", "audio.wav", "audio/wav", size);
+        HttpURLConnection c = open(base + "/audio/transcriptions");
+        c.setRequestProperty("Content-Type", body.contentType());
+        c.setDoOutput(true);
+        // A known length, not chunked: the relay (and other servers) answer 411 to an upload with no Content-Length.
+        c.setFixedLengthStreamingMode(body.length());
+        try (OutputStream out = c.getOutputStream(); InputStream in = new FileInputStream(wav)) {
+            body.writeTo(out, in);
+        }
+        return readBody(c);
     }
 
     /** Whisper uses the prompt as spelling context. Keep it short (the model reads about 224 tokens). */
@@ -89,13 +92,6 @@ public final class ApiClient {
             sb.append(t);
         }
         return sb.toString() + ".";
-    }
-
-    private static void field(DataOutputStream out, String boundary, String name, String value) throws IOException {
-        out.writeBytes("--" + boundary + "\r\n");
-        out.writeBytes("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n");
-        out.write(value.getBytes(StandardCharsets.UTF_8));
-        out.writeBytes("\r\n");
     }
 
     // -------------------------------------------------------------- cleanup
@@ -236,11 +232,35 @@ public final class ApiClient {
 
     /** True when trying the same request again could succeed (server trouble, rate limit, dropped connection). */
     static boolean isRetryable(IOException e) {
-        if (e instanceof ApiException) {
-            int c = ((ApiException) e).code;
-            return c >= 500 || c == 429 || c == 408;
-        }
-        return true;
+        return isRetryable(e, false);
+    }
+
+    /**
+     * Same, for a request that went (or did not go) through the relay as the AI server: then a request timeout is not
+     * retried and only 502 and 503 are (see {@link #retryable}).
+     */
+    static boolean isRetryable(IOException e, boolean viaRelay) {
+        if (e instanceof ApiException) return retryable(((ApiException) e).code, false, viaRelay);
+        return retryable(0, isReadTimeout(e), viaRelay);
+    }
+
+    /** A wait for the answer that ran out (not a connection that could not be made). */
+    static boolean isReadTimeout(IOException e) {
+        if (!(e instanceof java.net.SocketTimeoutException)) return false;
+        String m = e.getMessage();
+        return m == null || !m.toLowerCase(Locale.ROOT).contains("connect");
+    }
+
+    /**
+     * Whether the same request is sent again; the rule shared with windows/vox_core.py (golden rows "retry"). `status` is
+     * the HTTP status, 0 when there was no answer; `timeout` is true when the wait for the answer ran out.
+     * Directly: a dropped connection, a timeout and server trouble (500 and up; also 429 and 408 here: the Windows app
+     * leaves those to its callers, so the golden rows do not cover them). Through the relay: only a dropped connection,
+     * 502 and 503 - a timeout is not retried, because the relay is still working on the first request.
+     */
+    static boolean retryable(int status, boolean timeout, boolean viaRelay) {
+        if (viaRelay) return !timeout && (status == 0 || status == 502 || status == 503);
+        return status == 0 || status >= 500 || status == 429 || status == 408;
     }
 
     /** Guards against the model replying to the transcript instead of cleaning it. */
@@ -387,17 +407,26 @@ public final class ApiClient {
     }
 
     private static JSONObject readJson(HttpURLConnection c) throws IOException {
+        String body = readBody(c);
+        try { return new JSONObject(body); }
+        catch (Exception e) { throw new IOException("Bad JSON from the server"); }
+    }
+
+    /** The answer body of a finished request; an ApiException (with the server's own message) for a 4xx or 5xx. */
+    private static String readBody(HttpURLConnection c) throws IOException {
         int code = c.getResponseCode();
         InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
         String body = in == null ? "" : readAll(in);   // read to the end and not disconnected: the connection is reused
         if (code >= 400) {
             String msg = body;
-            try { msg = new JSONObject(body).getJSONObject("error").optString("message", body); }
-            catch (Exception ignored) { }
+            try {   // OpenAI-shaped {"error": {"message": ...}}, or the relay's own {"error": "text"}
+                Object err = new JSONObject(body).opt("error");
+                if (err instanceof JSONObject) msg = ((JSONObject) err).optString("message", body);
+                else if (err instanceof String) msg = (String) err;
+            } catch (Exception ignored) { }
             throw new ApiException(code, "API " + code + ": " + msg);
         }
-        try { return new JSONObject(body); }
-        catch (Exception e) { throw new IOException("Bad JSON from the server"); }
+        return body;
     }
 
     private static String readAll(InputStream in) throws IOException {

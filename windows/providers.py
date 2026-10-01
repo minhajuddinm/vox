@@ -12,6 +12,8 @@ import wave
 GROQ_BASE = "https://api.groq.com/openai/v1"
 DEFAULT_MODELS = {"stt": "whisper-large-v3-turbo", "llm": "openai/gpt-oss-20b"}
 ROLES = ("stt", "llm")
+PROXY_PROBLEM = "Turn on the relay first"    # shown when the relay is chosen as the AI server but its address or token is missing
+RELAY_HINT = "check the relay token and the AI server key set on the relay page"   # for a 401 or 403 that came back through the relay
 
 # id = stored in the `provider` setting (a UI convenience only: the address decides behaviour).
 PRESETS = [
@@ -40,11 +42,38 @@ def _norm(url):
     return (url or "").strip().rstrip("/")
 
 
+def uses_relay(cfg):
+    """True when the relay is the AI server: `relay_proxy` is on and the relay's address and token are filled in."""
+    return bool(cfg.get("relay_proxy") and _norm(cfg.get("relay_url")) and (cfg.get("relay_token") or "").strip())
+
+
+def proxy_problem(cfg):
+    """What the settings page shows when `relay_proxy` is on but the relay cannot be used (address or token missing,
+    or an address `endpoint_error` refuses), otherwise ''."""
+    if not cfg.get("relay_proxy"):
+        return ""
+    if not uses_relay(cfg):
+        return PROXY_PROBLEM
+    import vox_core as core
+    return core.endpoint_error(cfg)   # for example plain http to a public host: dictation is blocked, so it is not "using the relay"
+
+
+def proxy_url(relay_url, role):
+    """The address a role is sent to through the relay: `<relay_url>/proxy/<role>`, or '' without a relay address."""
+    base = _norm(relay_url)
+    return f"{base}/proxy/{role}" if base else ""
+
+
 def role_settings(cfg, role):
     """(base_url, api_key, model) for a role.
 
     A role with its own address uses only its own key: the main key never goes to a different server.
+    With the relay as the AI server (`uses_relay`) both roles go to `<relay>/proxy/<role>` with the relay token as the
+    key: the provider addresses and keys are not used, they live on the relay.
     """
+    model = (cfg.get(f"{role}_model") or "").strip() or DEFAULT_MODELS[role]
+    if uses_relay(cfg):
+        return proxy_url(cfg.get("relay_url"), role), cfg["relay_token"].strip(), model
     main = _norm(cfg.get("base_url")) or GROQ_BASE
     own = _norm(cfg.get(f"{role}_base_url"))
     own_key = (cfg.get(f"{role}_api_key") or "").strip()
@@ -52,7 +81,6 @@ def role_settings(cfg, role):
         base, key = own, own_key
     else:
         base, key = main, own_key or (cfg.get("api_key") or "").strip()
-    model = (cfg.get(f"{role}_model") or "").strip() or DEFAULT_MODELS[role]
     return base, key, model
 
 
@@ -120,11 +148,17 @@ def parse_models(payload):
     return sorted(out, key=lambda m: m["id"].lower())
 
 
-def explain(status, role, body=""):
-    """A plain reason for an HTTP status."""
+def explain(status, role, body="", via_relay=False):
+    """A plain reason for an HTTP status. `via_relay`: the request went to the relay, which passes an AI server's
+    401 and 403 on unchanged, so either side may have refused it."""
     if status in (401, 403):
+        if via_relay:
+            return f"The relay or the AI server behind it refused the request ({RELAY_HINT})."
         return "The server refused the key. Check that it is right and belongs to this server."
     if status == 404:
+        if via_relay:
+            return ("The relay does not know this request. Check the relay address, that the relay has the AI server "
+                    "routes turned on, and that an AI server is set for this role on the relay page.")
         if role == "stt":
             return "This server cannot do speech-to-text (no /audio/transcriptions). Use a different server for voice."
         return "The server has no such endpoint or model. Check the address and the model name."
@@ -155,7 +189,7 @@ def list_models(cfg, role):
         if r.status_code == 404 and base.endswith("/v1"):   # Ollama also answers on its own path
             r = core.requests.get(f"{base[:-3]}/api/tags", headers=headers, timeout=5)
         if r.status_code != 200:
-            return {"models": [], "error": explain(r.status_code, role)}
+            return {"models": [], "error": explain(r.status_code, role, via_relay=uses_relay(cfg))}
         models = [m for m in parse_models(r.json()) if m["kind"] == role]
     except Exception as e:
         return {"models": [], "error": f"Could not reach the server: {type(e).__name__}"}
@@ -202,7 +236,8 @@ def test(cfg, role):
     ms = int((time.time() - started) * 1000)
     if r.status_code == 200:
         return {"ok": True, "status": 200, "ms": ms, "message": f"Works ({ms} ms) with {model}."}
-    return {"ok": False, "status": r.status_code, "ms": ms, "message": explain(r.status_code, role, _error_text(r))}
+    return {"ok": False, "status": r.status_code, "ms": ms,
+            "message": explain(r.status_code, role, _error_text(r), via_relay=uses_relay(cfg))}
 
 
 # ------------------------------------------------------------- reasoning parameters

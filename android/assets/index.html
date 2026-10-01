@@ -148,7 +148,11 @@ nav button.on .pill { background:var(--accent-soft); }
 <!-- SETTINGS -->
 <section class="page" id="settings">
   <h2>AI provider</h2>
-  <div class="card">
+  <div class="card list">
+    <div class="item"><div class="grow"><div class="t">Use my relay as the AI server</div><div class="d">Speech and text go to your relay, which calls the AI provider with the key stored on it. The provider key then stays on the relay and is not needed here. Fill in the relay address and token under Sync between devices</div><div class="status" id="proxy-status"></div></div><label class="switch"><input type="checkbox" id="relay-proxy"><span></span></label></div>
+  </div>
+  <div class="card" id="provider-card">
+    <div id="own-server">
     <label class="note" style="margin:0">Provider</label>
     <select id="provider" style="margin:4px 0 10px"></select>
     <label class="note" style="margin:0">Server address</label>
@@ -159,6 +163,7 @@ nav button.on .pill { background:var(--accent-soft); }
     <div class="row" style="margin-top:10px;gap:8px"><button class="btn" id="key-save" style="flex:1">Save and test</button><button class="btn ghost" id="key-get">Get a key</button></div>
     <div class="status" id="key-status"></div>
     <div class="note">Stored only on this phone. A server of your own may need no key. Plain http works only for this phone, your local network and Tailscale.</div>
+    </div>
     <label class="note" style="margin:14px 0 0">Voice model</label>
     <input type="text" id="stt" list="stt-models" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:4px"><datalist id="stt-models"></datalist>
     <div class="row" style="margin-top:8px;gap:8px"><button class="btn ghost" id="test-stt" style="flex:1">Test voice</button><button class="btn ghost" id="refresh-models">Refresh list</button></div>
@@ -168,7 +173,7 @@ nav button.on .pill { background:var(--accent-soft); }
     <div class="row" style="margin-top:8px"><button class="btn ghost" id="test-llm" style="flex:1">Test cleanup</button></div>
     <div class="status" id="llm-status"></div>
   </div>
-  <div class="card list">
+  <div class="card list" id="split-card">
     <div class="item"><div class="grow"><div class="t">Different server for voice or cleanup</div><div class="d">For example Whisper on one machine and Ollama on another. Each server gets only its own key</div></div><label class="switch"><input type="checkbox" id="split"><span></span></label></div>
   </div>
   <div class="card" id="split-rows" style="display:none">
@@ -269,7 +274,7 @@ function previewNotes() {
   };
 }
 const V = window.Vox || {   // browser preview fallback
-  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, device_name: "" }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
+  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, relay_proxy: false, device_name: "" }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
   ...previewNotes(),
   save(){}, requestMic(){}, openAccessibility(){}, openAppInfo(){}, openBattery(){}, setService(){}, testKey(k, u, cb){ setTimeout(() => window[cb]("ok"), 300); }, listModels(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ models: [], error: "Preview only" })), 200); }, testRole(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ ok: true, message: "Preview only" })), 200); }, endpointProblem: () => "", suggestCorrections: (a, b) => JSON.stringify(a !== b ? [["vox", "Vox"]] : []), copy(){}, deleteHistory(){}, clearHistory(){}, openUrl(){}, toast(){}, apps: () => "[]", appLabel: (p) => p
 };
@@ -286,6 +291,8 @@ const presetFor = (base) => {
   return presets().find(p => p.base_url && norm(p.base_url) === b) || presets()[presets().length - 1];
 };
 const needsKey = () => !!presetFor(S.config.base_url).key_url;   // a hosted provider needs a key; a server of your own may not
+// The relay is the AI server only when the switch is on AND its address and token are filled in (Providers.usesRelay).
+const viaRelay = (c = S.config) => !!(c.relay_proxy && (c.relay_url || "").trim() && (c.relay_token || "").trim());
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
 function toast(m) { const t = $("toast"); t.textContent = m; t.classList.add("on"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 1600); }
@@ -309,7 +316,7 @@ window.voxBack = () => { if ($("sheet").classList.contains("on")) { closeSheet()
 // ---------------- home
 function setupSteps() {
   return [
-    { done: !!S.config.api_key || !needsKey(), t: "Add your API key", d: "Powers speech-to-text and cleanup. Takes 2 minutes.", btn: "Add key", act: () => { go("settings"); setTimeout(() => $("key").focus(), 200); } },
+    { done: !!S.config.api_key || !needsKey() || viaRelay(), t: "Add your API key", d: "Powers speech-to-text and cleanup. Takes 2 minutes.", btn: "Add key", act: () => { go("settings"); setTimeout(() => $("key").focus(), 200); } },
     { done: S.mic, t: "Allow the microphone", d: "So Vox can hear you.", btn: "Allow", act: () => V.requestMic() },
     { done: S.a11y, t: "Turn on the Vox bubble", d: "Settings → Accessibility → Downloaded apps → Vox dictation bubble → On.", btn: "Open", act: () => V.openAccessibility(),
       extra: '<div class="note">Greyed out or "Restricted setting"? Open <a href="#" id="appinfo">App info</a>, tap ⋮ (top right) → <b>Allow restricted settings</b>, then try again.</div>' },
@@ -553,7 +560,7 @@ function renderSettings() {
   $("cleanup-min").value = c.cleanup_min_words || 3;
   $("keep-history").checked = c.keep_history !== false;
   $("language").value = c.language || ""; $("service").checked = S.service;
-  $("about").textContent = `Vox ${S.version} · audio goes to ${presetFor(c.base_url).id === "custom" ? "your own server" : presetFor(c.base_url).name} · everything else stays on this phone`;
+  $("about").textContent = `Vox ${S.version} · audio goes to ${viaRelay() ? "your relay" : presetFor(c.base_url).id === "custom" ? "your own server" : presetFor(c.base_url).name} · everything else stays on this phone`;
 }
 window.keyResult = (r) => {
   const s = $("key-status");
@@ -566,6 +573,17 @@ const formCfg = () => JSON.stringify({ base_url: $("base-url").value.trim(), api
   stt_base_url: $("stt-url").value.trim(), stt_api_key: $("stt-key").value.trim(),
   llm_base_url: $("llm-url").value.trim(), llm_api_key: $("llm-key").value.trim(),
   stt_model: $("stt").value.trim(), llm_model: $("llm").value.trim() });
+const PROXY_PROBLEM = "Turn on the relay first";   // the same words as Providers.PROXY_PROBLEM
+function renderProxy() {
+  const on = !!S.config.relay_proxy, s = $("proxy-status");
+  $("relay-proxy").checked = on;
+  $("own-server").style.display = on ? "none" : "";   // the provider address and key live on the relay now
+  $("split-card").style.display = on ? "none" : "";
+  if (!on) { s.className = "status"; s.textContent = ""; return; }
+  const ok = viaRelay();
+  s.className = "status " + (ok ? "ok" : "bad");
+  s.textContent = ok ? "Using the relay at " + (S.config.relay_url || "").trim().replace(/\/+$/, "") : PROXY_PROBLEM;
+}
 function renderProvider() {
   const c = S.config, p = presetFor(c.base_url);
   if (!$("provider").options.length) $("provider").innerHTML = presets().map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
@@ -575,10 +593,11 @@ function renderProvider() {
   setVal("key", c.api_key || ""); setVal("stt", c.stt_model || ""); setVal("llm", c.llm_model || "");
   const split = !!(c.stt_base_url || c.llm_base_url);
   if (document.activeElement !== $("split")) $("split").checked = split;
-  $("split-rows").style.display = $("split").checked ? "" : "none";
+  $("split-rows").style.display = $("split").checked && !c.relay_proxy ? "" : "none";
   setVal("stt-url", c.stt_base_url || ""); setVal("stt-key", c.stt_api_key || "");
   setVal("llm-url", c.llm_base_url || ""); setVal("llm-key", c.llm_api_key || "");
-  if (!S.modelsLoaded && (c.api_key || !p.key_url)) { S.modelsLoaded = true; refreshModels(); }
+  renderProxy();
+  if (!S.modelsLoaded && (c.api_key || !p.key_url || viaRelay())) { S.modelsLoaded = true; refreshModels(); }
 }
 function showModels(role, json) {
   const r = JSON.parse(json), s = $(role + "-status");
@@ -631,9 +650,13 @@ $("base-url").onchange = () => {
   save({ base_url: v || GROQ_URL, provider: presetFor(v).id });
   render(); refreshModels();
 };
-$("key-get").onclick = () => V.openUrl(presetFor($("base-url").value).key_url);
+$("relay-proxy").onchange = (e) => {
+  save({ relay_proxy: e.target.checked }, e.target.checked ? "Using your relay as the AI server" : "Using your own AI server settings");
+  render(); refreshModels();
+};
+$("key-get").onclick =() => V.openUrl(presetFor($("base-url").value).key_url);
 $("split").onchange = (e) => {
-  $("split-rows").style.display = e.target.checked ? "" : "none";
+  $("split-rows").style.display = e.target.checked && !S.config.relay_proxy ? "" : "none";
   if (!e.target.checked) {
     for (const id of ["stt-url", "stt-key", "llm-url", "llm-key"]) $(id).value = "";
     save({ stt_base_url: "", stt_api_key: "", llm_base_url: "", llm_api_key: "" }); refreshModels();

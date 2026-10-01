@@ -28,6 +28,35 @@ public final class ProvidersTest {
         check("same address override still inherits the key", same(
                 Providers.roleSettings(groq, "main", groq + "/", "", "", "m"), groq, "main", "m"));
 
+        // the relay as the AI server
+        String relay = "https://yuvipi.tail1234.ts.net";
+        check("proxy on, stt role", same(
+                Providers.roleSettings("", "MAIN-KEY", "", "OWN-KEY", "", "whisper-large-v3-turbo", true, relay, "RELAY-TOKEN", Providers.STT),
+                relay + "/proxy/stt", "RELAY-TOKEN", "whisper-large-v3-turbo"));
+        check("proxy on, llm role ignores own address and keys", same(
+                Providers.roleSettings("https://api.openai.com/v1", "MAIN-KEY", "http://laptop:11434/v1", "OWN-KEY", "gpt-4o-mini", "m", true, relay, "RELAY-TOKEN", Providers.LLM),
+                relay + "/proxy/llm", "RELAY-TOKEN", "gpt-4o-mini"));
+        check("proxy off changes nothing", same(
+                Providers.roleSettings(groq, "main", "", "", "", "m", false, relay, "RELAY-TOKEN", Providers.LLM), groq, "main", "m"));
+        check("proxy on without a token falls back", same(
+                Providers.roleSettings(groq, "main", "", "", "", "m", true, relay, " ", Providers.LLM), groq, "main", "m"));
+        check("proxy on without an address falls back", same(
+                Providers.roleSettings(groq, "main", "", "", "", "m", true, "  ", "tok", Providers.STT), groq, "main", "m"));
+        check("trailing slashes and spaces are stripped", same(
+                Providers.roleSettings(groq, "main", "", "", "", "m", true, "  " + relay + "///  ", "  tok\t", Providers.LLM), relay + "/proxy/llm", "tok", "m"));
+        check("uses relay", Providers.usesRelay(true, relay, "t") && !Providers.usesRelay(false, relay, "t")
+                && !Providers.usesRelay(true, "", "t") && !Providers.usesRelay(true, relay, " ") && !Providers.usesRelay(true, null, null));
+        check("problem when on without a relay", "Turn on the relay first".equals(Providers.proxyProblem(true, "", "t"))
+                && "Turn on the relay first".equals(Providers.proxyProblem(true, relay, "")));
+        check("no problem when off or working", Providers.proxyProblem(false, "", "").isEmpty() && Providers.proxyProblem(true, relay, "t").isEmpty());
+        check("proxy url", (relay + "/proxy/stt").equals(Providers.proxyUrl(relay + "/", "stt")) && Providers.proxyUrl(" ", "stt").isEmpty());
+        check("relay token never goes to the provider address", !String.join("|",
+                Providers.roleSettings(groq, "main", "", "", "", "m", false, relay, "RELAY-TOKEN", Providers.LLM)).contains("RELAY-TOKEN"));
+        check("401 through the relay says where to look", Providers.explain(401, "llm", "", true).contains("check the relay token and the AI server key set on the relay page")
+                && Providers.explain(403, "stt", "", true).contains("relay"));
+        check("401 not through the relay is unchanged", Providers.explain(401, "llm", "", false).equals(Providers.explain(401, "llm", "")));
+        check("429 through the relay unchanged", Providers.explain(429, "llm", "", true).contains("Rate limit"));
+
         check("key needed for hosted servers", Providers.keyRequired(groq) && Providers.keyRequired("https://api.openai.com/v1"));
         check("no key needed for the private network", !Providers.keyRequired("http://laptop:8000/v1")
                 && !Providers.keyRequired("http://100.64.0.5:8000/v1") && !Providers.keyRequired("http://192.168.1.4/v1"));

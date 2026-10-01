@@ -64,14 +64,14 @@ def _llm(cfg, system, user, max_tokens=4096, effort="medium"):
     extra = {"reasoning_effort": effort, "include_reasoning": False} if core.providers.reasoning_params(cfg, base, model) else {}
     body.update(extra)
     r = core.post_with_retry(f"{base}/chat/completions", headers=core.auth_headers(cfg, "llm"),
-                   json=body, timeout=240)
+                   json=body, timeout=240, via_relay=core.providers.uses_relay(cfg))
     if extra and r.status_code in (400, 422):
         core.providers.remember_rejected(base, model)
         for k in extra:
             body.pop(k, None)
         r = core.post_with_retry(f"{base}/chat/completions", headers=core.auth_headers(cfg, "llm"),
-                       json=body, timeout=240)
-    return core.sanitize(core.providers.strip_think(core.check_response(r)["choices"][0]["message"].get("content", "")))
+                       json=body, timeout=240, via_relay=core.providers.uses_relay(cfg))
+    return core.sanitize(core.providers.strip_think(core.check_response(r, core.providers.uses_relay(cfg))["choices"][0]["message"].get("content", "")))
 
 
 # --------------------------------------------------------------------- prompts

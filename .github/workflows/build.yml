@@ -36,7 +36,7 @@ jobs:
         with: { python-version: '${{ matrix.python }}' }
       - run: pip install pytest
       - name: Relay tests (standard library only)
-        run: python -m pytest -q -p no:cacheprovider tests/test_relay.py tests/test_relay_admin.py
+        run: python -m pytest -q -p no:cacheprovider tests/test_relay.py tests/test_relay_admin.py tests/test_relay_proxy.py
 
   windows:
     needs: tests

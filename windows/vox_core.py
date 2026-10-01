@@ -42,6 +42,7 @@ DEFAULT_CONFIG = {
     "relay_url": "",
     "relay_token": "",
     "relay_sync_keys": False,
+    "relay_proxy": False,
     "relay_run": False,
     "relay_port": 8765,
     "stream_stt": True,
@@ -445,9 +446,21 @@ def warm(cfg):
     return t
 
 
-def post_with_retry(url, retries=2, **kw):
+def retryable(status, timeout, via_relay):
+    """Whether the same request is sent again. `status` is the HTTP status, 0 when there was no answer; `timeout` is True
+    when the wait for the answer ran out. Shared with the Android app (ApiClient.retryable, golden rows `retry`).
+    Directly: dropped connections, timeouts and temporary server errors (500, 502, 503, 504) are retried.
+    Through the relay (it is the AI server): only a dropped connection, 502 and 503. A timeout is not retried, because the
+    relay is still working on the first request (or its upstream is slow) and a second one only queues behind it."""
+    if via_relay:
+        return False if timeout else status in (0, 502, 503)
+    return status == 0 or status in RETRY_STATUS
+
+
+def post_with_retry(url, retries=2, via_relay=False, **kw):
     """POST with a quick retry on dropped connections (flaky Wi-Fi, VPNs, antivirus TLS inspection)
-    and on temporary server errors (500, 502, 503, 504). The last response is returned as it is."""
+    and on temporary server errors (see `retryable`; `via_relay` says the relay is the server). The last response is
+    returned as it is."""
     for attempt in range(retries + 1):
         try:
             if "files" in kw:   # file objects must be re-sent from the start
@@ -455,11 +468,12 @@ def post_with_retry(url, retries=2, **kw):
                     if hasattr(spec[1], "seek"):
                         spec[1].seek(0)
             r = _post(url, **kw)
-        except (requests.ConnectionError, requests.Timeout):
-            if attempt == retries:
+        except (requests.ConnectionError, requests.Timeout) as e:
+            timed_out = isinstance(e, requests.Timeout) and not isinstance(e, requests.ConnectTimeout)   # (not "could not connect")
+            if attempt == retries or not retryable(0, timed_out, via_relay):
                 raise
         else:
-            if r.status_code not in RETRY_STATUS or attempt == retries:
+            if not retryable(r.status_code, False, via_relay) or attempt == retries:
                 return r
         time.sleep(0.7 * (attempt + 1))
 
@@ -480,12 +494,26 @@ def auth_headers(cfg, role=None):
     return {"Authorization": f"Bearer {key}"} if key else {}
 
 
-def check_response(r):
+def _error_message(r):
+    """The text of an API error: {"error": {"message": ...}} (OpenAI style, also the relay's 502), {"error": "text"}
+    (the relay's 411, 413, 429 and 503), or else the raw body."""
+    try:
+        e = r.json()["error"]
+        msg = e["message"] if isinstance(e, dict) else e
+        if isinstance(msg, str) and msg:
+            return msg
+    except Exception:
+        pass
+    return r.text
+
+
+def check_response(r, via_relay=False):
+    """The JSON answer, or an ApiError. `via_relay`: the request went through the relay (see providers.role_settings),
+    so a 401 or 403 also says where to look."""
     if r.status_code >= 400:
-        try:
-            msg = r.json()["error"]["message"]
-        except Exception:
-            msg = r.text
+        msg = _error_message(r)
+        if via_relay and r.status_code in (401, 403):
+            msg = f"{msg} ({providers.RELAY_HINT})"
         raise ApiError(r.status_code, f"API {r.status_code}: {msg}")
     return r.json()
 
@@ -507,8 +535,10 @@ def endpoint_error(cfg):
     """Why the configured endpoint cannot be used, or '' when it is fine.
 
     The API key and your voice go to this address, so plain http is only allowed for private hosts.
+    With the relay as the AI server the relay's address is the only one used (and the one the relay token goes to).
     """
-    for field in ("base_url", "stt_base_url", "llm_base_url"):
+    fields = ("relay_url",) if providers.uses_relay(cfg) else ("base_url", "stt_base_url", "llm_base_url")
+    for field in fields:
         url = (cfg.get(field) or "").strip()
         if not url:
             continue
@@ -541,8 +571,9 @@ def transcribe(cfg, wav_bytes, context=""):
         data=data,
         files={"file": ("audio.wav", wav_bytes, "audio/wav")},
         timeout=60,
+        via_relay=providers.uses_relay(cfg),
     )
-    return check_response(r).get("text", "").strip()
+    return check_response(r, providers.uses_relay(cfg)).get("text", "").strip()
 
 
 def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
@@ -562,8 +593,9 @@ def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
         data=data,
         files={"file": ("audio.wav", wav_bytes, "audio/wav")},
         timeout=180,
+        via_relay=providers.uses_relay(cfg),
     )
-    res = check_response(r)
+    res = check_response(r, providers.uses_relay(cfg))
     segs = res.get("segments") or []
     if not segs and res.get("text"):
         return [{"start": 0.0, "end": 0.0, "text": res["text"].strip(), "logprob": 0.0, "no_speech": 0.0, "compression": 1.0}]
@@ -590,13 +622,15 @@ def cleanup(cfg, raw, style, app_label):
     }
     extra = providers.reasoning_params(cfg, base, model)
     body.update(extra)
-    r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=60)
+    r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=60,
+                        via_relay=providers.uses_relay(cfg))
     if extra and r.status_code in (400, 422):   # this server does not know the reasoning fields: retry without them
         providers.remember_rejected(base, model)
         for k in extra:
             body.pop(k, None)
-        r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=60)
-    text = check_response(r)["choices"][0]["message"].get("content", "")
+        r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=60,
+                        via_relay=providers.uses_relay(cfg))
+    text = check_response(r, providers.uses_relay(cfg))["choices"][0]["message"].get("content", "")
     return sanitize(providers.strip_think(text))
 
 

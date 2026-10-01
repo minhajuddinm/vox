@@ -32,6 +32,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0024](0024-stream-long-dictations-in-pieces.md) | Long dictations are transcribed in pieces while the user speaks | Accepted |
 | [0025](0025-note-bubble-in-the-accessibility-service.md) | The note bubble lives in the accessibility service; the tile and the notification are other entry points | Accepted |
 | [0026](0026-android-notes-and-sync-are-ports-with-shared-golden-rows.md) | Android notes store and sync are ports of the Windows code, with pure logic shared through golden rows | Accepted |
+| [0027](0027-relay-proxy-per-role-whitelisted-write-only-keys.md) | Relay proxy is per role, whitelisted, with write-only keys | Accepted |
 
 ## Template
 

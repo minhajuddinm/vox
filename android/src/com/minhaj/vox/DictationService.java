@@ -515,7 +515,7 @@ public class DictationService extends Service {
                 try {
                     raw = g.transcribe(wav, p.sttModel(), p.language(), p.dictionaryTerms());
                 } catch (IOException e) {
-                    if (!ApiClient.isRetryable(e) || attempt == SEND_ATTEMPTS) throw e;
+                    if (!ApiClient.isRetryable(e, p.usesRelay()) || attempt == SEND_ATTEMPTS) throw e;
                     try { Thread.sleep(800L * attempt); } catch (InterruptedException ie) { return; }
                 }
             }
@@ -557,7 +557,8 @@ public class DictationService extends Service {
             main.post(() -> { if (isCurrent(job) && listener != null) listener.onResult(result, pkg); });
         } catch (ApiClient.ApiException e) {
             if (!isCurrent(job)) return;
-            if (e.code == 401) postError("The server rejected the API key. Fix it, then tap Retry in the notification.");
+            if ((e.code == 401 || e.code == 403) && p.usesRelay()) postError("The relay or the AI server behind it refused the request (" + Providers.RELAY_HINT + "). Then tap Retry in the notification.");
+            else if (e.code == 401) postError("The server rejected the API key. Fix it, then tap Retry in the notification.");
             else if (e.code == 429) postError("Rate limit reached. Tap Retry in the notification.");
             else postError(e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
         } catch (IOException e) {
