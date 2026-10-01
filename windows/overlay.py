@@ -3,15 +3,17 @@ short green check ("sent") or red ! ("error") when a dictation ends.
 
 The window never takes focus and ignores the mouse, so pasting still goes to the app you were typing in.
 Tk runs on the main thread and polls the shared state; other threads only set `state`, `level` and the flash
-(`flash_kind` and its expiry, read through `active_flash()`).
+(`flash_kind` and its expiry `flash_until`; overlay_mode.py decides what shows).
 """
 import logging
 import math
 import random
 import sys
+import time
 import tkinter as tk
 
 import vox_core as core
+from overlay_mode import overlay_mode
 
 KEY = "#010203"          # colour made fully transparent (gives the pill rounded corners)
 BG = "#161618"
@@ -76,7 +78,7 @@ class Overlay:
     N_BARS = 11
 
     def __init__(self, app):
-        self.app = app  # needs .state ("idle" | "rec" | "busy"), .level (0..1) and .active_flash() ("sent" | "error" | "")
+        self.app = app  # needs .state ("idle" | "rec" | "busy"), .level (0..1), .flash_kind ("sent" | "error" | "") and .flash_until
         self.root = tk.Tk()
         self.root.withdraw()
         self.scale = self.root.winfo_fpixels("1i") / 96.0
@@ -192,16 +194,11 @@ class Overlay:
     def _tick(self):
         try:
             self.t += FPS_MS / 1000
-            state = self.app.state
-            if state == "idle":
-                # A result signal shows on its own for a moment (over the meeting timer too), then the real state returns.
-                flash = self.app.active_flash()
-                meeting = getattr(self.app, "meeting", None)
-                if flash:
-                    state = flash
-                elif meeting is not None and meeting.active:
-                    state = "meet"
-            want = state != "idle"
+            meeting = getattr(self.app, "meeting", None)
+            # Precedence (flash over the meeting timer, flash only while idle) lives in overlay_mode, which is tested.
+            state = overlay_mode(self.app.state, self.app.flash_kind, self.app.flash_until, time.monotonic(),
+                                 meeting is not None and meeting.active)
+            want = state is not None
             if want and not self.visible:
                 self._place()
                 self.hist.reset()

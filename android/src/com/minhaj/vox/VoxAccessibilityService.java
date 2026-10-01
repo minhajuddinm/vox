@@ -28,7 +28,8 @@ import android.widget.Toast;
  * which tracks the focused text field and inserts the final text into it, and the optional voice note bubble, which
  * is always on screen while "note_bubble" is on and starts or stops a note.
  */
-public class VoxAccessibilityService extends AccessibilityService implements DictationService.Listener {
+public class VoxAccessibilityService extends AccessibilityService
+        implements DictationService.Listener, DictationService.NoteListener {
     public static volatile VoxAccessibilityService instance;
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -46,6 +47,7 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         super.onServiceConnected();
         instance = this;
         DictationService.setListener(this);
+        DictationService.setNoteListener(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         createBubbles();
         refreshVisibility();
@@ -57,6 +59,7 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         removeBubbles();
         instance = null;
         DictationService.setListener(null);
+        DictationService.setNoteListener(null);
         return super.onUnbind(intent);
     }
 
@@ -65,6 +68,7 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         removeBubbles();
         instance = null;
         DictationService.setListener(null);
+        DictationService.setNoteListener(null);
         super.onDestroy();
     }
 
@@ -356,6 +360,12 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         boolean typed = insertText(text, targetPkg);
         // Only dictations end here (a note is saved, not typed), so this is the mic bubble.
         if (dictation != null) dictation.view.flash(typed ? BubbleView.SENT : BubbleView.ERROR);   // ERROR: it only reached the clipboard
+    }
+
+    /** A voice note was saved: the note bubble (not the mic bubble) shows the green check. A failed save arrives as onError. */
+    @Override
+    public void onNoteSaved(String id, String title) {
+        if (noteBubble != null) noteBubble.view.flash(BubbleView.SENT);
     }
 
     @Override

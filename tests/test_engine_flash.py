@@ -248,3 +248,33 @@ def test_no_call_site_needs_an_overlay(eng, monkeypatch):
     eng.overlay = None
     dictate(eng, monkeypatch, pasted="copied")
     assert eng.messages == ["Copied; the window changed"] and eng.active_flash() == ""
+
+
+# ------------------------------------------------ errors after the paste never flash error
+def test_a_history_failure_after_a_successful_paste_still_flashes_sent(eng, monkeypatch):
+    eng.cfg["keep_history"] = True
+
+    def boom(entry):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(core, "add_history", boom)
+    dictate(eng, monkeypatch)
+    assert eng.active_flash() == "sent" and eng.state == "idle" and eng.pending is None
+
+
+def test_paste_itself_does_not_flash(eng, monkeypatch):
+    monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep: "pasted")
+    assert eng.paste("Hi.") is True
+    assert eng.active_flash() == ""
+    monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep: "copied")
+    assert eng.paste("Hi.") is False and eng.messages == ["Copied; the window changed"]
+    assert eng.active_flash() == ""
+
+
+def test_a_new_engine_starts_with_no_flash(monkeypatch):
+    monkeypatch.setattr(engine_mod.core, "load_config", lambda: {})
+    monkeypatch.setattr(engine_mod.Engine, "_mtime", lambda self: 0)
+    monkeypatch.setattr(engine_mod.Engine, "_hotkey", lambda self: set())
+    e = engine_mod.Engine()
+    assert e.overlay is None and e.flash_kind == "" and e.flash_until == 0.0
+    assert "flash_kind" in vars(e) and "flash_until" in vars(e) and "overlay" in vars(e)

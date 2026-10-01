@@ -16,7 +16,7 @@ import android.view.View;
 public class BubbleView extends View {
     /** Kinds for {@link #flash}. */
     public static final int SENT = 1, ERROR = 2;
-    private static final long SENT_MS = 700, ERROR_MS = 1800;   // the same as the pill on Windows
+    private static final long SENT_MS = 700, ERROR_MS = 1800;   // keep equal to FLASH_SECONDS in windows/engine.py (tests/test_flash_constants.py checks it)
 
     private final boolean note;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
