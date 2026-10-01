@@ -552,20 +552,20 @@ public class DictationService extends Service {
             }
             String style = p.styleFor(pkg);   // a note has no pkg (see startRecording): the default style, as on Windows
             String out = raw;
-            boolean cleaned = false, cleanupFailed = false;
+            boolean cleaned = false, cleanupFailed = false, rejected = false;
             boolean doClean = ApiClient.needsCleanup(raw, style, p.cleanupEnabled(), p.cleanupMinWords());
             if (doClean) {
                 try {
-                    String strength = "standard";   // until the strength setting exists (task A3); the prompt and the guard use the same value
+                    String strength = p.cleanupStrength();   // the prompt and the guard use the same value
                     String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext(), strength);
                     if (ApiClient.looksValid(raw, c, strength)) { out = c; cleaned = true; }
-                    else cleanupFailed = true;
+                    else { cleanupFailed = rejected = true; Log.w("vox", "fidelity guard: the cleanup answer lost the spoken words, used the raw words"); }
                 } catch (IOException e) {
                     // Cleanup failure should never lose the dictation. Fall back to the raw transcript.
                     cleanupFailed = true;
                 }
             }
-            if (!cleaned) out = ApiClient.applySpokenCommands(out);
+            if (!cleaned) out = rejected ? ApiClient.fallbackText(out) : ApiClient.applySpokenCommands(out);
             if (cleanupFailed) {
                 postError(note ? "Cleanup did not work, so Vox saved your words as spoken"
                         : "Cleanup did not work, so Vox typed your words as spoken");
@@ -576,7 +576,7 @@ public class DictationService extends Service {
                 saveNote(job, entry, raw, out, seconds, p);   // a note is not typed and is not added to the dictation history
                 return;
             }
-            p.addHistory(label, raw, out, seconds);
+            p.addHistory(label, raw, out, seconds, rejected);
             discard(entry.id);
             final String result = out;
             main.post(() -> { if (isCurrent(job) && listener != null) listener.onResult(result, pkg); });

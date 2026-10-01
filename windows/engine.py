@@ -416,6 +416,8 @@ class Engine:
             raw, text = res.raw, res.text
             outcome = ""   # what the pill shows once the result is in; set only when something was sent or saved
             self.pending = None
+            if res.fidelity_fallback:
+                log.warning("fidelity guard: the cleanup answer lost the spoken words, used the raw words (%d words)", len(raw.split()))
             if res.cleanup_error:
                 self.notify(("Cleanup did not work, so Vox saved your words as spoken: " if note else "Cleanup did not work, so Vox pasted your words as spoken: ") + res.cleanup_error[:120])
             if text and note:
@@ -430,6 +432,7 @@ class Engine:
                         core.add_history({
                             "t": time.time(), "app": exe, "raw": raw, "text": text,
                             "words": len(text.split()), "secs": round(secs, 1),
+                            **({"fidelity_fallback": True} if res.fidelity_fallback else {}),
                         })
                     except Exception:   # the text already landed: log it, never flash error over "sent"
                         log.exception("could not save the history entry")

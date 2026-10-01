@@ -112,5 +112,9 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert "|".join(core.word_tokens(f[0])) == f[1]
     elif kind == "recall":   # raw, cleaned, share of raw's words still in cleaned (3 decimals)
         assert "%.3f" % core.word_recall(f[0], f[1]) == f[2]
+    elif kind == "cleanstrength":   # the stored setting, the strength it means
+        assert core.clean_strength(f[0]) == f[1]
+    elif kind == "fallback":   # raw words, the text used when the fidelity guard rejects the cleanup
+        assert core.fallback_text(f[0]) == f[1]
     else:
         pytest.fail(f"unknown case kind {kind}")

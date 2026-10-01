@@ -369,7 +369,7 @@ def test_a_summarising_cleanup_is_rejected_and_the_raw_words_are_used(monkeypatc
     raw = long_text(60)
     r = run_pipeline(monkeypatch, raw, "I went to the market and cooked dinner.")
     assert not r.cleaned and r.cleanup_error
-    assert r.text == raw and r.raw == raw
+    assert r.text == "S" + raw[1:] and r.raw == raw   # the spoken words, with a capital to start
 
 
 def test_a_faithful_cleanup_is_used(monkeypatch):
@@ -396,3 +396,53 @@ def test_network_error_still_falls_back(monkeypatch):
     monkeypatch.setattr(core.time, "sleep", lambda s: None)
     r = core.process_text(dict(core.DEFAULT_CONFIG, api_key="k"), long_text(30), "notepad.exe", "Notepad")
     assert not r.cleaned and "down" in r.cleanup_error
+
+
+# ------------------------------------------------------------ strength setting and guard fallback (task A3)
+
+def test_light_is_the_default_strength():
+    assert core.DEFAULT_CONFIG["cleanup_strength"] == "light"
+    for value, want in [(None, "light"), ("", "light"), ("light", "light"), ("standard", "standard"),
+                        (" Standard ", "standard"), ("STANDARD", "standard"), ("banana", "light")]:
+        assert core.clean_strength(value) == want
+
+
+def test_an_unset_strength_means_light_for_the_guard_and_the_prompt(monkeypatch):
+    raw = "so um I like you know really want to go to the beach this weekend you know"
+    cleaned = "I really want to go to the beach this weekend."
+    bodies = []
+
+    def fake_post(url, **kw):
+        bodies.append(kw["json"])
+        return FakeResp(cleaned)
+
+    monkeypatch.setattr(core.requests, "post", fake_post)
+    monkeypatch.setattr(core.time, "sleep", lambda s: None)
+    cfg = {k: v for k, v in dict(core.DEFAULT_CONFIG, api_key="k").items() if k != "cleanup_strength"}
+    r = core.process_text(cfg, raw, "notepad.exe", "Notepad")
+    assert not r.cleaned and r.cleanup_error and r.fidelity_fallback   # Light: the fillers had to stay
+    assert core.STRENGTH_TEXT["light"] in bodies[0]["messages"][0]["content"]
+
+
+def test_a_rejected_cleanup_falls_back_to_the_spoken_words_with_capitals(monkeypatch):
+    raw = "hello there new paragraph " + long_text(40)
+    r = run_pipeline(monkeypatch, raw, "Short summary.")
+    assert r.fidelity_fallback and not r.cleaned and r.raw == raw
+    assert r.text.startswith("Hello there\n\nSo yesterday")   # new paragraph applied, the sentence starts are capitals
+    assert r.text.replace("\n", " ").lower().split() == raw.replace(" new paragraph", "").lower().split()
+
+
+def test_a_network_error_is_not_a_fidelity_fallback(monkeypatch):
+    def boom(url, **kw):
+        raise requests.ConnectionError("down")
+
+    monkeypatch.setattr(core.requests, "post", boom)
+    monkeypatch.setattr(core.time, "sleep", lambda s: None)
+    r = core.process_text(dict(core.DEFAULT_CONFIG, api_key="k"), long_text(30), "notepad.exe", "Notepad")
+    assert not r.fidelity_fallback and r.text == long_text(30)
+
+
+def test_an_accepted_or_skipped_cleanup_is_not_a_fallback(monkeypatch):
+    raw = long_text(60)
+    assert not run_pipeline(monkeypatch, raw, punctuate(raw)).fidelity_fallback
+    assert not run_pipeline(monkeypatch, raw, "x", cleanup=False).fidelity_fallback

@@ -93,6 +93,8 @@ public final class Prefs {
     public boolean cleanupEnabled() { return sp.getBoolean("cleanup", true); }
     /** The setting "skip AI cleanup for phrases shorter than N words" as stored; read it with ApiClient.cleanMinWords. */
     public String cleanupMinWords() { return sp.getString("cleanup_min_words", "3"); }
+    /** The setting "Cleanup strength": "light" (the default: keep every spoken word) or "standard" (fillers and false starts may go). */
+    public String cleanupStrength() { return Fidelity.cleanStrength(sp.getString("cleanup_strength", "")); }
     public boolean onlyWhenTyping() { return sp.getBoolean("only_typing", true); }
     public int bubbleX() { return sp.getInt("bubble_x", -1); }
     public int bubbleY() { return sp.getInt("bubble_y", -1); }
@@ -175,7 +177,7 @@ public final class Prefs {
 
     // ---- history ----
 
-    public void addHistory(String app, String raw, String clean, double secs) {
+    public void addHistory(String app, String raw, String clean, double secs, boolean fidelityFallback) {
         if (!keepHistory()) return;
         try {
             JSONArray arr = new JSONArray(sp.getString("history", "[]"));
@@ -186,6 +188,7 @@ public final class Prefs {
             o.put("text", clean);
             o.put("words", clean.trim().isEmpty() ? 0 : clean.trim().split("\\s+").length);
             o.put("secs", Math.round(secs * 10) / 10.0);
+            if (fidelityFallback) o.put("fidelity_fallback", true);
             JSONArray next = new JSONArray();
             next.put(o);
             for (int i = 0; i < arr.length() && i < 499; i++) next.put(arr.get(i));

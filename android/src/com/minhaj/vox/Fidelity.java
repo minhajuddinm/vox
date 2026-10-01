@@ -350,6 +350,11 @@ final class Fidelity {
         return (double) matched(r, mergeNumbers(wordTokens(c))) / r.size();
     }
 
+    /** The "Cleanup strength" setting as "light" or "standard"; unset or anything else is "light". Twin: clean_strength in windows/vox_core.py. */
+    static String cleanStrength(String value) {
+        return value != null && value.trim().toLowerCase(Locale.ROOT).equals("standard") ? "standard" : "light";
+    }
+
     /**
      * True when the cleanup kept enough of the spoken words. Light (anything but "standard"): only pure noises (um, uh,
      * er...) may be missing; at least 97% of the words must be there, at most {@link #LIGHT_MAX_MISSING} may be missing
@@ -358,7 +363,7 @@ final class Fidelity {
      */
     static boolean ok(String raw, String cleaned, String strength) {
         if (cleaned == null || cleaned.trim().isEmpty()) return false;
-        boolean standard = strength != null && strength.trim().toLowerCase(Locale.ROOT).equals("standard");
+        boolean standard = cleanStrength(strength).equals("standard");
         List<String> r = dropFillers(rawTokens(raw, cleaned), standard);
         List<String> c = mergeNumbers(wordTokens(cleaned));
         int kept = matched(r, c);

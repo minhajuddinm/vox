@@ -150,6 +150,12 @@ public final class ParityTest {
                 case "recall":   // raw, cleaned, share of raw's words still in cleaned (3 decimals)
                     eq(ln, kind, f[2], String.format(java.util.Locale.ROOT, "%.3f", Fidelity.wordRecall(f[0], f[1])));
                     break;
+                case "cleanstrength":   // the stored setting, the strength it means
+                    eq(ln, kind, f[1], Fidelity.cleanStrength(f[0]));
+                    break;
+                case "fallback":   // raw words, the text used when the fidelity guard rejects the cleanup
+                    eq(ln, kind, f[1], ApiClient.fallbackText(f[0]));
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);

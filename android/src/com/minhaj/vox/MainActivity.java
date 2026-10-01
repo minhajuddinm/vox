@@ -132,6 +132,7 @@ public class MainActivity extends Activity {
                 cfg.put("language", prefs.language());
                 cfg.put("cleanup", prefs.cleanupEnabled());
                 cfg.put("cleanup_min_words", ApiClient.cleanMinWords(prefs.cleanupMinWords()));
+                cfg.put("cleanup_strength", prefs.cleanupStrength());
                 cfg.put("keep_history", prefs.keepHistory());
                 cfg.put("only_typing", prefs.onlyWhenTyping());
                 cfg.put("note_bubble", prefs.noteBubble());
@@ -183,6 +184,7 @@ public class MainActivity extends Activity {
                 if (c.has("language")) e.putString("language", c.getString("language"));
                 if (c.has("cleanup")) e.putBoolean("cleanup", c.getBoolean("cleanup"));
                 if (c.has("cleanup_min_words")) e.putString("cleanup_min_words", String.valueOf(ApiClient.cleanMinWords(c.getString("cleanup_min_words"))));
+                if (c.has("cleanup_strength")) e.putString("cleanup_strength", Fidelity.cleanStrength(c.getString("cleanup_strength")));
                 if (c.has("keep_history")) e.putBoolean("keep_history", c.getBoolean("keep_history"));
                 if (c.has("only_typing")) e.putBoolean("only_typing", c.getBoolean("only_typing"));
                 if (c.has("note_bubble")) e.putBoolean("note_bubble", c.getBoolean("note_bubble"));

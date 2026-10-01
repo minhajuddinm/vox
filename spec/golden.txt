@@ -368,3 +368,26 @@ recall	a million	1,000,000	1.000
 recall	twenty first	21st	1.000
 recall	fifth	5th	1.000
 recall	half past three	3:30	1.000
+# cleanstrength: the stored "Cleanup strength" setting, read as light or standard (anything else, or unset, is light)
+cleanstrength		light
+cleanstrength	light	light
+cleanstrength	Light	light
+cleanstrength	standard	standard
+cleanstrength	 Standard 	standard
+cleanstrength	STANDARD	standard
+cleanstrength	strict	light
+cleanstrength	banana	light
+# fallback: raw words used when the fidelity guard rejects the AI cleanup: spoken commands applied, sentence starts capitalised
+fallback	hello there	Hello there
+fallback	one new line two three	One\nTwo three
+fallback	hello new paragraph world again	Hello\n\nWorld again
+fallback	it works. then we left? yes! ok	It works. Then we left? Yes! Ok
+fallback	hello?  two spaces	Hello?  Two spaces
+fallback	wait.\nthen go	Wait.\nThen go
+fallback	  leading spaces	Leading spaces
+fallback	Already Fine. but not here	Already Fine. But not here
+fallback	version 2.5 is out	Version 2.5 is out
+fallback	3 apples. then pears	3 apples. Then pears
+fallback	mera naam yuvraj hai. main pune se hoon	Mera naam yuvraj hai. Main pune se hoon
+fallback	नमस्ते दोस्त. ok	नमस्ते दोस्त. Ok
+fallback		

@@ -198,6 +198,16 @@ def test_home_shows_a_status_card_and_no_typing_stats(page):
     assert 's-saved' not in html and "Time saved" not in html
 
 
+@pytest.mark.parametrize("page", list(PAGES))
+def test_cleanup_strength_row_and_use_raw_button_exist(page):
+    """A3: Settings has the Cleanup strength choice (Light first, Standard second) and a history entry can copy its raw words."""
+    html = read(PAGES[page])
+    select = re.search(r'<select[^>]*id="cleanup-strength"[^>]*>(.*?)</select>', html, re.S)
+    assert select and re.findall(r'value="(\w+)"', select.group(1)) == ["light", "standard"]
+    assert '$("cleanup-strength").value = ' in html and "cleanup_strength" in html
+    assert "data-raw=" in html and "Use raw" in html
+
+
 # ---------- the checkers themselves: they must fire on the mistakes they exist for ----------
 
 def test_checker_catches_a_swapped_id():

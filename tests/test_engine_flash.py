@@ -262,6 +262,15 @@ def test_a_history_failure_after_a_successful_paste_still_flashes_sent(eng, monk
     assert eng.active_flash() == "sent" and eng.state == "idle" and eng.pending is None
 
 
+def test_history_keeps_the_raw_words_and_flags_a_guard_fallback(eng, monkeypatch):
+    eng.cfg["keep_history"] = True
+    dictate(eng, monkeypatch, result=core.Result("so i went", "So i went", False, "the cleanup answer looked wrong", True))
+    dictate(eng, monkeypatch, result=ok_result("Hello."))
+    flagged, plain = core.read_history()
+    assert flagged["raw"] == "so i went" and flagged["text"] == "So i went" and flagged["fidelity_fallback"] is True
+    assert plain["raw"] == "hello" and "fidelity_fallback" not in plain
+
+
 def test_paste_itself_does_not_flash(eng, monkeypatch):
     monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep: "pasted")
     assert eng.paste("Hi.") is True

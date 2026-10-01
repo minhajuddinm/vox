@@ -106,7 +106,7 @@ def test_the_other_rules_are_still_there():
     assert p.endswith("The text will be typed into the app: Slack.\n")
 
 
-@pytest.mark.parametrize("cfg_strength,expected", [(None, "standard"), ("light", "light"), ("standard", "standard")])
+@pytest.mark.parametrize("cfg_strength,expected", [(None, "light"), ("light", "light"), ("standard", "standard")])
 def test_cleanup_builds_the_prompt_with_the_strength_the_guard_uses(monkeypatch, cfg_strength, expected):
     bodies = []
 

@@ -184,6 +184,11 @@ public final class FidelityTest {
         eq("looksValid unknown strength is strict", false, ApiClient.looksValid(raw2, c2, "banana"));
         eq("looksValid null strength is strict", false, ApiClient.looksValid(raw2, c2, null));
 
+        eq("cleanStrength null is light", "light", Fidelity.cleanStrength(null));
+        eq("cleanStrength standard", "standard", Fidelity.cleanStrength("standard"));
+        eq("fallbackText null", "", ApiClient.fallbackText(null));
+        eq("fallbackText capitalises after a spoken line break", "One\nTwo", ApiClient.fallbackText("one new line two"));
+
         System.out.println("OK: " + checks + " fidelity checks passed");
     }
 }
