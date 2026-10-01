@@ -30,6 +30,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0022](0022-sync-client-dirty-flag-and-cursor.md) | Sync client: a dirty flag per note and the relay's cursor | Accepted |
 | [0023](0023-profile-sync-three-way-merge.md) | Profile sync: fixed fields, field-by-field merge, keys only by choice | Accepted |
 | [0024](0024-stream-long-dictations-in-pieces.md) | Long dictations are transcribed in pieces while the user speaks | Accepted |
+| [0027](0027-relay-proxy-per-role-whitelisted-write-only-keys.md) | Relay proxy is per role, whitelisted, with write-only keys | Accepted |
 
 ## Template
 
