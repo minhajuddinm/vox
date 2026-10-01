@@ -430,6 +430,13 @@ _KEY_RE = re.compile(r"[\x21-\x7e]*")      # printable ASCII without spaces: saf
 _HOST_RE = re.compile(r"[a-z0-9._-]+")
 
 
+# The same explicit list as windows/vox_core.py and android Endpoint.java (spec/golden.txt "privatehost"), not ip.is_private,
+# which also holds 6to4, Teredo and reserved ranges that are routed over the internet.
+_PRIVATE_NETS = [ipaddress.ip_network(n) for n in (
+    "127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10",
+    "::1/128", "fc00::/7", "fe80::/10")]
+
+
 def is_private_host(host):
     """True for hosts where plain http is acceptable: this machine, the home or office LAN and Tailscale.
     The same rule as windows/vox_core.py (the relay cannot import app code)."""
@@ -441,7 +448,7 @@ def is_private_host(host):
     except ValueError:
         # A name: single-label names, .local/.lan and Tailscale MagicDNS names never leave the private network.
         return "." not in host or host.endswith((".local", ".lan", ".ts.net"))
-    return ip.is_loopback or ip.is_private or ip.is_link_local or ip in ipaddress.ip_network("100.64.0.0/10")
+    return any(ip in net for net in _PRIVATE_NETS)
 
 
 def upstream_problem(url):
