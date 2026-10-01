@@ -149,3 +149,26 @@ def test_process_text_uses_the_cleanup_min_words_setting(monkeypatch):
     assert core.process_text(dict(base, cleanup_min_words=1), "one", "x.exe", "x").cleaned is True
     assert core.process_text(dict(base, cleanup_min_words="oops"), "one two", "x.exe", "x").cleaned is False
     assert calls == ["one two three", "one"]
+
+
+# ---- a long recording whose streaming failed is not sent as one huge upload (R2-M9) ---------------------------------------
+
+def test_a_very_long_recording_is_sent_in_pieces_under_the_upload_limit(monkeypatch):
+    sizes = []
+
+    def fake_transcribe(cfg, wav, context=""):
+        sizes.append(len(wav))
+        return "word"
+
+    monkeypatch.setattr(core, "transcribe", fake_transcribe)
+    loud = b"\x10\x27" * 12_500_000          # 25 MB of 16-bit audio, about 13 minutes
+    res = core.process_detailed({"cleanup": False}, loud, "", "")
+    assert len(sizes) > 1 and max(sizes) < core.MAX_UPLOAD_BYTES
+    assert res.text.split() == ["word"] * len(sizes)
+
+
+def test_a_short_recording_is_still_sent_whole(monkeypatch):
+    calls = []
+    monkeypatch.setattr(core, "transcribe", lambda cfg, wav, context="": calls.append(context) or "hello there friend")
+    core.process_detailed({"cleanup": False}, b"\x10\x27" * 32000, "", "")
+    assert calls == [""]

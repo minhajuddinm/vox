@@ -31,7 +31,8 @@ SAMPLE_RATE = 16000
 LEVEL_FLOOR = 0.004         # normalised rms of a quiet room: below it the meter shows nothing
 LEVEL_GAIN = 30             # how fast the meter fills as the voice gets louder
 SILENCE_PEAK = 655          # 16-bit peak (about -34 dBFS) below which a recording is treated as silence
-RETRY_STATUS = (500, 502, 503, 504)   # server trouble worth retrying; 429 is left to the callers
+MAX_UPLOAD_BYTES = 20_000_000  # a recording bigger than this is sent in pieces (the speech servers refuse about 25 MB)
+RETRY_STATUS =(500, 502, 503, 504)   # server trouble worth retrying; 429 is left to the callers
 
 DEFAULT_CONFIG = {
     "api_key": "",
@@ -1153,6 +1154,20 @@ def cleanup(cfg, raw, style, app_label):
 Result = namedtuple("Result", "raw text cleaned cleanup_error fidelity_fallback", defaults=(False,))
 
 
+def _transcribe_in_pieces(cfg, pcm_bytes):
+    """A recording too big for one upload (the server limit is 25 MB, about 13 minutes) is cut at pauses and sent piece by
+    piece, each with the end of the text before it as context (the same as streaming.py, which imports this module)."""
+    seg = Segmenter()
+    texts = []
+    for piece in seg.feed(pcm_bytes) + [seg.rest()]:
+        if not piece or is_silent(piece):
+            continue
+        text = transcribe(cfg, pcm_to_wav(piece), " ".join(texts)[-150:])
+        if text and not (not texts and is_silence_hallucination(text)):
+            texts.append(text)
+    return " ".join(texts).strip()
+
+
 def process_detailed(cfg, pcm_bytes, exe, app_label):
     """Full pipeline. Result.raw and Result.text are '' when nothing was said.
 
@@ -1162,7 +1177,10 @@ def process_detailed(cfg, pcm_bytes, exe, app_label):
     """
     _mark("stt_start")
     try:
-        raw = transcribe(cfg, pcm_to_wav(pcm_bytes))
+        if len(pcm_bytes) > MAX_UPLOAD_BYTES:
+            raw = _transcribe_in_pieces(cfg, pcm_bytes)
+        else:
+            raw = transcribe(cfg, pcm_to_wav(pcm_bytes))
     finally:
         _mark("stt_done")
     return process_text(cfg, raw, exe, app_label)
