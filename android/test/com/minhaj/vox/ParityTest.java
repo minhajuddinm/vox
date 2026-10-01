@@ -138,6 +138,19 @@ public final class ParityTest {
                 case "retry":   // status (0 = no answer), request timeout, via the relay, whether the same request is sent again
                     eq(ln, kind, f[3], ApiClient.retryable(Integer.parseInt(f[0]), f[1].equals("true"), f[2].equals("true")) ? "true" : "false");
                     break;
+                case "bubbleclamp": {   // x, y, screen w, screen h, bubble w, bubble h, expected "x,y"
+                    int[] p = BubbleLogic.clamp(Integer.parseInt(f[0]), Integer.parseInt(f[1]), Integer.parseInt(f[2]),
+                            Integer.parseInt(f[3]), Integer.parseInt(f[4]), Integer.parseInt(f[5]));
+                    eq(ln, kind, f[6], p[0] + "," + p[1]);
+                    break;
+                }
+                case "bubbleshow":   // only typing, always show, field focused, screen on, service ready, expected
+                    eq(ln, kind, f[5], BubbleLogic.shouldShow(f[0].equals("true"), f[1].equals("true"), f[2].equals("true"),
+                            f[3].equals("true"), f[4].equals("true")) ? "true" : "false");
+                    break;
+                case "bubbleaction":   // wanted, shown, window still attached, expected none|add|remove|repair
+                    eq(ln, kind, f[3], BubbleLogic.action(f[0].equals("true"), f[1].equals("true"), f[2].equals("true")));
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);

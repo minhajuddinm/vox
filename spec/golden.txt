@@ -227,3 +227,59 @@ retry	503	false	false	true
 retry	504	false	false	true
 retry	401	false	false	false
 retry	400	false	false	false
+# bubbleclamp: x, y, screen width, screen height, bubble width, bubble height -> x,y kept on screen (BubbleLogic.clamp; the Android bubble only)
+bubbleclamp	100	200	1080	2400	180	180	100,200
+bubbleclamp	0	0	1080	2400	180	180	0,0
+bubbleclamp	900	2220	1080	2400	180	180	900,2220
+bubbleclamp	2220	500	1080	2400	180	180	900,500
+bubbleclamp	100	3000	1080	2400	180	180	100,2220
+bubbleclamp	-50	-1	1080	2400	180	180	0,0
+bubbleclamp	40	40	100	100	180	180	0,0
+bubbleclamp	40	40	180	180	180	180	0,0
+bubbleclamp	1000	100	2400	1080	180	180	1000,100
+bubbleclamp	2200	900	2400	1080	180	180	2200,900
+bubbleclamp	2300	1000	2400	1080	180	180	2220,900
+bubbleclamp	1000	2000	1080	2400	180	180	900,2000
+bubbleclamp	5	5	1080	2400	180	180	5,5
+# bubbleshow: only typing, always show, text field focused, screen on, service ready -> is the mic bubble wanted (BubbleLogic.shouldShow)
+bubbleshow	true	true	true	true	true	true
+bubbleshow	true	true	true	true	false	false
+bubbleshow	true	true	true	false	true	false
+bubbleshow	true	true	true	false	false	false
+bubbleshow	true	true	false	true	true	true
+bubbleshow	true	true	false	true	false	false
+bubbleshow	true	true	false	false	true	false
+bubbleshow	true	true	false	false	false	false
+bubbleshow	true	false	true	true	true	true
+bubbleshow	true	false	true	true	false	false
+bubbleshow	true	false	true	false	true	false
+bubbleshow	true	false	true	false	false	false
+bubbleshow	true	false	false	true	true	false
+bubbleshow	true	false	false	true	false	false
+bubbleshow	true	false	false	false	true	false
+bubbleshow	true	false	false	false	false	false
+bubbleshow	false	true	true	true	true	true
+bubbleshow	false	true	true	true	false	false
+bubbleshow	false	true	true	false	true	false
+bubbleshow	false	true	true	false	false	false
+bubbleshow	false	true	false	true	true	true
+bubbleshow	false	true	false	true	false	false
+bubbleshow	false	true	false	false	true	false
+bubbleshow	false	true	false	false	false	false
+bubbleshow	false	false	true	true	true	true
+bubbleshow	false	false	true	true	false	false
+bubbleshow	false	false	true	false	true	false
+bubbleshow	false	false	true	false	false	false
+bubbleshow	false	false	false	true	true	true
+bubbleshow	false	false	false	true	false	false
+bubbleshow	false	false	false	false	true	false
+bubbleshow	false	false	false	false	false	false
+# bubbleaction: wanted, shown, window still attached -> what the watchdog does: none, add, remove or repair (BubbleLogic.action)
+bubbleaction	true	true	true	none
+bubbleaction	true	true	false	repair
+bubbleaction	true	false	true	add
+bubbleaction	true	false	false	add
+bubbleaction	false	true	true	remove
+bubbleaction	false	true	false	remove
+bubbleaction	false	false	true	none
+bubbleaction	false	false	false	none
