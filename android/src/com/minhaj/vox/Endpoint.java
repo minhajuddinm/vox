@@ -57,7 +57,9 @@ final class Endpoint {
                     || (a == 100 && b >= 64 && b <= 127);   // Tailscale (CGNAT range)
         }
         if (h.indexOf(':') >= 0) {                          // IPv6 literal
-            return h.equals("::1") || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80");
+            // ::1, fc00::/7 (unique local) and fe80::/10 (link local): the first group must be written with all four digits.
+            // Nothing else, so 6to4 (2002::/16), Teredo (2001::/32) and IPv4-mapped addresses need https.
+            return h.equals("::1") || h.matches("f[cd][0-9a-f]{2}:.*") || h.matches("fe[89ab][0-9a-f]:.*");
         }
         // A name: single-label names, .local/.lan and Tailscale MagicDNS names never leave the private network.
         return h.indexOf('.') < 0 || h.endsWith(".local") || h.endsWith(".lan") || h.endsWith(".ts.net");

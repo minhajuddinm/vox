@@ -32,7 +32,7 @@ The server is `base_url` (default `https://api.groq.com/openai/v1`); trailing sl
 | Meeting speech | `POST /audio/transcriptions` with `response_format=verbose_json` | Segments carry quality scores used to drop hallucinations |
 | Meeting notes and questions | `POST /chat/completions` with `notes_model` (default `openai/gpt-oss-120b`) | |
 
-Timeouts: Windows 60 s (dictation), 180 s (meeting speech), 240 s (meeting notes); Android 15 s connect, 60 s read.
+Timeouts: Windows 60 s (dictation), 180 s (meeting speech), 240 s (meeting notes); Android: connect 5 s (`Latency.CONNECT_MS`), with one immediate retry on a connect failure; speech read 20 s + 3 s per audio second, 30 to 180 s (`Latency.sttReadMs`); cleanup read 20 s + 60 ms per word, at most 60 s (`Latency.llmReadMs`). The 3 attempts of the speech request (`DictationService`, `SEND_ATTEMPTS`) come on top of these.
 
 ### Retry policy
 

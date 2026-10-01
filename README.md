@@ -172,7 +172,7 @@ Short version (the full page is [documentation/09-security-privacy.md](documenta
 
 ## Build and test from source
 
-You need Python 3.13 (3.10+ works for the Windows app), and for the Java tests a JDK 17 and Android's `android.jar` (platform 34). No Gradle and no full Android SDK are needed for day-to-day work.
+You need Python 3.13 (the Windows app needs Python 3.12 or newer: `numpy==2.5.3` has no wheel for 3.11), and for the Java tests a JDK 17 and Android's `android.jar` (platform 34). No Gradle and no full Android SDK are needed for day-to-day work.
 
 ```
 python -m venv .venv
@@ -220,4 +220,4 @@ Bug reports, device test results and pull requests are welcome. Read [CONTRIBUTI
 
 ## License
 
-**This repository has no licence file yet.** The owner has to choose a licence before anyone may reuse, modify or redistribute the code. Until then normal copyright applies: you can read the code and fork it on GitHub (GitHub's terms allow that for public repositories), but no other rights are granted. Contributions are accepted under whatever licence the owner selects (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+Vox is released under the [MIT License](LICENSE): Copyright (c) 2026 Vox contributors. You may use, copy, modify and redistribute it, as long as the licence text stays with it. It comes with no warranty. Contributions are accepted under the same licence (see [CONTRIBUTING.md](CONTRIBUTING.md)).

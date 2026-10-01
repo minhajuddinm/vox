@@ -40,7 +40,6 @@ jobs:
 
   windows:
     needs: tests
-    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -53,6 +52,11 @@ jobs:
           GOOGLE_CLIENT_JSON: ${{ secrets.GOOGLE_CLIENT_JSON }}
         run: |
           if ($env:GOOGLE_CLIENT_JSON) { $env:GOOGLE_CLIENT_JSON | Out-File -Encoding utf8NoBOM google_client.json; "Google sign-in enabled" } else { "No GOOGLE_CLIENT_JSON secret: building without Google sign-in" }
+      - name: Tests that need the Windows packages (ui_app, engine, Improve privacy gate)
+        shell: pwsh
+        run: |
+          pip install -r windows/requirements.txt pytest==9.1.1
+          python -m pytest -q -p no:cacheprovider
       - name: Build Vox.exe
         working-directory: windows
         shell: pwsh
@@ -108,6 +112,19 @@ jobs:
         # Nothing is downloaded.
         run: |
           ANDROID_JAR="$ANDROID_HOME/platforms/android-34/android.jar" bash android/run-tests.sh --integration
+      - name: Version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        # The version the app shows (and Android compares) is the tag's: v1.4.2 -> versionName 1.4.2, versionCode 10402.
+        # Only the runner's copy of the manifest changes; the committed one is not touched.
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if ! [[ "$v" =~ ^([0-9]+)\.([0-9]{1,2})(\.([0-9]{1,2}))?$ ]]; then
+            echo "::error::The tag $GITHUB_REF_NAME is not like v1.4 or v1.4.2, so no Android version can be made from it."
+            exit 1
+          fi
+          code=$(( 10#${BASH_REMATCH[1]} * 10000 + 10#${BASH_REMATCH[2]} * 100 + 10#${BASH_REMATCH[4]:-0} ))
+          sed -i -E "s/android:versionName=\"[^\"]*\"/android:versionName=\"$v\"/; s/android:versionCode=\"[0-9]+\"/android:versionCode=\"$code\"/" android/AndroidManifest.xml
+          grep -E 'android:version(Name|Code)' android/AndroidManifest.xml
       - name: Build APK
         env:
           KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
@@ -117,7 +134,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, android]
+    needs: [tests, relay, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -132,4 +149,4 @@ jobs:
           body: |
             **Android:** download `Vox.apk` on your phone and open it. See the README for the one-time setup.
             **Windows:** download `VoxSetup.exe` and run it. Windows SmartScreen may warn because the installer is not code-signed: click *More info* > *Run anyway*.
-            Vox asks for your own free Groq API key on first start (https://console.groq.com/keys). Each person uses their own key and their own free limits.
+            On first start Vox asks you to choose an AI provider (Groq is the default and has a free tier: https://console.groq.com/keys) and paste your own key. Each person uses their own key and their own limits.

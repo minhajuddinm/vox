@@ -6,6 +6,7 @@ import pytest
 
 import notes
 import providers
+import relay
 import sync
 import timing
 import vox_core as core
@@ -266,6 +267,9 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert sync.SyncError("x", int(f[0])).permanent == (f[1] == "true")
     elif kind == "proxyurl":   # relay_url, role, address a role is sent to through the relay (blank when no relay address)
         assert providers.proxy_url(f[0], f[1]) == f[2]
+    elif kind == "privatehost":   # host => whether plain http may go there; the relay's own copy of the rule must agree
+        assert core.is_private_host(f[0]) == (f[1] == "true")
+        assert relay.is_private_host(f[0]) == (f[1] == "true")
     elif kind == "retry":   # status (0 = no answer), request timeout, via the relay, whether the same request is sent again
         assert core.retryable(int(f[0]), f[1] == "true", f[2] == "true") == (f[3] == "true")
     elif kind == "timing_median":

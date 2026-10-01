@@ -561,3 +561,63 @@ def test_the_relay_needs_only_the_standard_library():
     if names is None:
         pytest.skip("needs Python 3.10 or newer")
     assert imported <= set(names), imported - set(names)
+
+
+# ------------------------------------------------------------------ medium round M4 (C-R4)
+posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX owners and modes")
+
+
+@posix_only
+def test_a_planted_tmp_symlink_is_not_written_through(tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep me")
+    d = tmp_path / "data"
+    d.mkdir(mode=0o700)
+    os.symlink(victim, d / "relay.json.tmp")
+    cfg = relay.load_config(str(d))
+    assert victim.read_text() == "keep me"
+    assert json.loads((d / "relay.json").read_text())["token"] == cfg["token"]
+    assert oct(os.stat(d / "relay.json").st_mode & 0o777) == "0o600"
+
+
+@posix_only
+def test_a_data_folder_that_others_can_write_to_is_refused(tmp_path):
+    d = tmp_path / "data"
+    d.mkdir()
+    os.chmod(d, 0o777)
+    with pytest.raises(relay.DataDirError):
+        relay.load_config(str(d))
+    with pytest.raises(relay.DataDirError):
+        relay.make_server(str(d), port=0)
+    assert not (d / "relay.json").exists()
+    assert relay.main(["--data-dir", str(d)]) == 1       # the command line says why and stops
+
+
+@posix_only
+def test_a_folder_or_file_that_others_can_only_read_is_closed_not_refused(tmp_path):
+    d = tmp_path / "data"
+    d.mkdir()
+    os.chmod(d, 0o755)
+    relay.load_config(str(d))
+    assert oct(os.stat(d).st_mode & 0o777) == "0o700"
+    os.chmod(d / "relay.json", 0o644)
+    relay.load_config(str(d))
+    assert oct(os.stat(d / "relay.json").st_mode & 0o777) == "0o600"
+
+
+@posix_only
+def test_a_relay_json_that_others_can_write_is_refused(tmp_path):
+    d = tmp_path / "data"
+    d.mkdir(mode=0o700)
+    relay.load_config(str(d))
+    os.chmod(d / "relay.json", 0o666)
+    with pytest.raises(relay.DataDirError):
+        relay.load_config(str(d))
+
+
+@posix_only
+def test_a_folder_owned_by_someone_else_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(os, "getuid", lambda: os.stat(tmp_path).st_uid + 1)
+    with pytest.raises(relay.DataDirError):
+        relay.load_config(str(tmp_path / "data"))
+

@@ -27,11 +27,12 @@ windows/                Windows app (Python) and its installer scripts
 
 | Path | What it is |
 |---|---|
-| `README.md` | The project's front page for outsiders: what Vox is, features, screenshots to take, status and known limits, install (Windows, Android with the sideload warnings), short user guide, privacy summary, build and test, repository map, contributing and the licence status. User-facing; not this documentation. |
+| `README.md` | The project's front page for outsiders: what Vox is, features, screenshots to take, status and known limits, install (Windows, Android with the sideload warnings), short user guide, privacy summary, build and test, repository map, contributing and the licence (MIT). User-facing; not this documentation. |
 | `AGENTS.md` | Short entry point for coding agents; points here. |
 | `CHANGELOG.md` | Release-style change history. |
-| `CONTRIBUTING.md` | How to contribute: setup, running the tests, the golden-rows rule, the docs-sync rule, the pull request checklist, and that contributions take the licence the owner selects. |
+| `CONTRIBUTING.md` | How to contribute: setup, running the tests, the golden-rows rule, the docs-sync rule, the pull request checklist, and that contributions are accepted under the MIT licence. |
 | `SECURITY.md` | How to report a vulnerability privately (GitHub private vulnerability reporting) and a short trust model; links to [09-security-privacy.md](09-security-privacy.md) and the relay pages. |
+| `LICENSE` | The MIT licence, "Copyright (c) 2026 Vox contributors". |
 | `CODE_OF_CONDUCT.md` | Points to the Contributor Covenant 2.1 and says how to raise a conduct concern privately. |
 | `.gitattributes` | Forces LF line endings for `*.sh` and `*.list` so the test runner works on Windows checkouts with `core.autocrlf=true`. |
 | `.gitignore` | Keeps secrets (`config.json`, `google_client.json`, keystores), logs, build output, the local `.venv/` and the local agent scratch folder `.superpowers/` out of git. |

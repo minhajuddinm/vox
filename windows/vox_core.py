@@ -988,6 +988,14 @@ def check_response(r, via_relay=False):
     return r.json()
 
 
+# An explicit list, not ip.is_private: that also holds 6to4 (2002::/16), Teredo (2001::/32) and reserved IPv4 ranges, which
+# are routed over the internet. The same list is in android Endpoint.java and relay/relay.py (spec/golden.txt "privatehost").
+# An IPv4-mapped IPv6 address (::ffff:a.b.c.d) is in none of them, so it needs https like the Android app.
+_PRIVATE_NETS = [ipaddress.ip_network(n) for n in (
+    "127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10",    # 100.64: Tailscale
+    "::1/128", "fc00::/7", "fe80::/10")]
+
+
 def is_private_host(host):
     """True for addresses where plain http is acceptable: this PC, the home/office LAN and Tailscale."""
     host = (host or "").strip("[]").lower().rstrip(".")
@@ -998,7 +1006,7 @@ def is_private_host(host):
     except ValueError:
         # A name: single-label names, .local/.lan and Tailscale MagicDNS names never leave the private network.
         return "." not in host or host.endswith((".local", ".lan", ".ts.net"))
-    return ip.is_loopback or ip.is_private or ip.is_link_local or ip in ipaddress.ip_network("100.64.0.0/10")
+    return any(ip in net for net in _PRIVATE_NETS)
 
 
 def endpoint_error(cfg):

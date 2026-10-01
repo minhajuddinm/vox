@@ -4,7 +4,7 @@ Thank you for helping. Bug reports, device test results, documentation fixes and
 
 ## Before you start
 
-- **Licence.** The repository has no licence file yet (see the License section of the [README](README.md)). By opening a pull request you agree that your contribution is accepted under whatever licence the owner selects for the project.
+- **Licence.** Vox is under the [MIT License](LICENSE). By opening a pull request you agree that your contribution is accepted under that licence.
 - **Small fixes:** open a pull request directly. **Larger changes** (a new feature, a new setting, anything that touches both apps): open an issue first, and write a short design in `documentation/specs/` before the code.
 - **Security problems:** do not open a public issue. See [SECURITY.md](SECURITY.md).
 - Be kind and constructive: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
