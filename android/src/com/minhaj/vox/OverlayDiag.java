@@ -18,7 +18,7 @@ import java.util.TimeZone;
  * an app installed or removed, the only-typing rule hiding or showing it), kept in memory and in a small text file
  * so the history survives the service being killed. Pure Java (no android.* classes) so the off-device tests run it.
  *
- * The event text never holds what the user typed or dictated, and a package change carries no package name. The file
+ * The event text never holds what the user typed or dictated, and neither a package change nor an insert probe carries a package name. The file
  * lives in the app's private folder and is never sent anywhere; the user can copy the report from the Settings card.
  *
  * File format, one event per line: {@code time-ms TAB kind TAB count TAB detail}. A line that does not parse is
@@ -27,6 +27,8 @@ import java.util.TimeZone;
 final class OverlayDiag {
     static final int CAPACITY = 50;
     static final int MAX_DETAIL = 160;
+    /** At most this many {@link #INSERT_PROBE} events are kept, so a run of dictations cannot push the bubble events out. */
+    static final int MAX_PROBES = 5;
     /** The file name inside the app's private files folder. */
     static final String FILE_NAME = "overlay_diag.log";
 
@@ -134,8 +136,18 @@ final class OverlayDiag {
             }
         }
         events.add(new Event(time, k, d, 1));
+        if (k.equals(INSERT_PROBE)) dropOldProbes();
         while (events.size() > capacity) events.remove(0);
         save();
+    }
+
+    /** Keeps the newest {@link #MAX_PROBES} insert probes and drops the older ones. */
+    private void dropOldProbes() {
+        int probes = 0;
+        for (int i = events.size() - 1; i >= 0; i--) {
+            if (!events.get(i).kind.equals(INSERT_PROBE)) continue;
+            if (++probes > MAX_PROBES) events.remove(i);
+        }
     }
 
     /** Every event, oldest first. */
@@ -194,6 +206,18 @@ final class OverlayDiag {
     }
 
     // ------------------------------------------------------------- the words
+
+    /**
+     * What the insert probe records about a field: why its text was dropped or kept, whether the platform flagged a hint, and
+     * the size and caret place as buckets. No app or package name, no class, no text, no exact length: the line says what kind
+     * of field misbehaved without telling which app the user dictates into, and a repeat is counted instead of listed again.
+     */
+    static String probeDetail(boolean placeholder, boolean flagged, boolean hasHint, int textLen, int sel) {
+        String len = textLen <= 0 ? "empty" : textLen < 10 ? "1-9" : textLen < 40 ? "10-39" : "40+";
+        String caret = sel < 0 || sel > textLen ? "unknown" : sel == 0 ? "start" : sel == textLen ? "end" : "middle";
+        return (placeholder ? "placeholder dropped" : "short text, caret at start")
+                + " flag=" + flagged + " hint=" + (hasHint ? "yes" : "none") + " len=" + len + " caret=" + caret;
+    }
 
     /** Why the mic bubble is wanted or not (the only-typing rule of VoxAccessibilityService.refreshVisibility). */
     static String micReason(boolean busy, boolean onlyTyping, boolean fieldFocused) {

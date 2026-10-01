@@ -22,6 +22,16 @@ public final class OverlayDiagTest {
         return 1790856225000L + sec * 1000L;
     }
 
+    private static String bucketsOf(int len) {
+        String d = OverlayDiag.probeDetail(true, false, false, len, 0);
+        return d.substring(d.indexOf("len="), d.indexOf(" caret="));
+    }
+
+    private static String caretOf(int len, int sel) {
+        String d = OverlayDiag.probeDetail(true, false, false, len, sel);
+        return d.substring(d.indexOf("caret="));
+    }
+
     public static void main(String[] args) throws Exception {
         // an empty buffer
         OverlayDiag d = new OverlayDiag(50, null);
@@ -191,6 +201,31 @@ public final class OverlayDiagTest {
                 + "12:03:45 Accessibility service connected\n", rep);
         eq("report without events", "Vox bubble diagnostics\nA\nService: S\nBattery: B\nNo events recorded yet.\n",
                 OverlayDiag.report("A", "S", "B", new OverlayDiag(50, null).last(20), UTC));
+
+        // the insert probe says what a field reported without naming the app or the text, and cannot push the bubble events out
+        String probe = OverlayDiag.probeDetail(true, true, true, 7, 0);
+        eq("probe detail", "placeholder dropped flag=true hint=yes len=1-9 caret=start", probe);
+        eq("probe detail, short text", "short text, caret at start flag=false hint=none len=10-39 caret=start",
+                OverlayDiag.probeDetail(false, false, false, 25, 0));
+        eq("probe length buckets", "len=empty len=1-9 len=10-39 len=40+",
+                bucketsOf(0) + " " + bucketsOf(9) + " " + bucketsOf(10) + " " + bucketsOf(40));
+        eq("probe caret", "caret=start caret=middle caret=end caret=unknown",
+                caretOf(10, 0) + " " + caretOf(10, 4) + " " + caretOf(10, 10) + " " + caretOf(10, -1));
+        eq("probe says no package or class", false, probe.contains("pkg") || probe.contains("class") || probe.contains("com."));
+        OverlayDiag pr = new OverlayDiag(50, null);
+        pr.record(t(0), OverlayDiag.OVERLAY_ADD, "mic bubble");
+        for (int i = 0; i < 30; i++) {
+            pr.record(t(1 + 2 * i), OverlayDiag.INSERT_PROBE, i % 2 == 0 ? "a" : "b");
+            pr.record(t(2 + 2 * i), OverlayDiag.SCREEN_ON, "");
+        }
+        int probes = 0, screens = 0;
+        for (OverlayDiag.Event e : pr.events()) {
+            if (e.kind.equals(OverlayDiag.INSERT_PROBE)) probes++;
+            if (e.kind.equals(OverlayDiag.SCREEN_ON)) screens++;
+        }
+        eq("only the newest probes are kept", OverlayDiag.MAX_PROBES, probes);
+        eq("the other events stay", 30, screens);
+        eq("and the first bubble event is still there", OverlayDiag.OVERLAY_ADD, pr.events().get(0).kind);
 
         System.out.println("OverlayDiagTest ok");
     }

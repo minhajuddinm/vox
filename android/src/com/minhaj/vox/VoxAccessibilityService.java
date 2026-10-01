@@ -667,9 +667,8 @@ public class VoxAccessibilityService extends AccessibilityService
         int e = node.getTextSelectionEnd();
         if (placeholder || (!cur.isEmpty() && cur.length() <= HintGuard.MAX_LEN && s <= 0)) {
             // Logged without the text itself: lets the Settings diagnostics show what a field reported if it still goes wrong.
-            diag(OverlayDiag.INSERT_PROBE, (placeholder ? "placeholder dropped" : "short text, caret at start")
-                    + " pkg=" + node.getPackageName() + " class=" + node.getClassName() + " len=" + cur.length()
-                    + " flag=" + flagged + " hint=" + (hint == null ? "none" : "yes") + " sel=" + s + ".." + e);
+            // No package or class name and no exact length: the log must not list the apps the user dictates into.
+            diag(OverlayDiag.INSERT_PROBE, OverlayDiag.probeDetail(placeholder, flagged, hint != null, cur.length(), s));
         }
         if (placeholder) { cur = ""; s = e = 0; }
         if (s < 0 || e < 0 || s > cur.length() || e > cur.length()) { s = cur.length(); e = s; }
