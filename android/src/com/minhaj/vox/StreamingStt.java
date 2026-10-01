@@ -88,7 +88,7 @@ final class StreamingStt {
             cancelled = true;
             error = "timed out";
         }
-        if (!error.isEmpty() || pieces == 0) return null;
+        if (cancelled || !error.isEmpty() || pieces == 0) return null;   // a cancelled job has no text to hand over
         StringBuilder b = new StringBuilder();
         for (String t : texts) {
             if (t.isEmpty()) continue;

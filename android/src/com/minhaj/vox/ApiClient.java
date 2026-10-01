@@ -55,15 +55,21 @@ public final class ApiClient {
         final File file;
         final String name, mime;
         final double seconds;
+        private final boolean temp;   // a file made only for this upload (an encoded clip): release() deletes it
 
-        Upload(File file, String name, String mime, double seconds) {
-            this.file = file; this.name = name; this.mime = mime; this.seconds = seconds;
+        Upload(File file, String name, String mime, double seconds, boolean temp) {
+            this.file = file; this.name = name; this.mime = mime; this.seconds = seconds; this.temp = temp;
+        }
+
+        /** Deletes the file when it was made for this upload only; the recording itself is never touched. */
+        void release() {
+            if (temp) file.delete();
         }
 
         /** A WAV file written by DictationService.writeWav (a 44 byte header, then 16 kHz 16-bit mono audio). */
         static Upload wav(File wav) {
             return new Upload(wav, UploadFormat.fileName(UploadFormat.WAV), UploadFormat.mime(UploadFormat.WAV),
-                    Math.max(0, wav.length() - 44) / 32000.0);
+                    Math.max(0, wav.length() - 44) / 32000.0, false);
         }
     }
 

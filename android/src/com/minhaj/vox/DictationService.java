@@ -24,6 +24,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -99,6 +100,16 @@ public class DictationService extends Service {
     private volatile int jobId;
     private Thread recThread;
     private ByteArrayOutputStream pcm;
+    /**
+     * Sends the recording in pieces while it goes on (see StreamingStt); null when none. Set in startRecording, kept until
+     * the job ends so cancel() can stop it, and handed to the worker (a local copy) by stopRecording.
+     */
+    private volatile StreamingStt stream;
+    /** Longest wait for the pieces still being sent after the user stops, before the whole recording is sent instead. */
+    private static final long STREAM_WAIT_MS = 120000;
+    /** AudioRecord.getMinBufferSize never changes on a device: asked once, off the main thread. */
+    private static volatile int minBuf;
+    private static long lastWarm;
     /** Where the time of the recording in progress goes (the Speed card); null when none. Set in startRecording, read by stopRecording. */
     private volatile Timing timing;
     private String targetPkg;
@@ -123,7 +134,11 @@ public class DictationService extends Service {
         NotificationChannel ch = new NotificationChannel(CH, "Vox dictation", NotificationManager.IMPORTANCE_LOW);
         ch.setShowBadge(false);
         nm.createNotificationChannel(ch);
-        restorePending();
+        // Listing the cache folder is not needed to start recording: do it on the worker, then show what was found.
+        worker.execute(() -> {
+            restorePending();
+            main.post(this::refreshNotification);
+        });
     }
 
     @Override
@@ -245,6 +260,7 @@ public class DictationService extends Service {
         recording = false;
         jobId++;
         instance = null;
+        dropStream();
         worker.shutdownNow();
         // The unsent recordings stay on disk: restorePending() finds them at the next start (Clear discards them).
         // Only a recording still in progress (never queued) is lost here.
@@ -296,25 +312,11 @@ public class DictationService extends Service {
         targetPkg = note ? null : pkg;
         targetLabel = note ? "" : label;
         targetDest = note ? DEST_NOTE : DEST_DICTATION;
-        final String[] warmStt = p.role(Providers.STT), warmLlm = p.role(Providers.LLM);
-        new Thread(() -> {   // open the server connections while the user speaks
-            new ApiClient(warmStt[1], warmStt[0]).warm();
-            if (!warmLlm[0].equals(warmStt[0])) new ApiClient(warmLlm[1], warmLlm[0]).warm();
-        }, "vox-warm").start();
-        int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-        final AudioRecord rec;
-        try {
-            rec = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
-                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(minBuf, SAMPLE_RATE));
-        } catch (SecurityException e) {
-            postError("Microphone permission missing. Open Vox and allow it.");
-            return;
-        }
-        if (rec.getState() != AudioRecord.STATE_INITIALIZED) {
-            rec.release();
-            postError("Microphone unavailable (another app may be using it)");
-            return;
-        }
+        warm(this);   // open the server connections while the user speaks (a no-op when the bubble touch just did it)
+        // Nothing slow happens on the main thread from here to the microphone: the AudioRecord is made and started on the
+        // recording thread (a refusal comes back through failRecording), and the pieces go out from their own thread.
+        final StreamingStt streamer = newStream(p);
+        stream = streamer;
         final ByteArrayOutputStream data = new ByteArrayOutputStream();
         pcm = data;
         final Timing tm = new Timing(new Timing.Clock() {
@@ -331,7 +333,15 @@ public class DictationService extends Service {
             byte[] buf = new byte[1280]; // 40 ms: about 25 meter updates a second
             long maxBytes = (long) SAMPLE_RATE * 2 * MAX_SECONDS;
             boolean firstFrame = true;
+            AudioRecord rec = null;
             try {
+                if (minBuf == 0) minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+                rec = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
+                        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(minBuf, SAMPLE_RATE));
+                if (rec.getState() != AudioRecord.STATE_INITIALIZED) {
+                    failRecording(job, "Microphone unavailable (another app may be using it)");
+                    return;
+                }
                 rec.startRecording();
                 while (recording) {
                     int n = rec.read(buf, 0, buf.length);
@@ -346,17 +356,22 @@ public class DictationService extends Service {
                         if (tapAtMs > 0) Log.d("vox", "tap->recording ms=" + (SystemClock.elapsedRealtime() - tapAtMs));
                     }
                     data.write(buf, 0, n);
+                    if (streamer != null) streamer.feed(buf, 0, n);   // a copy and a queue put: the pieces are cut and sent elsewhere
                     postLevel(rms(buf, n));
                     if (data.size() >= maxBytes) {
                         main.post(this::stopRecording);
                         break;
                     }
                 }
+            } catch (SecurityException e) {
+                failRecording(job, "Microphone permission missing. Open Vox and allow it.");
             } catch (Exception e) {
                 failRecording(job, "Recording failed: " + e.getMessage());
             } finally {
-                try { rec.stop(); } catch (Exception ignored) { }
-                rec.release();
+                if (rec != null) {
+                    try { rec.stop(); } catch (Exception ignored) { }
+                    rec.release();
+                }
             }
         }, "vox-rec");
         recThread.start();
@@ -366,8 +381,58 @@ public class DictationService extends Service {
     private synchronized void failRecording(int job, String message) {
         if (job != jobId || state != RECORDING) return;
         recording = false;
+        dropStream();
         setState(IDLE);
         postError(message);
+    }
+
+    /** Stops the pieces being sent for the recording in progress (a cancel, a failed recorder, the service going away). */
+    private void dropStream() {
+        StreamingStt s = stream;
+        stream = null;
+        if (s != null) s.cancel();
+    }
+
+    /** The pieces-while-recording sender for the recording that is starting: the server and settings it will use are fixed now. */
+    private StreamingStt newStream(final Prefs p) {
+        final File dir = getCacheDir();
+        // The settings are read on the sending thread, with the piece: nothing is parsed on the main thread.
+        StreamingStt s = new StreamingStt((piece, context) -> {
+            String[] stt = p.role(Providers.STT);
+            List<String> terms = p.dictionaryTerms();
+            ApiClient.Upload up = AudioUpload.fromPcm(dir, piece);
+            try {
+                return new ApiClient(stt[1], stt[0]).transcribe(up, p.sttModel(), p.language(), terms, context);
+            } finally {
+                up.release();
+            }
+        }, new Segmenter());
+        s.start();
+        return s;
+    }
+
+    /**
+     * Opens the connections to the speech and cleanup servers in the background (the TLS handshake included), so the upload
+     * does not wait for them. Called when the bubble is touched and again when recording starts; a call within
+     * {@link Latency#WARM_GAP_MS} of the last one does nothing. Needs no service instance, so it also runs before the
+     * service is up.
+     */
+    static void warm(android.content.Context ctx) {
+        final long now = SystemClock.elapsedRealtime();
+        synchronized (DictationService.class) {
+            if (!Latency.shouldWarm(lastWarm, now)) return;
+            lastWarm = now;
+        }
+        final android.content.Context app = ctx.getApplicationContext();
+        new Thread(() -> {
+            Prefs p = new Prefs(app);
+            if (p.keyMissing()) return;
+            final String[] stt = p.role(Providers.STT), llm = p.role(Providers.LLM);
+            if (!llm[0].equals(stt[0])) {
+                new Thread(() -> new ApiClient(llm[1], llm[0]).warm(), "vox-warm-llm").start();
+            }
+            new ApiClient(stt[1], stt[0]).warm();
+        }, "vox-warm").start();
     }
 
     /** Stops recording and sends the audio for transcription. */
@@ -384,15 +449,22 @@ public class DictationService extends Service {
         final String pkg = targetPkg;
         final String label = targetLabel;
         final String dest = targetDest;   // this job's own copy, like pkg and label: a later recording cannot change it
+        final StreamingStt streamer = stream;
         worker.execute(() -> {
             try { if (t != null) t.join(2000); } catch (InterruptedException ignored) { }
-            if (!isCurrent(job)) return;
+            // A recording thread that is still running would go on feeding the pieces after the last one is cut: then the
+            // whole recording is sent instead.
+            final boolean streamUsable = t == null || !t.isAlive();
+            if (!streamUsable && streamer != null) streamer.cancel();
+            if (!isCurrent(job)) { if (streamer != null) streamer.cancel(); return; }
             byte[] audio = data.toByteArray();
             if (audio.length < SAMPLE_RATE * 2 * 0.4) { // under 0.4 s
+                if (streamer != null) streamer.cancel();
                 finish(job);
                 return;
             }
             if (Pcm.isSilent(audio)) {
+                if (streamer != null) streamer.cancel();
                 postError("Vox did not hear anything");
                 finish(job);
                 return;
@@ -402,16 +474,17 @@ public class DictationService extends Service {
                 writeWav(fileOf(entry), audio);
             } catch (IOException e) {
                 fileOf(entry).delete();   // a half-written file
+                if (streamer != null) streamer.cancel();
                 postError("Could not save the recording: " + e.getMessage());
                 finish(job);
                 return;
             }
             synchronized (DictationService.this) {   // with cancel(): either it saw this entry, or this sees the cancel
-                if (!isCurrent(job)) { fileOf(entry).delete(); return; }   // cancelled while the file was being written: this recording is the one being cancelled
+                if (!isCurrent(job)) { fileOf(entry).delete(); if (streamer != null) streamer.cancel(); return; }   // cancelled while the file was being written: this recording is the one being cancelled
                 pending.beginFresh(entry.id);
                 enqueue(entry);
             }
-            send(job, entry, tm);
+            send(job, entry, tm, streamUsable ? streamer : null);
         });
     }
 
@@ -444,7 +517,7 @@ public class DictationService extends Service {
         targetLabel = entry.label;
         targetDest = entry.dest;
         setState(PROCESSING);
-        worker.execute(() -> send(job, entry, null));   // a retry has no key or recording marks: it is not timed
+        worker.execute(() -> send(job, entry, null, null));   // a retry has no key or recording marks (it is not timed) and no pieces
     }
 
     /**
@@ -456,6 +529,7 @@ public class DictationService extends Service {
         jobId++;
         recording = false;
         timing = null;
+        dropStream();
         long id = pending.onCancel();   // the rule lives in PendingQueue: only a fresh, queued recording is discarded
         if (id != 0) discard(id);
         setState(IDLE);
@@ -477,7 +551,7 @@ public class DictationService extends Service {
 
     /** Goes back to idle, but only for the job that is still current. */
     private synchronized void finish(int job) {
-        if (job == jobId) { pending.endJob(); setState(IDLE); }
+        if (job == jobId) { stream = null; pending.endJob(); setState(IDLE); }
     }
 
     private File fileOf(PendingQueue.Entry e) { return new File(getCacheDir(), PendingQueue.fileName(e)); }
@@ -537,7 +611,7 @@ public class DictationService extends Service {
      * {@code dest} is the destination this recording was made for (a copy taken when it stopped): DEST_DICTATION types
      * the text through the accessibility listener, DEST_NOTE stores it as a voice note and types nothing.
      */
-    private void send(int job, PendingQueue.Entry entry, Timing tm) {
+    private void send(int job, PendingQueue.Entry entry, Timing tm, StreamingStt streamer) {
         final String pkg = entry.pkg, label = entry.label, dest = entry.dest;
         final boolean note = DEST_NOTE.equals(dest);
         Prefs p = new Prefs(this);
@@ -548,13 +622,29 @@ public class DictationService extends Service {
             ApiClient gl = new ApiClient(llm[1], llm[0]);
             String raw = null;
             if (tm != null) tm.mark("stt_start");
-            for (int attempt = 1; attempt <= SEND_ATTEMPTS && raw == null; attempt++) {
-                if (!isCurrent(job)) return;
+            if (streamer != null) {
+                // The pieces were sent while the user spoke: only the last one is still to come. null means nothing was cut
+                // or something failed; an empty text is checked again on the whole recording.
+                String streamed = streamer.finish(STREAM_WAIT_MS);
+                if (streamed != null && !streamed.isEmpty()) raw = streamed;
+            }
+            if (raw == null && isCurrent(job)) {
+                // The clip goes up as m4a from 4 s (a quarter of the size), as the WAV itself when it is short or the
+                // encoder fails. One encoding serves every attempt.
+                ApiClient.Upload up = AudioUpload.fromWavFile(getCacheDir(), wav);
                 try {
-                    raw = g.transcribe(wav, p.sttModel(), p.language(), p.dictionaryTerms());
-                } catch (IOException e) {
-                    if (!ApiClient.isRetryable(e, p.usesRelay()) || attempt == SEND_ATTEMPTS) throw e;
-                    try { Thread.sleep(800L * attempt); } catch (InterruptedException ie) { return; }
+                    for (int attempt = 1; attempt <= SEND_ATTEMPTS && raw == null; attempt++) {
+                        if (!isCurrent(job)) return;
+                        try {
+                            raw = g.transcribe(up, p.sttModel(), p.language(), p.dictionaryTerms(), "");
+                        } catch (IOException e) {
+                            // A connection that could not be opened was already tried twice (ApiClient): do not wait for a third.
+                            if (!ApiClient.isRetryable(e, p.usesRelay()) || Latency.isConnectFailure(e) || attempt == SEND_ATTEMPTS) throw e;
+                            try { Thread.sleep(800L * attempt); } catch (InterruptedException ie) { return; }
+                        }
+                    }
+                } finally {
+                    up.release();
                 }
             }
             if (tm != null) tm.mark("stt_done");
@@ -593,9 +683,10 @@ public class DictationService extends Service {
                 saveNote(job, entry, raw, out, seconds, p);   // a note is not typed and is not added to the dictation history
                 return;
             }
-            discard(entry.id);
             final String result = out, rawText = raw;
             final double secs = seconds;
+            // The text goes to the screen first; the recording file is removed after (a notification update that
+            // would otherwise sit between the text and the screen).
             main.post(() -> {
                 if (isCurrent(job) && listener != null) listener.onResult(result, pkg);
                 // The history entry is written after the text went in, so its timing includes the insertion; the
@@ -609,6 +700,7 @@ public class DictationService extends Service {
                 }
                 new Thread(() -> p.addHistory(label, rawText, result, secs, te), "vox-history").start();
             });
+            discard(entry.id);
         } catch (ApiClient.ApiException e) {
             if (!isCurrent(job)) return;
             retryFailed(entry);
@@ -621,6 +713,7 @@ public class DictationService extends Service {
             retryFailed(entry);
             postError("Network error:" + e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
         } finally {
+            if (streamer != null) streamer.cancel();   // ends its thread on every way out (a no-op once it has finished)
             finish(job);
         }
     }

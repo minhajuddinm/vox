@@ -156,6 +156,16 @@ public final class StreamingSttTest {
         sc.feed(three, 0, three.length);
         Thread.sleep(200);
         eq("nothing is sent after a cancel", 0, cf.contexts.size());
+        check("a cancelled job has no text", sc.finish(1000) == null);
+
+        // cancel while pieces are out: finish hands back nothing, even though a piece was sent
+        CountDownLatch hold = new CountDownLatch(1);
+        Fake mid = new Fake(0, hold);
+        StreamingStt sm = run(mid, cat(tone(13), silence(1), tone(3)), 3200);
+        check("a piece is out", mid.called.await(10, TimeUnit.SECONDS));
+        sm.cancel();
+        hold.countDown();
+        check("a job cancelled with a piece out gives null", sm.finish(2000) == null);
 
         System.out.println("OK: " + checks + " checks passed");
     }
