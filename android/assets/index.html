@@ -74,6 +74,12 @@ nav button.on .pill { background:var(--accent-soft); }
 #toast { position:fixed; left:50%; bottom:90px; transform:translate(-50%,20px); background:var(--text); color:var(--bg); padding:10px 18px; border-radius:999px; font-size:14px; opacity:0; transition:.2s; pointer-events:none; z-index:20; white-space:nowrap; }
 #toast.on { opacity:1; transform:translate(-50%,0); }
 .logo { width:34px; height:34px; border-radius:10px; background:linear-gradient(135deg,#3D6BFF,#7A4DFF); display:grid; place-items:center; }
+.ntitle { font-weight:650; word-break:break-word; }
+.nt { white-space:pre-wrap; word-break:break-word; display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden; margin-top:2px; }
+.nt.open { display:block; }
+.tagrow { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.tag { border:0; background:var(--accent-soft); color:var(--accent); font:inherit; font-size:12.5px; font-weight:600; padding:3px 10px; border-radius:999px; }
+.ib.confirm { color:var(--bad); font:inherit; font-size:13px; font-weight:650; padding:6px 10px; }
 </style>
 </head>
 <body>
@@ -95,6 +101,17 @@ nav button.on .pill { background:var(--accent-soft); }
   <h2>History</h2>
   <input type="text" id="search" placeholder="Search your dictations">
   <div id="history"></div>
+</section>
+
+<!-- VOICE NOTES -->
+<section class="page" id="notes">
+  <p class="sub" style="margin:0 4px 10px">Record a quick note: it is written down, tidied up and saved here instead of being typed into an app.</p>
+  <button class="btn full" id="vn-toggle" style="margin-top:0">New voice note</button>
+  <div class="status" id="vn-status"></div>
+  <div class="row" style="margin-top:14px;gap:8px"><input type="text" id="vn-q" class="grow" placeholder="Search your notes" autocomplete="off"><select class="inline" id="vn-period"><option value="all">Any time</option><option value="today">Today</option><option value="week">Last 7 days</option><option value="month">Last 30 days</option></select></div>
+  <div id="vn-tagbar"></div>
+  <div class="row" style="margin-top:6px;gap:8px"><span class="status grow" id="vn-sync"></span><button class="btn ghost" id="vn-sync-now" hidden>Sync now</button></div>
+  <div id="vn-list"></div>
 </section>
 
 <!-- DICTIONARY -->
@@ -178,6 +195,26 @@ nav button.on .pill { background:var(--accent-soft); }
     <div class="item"><div class="grow"><div class="t">Dictation service</div><div class="d">Keeps the mic ready for the bubble</div></div><label class="switch"><input type="checkbox" id="service"><span></span></label></div>
     <div class="item" id="battery"><div class="grow"><div class="t">Battery: Unrestricted</div><div class="d">Stops Android from closing Vox. Tap, find Vox, allow.</div></div><span style="color:var(--muted)">›</span></div>
   </div>
+  <h2>Sync between devices</h2>
+  <div class="card list">
+    <div class="item"><div class="grow"><div class="t">Sync voice notes with my relay</div><div class="d">Keeps your voice notes the same on your phone and PCs through a relay you run yourself (a small server, for example on a Raspberry Pi, reached over Tailscale). Needs its address and token</div></div><label class="switch"><input type="checkbox" id="relay-sync"><span></span></label></div>
+  </div>
+  <div class="card" id="relay-rows" style="margin-top:10px">
+    <label class="note" style="display:block;margin:0">Relay address</label>
+    <input type="text" id="relay-url" placeholder="https://yuvipi.your-tailnet.ts.net" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin:4px 0 0">
+    <div class="status" id="relay-url-status"></div>
+    <label class="note" style="display:block;margin:10px 0 0">Relay token</label>
+    <input type="password" id="relay-token" placeholder="paste the relay token" autocomplete="off" style="margin-top:4px">
+    <div class="row" style="margin-top:10px"><button class="btn ghost" id="relay-test" style="flex:1">Test connection</button></div>
+    <div class="status" id="relay-status"></div>
+    <div class="note">Stored only on this phone. Plain http works only for this phone, your local network and Tailscale.</div>
+    <label class="note" style="display:block;margin:14px 0 0">This phone's name</label>
+    <input type="text" id="device-name" placeholder="e.g. Pixel 7" autocomplete="off" style="margin-top:4px">
+    <div class="note">Shown on the relay's page and on the notes made here. Blank uses the phone model.</div>
+  </div>
+  <div class="card list" style="margin-top:10px">
+    <div class="item"><div class="grow"><div class="t">Also share my provider settings and API keys</div><div class="d">Off by default. When on, the AI provider, models and API keys are copied to your other devices through the relay, so anyone with the relay token can read them. Turning it off removes them from the relay. Your "About you" text, dictionary and people are always shared while sync is on</div></div><label class="switch"><input type="checkbox" id="relay-keys"><span></span></label></div>
+  </div>
   <button class="btn full danger" id="clear">Clear history</button>
   <p class="note" style="text-align:center;margin-top:18px" id="about-vox"></p>
 </section>
@@ -185,6 +222,7 @@ nav button.on .pill { background:var(--accent-soft); }
 
 <nav>
   <button data-p="home" class="on"><span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></span>Home</button>
+  <button data-p="notes"><span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/></svg></span>Notes</button>
   <button data-p="dict"><span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h11a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/></svg></span>Dictionary</button>
   <button data-p="styles"><span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h10M4 12h16M4 17h7"/></svg></span>Styles</button>
   <button data-p="settings"><span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></span>Settings</button>
@@ -195,12 +233,48 @@ nav button.on .pill { background:var(--accent-soft); }
 <div id="toast"></div>
 
 <script>
+// Browser preview only: a few voice notes kept in memory, and the bridge methods that work on them.
+function previewNotes() {
+  const now = Date.now() / 1000, ago = (h) => now - h * 3600;
+  let rec = false, busy = false, next = 1;
+  const notes = [
+    { id: "n1", title: "Call the dentist", text: "Call the dentist tomorrow morning and ask about moving the appointment to Friday.", created_at: ago(1), updated_at: ago(1), secs: 9.4, device: "Preview phone", tags: ["todo"] },
+    { id: "n2", title: "Launch ideas", text: "Ideas for the launch:\n- a short demo video\n- a post about why we built it\n- ask three friends to try it first\n- a FAQ page for the questions we expect\n- a changelog\n- something about privacy, because people ask", created_at: ago(5), updated_at: ago(5), secs: 41, device: "Preview phone", tags: ["work", "ideas"] },
+    { id: "n3", title: "Grocery list", text: "Milk, eggs, rice & lentils, <b>not bold</b>, and \"good\" bread.", created_at: ago(27), updated_at: ago(27), secs: 6, device: "laptop-uv", tags: [] },
+    { id: "n4", title: "", text: "A note with no title and one very long word: " + "supercalifragilistic".repeat(6), created_at: ago(24 * 10), updated_at: ago(24 * 10), secs: 0, device: "", tags: ["ideas"] },
+    { id: "n5", title: "Old note", text: "Something from a while ago.", created_at: ago(24 * 40), updated_at: ago(24 * 40), secs: 12, device: "Preview phone", tags: [] },
+  ];
+  const since = (p) => { const d = new Date(); d.setHours(0, 0, 0, 0); return p === "today" ? d.getTime() / 1000 : p === "week" ? now - 7 * 86400 : p === "month" ? now - 30 * 86400 : 0; };
+  return {
+    notesList: (q, p, tag) => {
+      const words = (q || "").toLowerCase().split(/\W+/).filter(Boolean);
+      return JSON.stringify(notes.filter(n => n.created_at >= since(p) && (!tag || n.tags.includes(tag)) && words.every(w => (n.title + " " + n.text).toLowerCase().includes(w))).sort((a, b) => b.created_at - a.created_at));
+    },
+    noteEdit: (id, title, text, tags) => {
+      const n = notes.find(x => x.id === id);
+      if (!n) return JSON.stringify({ error: "That note no longer exists." });
+      Object.assign(n, { title: title.trim(), text: text.trim(), updated_at: Date.now() / 1000 }); if (tags) n.tags = [...new Set(JSON.parse(tags).map(t => t.replace(/"/g, "").trim()).filter(Boolean))];
+      return JSON.stringify(n);
+    },
+    noteDelete: (id) => { const i = notes.findIndex(x => x.id === id); if (i < 0) return JSON.stringify({ error: "That note no longer exists." }); notes.splice(i, 1); return JSON.stringify({ ok: true }); },
+    noteToggle: () => {
+      if (busy) return JSON.stringify({ error: "Vox is still writing down the last recording. Try again in a moment." });
+      if (rec) { rec = false; busy = true; setTimeout(() => { busy = false; const t = Date.now() / 1000; notes.push({ id: "p" + next, title: "Preview note " + next, text: "A note recorded in the preview.", created_at: t, updated_at: t, secs: 3, device: "Preview phone", tags: [] }); next++; }, 1200); return JSON.stringify({ ok: true, action: "stop" }); }
+      rec = true; return JSON.stringify({ ok: true, action: "start" });
+    },
+    noteStatus: () => JSON.stringify({ recording: rec, busy }),
+    syncStatus: () => JSON.stringify({ enabled: !!(S && S.config.relay_sync), running: false, last_run: 0, last_ok: 0, error: "Relay sync is not built into this version of the app yet.", pushed: 0, pulled: 0 }),
+    syncNow: (cb) => setTimeout(() => window[cb](JSON.stringify({ ok: false, message: "Preview only" })), 300),
+    syncTest: (cb) => setTimeout(() => window[cb](JSON.stringify({ ok: false, message: "Relay sync is not built into this version of the app yet." })), 300),
+  };
+}
 const V = window.Vox || {   // browser preview fallback
-  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "" }, mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
+  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, device_name: "" }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
+  ...previewNotes(),
   save(){}, requestMic(){}, openAccessibility(){}, openAppInfo(){}, openBattery(){}, setService(){}, testKey(k, u, cb){ setTimeout(() => window[cb]("ok"), 300); }, listModels(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ models: [], error: "Preview only" })), 200); }, testRole(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ ok: true, message: "Preview only" })), 200); }, endpointProblem: () => "", suggestCorrections: (a, b) => JSON.stringify(a !== b ? [["vox", "Vox"]] : []), copy(){}, deleteHistory(){}, clearHistory(){}, openUrl(){}, toast(){}, apps: () => "[]", appLabel: (p) => p
 };
 const STYLES = [["neutral","Neutral"],["formal","Formal"],["casual","Casual"],["very_casual","Very casual"],["raw","Raw (no cleanup)"]];
-const TITLES = { home: ["Vox", ""], dict: ["Dictionary", ""], styles: ["Styles", ""], settings: ["Settings", ""] };
+const TITLES = { home: ["Vox", ""], notes: ["Voice notes", ""], dict: ["Dictionary", ""], styles: ["Styles", ""], settings: ["Settings", ""] };
 const GROQ_URL = "https://api.groq.com/openai/v1";
 let S = null, PAGE = "home";
 const FALLBACK_PRESETS = [{ id: "groq", name: "Groq (free tier)", base_url: GROQ_URL, key_url: "https://console.groq.com/keys", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b" },
@@ -317,6 +391,107 @@ $("history").onclick = (ev) => {
   const c = ev.target.closest("[data-copy]"), d = ev.target.closest("[data-del]");
   if (c) { const e = S.history.find(x => String(x.t) === c.dataset.copy); V.copy(e.text || e.clean); toast("Copied"); }
   if (d) { V.deleteHistory(Number(d.dataset.del)); S.history = S.history.filter(x => String(x.t) !== d.dataset.del); renderHome(); }
+};
+
+// ---------------- voice notes
+let TAG = "", NOTES = [], vnTimer = null, vnBusy = false, vnWaiting = false, vnArm = null;
+const noteMeta = (n) => [new Date(n.created_at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }), n.secs ? Math.round(n.secs) + " s" : "", n.device || ""].filter(Boolean).join(" · ");
+function renderNotes() {
+  let r;
+  try { r = JSON.parse(V.notesList($("vn-q").value.trim(), $("vn-period").value, TAG)); } catch (e) { r = { error: "The notes could not be read." }; }
+  $("vn-tagbar").innerHTML = TAG ? `<div class="tagrow"><button class="tag" id="vn-tag-clear">Tag: ${esc(TAG)} ×</button></div>` : "";
+  if (!Array.isArray(r)) { NOTES = []; $("vn-list").innerHTML = `<div class="card empty">${esc(r.error || "The notes could not be read.")}</div>`; return; }
+  NOTES = r;
+  if (!r.length) { $("vn-list").innerHTML = `<div class="card empty">${$("vn-q").value.trim() || TAG || $("vn-period").value !== "all" ? "No notes match." : "No voice notes yet. Tap New voice note and start talking."}</div>`; return; }
+  let html = "", day = "";
+  const today = new Date().toDateString(), yest = new Date(Date.now() - 864e5).toDateString();
+  r.forEach(n => {
+    const d = new Date(n.created_at * 1000), ds = d.toDateString();
+    if (ds !== day) { if (day) html += "</div>"; day = ds; html += `<div class="day">${ds === today ? "Today" : ds === yest ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</div><div class="card list">`; }
+    html += `<div class="entry" data-id="${esc(n.id)}"><div class="ntitle">${esc(n.title || "Untitled")}</div><div class="txt nt">${esc(n.text)}</div>`
+      + ((n.tags || []).length ? `<div class="tagrow">${n.tags.map(t => `<button class="tag" data-tag="${esc(t)}">${esc(t)}</button>`).join("")}</div>` : "")
+      + `<div class="meta"><span class="grow">${esc(noteMeta(n))}</span><button class="ib" data-act="copy" title="Copy">${ICON_COPY}</button><button class="ib" data-act="edit" title="Edit">${ICON_EDIT}</button><button class="ib" data-act="del" title="Delete">${ICON_DEL}</button></div></div>`;
+  });
+  $("vn-list").innerHTML = html + "</div>";
+}
+const agoText = (t) => { if (!t) return "never"; const s = Math.round(Date.now() / 1000 - t); return s < 10 ? "just now" : s < 90 ? s + " s ago" : s < 5400 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago"; };
+function renderSync() {
+  let s;
+  try { s = JSON.parse(V.syncStatus()); } catch (e) { return; }
+  const el = $("vn-sync");
+  $("vn-sync-now").hidden = !s.enabled;
+  el.className = "status grow" + (s.enabled && s.error ? " bad" : "");
+  el.textContent = !s.enabled ? "Sync is off (Settings, Sync between devices)." : s.running ? "Syncing…" : s.error ? "Not synced. " + s.error : "Synced " + agoText(s.last_ok);
+}
+window.syncDone = () => { if (PAGE === "notes") { renderSync(); renderNotes(); } };
+$("vn-sync-now").onclick = () => { $("vn-sync").className = "status grow"; $("vn-sync").textContent = "Syncing…"; V.syncNow("syncDone"); };
+// Follows the recording: expect > 0 while a just-requested start has not shown up yet (the service takes a moment).
+function pollNote(expect) {
+  clearTimeout(vnTimer);
+  if (PAGE !== "notes") return;
+  let s;
+  try { s = JSON.parse(V.noteStatus()); } catch (e) { return; }
+  const st = $("vn-status");
+  $("vn-toggle").textContent = s.recording ? "Finish note" : "New voice note";
+  if (s.recording || s.busy) {
+    vnBusy = true; vnWaiting = false;
+    st.className = "status"; st.textContent = s.recording ? "Recording… tap Finish note when you are done." : "Writing it down…";
+    vnTimer = setTimeout(() => pollNote(0), 800);
+  } else if (vnWaiting && expect > 0) {
+    st.className = "status"; st.textContent = "Starting…";
+    vnTimer = setTimeout(() => pollNote(expect - 1), 500);
+  } else {
+    if (vnWaiting) { st.className = "status bad"; st.textContent = "The recording did not start. Check the microphone permission and try again."; }
+    else st.textContent = "";
+    vnWaiting = false;
+    if (vnBusy) { vnBusy = false; renderNotes(); renderSync(); }
+  }
+}
+function enterNotes() { renderNotes(); renderSync(); pollNote(0); }
+$("vn-toggle").onclick = () => {
+  const r = JSON.parse(V.noteToggle());
+  if (r.error) { $("vn-status").className = "status bad"; $("vn-status").textContent = r.error; return; }
+  vnWaiting = r.action === "start";
+  pollNote(8);
+};
+$("vn-q").oninput = renderNotes;
+$("vn-period").onchange = renderNotes;
+$("vn-tagbar").onclick = () => { TAG = ""; renderNotes(); };
+function deleteNote(id) {
+  const r = JSON.parse(V.noteDelete(id));
+  toast(r.error || "Note deleted");
+  renderNotes();
+}
+function editNote(n) {
+  openSheet(`<h2 style="margin-top:6px">Edit note</h2>
+    <input type="text" id="vn-e-title" placeholder="Title" value="${esc(n.title)}">
+    <textarea id="vn-e-text" rows="8" placeholder="Text" style="margin-top:8px"></textarea>
+    <input type="text" id="vn-e-tags" placeholder="Tags, separated by commas" value="${esc((n.tags || []).join(", "))}" style="margin-top:8px" autocapitalize="off">
+    <div class="status" id="vn-e-status"></div>
+    <div class="row" style="margin-top:12px;gap:8px"><button class="btn" id="vn-e-save" style="flex:1">Save</button><button class="btn ghost" id="vn-e-cancel">Cancel</button></div>`);
+  $("vn-e-text").value = n.text;
+  $("vn-e-cancel").onclick = closeSheet;
+  $("vn-e-save").onclick = () => {
+    const tags = $("vn-e-tags").value.split(",").map(t => t.trim()).filter(Boolean);
+    const r = JSON.parse(V.noteEdit(n.id, $("vn-e-title").value, $("vn-e-text").value, JSON.stringify(tags)));
+    if (r.error) { $("vn-e-status").className = "status bad"; $("vn-e-status").textContent = r.error; return; }
+    closeSheet(); toast("Saved"); renderNotes();
+  };
+}
+$("vn-list").onclick = (ev) => {
+  const tg = ev.target.closest("[data-tag]");
+  if (tg) { TAG = tg.dataset.tag; renderNotes(); return; }
+  const b = ev.target.closest("[data-act]");
+  if (!b) { const t = ev.target.closest(".nt"); if (t) t.classList.toggle("open"); return; }
+  const id = b.closest("[data-id]").dataset.id, n = NOTES.find(x => x.id === id);
+  if (!n) return;
+  if (b.dataset.act === "copy") { V.copy(n.text); toast("Copied"); }
+  else if (b.dataset.act === "edit") editNote(n);
+  else if (b.classList.contains("confirm")) deleteNote(id);
+  else {   // a note cannot be brought back, so deleting takes two taps
+    b.classList.add("confirm"); b.textContent = "Delete?";
+    clearTimeout(vnArm); vnArm = setTimeout(() => { if (b.isConnected) { b.classList.remove("confirm"); b.innerHTML = ICON_DEL; } }, 3000);
+  }
 };
 
 // ---------------- dictionary
@@ -482,10 +657,40 @@ $("stt").onchange = (e) => save({ stt_model: e.target.value.trim() }, "Saved");
 $("llm").onchange = (e) => save({ llm_model: e.target.value.trim() }, "Saved");
 $("clear").onclick = () => { V.clearHistory(); S.history = []; toast("History cleared"); render(); };
 
+// ---------------- settings: sync between devices
+function renderRelay() {
+  const c = S.config;
+  $("relay-sync").checked = !!c.relay_sync; $("relay-keys").checked = !!c.relay_sync_keys;
+  setVal("relay-url", c.relay_url || ""); setVal("relay-token", c.relay_token || ""); setVal("device-name", c.device_name || "");
+  $("device-name").placeholder = S.device_default ? "Blank uses " + S.device_default : "e.g. Pixel 7";
+}
+$("relay-sync").onchange = (e) => { save({ relay_sync: e.target.checked }, "Saved"); if (e.target.checked) V.syncNow("syncDone"); };
+$("relay-keys").onchange = (e) => { save({ relay_sync_keys: e.target.checked }, "Saved"); V.syncNow("syncDone"); };
+$("relay-url").onchange = () => {
+  const v = $("relay-url").value.trim(), s = $("relay-url-status");
+  const problem = v ? V.endpointProblem(v) : "";
+  if (problem) { s.className = "status bad"; s.textContent = problem; return; }
+  s.textContent = ""; save({ relay_url: v }, "Saved");
+};
+$("relay-token").onchange = () => { save({ relay_token: $("relay-token").value.trim() }, "Saved"); $("relay-status").textContent = ""; };
+$("device-name").onchange = () => save({ device_name: $("device-name").value.trim() }, "Saved");
+window.relayResult = (json) => {
+  const r = JSON.parse(json), s = $("relay-status");
+  s.className = "status " + (r.ok ? "ok" : "bad"); s.textContent = r.message;
+};
+$("relay-test").onclick = () => {
+  const s = $("relay-status"), url = $("relay-url").value.trim(), token = $("relay-token").value.trim();
+  const problem = url ? V.endpointProblem(url) : "";
+  if (problem || !url || !token) { s.className = "status bad"; s.textContent = problem || "Enter the relay address and token first."; return; }
+  save({ relay_url: url, relay_token: token });   // the test uses the saved address and token
+  s.className = "status"; s.textContent = "Checking…";
+  V.syncTest("relayResult");
+};
+
 // ---------------- refresh
 function render() {
   if (!S) return;
-  if (PAGE === "home") renderHome(); else if (PAGE === "dict") renderDict(); else if (PAGE === "styles") renderStyles(); else renderSettings();
+  if (PAGE === "home") renderHome(); else if (PAGE === "notes") enterNotes(); else if (PAGE === "dict") renderDict(); else if (PAGE === "styles") renderStyles(); else { renderSettings(); renderRelay(); }
 }
 window.voxRefresh = () => {
   S = JSON.parse(V.state());

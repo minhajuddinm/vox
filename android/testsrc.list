@@ -12,3 +12,11 @@ android/src/com/minhaj/vox/NoteLogic.java
 android/src/com/minhaj/vox/Note.java
 android/src/com/minhaj/vox/SyncStore.java
 android/src/com/minhaj/vox/ProfileMerge.java
+android/src/com/minhaj/vox/NoteEvents.java
+android/src/com/minhaj/vox/PlainJson.java
+android/src/com/minhaj/vox/RelayApi.java
+android/src/com/minhaj/vox/SyncConfig.java
+android/src/com/minhaj/vox/SyncResult.java
+android/src/com/minhaj/vox/ProfileMap.java
+android/src/com/minhaj/vox/SyncEngine.java
+android/src/com/minhaj/vox/RelayClient.java

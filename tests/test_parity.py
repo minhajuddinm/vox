@@ -96,5 +96,7 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert merged_value(f[0], f[1], f[2]) == f[3]
     elif kind == "profilefields":
         assert "|".join(sync.PROFILE_KEY_FIELDS if f[0] == "keys" else sync.PROFILE_FIELDS) == f[1]
+    elif kind == "devname":
+        assert sync.device_name({"device_name": f[0]}) == f[1]
     else:
         pytest.fail(f"unknown case kind {kind}")

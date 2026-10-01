@@ -1,8 +1,11 @@
 package com.minhaj.vox;
 
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.GregorianCalendar;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.TimeZone;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -68,12 +71,15 @@ final class NoteLogic {
         return out.toString();
     }
 
-    /** Tags as stored: trimmed, no empty ones, no repeats (the first stays), at most {@link #MAX_TAGS}. A new list. */
+    /**
+     * Tags as stored: double quotes removed, then trimmed, no empty ones, no repeats (the first stays), at most
+     * {@link #MAX_TAGS}. A new list. Same rule as notes._tags.
+     */
     static List<String> cleanTags(List<String> tags) {
         LinkedHashSet<String> out = new LinkedHashSet<>();
         if (tags != null) {
             for (String t : tags) {
-                String s = strip(t);
+                String s = strip(t == null ? null : t.replace("\"", ""));
                 if (!s.isEmpty()) out.add(s);
                 if (out.size() == MAX_TAGS) break;
             }
@@ -106,6 +112,45 @@ final class NoteLogic {
         }
         if (start >= 0) out.add(text.substring(start));
         return out;
+    }
+
+    /** The longest device name, in code points (sync.device_name cuts at 60 characters). */
+    static final int MAX_DEVICE_NAME = 60;
+
+    /** What a phone calls itself when nothing else is known. */
+    static final String DEFAULT_DEVICE_NAME = "android-phone";
+
+    /**
+     * The name this phone shows on the relay and puts on the notes it records (sync.device_name): the name the user
+     * typed, else the phone model, else "android-phone"; trimmed the Python way, then cut at 60 code points (not
+     * UTF-16 units, so a pair of surrogates is never split) and not trimmed again.
+     */
+    static String deviceName(String typed, String model) {
+        String name = strip(typed);
+        if (name.isEmpty()) name = strip(model);
+        if (name.isEmpty()) name = DEFAULT_DEVICE_NAME;
+        if (name.codePointCount(0, name.length()) > MAX_DEVICE_NAME) {
+            name = name.substring(0, name.offsetByCodePoints(0, MAX_DEVICE_NAME));
+        }
+        return name;
+    }
+
+    /**
+     * The "created since" bound of the Voice notes period filter, in Unix seconds: "today" is the start of today in
+     * {@code tz}, "week" is 7 days before {@code nowSecs} and "month" 30 days before it. Null (no bound) for "all"
+     * and anything else. The same periods as Api.notes_list in windows/ui_app.py.
+     */
+    static Double periodStart(String period, double nowSecs, TimeZone tz) {
+        if ("week".equals(period)) return nowSecs - 7 * 86400;
+        if ("month".equals(period)) return nowSecs - 30 * 86400;
+        if (!"today".equals(period)) return null;
+        Calendar c = new GregorianCalendar(tz);   // not getInstance: a locale can pick another calendar system
+        c.setTimeInMillis((long) Math.floor(nowSecs * 1000));
+        c.set(Calendar.HOUR_OF_DAY, 0);
+        c.set(Calendar.MINUTE, 0);
+        c.set(Calendar.SECOND, 0);
+        c.set(Calendar.MILLISECOND, 0);
+        return c.getTimeInMillis() / 1000.0;
     }
 
     /** Python's {@code s.strip()}; null counts as "". The store saves the text and the title of a note this way. */

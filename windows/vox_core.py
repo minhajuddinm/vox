@@ -42,6 +42,7 @@ DEFAULT_CONFIG = {
     "relay_url": "",
     "relay_token": "",
     "relay_sync_keys": False,
+    "relay_proxy": False,
     "relay_run": False,
     "relay_port": 8765,
     "stream_stt": True,
@@ -481,12 +482,26 @@ def auth_headers(cfg, role=None):
     return {"Authorization": f"Bearer {key}"} if key else {}
 
 
-def check_response(r):
+def _error_message(r):
+    """The text of an API error: {"error": {"message": ...}} (OpenAI style, also the relay's 502), {"error": "text"}
+    (the relay's 411, 413, 429 and 503), or else the raw body."""
+    try:
+        e = r.json()["error"]
+        msg = e["message"] if isinstance(e, dict) else e
+        if isinstance(msg, str) and msg:
+            return msg
+    except Exception:
+        pass
+    return r.text
+
+
+def check_response(r, via_relay=False):
+    """The JSON answer, or an ApiError. `via_relay`: the request went through the relay (see providers.role_settings),
+    so a 401 or 403 also says where to look."""
     if r.status_code >= 400:
-        try:
-            msg = r.json()["error"]["message"]
-        except Exception:
-            msg = r.text
+        msg = _error_message(r)
+        if via_relay and r.status_code in (401, 403):
+            msg = f"{msg} ({providers.RELAY_HINT})"
         raise ApiError(r.status_code, f"API {r.status_code}: {msg}")
     return r.json()
 
@@ -508,8 +523,10 @@ def endpoint_error(cfg):
     """Why the configured endpoint cannot be used, or '' when it is fine.
 
     The API key and your voice go to this address, so plain http is only allowed for private hosts.
+    With the relay as the AI server the relay's address is the only one used (and the one the relay token goes to).
     """
-    for field in ("base_url", "stt_base_url", "llm_base_url"):
+    fields = ("relay_url",) if providers.uses_relay(cfg) else ("base_url", "stt_base_url", "llm_base_url")
+    for field in fields:
         url = (cfg.get(field) or "").strip()
         if not url:
             continue
@@ -543,7 +560,7 @@ def transcribe(cfg, wav_bytes, context=""):
         files={"file": ("audio.wav", wav_bytes, "audio/wav")},
         timeout=60,
     )
-    return check_response(r).get("text", "").strip()
+    return check_response(r, providers.uses_relay(cfg)).get("text", "").strip()
 
 
 def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
@@ -564,7 +581,7 @@ def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
         files={"file": ("audio.wav", wav_bytes, "audio/wav")},
         timeout=180,
     )
-    res = check_response(r)
+    res = check_response(r, providers.uses_relay(cfg))
     segs = res.get("segments") or []
     if not segs and res.get("text"):
         return [{"start": 0.0, "end": 0.0, "text": res["text"].strip(), "logprob": 0.0, "no_speech": 0.0, "compression": 1.0}]
@@ -597,7 +614,7 @@ def cleanup(cfg, raw, style, app_label):
         for k in extra:
             body.pop(k, None)
         r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=60)
-    text = check_response(r)["choices"][0]["message"].get("content", "")
+    text = check_response(r, providers.uses_relay(cfg))["choices"][0]["message"].get("content", "")
     return sanitize(providers.strip_think(text))
 
 

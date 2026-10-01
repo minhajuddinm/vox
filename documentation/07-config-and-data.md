@@ -22,8 +22,9 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `user_context` | string | `""` | Free text about the user (work, projects, style, terms) added to every cleanup request; at most 8,000 characters are used. |
 | `relay_sync` | bool | `false` | Sync voice notes with a relay (see [14-relay.md](14-relay.md)). |
 | `relay_url` | string | `""` | Address of the relay (for example `https://yuvipi.your-tailnet.ts.net`). Same rule as the server address: plain http only for private hosts. |
-| `relay_token` | string | `""` | The relay's bearer token. DPAPI-protected like the API keys. |
+| `relay_token` | string | `""` | The relay's bearer token. DPAPI-protected like the API keys. It is also the key of both roles while `relay_proxy` is on. |
 | `relay_sync_keys` | bool | `false` | Also share the provider settings and API keys through the relay (`provider`, `base_url`, `stt_base_url`, `llm_base_url`, `stt_model`, `llm_model`, `llm_reasoning`, `api_key`, `stt_api_key`, `llm_api_key`). Off removes them from the relay on the next sync. |
+| `relay_proxy` | bool | `false` | "Use my relay as the AI server" (Settings, AI provider). On, with `relay_url` and `relay_token` filled in, speech and cleanup calls go to `<relay_url>/proxy/stt` and `<relay_url>/proxy/llm` with the relay token as the key, and the provider address and key settings are not used (they can stay saved). On without a relay filled in, the normal provider settings are used and Settings shows "Turn on the relay first". Never synced; this device only. See [06-pipeline.md](06-pipeline.md) and [14-relay.md](14-relay.md). |
 | `relay_run` | bool | `false` | Run a relay on this PC while Vox is running (the tray item "Run relay on this PC" sets it). The engine starts `Vox.exe --relay` as a child process and stops it when Vox quits. Never synced. See [14-relay.md](14-relay.md). |
 | `relay_port` | int | `8765` | Port the PC's own relay listens on (127.0.0.1 only); the relay's own default. An unusable value means 8765. Publish it with `tailscale serve --bg PORT`. Never synced. |
 | `stream_stt` | bool | `true` | Send long recordings to speech-to-text in pieces while the user is still speaking (recordings shorter than about 13 s are unaffected). |
@@ -31,7 +32,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `language` | string | `""` | Whisper language code; empty = auto detect. |
 | `input_device` | string | `""` | Microphone name for dictation; empty = Windows default. Not used by meeting notes. |
 | `cleanup` | bool | `true` | Run the AI cleanup. |
-| `cleanup_min_words` | int | `3` | Phrases with fewer words than this skip the AI cleanup (1 to 20; an unusable value counts as 3). |
+| `cleanup_min_words` | int | `3` | Phrases with fewer words than this skip the AI cleanup (a whole number, clamped to 1 to 20; a value that is not a whole number counts as 3). Not part of the synced profile. |
 | `keep_history` | bool | `true` | Save dictations to `history.jsonl`. |
 | `default_style` | string | `neutral` | `formal`, `casual`, `very_casual`, `neutral`, `raw`. |
 | `dictionary` | list of strings | `[]` | Terms and `wrong => right` lines. |
@@ -48,7 +49,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `keep_audio` | bool | absent (false) | Keep the raw meeting audio after the notes are written. |
 | `notes_folder` | string | absent | Where a copy of each meeting's notes is written (default `Documents\Vox Notes`). |
 
-Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_device`, `language`, `cleanup`, `cleanup_min_words`, `keep_history`, `keep_clipboard`, `your_name`, `my_email`, `auto_notes`, `provider`, `stt_base_url`, `stt_api_key`, `llm_base_url`, `llm_api_key`, `stt_model`, `llm_model`, `default_style`, `app_styles`, `dictionary`, `people`, `calendar_url`. The others (`notes_model`, `final_stt_model`, `final_pass`, `keep_audio`, `notes_folder`) are only settable by editing the file.
+Settings shown in the Windows window: `relay_proxy`, `api_key`, `base_url`, `hotkey`, `input_device`, `language`, `cleanup`, `cleanup_min_words`, `keep_history`, `keep_clipboard`, `your_name`, `my_email`, `auto_notes`, `provider`, `stt_base_url`, `stt_api_key`, `llm_base_url`, `llm_api_key`, `stt_model`, `llm_model`, `default_style`, `app_styles`, `dictionary`, `people`, `calendar_url`. The others (`notes_model`, `final_stt_model`, `final_pass`, `keep_audio`, `notes_folder`) are only settable by editing the file.
 
 ## Android preferences (SharedPreferences file `vox`, private to the app)
 
@@ -63,9 +64,13 @@ Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_de
 | `stt_api_key`, `llm_api_key` | string | blank | Key for that role's own server; used only with its own address. |
 | `user_context` | string | blank | Same as the Windows setting: background text added to every cleanup request. |
 | `language` | string | `""` | Whisper language code. |
-| `device_name` | string | `""` | This phone's name on the notes it records and on the relay; blank uses the phone model (`Build.MODEL`). Trimmed, at most 60 characters (`Prefs.deviceName`). |
-| `dictionary` | string (lines) | comment header | Terms and `wrong => right` lines, one per line. |
-| `people` | string (lines) | `""` | Names, one per line. |
+| `device_name` | string | `""` | This phone's name on the notes it records and on the relay; blank uses the phone model (`Build.MODEL`), and `android-phone` when that is empty too. Trimmed, at most 60 code points (`Prefs.deviceName`, the rule of `NoteLogic.deviceName`). Set in Settings, Sync between devices. |
+| `relay_sync` | bool | `false` | Sync voice notes with a relay (the Settings switch "Sync voice notes with my relay"). Read with `Prefs.relaySync`. |
+| `relay_url` | string | `""` | Address of the relay. Saved only when `Endpoint.error` accepts it (plain http only for private hosts); a trailing slash is removed. Read with `Prefs.relayUrl`. |
+| `relay_token` | string | `""` | The relay's bearer token. A secret like `api_key`: stored in these private preferences only, never logged. Read with `Prefs.relayToken`. |
+| `relay_sync_keys` | bool | `false` | Also share the provider settings and API keys through the relay ("Also share my provider settings and API keys"): `provider`, `base_url`, `stt_base_url`, `llm_base_url`, `stt_model`, `llm_model`, `api_key`, `stt_api_key`, `llm_api_key` (not `llm_reasoning`, which the phone has no setting for). Off removes them from the relay on the next sync. Read with `Prefs.relaySyncKeys`. |
+| `dictionary` | string (lines) | comment header | Terms and `wrong => right` lines, one per line. With relay sync it is shared as a list of text, without the comment lines (`ProfileMap`). |
+| `people` | string (lines) | `""` | Names, one per line. Shared like `dictionary`. |
 | `app_styles` | string (lines) | `Prefs.DEFAULT_APP_STYLES` | `package = style` per line. |
 | `default_style` | string | `neutral` | Style for other apps. |
 | `cleanup` | bool | `true` | Run the AI cleanup. |
@@ -73,6 +78,9 @@ Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_de
 | `keep_history` | bool | `true` | Save dictations. |
 | `only_typing` | bool | `true` | Show the bubble only while a text field is focused. |
 | `bubble_x`, `bubble_y` | int | -1 (default spot) | Saved bubble position. |
+| `note_bubble` | bool | `false` | Show the second, always-visible bubble that starts and stops a voice note (drawn by the accessibility service, independent of the focused field and of `only_typing`). |
+| `note_bubble_x`, `note_bubble_y` | int | -1 (default spot: right edge, 55% down) | Saved position of the note bubble. |
+| `note_notification` | bool | `false` | Keep an ongoing "Record note" notification in the shade. `Bridge.state` reports `note_bubble` and `note_notification`; `Bridge.save` accepts them. |
 | `history` | string (JSON array) | `[]` | Up to 500 entries, newest first. |
 
 ## Relay settings (`relay.json` in the relay's data folder: Windows `%APPDATA%\VoxRelay`, macOS `~/Library/Application Support/VoxRelay`, otherwise `~/.local/share/vox-relay`)
@@ -97,7 +105,7 @@ The relay's data lives next to it in `relay.db` (SQLite: tables `notes` with a `
 | `notes.db` (+ `notes.db-wal`, `notes.db-shm`) | engine, window | SQLite, table `notes`: `id` (32 hex chars), `source` (`voice note`), `title`, `text`, `raw`, `created_at` and `updated_at` (Unix seconds), `secs`, `device`, `tags` (JSON list), `deleted` (0 or 1; a deleted note keeps only the marker row). Sync columns: `dirty` (1 = changed here and not yet accepted by the relay; notes from before sync count as changed) and `seq` (the relay's sequence number, 0 if unknown). Table `sync_meta` (`key`, `value`) holds `relay_cursor`, `profile_version` and `profile_snapshot` (the shared settings as of the last profile sync). Table `notes_fts` (FTS5: `id`, `title`, `text`) exists when SQLite has FTS5. Not encrypted. |
 | `vox.log`, `vox.log.1`, `vox.log.2` | engine | Rotating log (1 MB each). |
 | `window.log` (+ backups) | window | Same for the window process. |
-| `relay.log` (+ backups) | `Vox.exe --relay` | Same for the relay process started by the tray item; holds the traceback if the relay cannot start (for example the port is taken). |
+| `relay.log` (+ backups) | `Vox.exe --relay` | Same for the relay process started by the tray item; holds the traceback when the relay crashes or cannot start (for example its data folder cannot be created; checked: exit code 1 and an `uncaught` traceback). A taken port is not such a case on Windows: the relay binds with `SO_REUSEADDR`, so it does not fail, and the app checks the port itself before starting and says so in a tray notification ([14-relay.md](14-relay.md)). |
 | `engine.json` | engine | `{"port", "token", "pid"}` for the control server. Deleted on quit. |
 | `calendar.json` | `vcalendar` | Cached events `{"source", "events", "error", "fetched"}` (5 minutes). |
 | `google_token.json` | `gcal` | `{"refresh_token", "access_token", "expires", "email"}`. Plain JSON. |
@@ -109,7 +117,7 @@ Files written by the app while it runs: `history.jsonl` is appended; `config.jso
 
 ## Files on the phone
 
-The SharedPreferences file above, plus `cache/vox_pending.wav` while a dictation is waiting to be sent or retried (deleted on success, on cancel, and when the service stops), plus the voice notes database `databases/notes.db` (with `notes.db-wal` and `notes.db-shm` while it is open; created by `NotesStore` the first time it is used). It has the same tables and columns as `notes.db` on the PC (see above): `notes` (`id`, `source`, `title`, `text`, `raw`, `created_at`, `updated_at`, `secs`, `device`, `tags`, `deleted`, `dirty`, `seq`), `sync_meta` (`key`, `value`) and, when the phone's SQLite has FTS5, `notes_fts`. A note's `id` is 32 lowercase hex characters and times are Unix seconds. Not encrypted; the app does not allow Android backup (`allowBackup="false"`), so the database is not copied to Google's cloud.
+The SharedPreferences file above, plus `cache/vox_pending.wav` while a dictation or a voice note is waiting to be sent or retried (deleted on success, on cancel, and when the service stops), plus the voice notes database `databases/notes.db` (with `notes.db-wal` and `notes.db-shm` while it is open; created by `NotesStore` the first time it is used). It has the same tables and columns as `notes.db` on the PC (see above): `notes` (`id`, `source`, `title`, `text`, `raw`, `created_at`, `updated_at`, `secs`, `device`, `tags`, `deleted`, `dirty`, `seq`), `sync_meta` (`key`, `value`) and, when the phone's SQLite has FTS5, `notes_fts`. A note's `id` is 32 lowercase hex characters and times are Unix seconds. Notes recorded on the phone (note mode) are added by `DictationService` with `source` `voice note`, the cleaned text in `text`, the transcript before cleanup in `raw`, `secs` from the recording and `device` from `Prefs.deviceName()`. On the phone `sync_meta` holds `relay_cursor` (the relay's sequence number up to which notes were fetched, written after every page), `profile_version` and `profile_snapshot` (the shared settings as of the last profile sync, as JSON written by `PlainJson`; a damaged value counts as none); the relay sync reads and writes them (see [05-android-app.md](05-android-app.md), "Relay sync"). Not encrypted; the app does not allow Android backup (`allowBackup="false"`), so the database is not copied to Google's cloud.
 
 ## Never commit
 

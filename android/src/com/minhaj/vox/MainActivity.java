@@ -14,7 +14,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
+import android.util.Log;
 import android.view.View;
 import android.view.Window;
 import android.webkit.JavascriptInterface;
@@ -31,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.TimeZone;
 
 /** The app screen: a local HTML UI (assets/index.html) with a small Java bridge for settings and setup. */
 public class MainActivity extends Activity {
@@ -69,6 +72,7 @@ public class MainActivity extends Activity {
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 2);
         }
+        NoteEntry.applySettings(this);   // brings the "Record note" notification back (Android 14 lets users swipe it away)
     }
 
     private boolean isDark() {
@@ -81,6 +85,15 @@ public class MainActivity extends Activity {
         super.onResume();
         refreshJs();
         main.postDelayed(this::refreshJs, 700);
+        // settings another device changed arrive while the page is open: show them (a stale page could save over them)
+        SyncWorker.setProfileListener(() -> main.post(this::refreshJs));
+        SyncWorker.kick(this);
+    }
+
+    @Override
+    protected void onPause() {
+        SyncWorker.setProfileListener(null);
+        super.onPause();
     }
 
     @Override
@@ -121,17 +134,25 @@ public class MainActivity extends Activity {
                 cfg.put("cleanup_min_words", ApiClient.cleanMinWords(prefs.cleanupMinWords()));
                 cfg.put("keep_history", prefs.keepHistory());
                 cfg.put("only_typing", prefs.onlyWhenTyping());
+                cfg.put("note_bubble", prefs.noteBubble());
+                cfg.put("note_notification", prefs.noteNotification());
                 cfg.put("default_style", prefs.defaultStyle());
                 cfg.put("stt_model", prefs.sttModel());
                 cfg.put("llm_model", prefs.llmModel());
                 cfg.put("provider", prefs.provider());
                 cfg.put("user_context", prefs.userContext());
                 for (String f : new String[]{"stt_base_url", "stt_api_key", "llm_base_url", "llm_api_key"}) cfg.put(f, prefs.raw(f));
+                cfg.put("relay_sync", prefs.relaySync());
+                cfg.put("relay_url", prefs.relayUrl());
+                cfg.put("relay_token", prefs.relayToken());
+                cfg.put("relay_sync_keys", prefs.relaySyncKeys());
+                cfg.put("device_name", prefs.raw("device_name"));
                 cfg.put("dictionary", lines(prefs.dictionaryRaw()));
                 cfg.put("people", lines(prefs.peopleRaw()));
                 cfg.put("app_styles", appStyles());
                 o.put("config", cfg);
                 o.put("presets", Providers.presetsJson());
+                o.put("device_default", NoteLogic.deviceName("", Build.MODEL));   // the name used while Settings has none typed
                 o.put("mic", checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED);
                 o.put("a11y", VoxAccessibilityService.instance != null);
                 o.put("service", DictationService.instance != null);
@@ -158,6 +179,8 @@ public class MainActivity extends Activity {
                 if (c.has("cleanup_min_words")) e.putString("cleanup_min_words", String.valueOf(ApiClient.cleanMinWords(c.getString("cleanup_min_words"))));
                 if (c.has("keep_history")) e.putBoolean("keep_history", c.getBoolean("keep_history"));
                 if (c.has("only_typing")) e.putBoolean("only_typing", c.getBoolean("only_typing"));
+                if (c.has("note_bubble")) e.putBoolean("note_bubble", c.getBoolean("note_bubble"));
+                if (c.has("note_notification")) e.putBoolean("note_notification", c.getBoolean("note_notification"));
                 if (c.has("default_style")) e.putString("default_style", c.getString("default_style"));
                 if (c.has("stt_model")) e.putString("stt_model", c.getString("stt_model"));
                 if (c.has("llm_model")) e.putString("llm_model", c.getString("llm_model"));
@@ -168,6 +191,11 @@ public class MainActivity extends Activity {
                 }
                 if (c.has("stt_api_key")) e.putString("stt_api_key", c.getString("stt_api_key").trim());
                 if (c.has("llm_api_key")) e.putString("llm_api_key", c.getString("llm_api_key").trim());
+                if (c.has("relay_sync")) e.putBoolean("relay_sync", c.getBoolean("relay_sync"));
+                if (c.has("relay_sync_keys")) e.putBoolean("relay_sync_keys", c.getBoolean("relay_sync_keys"));
+                if (c.has("relay_url") && Endpoint.error(text(c, "relay_url")) == null) e.putString("relay_url", Endpoint.normalize(text(c, "relay_url")));
+                if (c.has("relay_token")) e.putString("relay_token", text(c, "relay_token").trim());
+                if (c.has("device_name")) e.putString("device_name", text(c, "device_name").trim());
                 if (c.has("dictionary")) e.putString("dictionary", join(c.getJSONArray("dictionary")));
                 if (c.has("people")) e.putString("people", join(c.getJSONArray("people")));
                 if (c.has("app_styles")) {
@@ -178,7 +206,12 @@ public class MainActivity extends Activity {
                     e.putString("app_styles", sb.toString());
                 }
                 e.apply();
-                main.post(() -> { VoxAccessibilityService a = VoxAccessibilityService.instance; if (a != null) a.refreshVisibility(); });
+                SyncWorker.kick(MainActivity.this);   // the profile settings may have changed, or sync was just switched on
+                main.post(() -> {
+                    VoxAccessibilityService a = VoxAccessibilityService.instance;
+                    if (a != null) a.refreshVisibility();   // also shows or hides the note bubble
+                    NoteEntry.applySettings(MainActivity.this);   // and posts or removes the "Record note" notification
+                });
             } catch (Exception ignored) { }
         }
 
@@ -371,9 +404,197 @@ public class MainActivity extends Activity {
                 return pkg;
             }
         }
+
+        // ------------------------------------------------------------ voice notes
+        // JavaScript may pass null for any string: every argument goes through nz() before it reaches the store.
+
+        /**
+         * Voice notes, newest first, as a JSON array of {id, title, text, created_at, updated_at, secs, device, tags}.
+         * `period` is all, today, week or month; a blank `tag` filters nothing. Answers {"error": ...} when the notes
+         * cannot be read.
+         */
+        @JavascriptInterface
+        public String notesList(String query, String period, String tag) {
+            try {
+                String t = nz(tag).trim();
+                Double since = NoteLogic.periodStart(nz(period), System.currentTimeMillis() / 1000.0, TimeZone.getDefault());
+                JSONArray out = new JSONArray();
+                for (Note n : NotesStore.get(MainActivity.this).search(nz(query), Note.SOURCE_NOTE, since, null,
+                        t.isEmpty() ? null : t, NOTES_LIMIT)) {
+                    out.put(noteJson(n));
+                }
+                return out.toString();
+            } catch (Exception e) {
+                Log.w("vox", "notes list failed: " + e.getClass().getSimpleName());
+                return errorJson("The notes could not be read.");
+            }
+        }
+
+        /**
+         * Changes a note's title, text and tags (`tagsJson` is a JSON array of strings; blank keeps the current tags).
+         * Answers the note as it is now, or {"error": ...}.
+         */
+        @JavascriptInterface
+        public String noteEdit(String id, String title, String text, String tagsJson) {
+            try {
+                List<String> tags = null;
+                String tj = nz(tagsJson).trim();
+                if (!tj.isEmpty()) {
+                    JSONArray a = new JSONArray(tj);
+                    tags = new ArrayList<>();
+                    for (int i = 0; i < a.length(); i++) tags.add(a.isNull(i) ? "" : a.optString(i));
+                }
+                Note n = NotesStore.get(MainActivity.this).update(nz(id), nz(title), nz(text), tags);
+                return n == null ? errorJson("That note no longer exists.") : noteJson(n).toString();
+            } catch (Exception e) {
+                Log.w("vox", "note edit failed: " + e.getClass().getSimpleName());
+                return errorJson("The note could not be saved.");
+            }
+        }
+
+        /** Deletes a note (its marker stays so a sync can tell the other devices). Answers {"ok": true} or {"error": ...}. */
+        @JavascriptInterface
+        public String noteDelete(String id) {
+            try {
+                return NotesStore.get(MainActivity.this).delete(nz(id)) ? "{\"ok\":true}" : errorJson("That note no longer exists.");
+            } catch (Exception e) {
+                Log.w("vox", "note delete failed: " + e.getClass().getSimpleName());
+                return errorJson("The note could not be deleted.");
+            }
+        }
+
+        /**
+         * Starts a voice note, or finishes the one being recorded. Answers {"ok": true, "action": "start" or "stop"},
+         * or {"error": ...} when it cannot start. Like a bubble tap it starts the dictation service if needed (this
+         * activity is on screen, which is what lets the microphone open); the recording itself starts a moment later,
+         * so the page polls noteStatus.
+         */
+        @JavascriptInterface
+        public String noteToggle() {
+            final DictationService svc = DictationService.instance;
+            int st = svc == null ? DictationService.IDLE : svc.getState();
+            if (st == DictationService.RECORDING) {
+                main.post(svc::stopRecording);
+                return "{\"ok\":true,\"action\":\"stop\"}";
+            }
+            if (st == DictationService.PROCESSING) return errorJson("Vox is still writing down the last recording. Try again in a moment.");
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                return errorJson("Allow the microphone first (Home, Set up).");
+            }
+            String problem = Endpoint.error(prefs.role(Providers.STT)[0]);
+            if (problem == null) problem = Endpoint.error(prefs.role(Providers.LLM)[0]);
+            if (problem != null) return errorJson(problem);
+            if (prefs.keyMissing()) return errorJson("Add your API key in Settings first.");
+            main.post(() -> {
+                try {
+                    if (svc != null) {
+                        svc.startRecording(null, NOTE_LABEL, DictationService.DEST_NOTE);
+                    } else {
+                        startForegroundService(new Intent(MainActivity.this, DictationService.class)
+                                .putExtra(DictationService.EXTRA_START, true)
+                                .putExtra(DictationService.EXTRA_LABEL, NOTE_LABEL)
+                                .putExtra(DictationService.EXTRA_DEST, DictationService.DEST_NOTE)
+                                .putExtra(DictationService.EXTRA_TAP_AT, SystemClock.elapsedRealtime()));
+                    }
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "Could not start the voice note", Toast.LENGTH_SHORT).show();
+                }
+            });
+            return "{\"ok\":true,\"action\":\"start\"}";
+        }
+
+        /** {"recording": bool, "busy": bool}: the dictation service is recording, or is writing the recording down. */
+        @JavascriptInterface
+        public String noteStatus() {
+            DictationService svc = DictationService.instance;
+            int st = svc == null ? DictationService.IDLE : svc.getState();
+            JSONObject o = new JSONObject();
+            put(o, "recording", st == DictationService.RECORDING);
+            put(o, "busy", st == DictationService.PROCESSING);
+            return o.toString();
+        }
+
+        // ------------------------------------------------------------ relay sync (SyncWorker runs it, see there)
+
+        /**
+         * {"enabled", "running", "last_run", "last_ok", "error", "pushed", "pulled"}, the same fields as the Windows app's
+         * /sync/status. {@code enabled} is the switch on with an address and a token; the times are Unix seconds (0 when
+         * there was no run yet in this process) and {@code error} is "" after a run that went through.
+         */
+        @JavascriptInterface
+        public String syncStatus() {
+            JSONObject o = new JSONObject();
+            put(o, "enabled", SyncWorker.enabled(prefs));
+            put(o, "running", SyncWorker.running());
+            put(o, "last_run", SyncWorker.lastRun());
+            put(o, "last_ok", SyncWorker.lastOk());
+            put(o, "error", SyncWorker.error());
+            put(o, "pushed", SyncWorker.pushed());
+            put(o, "pulled", SyncWorker.pulled());
+            return o.toString();
+        }
+
+        /** Runs a sync and answers callback("{ok, message}") when it is over; the page then reads syncStatus. */
+        @JavascriptInterface
+        public void syncNow(String callback) {
+            SyncWorker.syncNow(MainActivity.this, r -> answerSync(callback, r.ok(), r.ok() ? "Synced." : r.error));
+        }
+
+        /** Tries the saved relay address and token and answers callback("{ok, message}"). */
+        @JavascriptInterface
+        public void syncTest(String callback) {
+            final String url = prefs.relayUrl(), token = prefs.relayToken(), device = prefs.deviceName();
+            new Thread(() -> {
+                RelayClient.Check c = RelayClient.check(url, token, device);
+                answerSync(callback, c.ok, c.message);
+            }, "vox-sync-test").start();
+        }
+
+        private void answerSync(String callback, boolean ok, String message) {
+            JSONObject res = new JSONObject();
+            put(res, "ok", ok);
+            put(res, "message", message);
+            js(callback + "(" + JSONObject.quote(res.toString()) + ")");
+        }
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /** The most notes the Voice notes page lists at once (the Windows page lists the same number). */
+    private static final int NOTES_LIMIT = 200;
+
+    /** The "app" a voice note is recorded for, in the cleanup request: the note is not typed into another app. */
+    private static final String NOTE_LABEL = "Vox";
+
+    /** A string that may be null (JavaScript null) as "". */
+    private static String nz(String s) {
+        return s == null ? "" : s;
+    }
+
+    /** A string field of a settings object; a missing or JSON null value counts as "" (never the text "null"). */
+    private static String text(JSONObject o, String key) throws Exception {
+        return o.isNull(key) ? "" : o.getString(key);
+    }
+
+    private static String errorJson(String message) {
+        try {
+            return new JSONObject().put("error", message).toString();
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    private static JSONObject noteJson(Note n) throws Exception {
+        return new JSONObject()
+                .put("id", n.id)
+                .put("title", n.title)
+                .put("text", n.text)
+                .put("created_at", n.createdAt)
+                .put("updated_at", n.updatedAt)
+                .put("secs", n.secs)
+                .put("device", n.device)
+                .put("tags", new JSONArray(n.tags));
+    }
 
     private static JSONArray lines(String raw) {
         JSONArray a = new JSONArray();

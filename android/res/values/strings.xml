@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Vox</string>
+    <string name="tile_note_label">Voice note</string>
     <string name="a11y_label">Vox dictation bubble</string>
     <string name="a11y_description">Shows a floating mic bubble when you are typing and inserts your dictated text into the focused text field. Vox reads only the focused text field and the name of the current app. Audio is sent to the speech server you set in Vox (Groq by default) with your own API key.</string>
 </resources>

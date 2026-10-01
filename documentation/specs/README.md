@@ -16,5 +16,6 @@ The roadmap these come from (v2: any provider, lighter, faster, personal context
 | [p7c-windows-sync-client.md](p7c-windows-sync-client.md) | Windows sync client for voice notes | Implemented (PR 14) |
 | [p7d-profile-sync.md](p7d-profile-sync.md) | Profile sync (About you, dictionary, people, optional keys) | Implemented (PR 15) |
 | [p2b-stream-long-dictations.md](p2b-stream-long-dictations.md) | Send long recordings in pieces while speaking | Implemented |
+| [p8c-quick-wins.md](p8c-quick-wins.md) | Quick wins: one Java test runner and compile check, `GroqClient` renamed `ApiClient`, `cleanup_min_words`, the relay run from the Windows app | Implemented (not run as a built exe or on a device) |
 
 Later specs (write each just before its work starts): key-down speed, "About you" context, live voice level, lightweight build, notes store, Android note mode, relay, design and privacy refresh.
