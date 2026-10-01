@@ -176,7 +176,16 @@ public final class Prefs {
     // ---- history ----
 
     public void addHistory(String app, String raw, String clean, double secs) {
+        addHistory(app, raw, clean, secs, null);
+    }
+
+    /** The history is read, changed and written back as one string: one writer at a time (the service writes from a thread). */
+    private static final Object HISTORY_LOCK = new Object();
+
+    /** @param timing where the time of this dictation went (the Speed card), or null when it was not timed (a retry) */
+    public void addHistory(String app, String raw, String clean, double secs, Timing.Entry timing) {
         if (!keepHistory()) return;
+        synchronized (HISTORY_LOCK) {
         try {
             JSONArray arr = new JSONArray(sp.getString("history", "[]"));
             JSONObject o = new JSONObject();
@@ -186,14 +195,30 @@ public final class Prefs {
             o.put("text", clean);
             o.put("words", clean.trim().isEmpty() ? 0 : clean.trim().split("\\s+").length);
             o.put("secs", Math.round(secs * 10) / 10.0);
+            if (timing != null) o.put("timing", timingJson(timing));
             JSONArray next = new JSONArray();
             next.put(o);
             for (int i = 0; i < arr.length() && i < 499; i++) next.put(arr.get(i));
             sp.edit().putString("history", next.toString()).apply();
         } catch (Exception ignored) { }
+        }
+    }
+
+    /** The same shape as the "timing" of a Windows history entry (windows/timing.py Timing.entry). */
+    static JSONObject timingJson(Timing.Entry e) throws org.json.JSONException {
+        JSONObject stages = new JSONObject();
+        for (java.util.Map.Entry<String, Long> kv : e.stages.entrySet()) stages.put(kv.getKey(), kv.getValue().longValue());
+        JSONObject o = new JSONObject();
+        o.put("stages", stages);
+        o.put("stt_model", e.sttModel);
+        o.put("llm_model", e.llmModel);
+        o.put("provider", e.provider);
+        o.put("relay", e.relay);
+        return o;
     }
 
     public void deleteHistory(double t) {
+        synchronized (HISTORY_LOCK) {
         try {
             JSONArray arr = history(), next = new JSONArray();
             for (int i = 0; i < arr.length(); i++) {
@@ -202,6 +227,7 @@ public final class Prefs {
             }
             sp.edit().putString("history", next.toString()).apply();
         } catch (Exception ignored) { }
+        }
     }
 
     public JSONArray history() {

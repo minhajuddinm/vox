@@ -35,6 +35,9 @@
 .entry { border-bottom: 1px solid var(--line); }
 .entry:last-child { border-bottom: 0; }
 .entry .txt { white-space: pre-wrap; word-break: break-word; }
+.srow .sv small { color: var(--muted); font-weight: 400; font-size: .85em; }
+.srow.big .sl, .srow.big .sv { color: var(--accent); font-weight: 650; }
+.sub-h { color: var(--muted); font-size: 12px; text-transform: uppercase; margin: 14px 0 2px; }
 /* ui-shared:css end */
 :root { --line:#E6E6E2; --bad:#D93025; --warn:#B26A00; }
 .dark { --line:#2C2C31; --bad:#FF6B5E; --warn:#F5B83D; }
@@ -116,6 +119,12 @@ nav button.on .pill { background:var(--accent-soft); }
   <div class="card" id="status-card">
     <div id="status-rows"></div>
     <button class="btn ghost full" id="status-test">Test connection</button>
+  </div>
+  <h2>Speed</h2>
+  <div class="card" id="speed-card">
+    <div class="status" style="margin:0 0 6px;color:var(--muted)">Measured on this phone and kept only here. Nothing is sent anywhere.</div>
+    <div id="speed-rows"></div>
+    <button class="btn ghost full" id="speed-refresh">Refresh</button>
   </div>
   <h2>Try it</h2>
   <textarea id="try" rows="3" placeholder="Tap here, then tap the Vox bubble and speak"></textarea>
@@ -305,6 +314,35 @@ function statusRows(st, cfg, sync, test) {
   ];
 }
 const statusHtml = (rows) => rows.map(([a, b, k]) => `<div class="srow"><span class="sl">${esc(a)}</span><span class="sv ${k}">${esc(b)}</span></div>`).join("");
+// Speed card (Home). Milliseconds as text, the same rule as timing.format_ms / Timing.formatMs: one decimal from 1000 ms, halves up.
+function fmtMs(ms) { ms = Math.max(0, Math.round(+ms || 0)); if (ms < 1000) return ms + " ms"; const t = Math.floor((ms + 50) / 100); return Math.floor(t / 10) + "." + (t % 10) + " s"; }
+// v = what the bridge gives (timing.speed_view / Timing.speedView): {count, biggest, stages: {stage: {median, p90}}, models: [...], last: [...]}.
+// Only the stages the app can work on are listed (the time spent speaking is not); the biggest one is marked. appLabel turns a stored app into text.
+const SPEED_STAGES = [["start", "Waiting for the microphone"], ["stt", "Speech to text"], ["llm", "Cleanup"], ["insert", "Typing it in"], ["total", "Total, after you stop"]];
+function speedHtml(v, appLabel) {
+  appLabel = appLabel || ((a) => String(a || "").replace(/\.exe$/i, ""));
+  if (!v || !v.count) return `<div class="srow"><span class="sl">No timed dictations yet. Dictate something and the numbers appear here.</span></div>`;
+  const ms = (x) => x ? fmtMs(x) : "–";
+  let html = `<div class="srow"><span class="sl">Median of your last ${v.count} dictation${v.count === 1 ? "" : "s"}</span><span class="sv dim">slowest 1 in 10</span></div>`;
+  for (const [k, label] of SPEED_STAGES) {
+    const s = (v.stages || {})[k] || { median: 0, p90: 0 };
+    html += `<div class="srow${k === v.biggest ? " big" : ""}"><span class="sl">${esc(label)}${k === v.biggest ? " (the biggest)" : ""}</span><span class="sv">${ms(s.median)} <small>${ms(s.p90)}</small></span></div>`;
+  }
+  if ((v.models || []).length) {
+    html += `<div class="sub-h">By model</div>`;
+    for (const m of v.models) {
+      html += `<div class="srow"><span class="sl">${esc(m.stt_model || "unknown")} + ${esc(m.llm_model || "unknown")}</span><span class="sv">${ms(m.total)} <small>speech ${ms(m.stt)}, cleanup ${ms(m.llm)}, ${m.count} dictation${m.count === 1 ? "" : "s"}</small></span></div>`;
+    }
+  }
+  if ((v.last || []).length) {
+    html += `<div class="sub-h">Last ${v.last.length}</div>`;
+    for (const d of v.last) {
+      const st = d.stages || {}, app = d.app ? " in " + appLabel(d.app) : "";
+      html += `<div class="srow"><span class="sl">${esc(agoText(d.t))}${esc(app)}</span><span class="sv">${ms(st.total)} <small>speech ${ms(st.stt)}, cleanup ${ms(st.llm)}</small></span></div>`;
+    }
+  }
+  return html;
+}
 // ui-shared:js end
 // Browser preview only: a few voice notes kept in memory, and the bridge methods that work on them.
 function previewNotes() {
@@ -344,7 +382,7 @@ function previewNotes() {
 const V = window.Vox || {   // browser preview fallback
   state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, relay_proxy: false, device_name: "", note_bubble: false, note_notification: false }, status: { notes: 0, unsent: false }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
   ...previewNotes(),
-  save(){}, requestMic(){}, openAccessibility(){}, openAppInfo(){}, openBattery(){}, setService(){}, testKey(k, u, cb){ setTimeout(() => window[cb]("ok"), 300); }, listModels(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ models: [], error: "Preview only" })), 200); }, testRole(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ ok: true, message: "Preview only" })), 200); }, endpointProblem: () => "", suggestCorrections: (a, b) => JSON.stringify(a !== b ? [["vox", "Vox"]] : []), copy(){}, deleteHistory(){}, clearHistory(){}, openUrl(){}, toast(){}, apps: () => "[]", appLabel: (p) => p
+  save(){}, requestMic(){}, openAccessibility(){}, openAppInfo(){}, openBattery(){}, setService(){}, testKey(k, u, cb){ setTimeout(() => window[cb]("ok"), 300); }, listModels(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ models: [], error: "Preview only" })), 200); }, testRole(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ ok: true, message: "Preview only" })), 200); }, endpointProblem: () => "", suggestCorrections: (a, b) => JSON.stringify(a !== b ? [["vox", "Vox"]] : []), copy(){}, deleteHistory(){}, clearHistory(){}, openUrl(){}, toast(){}, apps: () => "[]", appLabel: (p) => p, getSpeed: () => JSON.stringify({ count: 0, biggest: "", stages: {}, models: [], last: [] })
 };
 const TITLES = { home: ["Vox", ""], notes: ["Voice notes", ""], dict: ["Dictionary", ""], styles: ["Styles", ""], settings: ["Settings", ""] };
 const GROQ_URL = "https://api.groq.com/openai/v1";
@@ -400,6 +438,12 @@ function renderStatus() {
   if (S.config.relay_sync) { try { sync = JSON.parse(V.syncStatus()); } catch (e) { sync = null; } }
   $("status-rows").innerHTML = statusHtml(statusRows(statusData(), S.config, sync, LASTTEST));
 }
+function renderSpeed() {   // local data only: the timings kept with each dictation in the history
+  let v = null;
+  try { v = JSON.parse(V.getSpeed()); } catch (e) { v = null; }
+  $("speed-rows").innerHTML = speedHtml(v, (a) => V.appLabel(a));
+}
+$("speed-refresh").onclick = renderSpeed;
 function homeTestDone(role, json) {
   try { HOMETEST[role] = JSON.parse(json); } catch (e) { HOMETEST[role] = { ok: false, message: "No answer" }; }
   if (!HOMETEST.stt || !HOMETEST.llm) return;
@@ -430,6 +474,7 @@ function renderHome() {
       <div><b>Ready.</b> Tap any text box, then tap the bubble, speak, and tap again. Long-press the bubble to cancel.</div></div>`;
   }
   renderStatus();
+  renderSpeed();
   renderHistory();
 }
 function renderHistory() {

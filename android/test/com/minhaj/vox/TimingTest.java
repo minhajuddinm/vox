@@ -38,6 +38,51 @@ public final class TimingTest {
         return new Timing.Entry(st, "m", "l", "p", false);
     }
 
+
+    private static Timing.Entry modelEntry(String stt, String llm, long sttMs, long llmMs, long total) {
+        Map<String, Long> st = new LinkedHashMap<>();
+        st.put("stt", sttMs);
+        st.put("llm", llmMs);
+        st.put("total", total);
+        return new Timing.Entry(st, stt, llm, "p", false);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object o) {
+        return (Map<String, Object>) o;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> asList(Object o) {
+        return (List<Object>) o;
+    }
+
+    /** One history row as PlainJson would parse it: numbers are Long, the stages map is a map of numbers. */
+    private static Map<String, Object> historyRow(long t, long stt, long llm, long total) {
+        Map<String, Object> stages = new LinkedHashMap<>();
+        stages.put("stt", stt);
+        stages.put("llm", llm);
+        stages.put("total", total);
+        Map<String, Object> timing = new LinkedHashMap<>();
+        timing.put("stages", stages);
+        timing.put("stt_model", "w");
+        timing.put("llm_model", "l");
+        timing.put("provider", "p");
+        timing.put("relay", Boolean.FALSE);
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("t", t);
+        row.put("app", "notepad");
+        row.put("words", 5L);
+        row.put("timing", timing);
+        return row;
+    }
+
+    private static Map<String, Object> rowWithTiming(Object timing) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("timing", timing);
+        return row;
+    }
+
     public static void main(String[] args) {
         Map<String, Long> st = full().stages();
         check("stage keys and order", new ArrayList<>(st.keySet()).equals(Arrays.asList(Timing.STAGES)));
@@ -121,6 +166,50 @@ public final class TimingTest {
         check("summary newest n", Timing.summarize(es.subList(0, 3), 1).median("stt") == 900);
         check("summary n=0", Timing.summarize(es, 0).count == 0);
         check("summary of none", Timing.summarize(new ArrayList<Timing.Entry>(), 50).biggest.isEmpty());
+
+        // ---- per model pair
+        List<Timing.Entry> ms = new ArrayList<>();
+        ms.add(modelEntry("w", "a", 500, 300, 900));
+        ms.add(modelEntry("w", "b", 700, 900, 1700));
+        ms.add(modelEntry("w", "a", 600, 500, 1200));
+        ms.add(modelEntry("w", "a", 800, 0, 800));
+        ms.add(null);
+        List<Timing.ModelRow> rows = Timing.byModel(ms, 50);
+        check("byModel groups, most used first", rows.size() == 2 && rows.get(0).llmModel.equals("a") && rows.get(0).count == 3
+                && rows.get(1).llmModel.equals("b") && rows.get(1).count == 1);
+        check("byModel medians skip a cleanup that did not run", rows.get(0).stt == 600 && rows.get(0).llm == 400 && rows.get(0).total == 900);
+        check("byModel newest n", Timing.byModel(ms.subList(0, 4), 1).get(0).llm == 0 && Timing.byModel(ms.subList(0, 4), 1).size() == 1);
+        List<Timing.Entry> ties = new ArrayList<>();
+        ties.add(modelEntry("b", "x", 1, 0, 0));
+        ties.add(modelEntry("a", "x", 1, 0, 0));
+        ties.add(new Timing.Entry(entry(2, 0).stages, null, null, "", false));
+        List<Timing.ModelRow> tr = Timing.byModel(ties, 50);
+        check("byModel ties by name, missing model is empty", tr.size() == 3 && tr.get(0).sttModel.isEmpty() && tr.get(1).sttModel.equals("a")
+                && tr.get(2).sttModel.equals("b"));
+        check("byModel of nothing", Timing.byModel(new ArrayList<Timing.Entry>(), 50).isEmpty() && Timing.byModel(ms, 0).isEmpty());
+
+        // ---- the Speed card's data from history rows (oldest first), as the page gets it from the bridge
+        List<Object> hist = new ArrayList<>();
+        Map<String, Object> old = new LinkedHashMap<>();
+        old.put("t", 1L);
+        hist.add(old);   // an entry without timing
+        for (int k = 0; k < 12; k++) hist.add(historyRow(100 + k, 500 + k, 300, 900));
+        hist.add(null);
+        hist.add("junk");
+        Map<String, Object> v = Timing.speedView(hist, 50, 10);
+        check("speedView count and biggest", ((Long) v.get("count")) == 12 && "stt".equals(v.get("biggest")));
+        Map<String, Object> sv = asMap(v.get("stages"));
+        check("speedView has every stage", sv.size() == Timing.STAGES.length && ((Long) asMap(sv.get("stt")).get("median")) == 505);
+        List<Object> last = asList(v.get("last"));
+        check("speedView last 10, newest first", last.size() == 10 && ((Number) asMap(last.get(0)).get("t")).longValue() == 111
+                && ((Number) asMap(last.get(9)).get("t")).longValue() == 102);
+        Map<String, Object> l0 = asMap(last.get(0));
+        check("speedView last fields", "w".equals(l0.get("stt_model")) && "notepad".equals(l0.get("app")) && ((Long) asMap(l0.get("stages")).get("stt")) == 511);
+        check("speedView models", asList(v.get("models")).size() == 1 && ((Long) asMap(asList(v.get("models")).get(0)).get("count")) == 12);
+        Map<String, Object> none = Timing.speedView(new ArrayList<Object>(), 50, 10);
+        check("speedView of nothing", ((Long) none.get("count")) == 0 && "".equals(none.get("biggest")) && asList(none.get("last")).isEmpty()
+                && asList(none.get("models")).isEmpty() && asMap(none.get("stages")).size() == Timing.STAGES.length);
+        check("speedView ignores a timing without stages", ((Long) Timing.speedView(Arrays.<Object>asList(rowWithTiming("x")), 50, 10).get("count")) == 0);
         System.out.println("OK: " + checks + " checks passed");
     }
 }

@@ -81,6 +81,21 @@ public final class ParityTest {
         return b.toString();
     }
 
+    /** entries are voice@cleanup@stages maps separated by ;  => one "voice+cleanup n=count stt=median llm=median total=median" per pair, joined by ;. */
+    private static String timingModels(String entries, int n) {
+        List<Timing.Entry> list = new ArrayList<>();
+        for (String e : items(entries, ";")) {
+            String[] p = e.split("@", 3);
+            list.add(new Timing.Entry(kv(p[2]), p[0], p[1], "", false));
+        }
+        StringBuilder b = new StringBuilder();
+        for (Timing.ModelRow r : Timing.byModel(list, n)) {
+            b.append(b.length() == 0 ? "" : ";").append(r.sttModel).append('+').append(r.llmModel).append(" n=").append(r.count)
+                    .append(" stt=").append(r.stt).append(" llm=").append(r.llm).append(" total=").append(r.total);
+        }
+        return b.toString();
+    }
+
     private static void eq(int line, String kind, String expected, String actual) {
         checks++;
         if (!expected.equals(actual)) {
@@ -190,6 +205,9 @@ public final class ParityTest {
                     break;
                 case "timing_summary":   // entries (stages maps separated by ;), n => count, biggest and median/p90 per stage
                     eq(ln, kind, f[2], timingSummary(f[0], Integer.parseInt(f[1])));
+                    break;
+                case "timing_models":   // entries (voice@cleanup@stages, separated by ;), n => one line per model pair
+                    eq(ln, kind, f[2], timingModels(f[0], Integer.parseInt(f[1])));
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);

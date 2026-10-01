@@ -99,6 +99,8 @@ public class DictationService extends Service {
     private volatile int jobId;
     private Thread recThread;
     private ByteArrayOutputStream pcm;
+    /** Where the time of the recording in progress goes (the Speed card); null when none. Set in startRecording, read by stopRecording. */
+    private volatile Timing timing;
     private String targetPkg;
     private String targetLabel;
     /** Where the job in progress sends its result (DEST_DICTATION or DEST_NOTE). Each job takes a copy (see Job). */
@@ -315,6 +317,12 @@ public class DictationService extends Service {
         }
         final ByteArrayOutputStream data = new ByteArrayOutputStream();
         pcm = data;
+        final Timing tm = new Timing(new Timing.Clock() {
+            @Override
+            public long nowMs() { return SystemClock.elapsedRealtime(); }
+        });
+        tm.mark("key_down", tapAtMs > 0 ? tapAtMs : SystemClock.elapsedRealtime());   // the tap when it is known, else now
+        timing = tm;
         final int job = ++jobId;
         pending.beginRecording();   // nothing queued belongs to this recording yet: a cancel now must not touch an older unsent one
         recording = true;
@@ -334,6 +342,7 @@ public class DictationService extends Service {
                     if (n == 0) continue;
                     if (firstFrame) {
                         firstFrame = false;
+                        tm.mark("rec_start");   // the first audio really arrived
                         if (tapAtMs > 0) Log.d("vox", "tap->recording ms=" + (SystemClock.elapsedRealtime() - tapAtMs));
                     }
                     data.write(buf, 0, n);
@@ -365,6 +374,9 @@ public class DictationService extends Service {
     public synchronized void stopRecording() {
         if (state != RECORDING) return;
         recording = false;
+        final Timing tm = timing;
+        timing = null;
+        if (tm != null) tm.mark("key_up");
         setState(PROCESSING);
         final int job = jobId;
         final Thread t = recThread;
@@ -399,7 +411,7 @@ public class DictationService extends Service {
                 pending.beginFresh(entry.id);
                 enqueue(entry);
             }
-            send(job, entry);
+            send(job, entry, tm);
         });
     }
 
@@ -432,7 +444,7 @@ public class DictationService extends Service {
         targetLabel = entry.label;
         targetDest = entry.dest;
         setState(PROCESSING);
-        worker.execute(() -> send(job, entry));
+        worker.execute(() -> send(job, entry, null));   // a retry has no key or recording marks: it is not timed
     }
 
     /**
@@ -443,6 +455,7 @@ public class DictationService extends Service {
     public synchronized void cancel() {
         jobId++;
         recording = false;
+        timing = null;
         long id = pending.onCancel();   // the rule lives in PendingQueue: only a fresh, queued recording is discarded
         if (id != 0) discard(id);
         setState(IDLE);
@@ -524,7 +537,7 @@ public class DictationService extends Service {
      * {@code dest} is the destination this recording was made for (a copy taken when it stopped): DEST_DICTATION types
      * the text through the accessibility listener, DEST_NOTE stores it as a voice note and types nothing.
      */
-    private void send(int job, PendingQueue.Entry entry) {
+    private void send(int job, PendingQueue.Entry entry, Timing tm) {
         final String pkg = entry.pkg, label = entry.label, dest = entry.dest;
         final boolean note = DEST_NOTE.equals(dest);
         Prefs p = new Prefs(this);
@@ -534,6 +547,7 @@ public class DictationService extends Service {
             ApiClient g = new ApiClient(stt[1], stt[0]);
             ApiClient gl = new ApiClient(llm[1], llm[0]);
             String raw = null;
+            if (tm != null) tm.mark("stt_start");
             for (int attempt = 1; attempt <= SEND_ATTEMPTS && raw == null; attempt++) {
                 if (!isCurrent(job)) return;
                 try {
@@ -543,6 +557,7 @@ public class DictationService extends Service {
                     try { Thread.sleep(800L * attempt); } catch (InterruptedException ie) { return; }
                 }
             }
+            if (tm != null) tm.mark("stt_done");
             if (!isCurrent(job)) return;
             double seconds = Math.max(0, wav.length() - 44) / (SAMPLE_RATE * 2.0);
             if (raw.isEmpty() || ApiClient.isSilenceHallucination(raw)) {
@@ -555,6 +570,7 @@ public class DictationService extends Service {
             boolean cleaned = false, cleanupFailed = false;
             boolean doClean = ApiClient.needsCleanup(raw, style, p.cleanupEnabled(), p.cleanupMinWords());
             if (doClean) {
+                if (tm != null) tm.mark("llm_start");
                 try {
                     String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext());
                     if (ApiClient.looksValid(raw, c)) { out = c; cleaned = true; }
@@ -562,6 +578,8 @@ public class DictationService extends Service {
                 } catch (IOException e) {
                     // Cleanup failure should never lose the dictation. Fall back to the raw transcript.
                     cleanupFailed = true;
+                } finally {
+                    if (tm != null) tm.mark("llm_done");
                 }
             }
             if (!cleaned) out = ApiClient.applySpokenCommands(out);
@@ -575,10 +593,22 @@ public class DictationService extends Service {
                 saveNote(job, entry, raw, out, seconds, p);   // a note is not typed and is not added to the dictation history
                 return;
             }
-            p.addHistory(label, raw, out, seconds);
             discard(entry.id);
-            final String result = out;
-            main.post(() -> { if (isCurrent(job) && listener != null) listener.onResult(result, pkg); });
+            final String result = out, rawText = raw;
+            final double secs = seconds;
+            main.post(() -> {
+                if (isCurrent(job) && listener != null) listener.onResult(result, pkg);
+                // The history entry is written after the text went in, so its timing includes the insertion; the
+                // write is off the main thread (the history is a JSON list in the preferences).
+                final Timing.Entry te;
+                if (tm != null) {
+                    tm.mark("inserted");
+                    te = tm.entry(p.sttModel(), p.llmModel(), p.usesRelay() ? "relay" : p.provider(), p.usesRelay());
+                } else {
+                    te = null;
+                }
+                new Thread(() -> p.addHistory(label, rawText, result, secs, te), "vox-history").start();
+            });
         } catch (ApiClient.ApiException e) {
             if (!isCurrent(job)) return;
             retryFailed(entry);

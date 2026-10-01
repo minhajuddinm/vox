@@ -19,3 +19,6 @@
 .entry { border-bottom: 1px solid var(--line); }
 .entry:last-child { border-bottom: 0; }
 .entry .txt { white-space: pre-wrap; word-break: break-word; }
+.srow .sv small { color: var(--muted); font-weight: 400; font-size: .85em; }
+.srow.big .sl, .srow.big .sv { color: var(--accent); font-weight: 650; }
+.sub-h { color: var(--muted); font-size: 12px; text-transform: uppercase; margin: 14px 0 2px; }

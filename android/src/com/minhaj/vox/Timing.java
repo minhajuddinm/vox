@@ -197,4 +197,136 @@ final class Timing {
         s.count = used.size();
         return s;
     }
+
+    /** One line of the per-model table: the medians of the entries that used this pair of models. */
+    static final class ModelRow {
+        final String sttModel;
+        final String llmModel;
+        int count;
+        long stt, llm, total;
+
+        ModelRow(String sttModel, String llmModel) {
+            this.sttModel = sttModel;
+            this.llmModel = llmModel;
+        }
+    }
+
+    /**
+     * Medians per pair of models over the newest n entries (oldest first, like summarize): the most used pair first, a
+     * tie by voice model name, then cleanup model name. A stage that is 0 is left out of the median as in summarize.
+     * Twin of timing.by_model; the timing_models rows of spec/golden.txt pin them together.
+     */
+    static List<ModelRow> byModel(List<Entry> entries, int n) {
+        Map<String, List<Entry>> groups = new LinkedHashMap<>();
+        if (n > 0) {
+            for (Entry e : entries.subList(Math.max(0, entries.size() - n), entries.size())) {
+                if (e == null || e.stages == null) continue;
+                String key = e.sttModel.length() + ":" + e.sttModel + "|" + e.llmModel;
+                List<Entry> g = groups.get(key);
+                if (g == null) {
+                    g = new ArrayList<>();
+                    groups.put(key, g);
+                }
+                g.add(e);
+            }
+        }
+        List<ModelRow> rows = new ArrayList<>();
+        for (List<Entry> g : groups.values()) {
+            Summary s = summarize(g, g.size());
+            ModelRow r = new ModelRow(g.get(0).sttModel, g.get(0).llmModel);
+            r.count = s.count;
+            r.stt = s.median("stt");
+            r.llm = s.median("llm");
+            r.total = s.median("total");
+            rows.add(r);
+        }
+        Collections.sort(rows, new java.util.Comparator<ModelRow>() {
+            @Override
+            public int compare(ModelRow a, ModelRow b) {
+                if (a.count != b.count) return a.count > b.count ? -1 : 1;
+                int c = a.sttModel.compareTo(b.sttModel);
+                return c != 0 ? c : a.llmModel.compareTo(b.llmModel);
+            }
+        });
+        return rows;
+    }
+
+    private static long asLong(Object o) {
+        return o instanceof Number ? ((Number) o).longValue() : 0L;
+    }
+
+    private static String asText(Object o) {
+        return o instanceof String ? (String) o : "";
+    }
+
+    /** The Entry of one history row's "timing" value (a map as PlainJson parses it), or null when it has no stages map. */
+    @SuppressWarnings("unchecked")
+    private static Entry entryOf(Object timing) {
+        if (!(timing instanceof Map)) return null;
+        Map<String, Object> t = (Map<String, Object>) timing;
+        if (!(t.get("stages") instanceof Map)) return null;
+        Map<String, Long> stages = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> kv : ((Map<String, Object>) t.get("stages")).entrySet()) stages.put(kv.getKey(), asLong(kv.getValue()));
+        return new Entry(stages, asText(t.get("stt_model")), asText(t.get("llm_model")), asText(t.get("provider")), Boolean.TRUE.equals(t.get("relay")));
+    }
+
+    /**
+     * Everything the Speed card shows, as plain maps and lists ready for PlainJson.stringify, from the history rows
+     * (oldest first; each a Map with an optional "timing" map). Twin of timing.speed_view: the same keys. Rows without
+     * a timing (older ones, or made with history off) are ignored. Keys: count, biggest, stages {stage: {median, p90}},
+     * models [{stt_model, llm_model, count, stt, llm, total}], last [newest first: t, app, words, stt_model,
+     * llm_model, relay, stages].
+     */
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> speedView(List<Object> history, int n, int last) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        List<Entry> entries = new ArrayList<>();
+        for (Object h : history) {
+            if (!(h instanceof Map)) continue;
+            Entry e = entryOf(((Map<String, Object>) h).get("timing"));
+            if (e == null) continue;
+            rows.add((Map<String, Object>) h);
+            entries.add(e);
+        }
+        Summary s = summarize(entries, n);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("count", (long) s.count);
+        out.put("biggest", s.biggest);
+        Map<String, Object> stages = new LinkedHashMap<>();
+        for (String name : STAGES) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("median", s.median(name));
+            m.put("p90", s.p90(name));
+            stages.put(name, m);
+        }
+        out.put("stages", stages);
+        List<Object> models = new ArrayList<>();
+        for (ModelRow r : byModel(entries, n)) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("stt_model", r.sttModel);
+            m.put("llm_model", r.llmModel);
+            m.put("count", (long) r.count);
+            m.put("stt", r.stt);
+            m.put("llm", r.llm);
+            m.put("total", r.total);
+            models.add(m);
+        }
+        out.put("models", models);
+        List<Object> recent = new ArrayList<>();
+        for (int i = entries.size() - 1; i >= 0 && recent.size() < last; i--) {
+            Map<String, Object> row = rows.get(i);
+            Entry e = entries.get(i);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("t", row.get("t") == null ? (Object) 0L : row.get("t"));
+            m.put("app", asText(row.get("app")));
+            m.put("words", row.get("words") == null ? (Object) 0L : row.get("words"));
+            m.put("stt_model", e.sttModel);
+            m.put("llm_model", e.llmModel);
+            m.put("relay", e.relay);
+            m.put("stages", new LinkedHashMap<String, Object>(e.stages));
+            recent.add(m);
+        }
+        out.put("last", recent);
+        return out;
+    }
 }
