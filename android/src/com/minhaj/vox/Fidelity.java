@@ -32,6 +32,8 @@ final class Fidelity {
 
     private static final Map<String, Integer> UNITS = new HashMap<>();
     private static final Map<String, Integer> TENS = new HashMap<>();
+    private static final Map<String, Integer> SCALES = new HashMap<>();
+    private static final Map<String, Integer> ORDINALS = new HashMap<>();
     private static final Map<String, String> SYMBOL_WORDS = new HashMap<>();
 
     static {
@@ -40,7 +42,17 @@ final class Fidelity {
         for (int i = 0; i < units.length; i++) UNITS.put(units[i], i);
         String[] tens = {"twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"};
         for (int i = 0; i < tens.length; i++) TENS.put(tens[i], (i + 2) * 10);
-        // words a symbol replaces ("five dollars" -> "$5"): they count as kept when the cleaned text has the symbol
+        SCALES.put("thousand", 1000);
+        SCALES.put("lakh", 100000);
+        SCALES.put("million", 1000000);
+        SCALES.put("crore", 10000000);
+        SCALES.put("billion", 1000000000);
+        String[] ordinals = {"first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth",
+                "eleventh", "twelfth", "thirteenth", "fourteenth", "fifteenth", "sixteenth", "seventeenth", "eighteenth",
+                "nineteenth", "twentieth"};
+        for (int i = 0; i < ordinals.length; i++) ORDINALS.put(ordinals[i], i + 1);
+        ORDINALS.put("thirtieth", 30);
+        // words a symbol replaces ("five dollars" -> "$5"): they count as kept when the cleaned text has the symbol ("rupees": or "Rs")
         for (String w : new String[]{"dollar", "dollars"}) SYMBOL_WORDS.put(w, "$");
         for (String w : new String[]{"euro", "euros"}) SYMBOL_WORDS.put(w, "€");
         for (String w : new String[]{"pound", "pounds"}) SYMBOL_WORDS.put(w, "£");
@@ -123,12 +135,6 @@ final class Fidelity {
         return null;
     }
 
-    /** The part after "hundred" or "thousand": an optional "and", then a smaller number; null if there is none. */
-    private static int[] tail(List<String> tokens, int i, boolean thousands) {
-        if (i < tokens.size() && tokens.get(i).equals("and")) i++;
-        return thousands ? hundreds(tokens, i) : tensUnits(tokens, i, false);
-    }
-
     /** {value, next index} of a spoken number below a thousand at i: "N hundred [and] M", "a hundred", or below a hundred. */
     private static int[] hundreds(List<String> tokens, int i) {
         if (i + 1 < tokens.size() && tokens.get(i + 1).equals("hundred")) {
@@ -136,41 +142,82 @@ final class Fidelity {
             Integer u = UNITS.get(t);
             if (t.equals("a") || (u != null && u > 0)) {
                 int v = 100 * (t.equals("a") ? 1 : u);
-                int[] rest = tail(tokens, i + 2, false);
+                int j = i + 2 < tokens.size() && tokens.get(i + 2).equals("and") ? i + 3 : i + 2;
+                int[] rest = tensUnits(tokens, j, false);
                 return rest != null ? new int[]{v + rest[0], rest[1]} : new int[]{v, i + 2};
             }
         }
         return tensUnits(tokens, i, true);
     }
 
-    /** {value, next index} of a spoken number at i: "two thousand twenty six", "one hundred and five", "a thousand". */
-    private static int[] spokenNumber(List<String> tokens, int i) {
-        int[] res;
-        if (i + 1 < tokens.size() && tokens.get(i).equals("a") && tokens.get(i + 1).equals("thousand")) {
-            res = new int[]{1, i + 1};
-        } else {
-            res = hundreds(tokens, i);
-        }
-        if (res == null) return null;
-        int v = res[0];
-        int k = res[1];
-        if (k < tokens.size() && tokens.get(k).equals("thousand")) {
-            v *= 1000;
-            k++;
-            int[] rest = tail(tokens, k, true);
-            if (rest != null && rest[0] > 0) {
-                v += rest[0];
-                k = rest[1];
+    /**
+     * {value, next index} of a spoken number at i: "two thousand twenty six", "one hundred and five", "a thousand",
+     * "five million two hundred thousand", "two crore fifty lakh" (a smaller scale word after a larger one). The value is a
+     * long: "three billion" does not fit an int.
+     */
+    private static long[] spokenNumber(List<String> tokens, int i) {
+        int n = tokens.size();
+        long total = 0;
+        int k = i;
+        long limit = Long.MAX_VALUE;
+        while (true) {
+            int j = total > 0 && k < n && tokens.get(k).equals("and") ? k + 1 : k;
+            int[] g;
+            if (total == 0 && j + 1 < n && tokens.get(j).equals("a") && SCALES.containsKey(tokens.get(j + 1))) {
+                g = new int[]{1, j + 1};
+            } else {
+                g = hundreds(tokens, j);
+            }
+            if (g == null) break;
+            j = g[1];
+            Integer scale = j < n ? SCALES.get(tokens.get(j)) : null;
+            if (scale != null && scale < limit) {
+                total += (long) g[0] * scale;
+                k = j + 1;
+                limit = scale;
+            } else {
+                if (total == 0 || g[0] > 0) {
+                    total += g[0];
+                    k = j;
+                }
+                break;
             }
         }
-        return new int[]{v, k};
+        return k > i ? new long[]{total, k} : null;
+    }
+
+    /** {token, next index} for the spoken number at i, or null: "twenty five" = "25", "twenty first" = "21st", "half past three" = "330" (3:30). */
+    private static Object[] numberToken(List<String> tokens, int i) {
+        String t = tokens.get(i);
+        int n = tokens.size();
+        if (t.equals("half") && i + 2 < n && tokens.get(i + 1).equals("past")) {
+            long[] num = spokenNumber(tokens, i + 2);
+            return num == null ? null : new Object[]{num[0] + "30", (int) num[1]};
+        }
+        Integer v = ORDINALS.get(t);
+        int k = i + 1;
+        if (v == null && (t.equals("twenty") || t.equals("thirty")) && i + 1 < n) {
+            Integer u = ORDINALS.get(tokens.get(i + 1));
+            if (u != null && u < 10) {
+                v = TENS.get(t) + u;
+                k = i + 2;
+            }
+        }
+        if (v != null) {
+            int d = v % 10;
+            String suffix = (v > 10 && v < 14) || d > 3 || d == 0 ? "th" : d == 1 ? "st" : d == 2 ? "nd" : "rd";
+            return new Object[]{v + suffix, k};
+        }
+        long[] num = spokenNumber(tokens, i);
+        return num == null ? null : new Object[]{String.valueOf(num[0]), (int) num[1]};
     }
 
     /**
      * Spoken numbers become digits, and runs of digit words or digit groups join into one token, so "twenty five" = "25",
      * "one hundred and five" = "105", "two thousand twenty six" = "2026", "a hundred" = "100", "five five five one two" =
-     * "55512" = "555-12" and "twenty twenty six" = "2026". "point" between two numbers is the decimal point ("three point
-     * five" = "3.5" = "35") and "p m" / "a m" are "pm" / "am".
+     * "55512" = "555-12" and "twenty twenty six" = "2026"; "five million" = "5000000", "five lakh" = "500000"; ordinals are
+     * "21st" ("twenty first"), "half past three" = "330" (3:30). "point" between two numbers is the decimal point ("three
+     * point five" = "3.5" = "35") and "p m" / "a m" are "pm" / "am".
      */
     private static List<String> mergeNumbers(List<String> tokens) {
         List<String> out = new ArrayList<>();
@@ -178,10 +225,10 @@ final class Fidelity {
         int n = tokens.size();
         while (i < n) {
             String t = tokens.get(i);
-            int[] num = spokenNumber(tokens, i);
+            Object[] num = numberToken(tokens, i);
             if (num != null) {
-                t = String.valueOf(num[0]);
-                i = num[1];
+                t = (String) num[0];
+                i = (Integer) num[1];
             } else if (t.equals("point") && !out.isEmpty() && allDigits(out.get(out.size() - 1)) && i + 1 < n
                     && (allDigits(tokens.get(i + 1)) || UNITS.containsKey(tokens.get(i + 1)))) {
                 i++;
@@ -245,7 +292,7 @@ final class Fidelity {
         List<String> r = new ArrayList<>();
         for (String t : withoutCommands(wordTokens(raw))) {
             String sym = SYMBOL_WORDS.get(t);
-            if (sym != null && cleaned.contains(sym)) continue;
+            if (sym != null && (cleaned.contains(sym) || (t.startsWith("rupee") && wordTokens(cleaned).contains("rs")))) continue;
             if (t.equals("at") && ats > 0) {
                 ats--;
             } else if (t.equals("dot") && dots > 0) {

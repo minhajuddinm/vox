@@ -316,6 +316,11 @@ _UNITS = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six"
           "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
           "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19}
 _TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+_SCALES = {"thousand": 1000, "lakh": 100000, "million": 10 ** 6, "crore": 10 ** 7, "billion": 10 ** 9}
+_ORDINALS = {w: n for n, w in enumerate("first second third fourth fifth sixth seventh eighth ninth tenth eleventh twelfth "
+                                        "thirteenth fourteenth fifteenth sixteenth seventeenth eighteenth nineteenth "
+                                        "twentieth".split(), 1)}
+_ORDINALS["thirtieth"] = 30
 # spoken commands (see the prompt): "new line", "new paragraph" and the punctuation names become breaks and symbols
 _COMMAND_PHRASES = frozenset({"new line", "new paragraph", "question mark"})
 _COMMAND_WORDS = frozenset({"comma", "period", "colon"})
@@ -366,50 +371,67 @@ def _tens_units(tokens, i, allow_zero):
     return None
 
 
-def _tail(tokens, i, below):
-    """The part after "hundred" or "thousand": an optional "and", then a smaller number; None if there is none."""
-    if i < len(tokens) and tokens[i] == "and":
-        i += 1
-    return below(tokens, i)
-
-
 def _hundreds(tokens, i):
     """(value, next index) of a spoken number below a thousand at i: "N hundred [and] M", "a hundred", or below a hundred."""
     if i + 1 < len(tokens) and tokens[i + 1] == "hundred" and (tokens[i] == "a" or _UNITS.get(tokens[i], 0) > 0):
         v = 100 * (1 if tokens[i] == "a" else _UNITS[tokens[i]])
-        rest = _tail(tokens, i + 2, lambda tk, j: _tens_units(tk, j, False))
+        j = i + 3 if i + 2 < len(tokens) and tokens[i + 2] == "and" else i + 2
+        rest = _tens_units(tokens, j, False)
         return (v + rest[0], rest[1]) if rest else (v, i + 2)
     return _tens_units(tokens, i, True)
 
 
 def _spoken_number(tokens, i):
-    """(value, next index) of a spoken number at i: "two thousand twenty six", "one hundred and five", "a thousand"."""
-    if i + 1 < len(tokens) and tokens[i] == "a" and tokens[i + 1] == "thousand":
-        res = (1, i + 1)
-    else:
-        res = _hundreds(tokens, i)
-    if res is None:
-        return None
-    v, k = res
-    if k < len(tokens) and tokens[k] == "thousand":
-        v, k = v * 1000, k + 1
-        rest = _tail(tokens, k, _hundreds)
-        if rest and rest[0] > 0:
-            v, k = v + rest[0], rest[1]
-    return v, k
+    """(value, next index) of a spoken number at i: "two thousand twenty six", "one hundred and five", "a thousand",
+    "five million two hundred thousand", "two crore fifty lakh" (a smaller scale word after a larger one)."""
+    n, total, k, limit = len(tokens), 0, i, 10 ** 12
+    while True:
+        j = k + 1 if total and k < n and tokens[k] == "and" else k
+        if not total and j + 1 < n and tokens[j] == "a" and tokens[j + 1] in _SCALES:
+            g = (1, j + 1)
+        else:
+            g = _hundreds(tokens, j)
+        if g is None:
+            break
+        v, j = g
+        scale = _SCALES.get(tokens[j]) if j < n else None
+        if scale and scale < limit:
+            total, k, limit = total + v * scale, j + 1, scale
+        else:
+            if not total or v > 0:
+                total, k = total + v, j
+            break
+    return (total, k) if k > i else None
+
+
+def _number_token(tokens, i):
+    """(token, next index) for the spoken number at i, or None: "twenty five" = "25", an ordinal ("twenty first" = "21st"),
+    "half past three" = "330" (3:30)."""
+    t, n = tokens[i], len(tokens)
+    if t == "half" and i + 2 < n and tokens[i + 1] == "past":
+        num = _spoken_number(tokens, i + 2)
+        return (str(num[0]) + "30", num[1]) if num else None
+    v, k = _ORDINALS.get(t), i + 1
+    if v is None and t in ("twenty", "thirty") and i + 1 < n and 0 < _ORDINALS.get(tokens[i + 1], 99) < 10:
+        v, k = _TENS[t] + _ORDINALS[tokens[i + 1]], i + 2
+    if v is not None:
+        return str(v) + ("th" if 10 < v < 14 or v % 10 > 3 or v % 10 == 0 else ("st", "nd", "rd")[v % 10 - 1]), k
+    num = _spoken_number(tokens, i)
+    return (str(num[0]), num[1]) if num else None
 
 
 def _merge_numbers(tokens):
     """Spoken numbers become digits, and runs of digit words or digit groups join into one token, so "twenty five" = "25",
     "one hundred and five" = "105", "two thousand twenty six" = "2026", "a hundred" = "100", "five five five one two" =
-    "55512" = "555-12" and "twenty twenty six" = "2026". "point" between two numbers is the decimal point ("three point
-    five" = "3.5" = "35") and "p m" / "a m" are "pm" / "am"."""
+    "55512" = "555-12" and "twenty twenty six" = "2026"; "five million" = "5000000", "five lakh" = "500000"; ordinals are
+    "21st" ("twenty first"), "half past three" = "330" (3:30). "point" between two numbers is the decimal point ("three
+    point five" = "3.5" = "35") and "p m" / "a m" are "pm" / "am"."""
     out, i, n = [], 0, len(tokens)
     while i < n:
         t = tokens[i]
-        num = _spoken_number(tokens, i)
+        num = _number_token(tokens, i)
         if num is not None:
-            t, i = str(num[0]), num[1]
+            t, i = num
         elif t == "point" and out and _all_digits(out[-1]) and i + 1 < n and (_all_digits(tokens[i + 1]) or tokens[i + 1] in _UNITS):
             i += 1
             continue
@@ -450,7 +472,7 @@ def _compare_tokens(raw, cleaned):
     ats, dots = c_text.count("@"), _inner_dots(c_text)   # spoken "at" / "dot" are kept when cleaned has the symbol
     r = []
     for t in _without_commands(word_tokens(raw)):
-        if t in _SYMBOL_WORDS and _SYMBOL_WORDS[t] in c_text:
+        if t in _SYMBOL_WORDS and (_SYMBOL_WORDS[t] in c_text or (t[:5] == "rupee" and "rs" in word_tokens(c_text))):
             continue
         if t == "at" and ats > 0:
             ats -= 1

@@ -94,6 +94,18 @@ public final class FidelityTest {
         eq("recall a m", 1.0, Fidelity.wordRecall("seven a m", "7 a.m."));
         eq("recall wrong number", 0.0, Fidelity.wordRecall("two hundred", "300"));
         eq("recall wrong decimal", 0.0, Fidelity.wordRecall("three point five", "3.6"));
+        // ordinals, scale words, half past N
+        eq("recall ordinal", 1.0, Fidelity.wordRecall("the twenty first of march", "the 21st of March"));
+        eq("recall ordinals", 1.0, Fidelity.wordRecall("the twenty-second and the thirtieth", "the 22nd and the 30th"));
+        eq("recall ordinal suffixes", 1.0, Fidelity.wordRecall("the third eleventh twelfth thirteenth", "the 3rd 11th 12th 13th"));
+        eq("recall million", 1.0, Fidelity.wordRecall("five million two hundred thousand", "5,200,000"));
+        eq("recall crore lakh", 1.0, Fidelity.wordRecall("two crore fifty lakh and five", "2,50,00,005"));
+        eq("recall a billion", 1.0, Fidelity.wordRecall("a billion", "1,000,000,000"));
+        eq("recall half past", 1.0, Fidelity.wordRecall("half past three", "3:30"));
+        eq("recall rupees Rs", 1.0, Fidelity.wordRecall("five lakh rupees", "Rs. 5,00,000"));
+        eq("recall rupees bare", 0.5, Fidelity.wordRecall("five lakh rupees", "5,00,000"));
+        eq("recall scale out of order", 0.5, Fidelity.wordRecall("two thousand million", "2000"));
+        eq("recall wrong lakh", 0.0, Fidelity.wordRecall("five lakh twenty thousand", "5,00,000"));
         eq("recall and is a word", true, Fidelity.wordRecall("salt and pepper", "salt pepper") < 1.0);
         eq("recall and then some", true, Fidelity.wordRecall("one hundred and then some", "100 then some") < 1.0);
         eq("recall email", 1.0, Fidelity.wordRecall("mail john at gmail dot com", "Mail john@gmail.com."));

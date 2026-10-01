@@ -99,6 +99,24 @@ def test_big_numbers_with_and_and_point_equal_their_digits():
     assert core.word_recall("seven a m", "7 a.m.") == 1.0
 
 
+def test_ordinals_scale_words_and_half_past_equal_their_digits():
+    assert core.word_recall("the twenty first of march", "the 21st of March") == 1.0
+    assert core.word_recall("the twenty-second and the thirtieth", "the 22nd and the 30th") == 1.0
+    assert core.word_recall("the third eleventh twelfth thirteenth", "the 3rd 11th 12th 13th") == 1.0
+    assert core.word_recall("five million two hundred thousand", "5,200,000") == 1.0
+    assert core.word_recall("two crore fifty lakh and five", "2,50,00,005") == 1.0
+    assert core.word_recall("a billion", "1,000,000,000") == 1.0
+    assert core.word_recall("half past three", "3:30") == 1.0
+    assert core.word_recall("five lakh rupees", "Rs. 5,00,000") == 1.0
+    assert core.word_recall("five lakh rupees", "5,00,000") == 0.5
+
+
+def test_scale_words_do_not_merge_out_of_order():
+    assert core._merge_numbers(["five", "thousand", "five", "thousand"]) == ["5005", "thousand"]
+    assert core.word_recall("two thousand million", "2000") < 1.0
+    assert core.word_recall("five lakh twenty thousand", "5,00,000") == 0.0
+
+
 def test_a_wrong_number_is_still_a_lost_word():
     assert core.word_recall("two hundred", "300") == 0.0
     assert core.word_recall("two thousand twenty six", "2025") == 0.0
