@@ -23,7 +23,15 @@ _session = requests.Session()
 
 
 class SyncError(Exception):
-    pass
+    def __init__(self, message, status=0):
+        super().__init__(message)
+        self.status = status   # the HTTP status, 0 when there was none (network failure, answer that is not a relay's)
+
+    @property
+    def permanent(self):
+        """True when sending the same thing again will always fail: a 4xx other than 401, 403 and 429. The relay refuses
+        that note itself, so one note must not stop the others (Android twin: RelayApi.RelayError.permanent)."""
+        return 400 <= self.status < 500 and self.status not in (401, 403, 429)
 
 
 def device_name(cfg):
@@ -64,11 +72,11 @@ def _call(method, url, path, token, device, headers=None, allow=(), **kw):
         raise SyncError("Cannot reach the relay (is Tailscale running?): " + type(e).__name__)
     if r.status_code not in allow:
         if r.status_code == 401:
-            raise SyncError("The relay refused the token.")
+            raise SyncError("The relay refused the token.", 401)
         if r.status_code == 403:
-            raise SyncError("The relay belongs to another Tailscale user.")
+            raise SyncError("The relay belongs to another Tailscale user.", 403)
         if r.status_code >= 400:
-            raise SyncError(f"The relay answered HTTP {r.status_code}.")
+            raise SyncError(f"The relay answered HTTP {r.status_code}.", r.status_code)
     try:
         return r.status_code, r.json()
     except ValueError:
@@ -166,13 +174,22 @@ def sync_once(cfg):
     if err:
         return {"pushed": 0, "pulled": 0, "error": err}
     pushed = pulled = 0
+    refused = []   # what the relay said about each note it refuses for good: those notes are skipped, the rest goes on
     try:
+        handled = set()   # (id, updated_at) of every version sent or refused in this run, so none is tried twice in a run
         while True:
-            batch = notes.dirty_notes(PUSH_BATCH)
+            batch = [n for n in notes.dirty_notes(PUSH_BATCH + len(handled)) if (n["id"], n["updated_at"]) not in handled][:PUSH_BATCH]
             if not batch:
                 break
             for n in batch:
-                out = _request("PUT", url, "/notes/" + n["id"], token, device, json=wire(n))
+                handled.add((n["id"], n["updated_at"]))
+                try:
+                    out = _request("PUT", url, "/notes/" + n["id"], token, device, json=wire(n))
+                except SyncError as e:
+                    if not e.permanent:
+                        raise   # the relay, the token or the network is the problem, not this note: stop and try again later
+                    refused.append(str(e))
+                    continue
                 stored = out["note"]
                 if out["applied"]:
                     notes.mark_synced(n["id"], n["updated_at"], stored["seq"])
@@ -197,7 +214,8 @@ def sync_once(cfg):
     except Exception as e:
         log.exception("sync failed")
         return {"pushed": pushed, "pulled": pulled, "error": "Sync failed: " + type(e).__name__}
-    return {"pushed": pushed, "pulled": pulled, "error": "", "profile": profile}
+    error = f"{len(refused)} note{'s' if len(refused) != 1 else ''} could not be sent: {refused[0]}" if refused else ""
+    return {"pushed": pushed, "pulled": pulled, "error": error, "profile": profile}
 
 
 class SyncWorker:

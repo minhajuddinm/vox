@@ -30,6 +30,13 @@ public final class NoteLogicTest {
         return new ArrayList<>(Arrays.asList(t));
     }
 
+    /** s repeated n times (String.repeat needs Java 11; the app is Java 8). */
+    private static String rep(String s, int n) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < n; i++) b.append(s);
+        return b.toString();
+    }
+
     public static void main(String[] args) {
         eq("PUSH_BATCH", 100, NoteLogic.PUSH_BATCH);
 
@@ -109,6 +116,54 @@ public final class NoteLogicTest {
         out.add("changed");
         eq("result is a new list", tags("a", "a"), in);
         eq("empty result is a new list", Collections.emptyList(), NoteLogic.cleanTags(tags("", " ")));
+
+        // cleanTags drops double quotes before it trims, like notes._tags (a quote would break the stored JSON filter)
+        eq("tag quotes removed inside", tags("ab"), NoteLogic.cleanTags(tags("a\"b")));
+        eq("tag quotes removed around", tags("x"), NoteLogic.cleanTags(tags("\"x\"")));
+        eq("tag quotes then trim", tags("a"), NoteLogic.cleanTags(tags(" \" a \" ")));
+        eq("tag of only quotes is dropped", tags(), NoteLogic.cleanTags(tags("\"\"", "\" \"")));
+        eq("tag repeat after quote removal", tags("a"), NoteLogic.cleanTags(tags("a", "\"a\"")));
+
+        // deviceName: the typed name, else the phone model, else "android-phone"; trimmed the Python way, then cut at
+        // 60 code points (sync.device_name; the golden rows devname cover the typed-name cases)
+        eq("device name typed", "My phone", NoteLogic.deviceName("My phone", "Pixel 7"));
+        eq("device name trimmed", "My phone", NoteLogic.deviceName("  My phone \t", "Pixel 7"));
+        eq("device name trimmed like Python strip", "x", NoteLogic.deviceName(" x　", "Pixel 7"));
+        eq("device name blank uses the model", "Pixel 7", NoteLogic.deviceName("", "Pixel 7"));
+        eq("device name null uses the model", "Pixel 7", NoteLogic.deviceName(null, "Pixel 7"));
+        eq("device name blanks use the model", "Pixel 7", NoteLogic.deviceName(" \t ", "Pixel 7"));
+        eq("device model is trimmed", "Pixel 7", NoteLogic.deviceName("", "  Pixel 7 \n"));
+        eq("device without a model", "android-phone", NoteLogic.deviceName("", ""));
+        eq("device with a null model", "android-phone", NoteLogic.deviceName(null, null));
+        eq("device with a blank model", "android-phone", NoteLogic.deviceName("  ", " \t"));
+        eq("device name 60 kept", rep("a", 60), NoteLogic.deviceName(rep("a", 60), "m"));
+        eq("device name 61 cut", rep("a", 60), NoteLogic.deviceName(rep("a", 61), "m"));
+        eq("device model cut", rep("m", 60), NoteLogic.deviceName("", rep("m", 70)));
+        String grin = new String(Character.toChars(0x1F600));
+        String cutAtPair = NoteLogic.deviceName(rep("a", 59) + grin + "b", "m");
+        eq("device name cut keeps a whole pair", rep("a", 59) + grin, cutAtPair);
+        eq("device name cut is 60 code points", 60, cutAtPair.codePointCount(0, cutAtPair.length()));
+        String pairs = NoteLogic.deviceName(rep(grin, 61), "m");
+        eq("device name of 61 emoji is 60 emoji", rep(grin, 60), pairs);
+        eq("device name has no lone surrogate", false, Character.isHighSurrogate(pairs.charAt(pairs.length() - 1)));
+        eq("device name is trimmed before the cut, not after", rep("a", 59) + " ", NoteLogic.deviceName("  " + rep("a", 59) + " b", "m"));
+
+        // periodStart: the "created since" bound of the period filter (Unix seconds; the local midnight for "today")
+        java.util.TimeZone utc = java.util.TimeZone.getTimeZone("UTC");
+        java.util.TimeZone kolkata = java.util.TimeZone.getTimeZone("Asia/Kolkata");
+        java.util.TimeZone newYork = java.util.TimeZone.getTimeZone("America/New_York");
+        eq("period null", null, NoteLogic.periodStart(null, 1790000000.0, utc));
+        eq("period empty", null, NoteLogic.periodStart("", 1790000000.0, utc));
+        eq("period all", null, NoteLogic.periodStart("all", 1790000000.0, utc));
+        eq("period unknown", null, NoteLogic.periodStart("banana", 1790000000.0, utc));
+        eq("period week", 1790000000.5 - 7 * 86400, NoteLogic.periodStart("week", 1790000000.5, utc));
+        eq("period month", 1790000000.5 - 30 * 86400, NoteLogic.periodStart("month", 1790000000.5, utc));
+        eq("period today in UTC", 1789948800.0, NoteLogic.periodStart("today", 1790000000.0, utc));
+        eq("period today just after midnight", 1790035200.0, NoteLogic.periodStart("today", 1790035201.0, utc));
+        eq("period today just before midnight", 1789948800.0, NoteLogic.periodStart("today", 1790035199.0, utc));
+        eq("period today is the local midnight", 1789929000.0, NoteLogic.periodStart("today", 1790000000.0, kolkata));
+        eq("period today on the spring-forward day", 1772946000.0, NoteLogic.periodStart("today", 1772985600.0, newYork));
+        eq("period today on the fall-back day", 1793505600.0, NoteLogic.periodStart("today", 1793552400.0, newYork));
 
         System.out.println("OK: " + checks + " checks passed");
     }
