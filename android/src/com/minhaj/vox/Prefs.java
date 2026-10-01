@@ -39,7 +39,7 @@ public final class Prefs {
 
     public String apiKey() { return sp.getString("api_key", "").trim(); }
     /** Server address; Groq unless the user set their own. */
-    public String baseUrl() { return nonEmpty(Endpoint.normalize(sp.getString("base_url", "")), GroqClient.DEFAULT_BASE); }
+    public String baseUrl() { return nonEmpty(Endpoint.normalize(sp.getString("base_url", "")), ApiClient.DEFAULT_BASE); }
     /** {address, key, model} for a role ("stt" or "llm"); a role with its own address never gets the main key. */
     public String[] role(String role) {
         return Providers.roleSettings(baseUrl(), apiKey(), sp.getString(role + "_base_url", ""), sp.getString(role + "_api_key", ""),
@@ -69,6 +69,8 @@ public final class Prefs {
     /** When false, nothing dictated is saved on the phone. */
     public boolean keepHistory() { return sp.getBoolean("keep_history", true); }
     public boolean cleanupEnabled() { return sp.getBoolean("cleanup", true); }
+    /** The setting "skip AI cleanup for phrases shorter than N words" as stored; read it with ApiClient.cleanMinWords. */
+    public String cleanupMinWords() { return sp.getString("cleanup_min_words", "3"); }
     public boolean onlyWhenTyping() { return sp.getBoolean("only_typing", true); }
     public int bubbleX() { return sp.getInt("bubble_x", -1); }
     public int bubbleY() { return sp.getInt("bubble_y", -1); }

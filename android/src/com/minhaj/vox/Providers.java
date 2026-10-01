@@ -26,7 +26,7 @@ final class Providers {
 
     /** id, name, address, page to get a key, suggested voice model, suggested cleanup model. A phone cannot use localhost, so servers of your own are "custom". */
     static final String[][] PRESETS = {
-        {"groq", "Groq (free tier)", GroqClient.DEFAULT_BASE, "https://console.groq.com/keys", "whisper-large-v3-turbo", "openai/gpt-oss-20b"},
+        {"groq", "Groq (free tier)", ApiClient.DEFAULT_BASE, "https://console.groq.com/keys", "whisper-large-v3-turbo", "openai/gpt-oss-20b"},
         {"openai", "OpenAI", "https://api.openai.com/v1", "https://platform.openai.com/api-keys", "whisper-1", "gpt-4o-mini"},
         {"openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "https://openrouter.ai/keys", "", ""},
         {"together", "Together AI", "https://api.together.xyz/v1", "https://api.together.ai/settings/api-keys", "", ""},
@@ -50,7 +50,7 @@ final class Providers {
      */
     static String[] roleSettings(String mainBase, String mainKey, String ownBase, String ownKey, String model, String defaultModel) {
         String main = Endpoint.normalize(mainBase);
-        if (main.isEmpty()) main = GroqClient.DEFAULT_BASE;
+        if (main.isEmpty()) main = ApiClient.DEFAULT_BASE;
         String own = Endpoint.normalize(ownBase);
         String ok = ownKey == null ? "" : ownKey.trim();
         String mk = mainKey == null ? "" : mainKey.trim();

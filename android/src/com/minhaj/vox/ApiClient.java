@@ -21,7 +21,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Speech-to-text and text cleanup over an OpenAI-compatible API (Groq by default, or a server of your own). */
-public final class GroqClient {
+public final class ApiClient {
     public static final String DEFAULT_BASE = "https://api.groq.com/openai/v1";
 
     public static class ApiException extends IOException {
@@ -32,7 +32,7 @@ public final class GroqClient {
     private final String apiKey;
     private final String base;
 
-    public GroqClient(String apiKey, String baseUrl) {
+    public ApiClient(String apiKey, String baseUrl) {
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         String b = Endpoint.normalize(baseUrl);
         this.base = b.isEmpty() ? DEFAULT_BASE : b;
@@ -247,6 +247,32 @@ public final class GroqClient {
     static boolean looksValid(String raw, String cleaned) {
         if (cleaned == null || cleaned.trim().isEmpty()) return false;
         return cleaned.length() <= raw.length() * 1.6 + 40;
+    }
+
+    /** The "skip AI cleanup below this many words" setting as a whole number from 1 to 20; 3 when it is unusable. */
+    static int cleanMinWords(String value) {
+        try {
+            java.math.BigInteger n = new java.math.BigInteger(value == null ? "" : value.trim());   // no overflow, like Python's int()
+            if (n.compareTo(java.math.BigInteger.ONE) < 0) return 1;
+            if (n.compareTo(java.math.BigInteger.valueOf(20)) > 0) return 20;
+            return n.intValue();
+        } catch (NumberFormatException e) {
+            return 3;
+        }
+    }
+
+    /** True when the AI cleanup should run: it is on, the style is not raw and the text has enough words. */
+    static boolean needsCleanup(String raw, String style, boolean enabled, String minWords) {
+        if (!enabled || "raw".equals(style)) return false;
+        int words = 0;
+        boolean inWord = false;
+        for (int i = 0; raw != null && i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            boolean space = Character.isWhitespace(c) || Character.isSpaceChar(c);
+            if (!space && !inWord) words++;
+            inWord = !space;
+        }
+        return words >= cleanMinWords(minWords);
     }
 
     /** Applies "wrong => right" pairs as whole-word, case-insensitive replacements. */

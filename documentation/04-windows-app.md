@@ -8,8 +8,9 @@ Python 3.13, packaged with PyInstaller (`--onedir --windowed`) and an Inno Setup
 |---|---|
 | `Vox.exe` / `python windows\vox_app.py` | Starts the engine. If mutex `Local\VoxEngine` is already held, only opens the window (`engine.open_window`). Logs to `vox.log`. |
 | `Vox.exe --window` | Opens the main window. If mutex `Local\VoxWindow` is held, focuses the existing window instead. Logs to `window.log`. |
+| `Vox.exe --relay [relay options]` | Runs the relay server (`relay/relay.py`, `main(argv)` with the rest of the command line: `--data-dir`, `--port`, ...) and nothing else: handled first thing in `main`, before any GUI, audio or keyboard module is imported, so it needs no display. No mutex. Logs to `relay.log`. Started by the engine (see "Relay on this PC" below); you can also run it by hand. In the frozen exe the relay is bundled (`--paths ..\relay --hidden-import relay` in `build_app.bat` and the workflow); from source `vox_app.py` adds `..\relay` to the import path. |
 
-Both set DPI awareness, install `sys.excepthook` / `threading.excepthook` that log uncaught errors, and use a `RotatingFileHandler` (1 MB, 2 backups). See [11-logs-and-diagnostics.md](11-logs-and-diagnostics.md).
+The engine and window modes set DPI awareness, install `sys.excepthook` / `threading.excepthook` that log uncaught errors, and use a `RotatingFileHandler` (1 MB, 2 backups). See [11-logs-and-diagnostics.md](11-logs-and-diagnostics.md).
 
 ## Engine (`windows/engine.py`, class `Engine`)
 
@@ -42,7 +43,16 @@ Both set DPI awareness, install `sys.excepthook` / `threading.excepthook` that l
 
 ### Tray menu (pystray)
 
-Open Vox (default action) · Retry last dictation (visible only while `pending` is set) · Start/Stop meeting notes · Quit Vox. Icon colour follows state (`logo.draw`: idle blue, recording red, busy amber).
+Open Vox (default action) · Retry last dictation (visible only while `pending` is set) · New voice note / Finish voice note · Start/Stop meeting notes · Run relay on this PC (a checkbox, ticked while `relay_run` is true) · Quit Vox. Icon colour follows state (`logo.draw`: idle blue, recording red, busy amber).
+
+### Relay on this PC (`windows/relay_host.py`)
+
+`Engine.relay` is a `RelayHost(data_dir, port, notify)` for the relay data folder `%APPDATA%\VoxRelay` (the relay's own default, so `python relay.py` and Vox share one relay) and the port from `relay_port` (default 8765; `relay_host.port_from` falls back to 8765 for an unusable value). The tray item "Run relay on this PC" (`Engine.toggle_relay`) flips `relay_run`, writes it into the settings file (it loads the file first, so settings the window saved meanwhile are kept) and starts or stops the host. `Engine.run` starts it at launch when `relay_run` is true. Changing `relay_run` or `relay_port` by editing `config.json` while Vox runs does not start or stop anything until the next Vox start or the next tray click (`relay_port` is read each time the relay is started). The tick mark shows the saved setting, not whether the relay process is running: the engine re-reads `config.json`, so the box follows the file, and it stays ticked when the relay did not start (busy port, launcher error) or ended by itself. Whether it runs is shown only by the notifications and `vox.log`.
+
+- `relay_command(data_dir, port)` is `[Vox.exe, "--relay", "--data-dir", D, "--port", P]` in the frozen app and `[python, windows\vox_app.py, "--relay", ...]` from source. `RelayHost.start()` starts it once (a second call while it runs does nothing), `running()` asks the process, `stop()` terminates it, waits 5 s and kills it if it does not end. The launcher (`spawn_hidden`) gives it no console window and discards its output.
+- **Never orphaned:** `Engine.quit` calls `relay.stop()` before `os._exit(0)`. The launcher also puts the child in a Windows job object with "kill on close", so if the engine is killed or crashes, Windows ends the relay with it. Stopping is a hard `TerminateProcess`: the relay's SIGTERM handler does not run on Windows. The relay keeps its data in SQLite, whose commits are atomic, so a killed relay should not leave a half-written note (inferred from SQLite's design; not tested by killing a relay mid-write).
+- **Port check:** before starting, `start()` asks `port_busy(port)` (a TCP connect to `127.0.0.1:port`). If something already answers, for example a relay started by hand, it does not start a second one and says so. This is needed because the relay's server class (`ThreadingHTTPServer`) inherits `allow_reuse_address = 1` from `http.server.HTTPServer`, so it binds with `SO_REUSEADDR`, which on Windows lets a second relay bind a taken port without any error (checked on this PC on 2026-09-30: a second `relay.make_server` on the port of a listening one succeeded). The check does not cover a relay started by hand *after* Vox's one: `python relay.py` has no such check.
+- **Messages (tray notifications):** the first time the relay ever starts on this PC (no `relay.json` yet) the notification says `tailscale serve --bg <port>` with the real port, which is how the phone reaches it; a busy port is reported as above; if the child ends within 10 s of starting the notification says so and points to `relay.log`; a launcher error (the exe could not be started) is shown with its message. The setting stays on in each case; untick the item to stop Vox trying.
 
 ### Config reload
 
@@ -50,7 +60,7 @@ Open Vox (default action) · Retry last dictation (visible only while `pending` 
 
 ### Quit (`Engine.quit`)
 
-If a meeting is active it is stopped; if notes are still being written the engine waits up to 180 s, then stops the tray icon and overlay, deletes `engine.json` and exits with `os._exit(0)`. Ctrl+C in the launching terminal calls `quit` too.
+If a meeting is active it is stopped; if notes are still being written the engine waits up to 180 s, then stops the relay child process (if running), the tray icon and overlay, deletes `engine.json` and exits with `os._exit(0)`. Ctrl+C in the launching terminal calls `quit` too.
 
 ### Local control server
 
@@ -82,7 +92,7 @@ A small Tk pill at the bottom of the work area: live waveform while recording, b
 | Notes (beta) | Calendar, start/stop meeting notes, live transcript with a question box, saved meetings with detail view, questions across all meetings |
 | Dictionary | Words, People, Replacements (`wrong => right`) |
 | Styles | Default style and a style per app exe |
-| Settings | API key + Test, Server address, shortcut, microphone, language, AI cleanup, keep history, keep clipboard, your name, calendar email, auto notes, start with Windows, clear history, data folder |
+| Settings | API key + Test, Server address, shortcut, microphone, language, AI cleanup, skip cleanup below N words, keep history, keep clipboard, your name, calendar email, auto notes, start with Windows, clear history, data folder |
 
 `Api` methods (called from JavaScript as `pywebview.api.<name>`): `get_state`, `save_config`, `set_hotkey`, `check_key`, `list_models`, `test_role`, `note_toggle`, `note_status`, `sync_status`, `sync_now`, `sync_test`, `notes_list`, `note_edit`, `note_delete`, `endpoint_problem`, `suggest_corrections`, `copy`, `delete_history`, `clear_history`, `open_url`, `open_data_folder`, the `meeting_*` and `meetings*` group, `calendar`, `google_*`, `connect_calendar`, `get_autostart`, `set_autostart`. Live meeting calls go through `Api._engine` to the control server; everything else reads or writes files directly.
 

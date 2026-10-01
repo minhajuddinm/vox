@@ -1,14 +1,14 @@
 # 14. The relay
 
-An optional server the user runs on their own machine (PC, Raspberry Pi, any Linux box) so a phone and a PC can share voice notes and a profile. **This page describes what exists in the code today: the server, its management page, and the Windows client (voice notes only). The Android app does not use it yet.** Set-up steps for a Raspberry Pi are in [../relay/README.md](../relay/README.md).
+An optional server the user runs on their own machine (PC, Raspberry Pi, any Linux box) so a phone and a PC can share voice notes and a profile. **This page describes what exists in the code today: the server, its management page, the Windows client (voice notes and the profile) and running the server from the Windows app. The Android app does not use it yet.** Set-up steps for a Raspberry Pi are in [../relay/README.md](../relay/README.md).
 
 ## What it is
 
-`relay/relay.py`: one Python file, standard library only, no Vox imports, Python 3.9 or newer. It runs on Linux (including a Raspberry Pi 5, arm64), macOS and Windows; CI runs its tests on Python 3.9 and 3.13 on x86 Linux and on Python 3.13 on arm64 Linux. It listens on `127.0.0.1` only (there is no option to listen elsewhere). It is not part of the installer or the exe.
+`relay/relay.py`: one Python file, standard library only, no Vox imports, Python 3.9 or newer. It runs on Linux (including a Raspberry Pi 5, arm64), macOS and Windows; CI runs its tests on Python 3.9 and 3.13 on x86 Linux and on Python 3.13 on arm64 Linux. It listens on `127.0.0.1` only (there is no option to listen elsewhere). The Windows app can run it for you: `Vox.exe --relay` starts it (the exe bundles `relay.py`), and the tray item "Run relay on this PC" starts and stops that as a child process of Vox (see "Running it from Vox on Windows" below). The installer has no separate relay file or service.
 
 | Item | Detail |
 |---|---|
-| Start | `python relay.py [--data-dir DIR] [--port N] [--owner LOGIN] [--show-token]`; stops cleanly on Ctrl+C and on SIGTERM (systemd) |
+| Start | `python relay.py [--data-dir DIR] [--port N] [--owner LOGIN] [--show-token]`, or the same options after `Vox.exe --relay`; stops cleanly on Ctrl+C and on SIGTERM (systemd) |
 | Files | `relay/relay.py`, `relay/vox-relay.service` (systemd unit for Linux), `relay/README.md` (set-up guide) |
 | Data folder | Windows `%APPDATA%\VoxRelay`, macOS `~/Library/Application Support/VoxRelay`, elsewhere `$XDG_DATA_HOME/vox-relay` (default `~/.local/share/vox-relay`): `relay.json` (token, port, owner) and `relay.db` (SQLite, WAL). On POSIX the folder is `0700` and `relay.json` is created `0600`. |
 | Reaching it | publish to the user's own tailnet: `tailscale serve --bg 8765` (HTTPS with a `*.ts.net` certificate, tailnet only). Never Funnel. |
@@ -68,6 +68,16 @@ Note fields: `id` (32 lowercase hex characters, made by the client), `source`, `
 - **Profile:** the same client also syncs the profile document (`GET`/`PUT /profile` with `If-Match`): a fixed set of settings merged field by field, provider settings and keys only when `relay_sync_keys` is on. See [decisions/0023-profile-sync-three-way-merge.md](decisions/0023-profile-sync-three-way-merge.md).
 - **Android:** not built.
 
+## Running it from Vox on Windows
+
+The tray menu has a checkbox **Run relay on this PC** (setting `relay_run`, port `relay_port`, default 8765). Ticking it makes the engine start `Vox.exe --relay --data-dir %APPDATA%\VoxRelay --port 8765` as a hidden child process; unticking it, or quitting Vox, stops it. If `relay_run` is on, the relay starts whenever Vox starts. The data folder is the relay's own default, so the token is in `%APPDATA%\VoxRelay\relay.json`, and a relay started by hand with `python relay.py` and the one Vox starts are the same relay (only one can use the port at a time).
+
+- The first time it ever starts (no `relay.json` yet) a tray notification gives the exact command to reach it from the phone: `tailscale serve --bg 8765` (with the real port). Vox does not run that command itself.
+- If something already answers on the port (for example a relay you started by hand), Vox does not start a second one and a tray notification says so. If the relay process ends within 10 s of starting, a tray notification says so; `%APPDATA%\Vox\relay.log` has the reason. (The check exists because `relay.py` binds with `SO_REUSEADDR`, which on Windows lets a second relay take a busy port without an error.)
+- The child cannot outlive Vox: it is stopped on quit and is tied to Vox by a Windows job object, so it also ends if Vox is killed or crashes. The relay is still bound to `127.0.0.1` only.
+- The PC's own Vox does not point its sync at this relay automatically: enter the relay's address and token in Settings like any other device.
+- Design of the process handling: [windows/relay_host.py](../windows/relay_host.py); details in [04-windows-app.md](04-windows-app.md).
+
 ## Not built yet
 
-Android client and outbox, syncing dictation history, meetings and per-app styles, audio blobs, proxy mode (the relay making the speech and cleanup calls so keys never leave it), a tray toggle or `Vox.exe --relay`, restoring a backup from the page, `tailscale serve` set-up help inside the apps. Verified only on Windows and, through CI, on x86 and arm64 Linux; the systemd unit, the Raspberry Pi steps and a real phone or PC reaching the relay through `tailscale serve` have not been tried. Decision records: [decisions/0020-relay-design.md](decisions/0020-relay-design.md), [decisions/0021-relay-portable-with-a-web-page.md](decisions/0021-relay-portable-with-a-web-page.md).
+Android client and outbox, syncing dictation history, meetings and per-app styles, audio blobs, proxy mode (the relay making the speech and cleanup calls so keys never leave it), restoring a backup from the page, a guided `tailscale serve` set-up inside the apps (today the tray item shows the command once), a Settings-page switch for the PC's own relay (only the tray item exists). Verified only on Windows and, through CI, on x86 and arm64 Linux; the systemd unit, the Raspberry Pi steps and a real phone or PC reaching the relay through `tailscale serve` have not been tried. Decision records: [decisions/0020-relay-design.md](decisions/0020-relay-design.md), [decisions/0021-relay-portable-with-a-web-page.md](decisions/0021-relay-portable-with-a-web-page.md).

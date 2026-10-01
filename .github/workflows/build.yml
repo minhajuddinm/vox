@@ -62,6 +62,7 @@ jobs:
           pyinstaller @g --noconfirm --clean --onedir --windowed --name Vox --icon vox.ico `
             --add-data "ui;ui" --add-data "vox.ico;." `
             --hidden-import pystray._win32 --hidden-import pynput.keyboard._win32 --hidden-import pynput.mouse._win32 `
+            --paths ../relay --hidden-import relay `
             --collect-data soundcard --collect-data tzdata --collect-submodules recurring_ical_events `
             --exclude-module PIL._avif --exclude-module PIL.AvifImagePlugin --exclude-module PIL._webp --exclude-module PIL.WebPImagePlugin `
             vox_app.py
@@ -90,18 +91,9 @@ jobs:
         run: |
           if [ -n "$ANDROID_KEYSTORE_B64" ]; then echo "$ANDROID_KEYSTORE_B64" | base64 -d > android/vox.keystore; echo "Using the project signing key";
           else echo "::warning::No ANDROID_KEYSTORE_B64 secret. A new key is generated, so this APK cannot update earlier installs."; fi
-      - name: Unit tests (pure helpers in GroqClient)
+      - name: Unit tests (android/run-tests.sh)
         run: |
-          JAR="$ANDROID_HOME/platforms/android-34/android.jar"
-          mkdir -p android/build/test
-          javac -nowarn -encoding UTF-8 -cp "$JAR" -d android/build/test \
-            android/src/com/minhaj/vox/GroqClient.java android/src/com/minhaj/vox/Endpoint.java \
-            android/src/com/minhaj/vox/Pcm.java android/src/com/minhaj/vox/Corrections.java \
-            android/src/com/minhaj/vox/Terms.java android/src/com/minhaj/vox/Providers.java android/test/com/minhaj/vox/*.java
-          for t in GroqClientTest EndpointTest PcmTest CorrectionsTest ProvidersTest; do
-            java -cp "android/build/test:$JAR" "com.minhaj.vox.$t"
-          done
-          java -cp "android/build/test:$JAR" com.minhaj.vox.ParityTest spec/golden.txt
+          ANDROID_JAR="$ANDROID_HOME/platforms/android-34/android.jar" bash android/run-tests.sh
       - name: Build APK
         env:
           KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}

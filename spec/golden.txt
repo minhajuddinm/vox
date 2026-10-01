@@ -1,4 +1,4 @@
-# Shared expectations for the Python (windows/vox_core.py) and Java (android GroqClient/Terms) cleanup helpers.
+# Shared expectations for the Python (windows/vox_core.py) and Java (android ApiClient/Terms) cleanup helpers.
 # One case per line, fields separated by TAB. In a field: \n = newline, \t = tab, \\ = backslash.
 # Lists inside a field use | between items. Replacement pairs use ; between pairs and => inside a pair.
 # kind<TAB>inputs...<TAB>expected
@@ -94,3 +94,13 @@ level	0.05	0.958
 level	0.1	0.999
 level	0.3	1.000
 level	1	1.000
+gate	one two	casual	true	3	false
+gate	one two three	casual	true	3	true
+gate	one two three	raw	true	3	false
+gate	one two three	casual	false	3	false
+gate	one	casual	true	1	true
+gate	   	casual	true	1	false
+gate	a b c d e f	casual	true	7	false
+gate	a b c	casual	true	banana	true
+gate	a b	casual	true	0	true
+gate	a b c	casual	true	99	false

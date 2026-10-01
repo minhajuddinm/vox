@@ -61,6 +61,16 @@ tailscale serve --bg 8765
 ```
 The data folder is `%APPDATA%\VoxRelay` on Windows, `~/Library/Application Support/VoxRelay` on macOS and `~/.local/share/vox-relay` elsewhere. Change it with `--data-dir`.
 
+### From the Vox app on Windows (no Python needed)
+
+If Vox is installed, it can run the relay for you: right-click the Vox tray icon and tick **Run relay on this PC**. Vox starts the relay (it is the same program, started as `Vox.exe --relay`) and stops it when you untick the item or quit Vox. It listens on port 8765 (change it with `relay_port` in `%APPDATA%\Vox\config.json`) and keeps its data in `%APPDATA%\VoxRelay`, the same folder `python relay.py` uses.
+
+The first time, a notification shows the command that makes it reachable from your phone; run it in a terminal (Tailscale must be installed and signed in):
+```
+tailscale serve --bg 8765
+```
+The token is in `%APPDATA%\VoxRelay\relay.json`. The relay only runs while Vox is running, so a PC that is asleep or switched off cannot be reached; for an always-on relay use a Raspberry Pi as above. Do not run `python relay.py` and the tray item on the same port at the same time: Vox notices a busy port and does not start a second relay.
+
 ## Things to know
 
 - Anyone who has the token and can reach the relay can read every note and the profile. Keep the token private; the Maintenance tab can make a new one at any time (all devices then need it).

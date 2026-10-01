@@ -16,7 +16,7 @@ Plain Java (source level 8, no Kotlin, no Gradle, no AndroidX), package `com.min
 
 Accessibility config: events `typeViewFocused | typeWindowStateChanged | typeViewTextSelectionChanged | typeViewClicked`, `canRetrieveWindowContent="true"`, 100 ms notification timeout. No flags.
 
-Network security config: `cleartextTrafficPermitted="true"` for the whole app because Android cannot express address ranges. The app itself refuses plain http unless the host is private (`Endpoint.error`, checked in `GroqClient.open`). See [decisions/0005-configurable-endpoint-private-http.md](decisions/0005-configurable-endpoint-private-http.md).
+Network security config: `cleartextTrafficPermitted="true"` for the whole app because Android cannot express address ranges. The app itself refuses plain http unless the host is private (`Endpoint.error`, checked in `ApiClient.open`). See [decisions/0005-configurable-endpoint-private-http.md](decisions/0005-configurable-endpoint-private-http.md).
 
 ## `DictationService`
 
@@ -26,7 +26,7 @@ Foreground service (notification "Vox is ready", low importance, with a "Turn of
 |---|---|
 | `startRecording(pkg, label)` | Refuses (toast) on a bad server address or a missing key (`Prefs.keyMissing`). Creates an `AudioRecord` (16 kHz mono PCM16, `VOICE_RECOGNITION` source) and a recording thread. Increments `jobId`. Limit 360 s. |
 | `stopRecording()` | Ends recording, then on the worker thread: drops clips under 0.4 s, rejects silent clips (`Pcm.isSilent`, toast "Vox did not hear anything"), writes the WAV to `cache/vox_pending.wav`, marks pending, calls `send`. |
-| `send(job, pkg, label)` | Up to 3 attempts to transcribe (`GroqClient.isRetryable`: network errors, 5xx, 429, 408; waits 0.8 s, 1.6 s between); silence-phrase filter; cleanup unless style is `raw`, cleanup is off or the text has fewer than 3 words; falls back to the raw text (with `applySpokenCommands`) and toasts if cleanup fails; dictionary replacements; history; result delivered to the `Listener`. The WAV is deleted only on success. |
+| `send(job, pkg, label)` | Up to 3 attempts to transcribe (`ApiClient.isRetryable`: network errors, 5xx, 429, 408; waits 0.8 s, 1.6 s between); silence-phrase filter; cleanup only when `ApiClient.needsCleanup` says so (style is not `raw`, cleanup is on and the text has at least `Prefs.cleanupMinWords` words, default 3); falls back to the raw text (with `applySpokenCommands`) and toasts if cleanup fails; dictionary replacements; history; result delivered to the `Listener`. The WAV is deleted only on success. |
 | `retryLast()` | Sends the pending WAV again (notification button). Needs the service to be alive; the WAV is deleted when the service is destroyed or the user cancels. |
 | `cancel()` | Bumps `jobId`, deletes the pending WAV, goes idle. |
 
@@ -65,7 +65,7 @@ One HTML file, works in a normal browser too (a mock `Vox` object is used when t
 | Home | Setup checklist (key, microphone, accessibility bubble, dictation service), try-it box, stats, searchable history (copy, delete, "Fix a word") |
 | Dictionary | Words, People, Replacements |
 | Styles | Default style and a style per installed app |
-| Settings | API key + test, Server address, AI cleanup, keep history, bubble only while typing, language, dictation service switch, battery, speech and cleanup model, clear history |
+| Settings | API key + test, Server address, AI cleanup, skip cleanup below N words, keep history, bubble only while typing, language, dictation service switch, battery, speech and cleanup model, clear history |
 
 ## `Prefs` (SharedPreferences file `vox`)
 
@@ -73,7 +73,7 @@ Keys, defaults and formats: [07-config-and-data.md](07-config-and-data.md). Hist
 
 ## Helper classes (pure Java, unit-tested)
 
-`GroqClient` static helpers, `Terms`, `Endpoint`, `Pcm`, `Corrections`. They avoid Android APIs on purpose so CI can test them with plain `javac` and `java`. See [10-build-test-release.md](10-build-test-release.md).
+`ApiClient` static helpers, `Terms`, `Endpoint`, `Pcm`, `Corrections`. They avoid Android APIs on purpose so CI can test them with plain `javac` and `java`. See [10-build-test-release.md](10-build-test-release.md).
 
 ## Not present on Android
 
@@ -81,15 +81,15 @@ Meeting notes, calendar, hotkeys, overlay pill, DPAPI-style key protection (the 
 
 ## AI provider settings
 
-Settings starts with an **AI provider** card: preset list (`Providers.PRESETS`, sent in `Bridge.state` as `presets`; a phone cannot use `localhost`, so servers of your own are the single "custom" preset), address, key, Voice model and Cleanup model boxes (text fields with a `<datalist>`), Refresh, and Test buttons. `Bridge.listModels(role, form, callback)` and `Bridge.testRole(...)` run on a background thread and answer the named JavaScript callback with a JSON string; `form` holds the settings as typed. A switch reveals a separate server and key for voice or cleanup. `DictationService.send` builds one `GroqClient` per role from `Prefs.role(...)`. `GroqClient` keeps its name for now (a rename is deferred to keep the diff small). The datalist dropdown has not been checked on a device.
+Settings starts with an **AI provider** card: preset list (`Providers.PRESETS`, sent in `Bridge.state` as `presets`; a phone cannot use `localhost`, so servers of your own are the single "custom" preset), address, key, Voice model and Cleanup model boxes (text fields with a `<datalist>`), Refresh, and Test buttons. `Bridge.listModels(role, form, callback)` and `Bridge.testRole(...)` run on a background thread and answer the named JavaScript callback with a JSON string; `form` holds the settings as typed. A switch reveals a separate server and key for voice or cleanup. `DictationService.send` builds one `ApiClient` per role from `Prefs.role(...)` (renamed from `GroqClient`). The datalist dropdown has not been checked on a device.
 
 ## Connection warm-up
 
-`DictationService.startRecording` checks the address of each role (speech and cleanup), then starts a `vox-warm` thread that calls `GroqClient.warm()` for each distinct server: a small `GET /models` read to the end, so the connection returns to the pool. `GroqClient.readJson` no longer calls `disconnect()`, so the upload reuses it. The start delay of the bubble (400 ms trampoline activity plus 350 ms in `VoxAccessibilityService.onDictationServiceReady`) is unchanged.
+`DictationService.startRecording` checks the address of each role (speech and cleanup), then starts a `vox-warm` thread that calls `ApiClient.warm()` for each distinct server: a small `GET /models` read to the end, so the connection returns to the pool. `ApiClient.readJson` no longer calls `disconnect()`, so the upload reuses it. The start delay of the bubble (400 ms trampoline activity plus 350 ms in `VoxAccessibilityService.onDictationServiceReady`) is unchanged.
 
 ## About you
 
-The Dictionary page starts with an **About you** card bound to the `user_context` preference (`Prefs.userContext`, `Bridge.state`/`save`). `DictationService.send` passes it to `GroqClient.cleanup`, which adds it to the prompt.
+The Dictionary page starts with an **About you** card bound to the `user_context` preference (`Prefs.userContext`, `Bridge.state`/`save`). `DictationService.send` passes it to `ApiClient.cleanup`, which adds it to the prompt.
 
 ## Recording meter
 

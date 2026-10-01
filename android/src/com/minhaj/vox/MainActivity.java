@@ -118,6 +118,7 @@ public class MainActivity extends Activity {
                 cfg.put("base_url", prefs.baseUrl());
                 cfg.put("language", prefs.language());
                 cfg.put("cleanup", prefs.cleanupEnabled());
+                cfg.put("cleanup_min_words", ApiClient.cleanMinWords(prefs.cleanupMinWords()));
                 cfg.put("keep_history", prefs.keepHistory());
                 cfg.put("only_typing", prefs.onlyWhenTyping());
                 cfg.put("default_style", prefs.defaultStyle());
@@ -154,6 +155,7 @@ public class MainActivity extends Activity {
                 }
                 if (c.has("language")) e.putString("language", c.getString("language"));
                 if (c.has("cleanup")) e.putBoolean("cleanup", c.getBoolean("cleanup"));
+                if (c.has("cleanup_min_words")) e.putString("cleanup_min_words", String.valueOf(ApiClient.cleanMinWords(c.getString("cleanup_min_words"))));
                 if (c.has("keep_history")) e.putBoolean("keep_history", c.getBoolean("keep_history"));
                 if (c.has("only_typing")) e.putBoolean("only_typing", c.getBoolean("only_typing"));
                 if (c.has("default_style")) e.putString("default_style", c.getString("default_style"));
@@ -224,7 +226,7 @@ public class MainActivity extends Activity {
         public void testKey(String key, String baseUrl, String callback) {
             new Thread(() -> {
                 String res;
-                try { res = new GroqClient(key.trim(), baseUrl).checkKey() ? "ok" : "bad"; }
+                try { res = new ApiClient(key.trim(), baseUrl).checkKey() ? "ok" : "bad"; }
                 catch (Exception e) { res = "offline"; }
                 js(callback + "('" + res + "')");
             }).start();
@@ -249,9 +251,9 @@ public class MainActivity extends Activity {
                 String err = "";
                 try {
                     String[] s = formRole(role, form);
-                    for (String[] m : new GroqClient(s[1], s[0]).listModels(role)) arr.put(m[0]);
+                    for (String[] m : new ApiClient(s[1], s[0]).listModels(role)) arr.put(m[0]);
                     if (arr.length() == 0) err = "The server listed no models for this. Type the model name instead.";
-                } catch (GroqClient.ApiException e) {
+                } catch (ApiClient.ApiException e) {
                     err = Providers.explain(e.code, role, "");
                 } catch (Exception e) {
                     String m = e.getMessage();
@@ -277,11 +279,11 @@ public class MainActivity extends Activity {
                     if (problem != null) msg = problem;
                     else if (s[1].isEmpty() && Providers.keyRequired(s[0])) msg = "Add an API key for this server first.";
                     else {
-                        new GroqClient(s[1], s[0]).test(role, s[2]);
+                        new ApiClient(s[1], s[0]).test(role, s[2]);
                         ok = true;
                         msg = "Works (" + (System.currentTimeMillis() - t0) + " ms) with " + s[2] + ".";
                     }
-                } catch (GroqClient.ApiException e) {
+                } catch (ApiClient.ApiException e) {
                     msg = Providers.explain(e.code, role, "");
                 } catch (Exception e) {
                     msg = "Could not reach the server.";

@@ -42,6 +42,8 @@ DEFAULT_CONFIG = {
     "relay_url": "",
     "relay_token": "",
     "relay_sync_keys": False,
+    "relay_run": False,
+    "relay_port": 8765,
     "stream_stt": True,
     "device_name": "",
     "hotkey": ["ctrl_l", "cmd"],
@@ -50,6 +52,7 @@ DEFAULT_CONFIG = {
     "language": "",
     "input_device": "",
     "cleanup": True,
+    "cleanup_min_words": 3,
     "keep_history": True,
     "default_style": "neutral",
     "dictionary": [],
@@ -609,13 +612,28 @@ def process_detailed(cfg, pcm_bytes, exe, app_label):
     return process_text(cfg, transcribe(cfg, pcm_to_wav(pcm_bytes)), exe, app_label)
 
 
+def clean_min_words(value):
+    """The "skip AI cleanup below this many words" setting as a whole number from 1 to 20; 3 when it is unusable."""
+    try:
+        return max(1, min(20, int(str(value).strip())))
+    except (TypeError, ValueError):
+        return 3
+
+
+def needs_cleanup(raw, style, enabled, min_words):
+    """True when the AI cleanup should run: it is on, the style is not raw and the text has enough words."""
+    if not enabled or style == "raw":
+        return False
+    return len((raw or "").split()) >= clean_min_words(min_words)
+
+
 def process_text(cfg, raw, exe, app_label):
     """Everything after speech to text: silence phrases, style, cleanup, spoken commands, replacements."""
     if not raw or is_silence_hallucination(raw):
         return Result("", "", False, "")
     style = style_for(cfg, exe)
     out, cleaned, error = raw, False, ""
-    if cfg.get("cleanup", True) and style != "raw" and len(raw.split()) >= 3:
+    if needs_cleanup(raw, style, cfg.get("cleanup", True), cfg.get("cleanup_min_words", 3)):
         try:
             c = cleanup(cfg, raw, style, app_label)
             if looks_valid(raw, c):

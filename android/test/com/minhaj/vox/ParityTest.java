@@ -56,19 +56,19 @@ public final class ParityTest {
             int ln = n + 1;
             switch (kind) {
                 case "sanitize":
-                    eq(ln, kind, f[1], GroqClient.sanitize(f[0]));
+                    eq(ln, kind, f[1], ApiClient.sanitize(f[0]));
                     break;
                 case "looks_valid":
-                    eq(ln, kind, f[2], GroqClient.looksValid(f[0], f[1]) ? "true" : "false");
+                    eq(ln, kind, f[2], ApiClient.looksValid(f[0], f[1]) ? "true" : "false");
                     break;
                 case "replace": {
                     Map<String, String> repl = new LinkedHashMap<>();
                     for (String p : items(f[1], ";")) repl.put(p.substring(0, p.indexOf("=>")), p.substring(p.indexOf("=>") + 2));
-                    eq(ln, kind, f[2], GroqClient.applyReplacements(f[0], repl));
+                    eq(ln, kind, f[2], ApiClient.applyReplacements(f[0], repl));
                     break;
                 }
                 case "whisper":
-                    eq(ln, kind, f[1], GroqClient.whisperPrompt(items(f[0], "|")));
+                    eq(ln, kind, f[1], ApiClient.whisperPrompt(items(f[0], "|")));
                     break;
                 case "terms": {
                     String dict = f[1].replace("|", "\n");
@@ -77,16 +77,16 @@ public final class ParityTest {
                     break;
                 }
                 case "prompt":
-                    eq(ln, kind, f[3], GroqClient.systemPrompt(f[0], items(f[1], "|"), f[2]));
+                    eq(ln, kind, f[3], ApiClient.systemPrompt(f[0], items(f[1], "|"), f[2]));
                     break;
                 case "spoken":
-                    eq(ln, kind, f[1], GroqClient.applySpokenCommands(f[0]));
+                    eq(ln, kind, f[1], ApiClient.applySpokenCommands(f[0]));
                     break;
                 case "promptctx":
-                    eq(ln, kind, f[4], GroqClient.systemPrompt(f[0], items(f[1], "|"), f[2], f[3]));
+                    eq(ln, kind, f[4], ApiClient.systemPrompt(f[0], items(f[1], "|"), f[2], f[3]));
                     break;
                 case "context":
-                    eq(ln, kind, f[1], GroqClient.cleanContext(f[0]));
+                    eq(ln, kind, f[1], ApiClient.cleanContext(f[0]));
                     break;
                 case "level":
                     eq(ln, kind, f[1], String.format(java.util.Locale.ROOT, "%.3f", Pcm.levelFromRms(Double.parseDouble(f[0]))));
@@ -95,7 +95,10 @@ public final class ParityTest {
                     eq(ln, kind, f[1], Providers.classify(f[0]));
                     break;
                 case "silence":
-                    eq(ln, kind, f[1], GroqClient.isSilenceHallucination(f[0]) ? "true" : "false");
+                    eq(ln, kind, f[1], ApiClient.isSilenceHallucination(f[0]) ? "true" : "false");
+                    break;
+                case "gate":
+                    eq(ln, kind, f[4], ApiClient.needsCleanup(f[0], f[1], "true".equals(f[2]), f[3]) ? "true" : "false");
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);

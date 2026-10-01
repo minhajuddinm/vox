@@ -20,8 +20,8 @@ def test_core_change_points_at_pipeline_and_config_pages():
     assert "documentation/06-pipeline.md" in got and "documentation/07-config-and-data.md" in got
 
 
-def test_java_helper_change_points_at_the_android_page_and_pipeline_for_groqclient():
-    got = pages("android/src/com/minhaj/vox/GroqClient.java")
+def test_java_helper_change_points_at_the_android_page_and_pipeline_for_apiclient():
+    got = pages("android/src/com/minhaj/vox/ApiClient.java")
     assert "documentation/05-android-app.md" in got and "documentation/06-pipeline.md" in got
 
 

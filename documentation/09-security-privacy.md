@@ -33,7 +33,7 @@ There is no analytics, crash reporting or Vox backend.
 
 - Default server is `https://api.groq.com/openai/v1`.
 - `endpoint_error` / `Endpoint.error`: the address must start with `http://` or `https://`; plain `http://` is accepted only for private hosts: loopback, 10/8, 172.16/12, 192.168/16, link-local, Tailscale `100.64.0.0/10`, IPv6 loopback/fc00::/7/fe80::/10, single-label names, `*.local`, `*.lan`, `*.ts.net`. Anything else needs `https://`, so the key and voice never cross the internet unencrypted ([decisions/0005-configurable-endpoint-private-http.md](decisions/0005-configurable-endpoint-private-http.md)).
-- Android's network security config allows cleartext for the whole app because it cannot express ranges; the rule above is enforced in code (`GroqClient.open`) before every request.
+- Android's network security config allows cleartext for the whole app because it cannot express ranges; the rule above is enforced in code (`ApiClient.open`) before every request.
 - The Windows control server listens on `127.0.0.1` only, on a random port, and rejects requests without the per-run token.
 
 ## Android permissions and access
@@ -70,9 +70,9 @@ There is no analytics, crash reporting or Vox backend.
 
 Notes are stored in `%APPDATA%\Vox\notes.db` (SQLite, not encrypted; a deleted note keeps only an empty marker row). Recording a note sends the audio to the speech server and the text to the cleanup server exactly like a dictation, but without the name of the focused app. Nothing else leaves the device.
 
-## The relay (server only so far)
+## The relay
 
-`relay/relay.py` listens on `127.0.0.1` only and needs a random bearer token on every request (compared in constant time); the optional `owner` setting also checks the `Tailscale-User-Login` header, which `tailscale serve` sets but a local process could forge, so the token stays required. It is meant to be published to one's own tailnet with `tailscale serve` and never with Funnel. `relay.json` (token) and `relay.db` (notes, profile) are plain files; anyone who can read them, or who holds the token and can reach the relay, can read every note and the profile, including any API keys a client stores in it. There is no access log. Nothing in the apps sends data to a relay yet. Details: [14-relay.md](14-relay.md).
+`relay/relay.py` listens on `127.0.0.1` only and needs a random bearer token on every request (compared in constant time); the optional `owner` setting also checks the `Tailscale-User-Login` header, which `tailscale serve` sets but a local process could forge, so the token stays required. It is meant to be published to one's own tailnet with `tailscale serve` and never with Funnel. `relay.json` (token) and `relay.db` (notes, profile) are plain files; anyone who can read them, or who holds the token and can reach the relay, can read every note and the profile, including any API keys a client stores in it. There is no access log. Only the Windows app sends data to a relay, and only when sync is switched on (see "Sync from the Windows app" below); the Android app never does. When the Windows app runs the relay itself (tray item "Run relay on this PC"), the relay is a child process of Vox under the same Windows user, still bound to `127.0.0.1` only, with `relay.json` (the token) and `relay.db` in `%APPDATA%\VoxRelay`; Vox never runs `tailscale` for the user, it only shows the `tailscale serve --bg PORT` command, and the only network thing it does itself is one connection to `127.0.0.1:PORT` to see if the port is taken. Details: [14-relay.md](14-relay.md).
 
 ### The relay's management page
 
@@ -80,7 +80,7 @@ The page shell at `/` is public on whatever address the relay is published to (i
 
 ## Sync from the Windows app
 
-With **Sync voice notes with my relay** on, the full text of every voice note (title, cleaned text, the raw transcript, tags, device name, times) and delete markers go to the relay address in Settings, and each request carries the relay token and this device's name. The address must pass the same rule as the provider address (plain http only for this PC, the local network and Tailscale). The token is stored DPAPI-protected in `config.json` like the API keys. Audio is never sent. Nothing syncs unless the switch is on; dictation history, meetings and the profile are not synced. A relay that is taken over (or a stolen token) exposes every note.
+With **Sync voice notes with my relay** on, the full text of every voice note (title, cleaned text, the raw transcript, tags, device name, times) and delete markers go to the relay address in Settings, and each request carries the relay token and this device's name. The address must pass the same rule as the provider address (plain http only for this PC, the local network and Tailscale). The token is stored DPAPI-protected in `config.json` like the API keys. Audio is never sent. Nothing syncs unless the switch is on; dictation history and meetings are never synced (the profile is: see below). A relay that is taken over (or a stolen token) exposes every note.
 
 ### Profile sync and API keys
 

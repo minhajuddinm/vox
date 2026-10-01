@@ -27,7 +27,7 @@ public final class EndpointTest {
         for (String h : publicHosts) check("public " + h, !Endpoint.isPrivateHost(h));
 
         check("blank is fine", Endpoint.error("") == null && Endpoint.error(null) == null && Endpoint.error("  ") == null);
-        check("groq default is fine", Endpoint.error(GroqClient.DEFAULT_BASE) == null);
+        check("groq default is fine", Endpoint.error(ApiClient.DEFAULT_BASE) == null);
         check("https anywhere", Endpoint.error("https://whisper.example.com/v1") == null);
         check("http on Tailscale ip", Endpoint.error("http://100.90.1.2:8000/v1") == null);
         check("http on lan name", Endpoint.error("http://laptop:8000/v1") == null);
