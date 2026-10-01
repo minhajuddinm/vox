@@ -226,6 +226,15 @@ final class Providers {
         rejected.add(base + "|" + model);
     }
 
+    /** Whether to upload m4a to this server: not once it has refused an m4a that its WAV twin got through. */
+    static boolean m4aAllowed(String base) {
+        return !rejected.contains(base + "|m4a");
+    }
+
+    static void rememberM4aRejected(String base) {
+        rejected.add(base + "|m4a");
+    }
+
     /** Removes a leading think block some models put before the answer. */
     static String stripThink(String text) {
         return text == null ? "" : THINK.matcher(text).replaceFirst("");

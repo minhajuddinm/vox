@@ -400,9 +400,10 @@ public class DictationService extends Service {
         StreamingStt s = new StreamingStt((piece, context) -> {
             String[] stt = p.role(Providers.STT);
             List<String> terms = p.dictionaryTerms();
-            ApiClient.Upload up = AudioUpload.fromPcm(dir, piece);
+            ApiClient api = new ApiClient(stt[1], stt[0]);
+            ApiClient.Upload up = AudioUpload.fromPcm(dir, piece, api.m4aAllowed());
             try {
-                return new ApiClient(stt[1], stt[0]).transcribe(up, p.sttModel(), p.language(), terms, context);
+                return api.transcribe(up, p.sttModel(), p.language(), terms, context);
             } finally {
                 up.release();
             }
@@ -630,8 +631,9 @@ public class DictationService extends Service {
             }
             if (raw == null && isCurrent(job)) {
                 // The clip goes up as m4a from 4 s (a quarter of the size), as the WAV itself when it is short or the
-                // encoder fails. One encoding serves every attempt.
-                ApiClient.Upload up = AudioUpload.fromWavFile(getCacheDir(), wav);
+                // encoder fails, or the server refused an m4a before (then ApiClient also resends a refused m4a as WAV).
+                // One encoding serves every attempt.
+                ApiClient.Upload up = AudioUpload.fromWavFile(getCacheDir(), wav, g.m4aAllowed());
                 try {
                     for (int attempt = 1; attempt <= SEND_ATTEMPTS && raw == null; attempt++) {
                         if (!isCurrent(job)) return;

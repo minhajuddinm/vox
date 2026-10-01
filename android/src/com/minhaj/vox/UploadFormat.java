@@ -4,8 +4,9 @@ package com.minhaj.vox;
  * Which container the audio goes to the server in. The recording is 16 kHz 16-bit mono PCM; as a WAV file that is 32 KB
  * per second (256 kbit/s), which takes a while to send on a phone connection. From {@link #MIN_COMPRESS_SECONDS} on it is
  * encoded as AAC in an m4a file (64 kbit/s, a quarter of the size); shorter clips stay WAV, because the encoder costs
- * more time than the smaller upload saves. If the encoder fails the WAV is sent. Groq, OpenAI-compatible servers and the
- * relay all accept both. Pure Java; the encoding itself is AudioUpload (android.media).
+ * more time than the smaller upload saves. If the encoder fails the WAV is sent. Groq and OpenAI read both; a server that
+ * answers 400, 415 or 422 to the m4a gets the WAV (see {@link #formatRejected}, {@link ApiClient.WavTwin}) and is
+ * remembered ({@link Providers#m4aAllowed}). Pure Java; the encoding itself is AudioUpload (android.media).
  */
 final class UploadFormat {
     private UploadFormat() { }
@@ -28,6 +29,11 @@ final class UploadFormat {
 
     static String fileName(String format) {
         return M4A.equals(format) ? "audio.m4a" : "audio.wav";
+    }
+
+    /** The statuses a server answers when it cannot read the audio's format: the clip is sent once more as WAV. */
+    static boolean formatRejected(int status) {
+        return status == 400 || status == 415 || status == 422;
     }
 
     /** True when the encoded file is worth sending: it exists and is smaller than the WAV it replaces. */

@@ -31,27 +31,36 @@ final class AudioUpload {
      * The upload for a WAV file written by DictationService.writeWav. The result is the WAV itself or a temporary m4a in dir;
      * call {@link ApiClient.Upload#release} when it has been sent.
      */
-    static ApiClient.Upload fromWavFile(File dir, File wav) {
-        ApiClient.Upload plain = ApiClient.Upload.wav(wav);
-        if (!UploadFormat.M4A.equals(UploadFormat.choose(plain.seconds, wav.length()))) return plain;
+    static ApiClient.Upload fromWavFile(File dir, File wav, boolean allowM4a) {
+        final ApiClient.Upload plain = ApiClient.Upload.wav(wav);
+        if (!allowM4a || !UploadFormat.M4A.equals(UploadFormat.choose(plain.seconds, wav.length()))) return plain;
         byte[] pcm;
         try {
             pcm = readPcm(wav);
         } catch (IOException | OutOfMemoryError e) {
             return plain;
         }
-        ApiClient.Upload up = encoded(dir, pcm, plain.seconds, wav.length());
+        ApiClient.Upload up = encoded(dir, pcm, plain.seconds, wav.length(), new ApiClient.WavTwin() {
+            @Override public ApiClient.Upload make() { return plain; }   // the recording itself: release() leaves it alone
+        });
         return up != null ? up : plain;
     }
 
     /** The upload for a piece of audio in memory (a piece of a long recording): a temporary m4a or WAV file in dir. */
-    static ApiClient.Upload fromPcm(File dir, byte[] pcm) throws IOException {
-        double seconds = pcm.length / 32000.0;
+    static ApiClient.Upload fromPcm(final File dir, final byte[] pcm, boolean allowM4a) throws IOException {
+        final double seconds = pcm.length / 32000.0;
         long wavBytes = pcm.length + 44L;
-        if (UploadFormat.M4A.equals(UploadFormat.choose(seconds, wavBytes))) {
-            ApiClient.Upload up = encoded(dir, pcm, seconds, wavBytes);
+        if (allowM4a && UploadFormat.M4A.equals(UploadFormat.choose(seconds, wavBytes))) {
+            ApiClient.Upload up = encoded(dir, pcm, seconds, wavBytes, new ApiClient.WavTwin() {
+                @Override public ApiClient.Upload make() throws IOException { return wavFile(dir, pcm, seconds); }
+            });
             if (up != null) return up;
         }
+        return wavFile(dir, pcm, seconds);
+    }
+
+    /** The audio as a temporary WAV file in dir. */
+    private static ApiClient.Upload wavFile(File dir, byte[] pcm, double seconds) throws IOException {
         File f = File.createTempFile("vox-up-", ".wav", dir);
         try {
             DictationService.writeWav(f, pcm);
@@ -63,12 +72,12 @@ final class AudioUpload {
     }
 
     /** The m4a of this audio when it could be made and is smaller than the WAV; null otherwise. */
-    private static ApiClient.Upload encoded(File dir, byte[] pcm, double seconds, long wavBytes) {
+    private static ApiClient.Upload encoded(File dir, byte[] pcm, double seconds, long wavBytes, ApiClient.WavTwin twin) {
         File f = null;
         try {
             f = File.createTempFile("vox-up-", ".m4a", dir);
             if (encodeAac(pcm, f) && UploadFormat.useEncoded(wavBytes, f.length())) {
-                return new ApiClient.Upload(f, UploadFormat.fileName(UploadFormat.M4A), UploadFormat.mime(UploadFormat.M4A), seconds, true);
+                return new ApiClient.Upload(f, UploadFormat.fileName(UploadFormat.M4A), UploadFormat.mime(UploadFormat.M4A), seconds, true, twin);
             }
         } catch (Exception | OutOfMemoryError e) {
             // fall through: the WAV is sent

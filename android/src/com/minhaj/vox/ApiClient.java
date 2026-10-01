@@ -56,9 +56,14 @@ public final class ApiClient {
         final String name, mime;
         final double seconds;
         private final boolean temp;   // a file made only for this upload (an encoded clip): release() deletes it
+        final WavTwin wavTwin;        // the same audio as WAV, for a server that refuses the m4a; null for a WAV upload
 
         Upload(File file, String name, String mime, double seconds, boolean temp) {
-            this.file = file; this.name = name; this.mime = mime; this.seconds = seconds; this.temp = temp;
+            this(file, name, mime, seconds, temp, null);
+        }
+
+        Upload(File file, String name, String mime, double seconds, boolean temp, WavTwin wavTwin) {
+            this.file = file; this.name = name; this.mime = mime; this.seconds = seconds; this.temp = temp; this.wavTwin = wavTwin;
         }
 
         /** Deletes the file when it was made for this upload only; the recording itself is never touched. */
@@ -71,6 +76,16 @@ public final class ApiClient {
             return new Upload(wav, UploadFormat.fileName(UploadFormat.WAV), UploadFormat.mime(UploadFormat.WAV),
                     Math.max(0, wav.length() - 44) / 32000.0, false);
         }
+    }
+
+    /** Makes the WAV upload of the audio an m4a upload carries (the caller releases it). */
+    interface WavTwin {
+        Upload make() throws IOException;
+    }
+
+    /** False once this server has refused an m4a upload that its WAV got through: send it WAV from then on. */
+    boolean m4aAllowed() {
+        return Providers.m4aAllowed(base);
     }
 
     public String transcribe(File wav, String model, String language, List<String> terms) throws IOException {
@@ -101,6 +116,24 @@ public final class ApiClient {
      * they do not: it is still working on the first one).
      */
     String transcribeRaw(Upload up, String model, String language, String prompt) throws IOException {
+        try {
+            return post(up, model, language, prompt);
+        } catch (ApiException e) {
+            if (up.wavTwin == null || !UploadFormat.formatRejected(e.code)) throw e;
+            // This server may not read m4a (a whisper.cpp server without ffmpeg): once more as WAV, and remember the
+            // server only when the WAV got through, so another kind of 400 is not blamed on the format.
+            Upload wav = up.wavTwin.make();
+            try {
+                String answer = post(wav, model, language, prompt);
+                Providers.rememberM4aRejected(base);
+                return answer;
+            } finally {
+                wav.release();
+            }
+        }
+    }
+
+    private String post(Upload up, String model, String language, String prompt) throws IOException {
         return connectRetry(() -> {
             String boundary = "----vox" + System.nanoTime();
             Multipart body = new Multipart(boundary)
