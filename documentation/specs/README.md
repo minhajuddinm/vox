@@ -17,5 +17,7 @@ The roadmap these come from (v2: any provider, lighter, faster, personal context
 | [p7d-profile-sync.md](p7d-profile-sync.md) | Profile sync (About you, dictionary, people, optional keys) | Implemented (PR 15) |
 | [p2b-stream-long-dictations.md](p2b-stream-long-dictations.md) | Send long recordings in pieces while speaking | Implemented |
 | [p8c-quick-wins.md](p8c-quick-wins.md) | Quick wins: one Java test runner and compile check, `GroqClient` renamed `ApiClient`, `cleanup_min_words`, the relay run from the Windows app | Implemented (not run as a built exe or on a device) |
+| [p6-android-note-mode.md](p6-android-note-mode.md) | Android note mode: faster start, note bubble, notification, quick settings tile, notes store | Implemented (not run on a device) |
+| [p7e-android-sync.md](p7e-android-sync.md) | Android relay sync and profile merge | Implemented (not run on a device) |
 
 Later specs (write each just before its work starts): key-down speed, "About you" context, live voice level, lightweight build, notes store, Android note mode, relay, design and privacy refresh.
