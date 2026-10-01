@@ -4,7 +4,9 @@ The decision from status and answer (ok, reachable, token_ok, version, notes) is
 spec/golden.txt, which the Android RelayCheck runs too; the tests here cover what that file cannot express (the real relay,
 the sent device name, the bridge, no request for unusable settings).
 """
+import sys
 import threading
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -117,8 +119,23 @@ def test_a_version_that_could_carry_markup_is_dropped(monkeypatch):
 
 # ------------------------------------------------------------------ the bridge
 
-def test_the_windows_bridge_passes_the_whole_answer_on(srv, monkeypatch, tmp_path):
-    import ui_app
+@pytest.fixture
+def ui_app(monkeypatch):
+    """windows/ui_app.py imports pyperclip and webview at the top; CI's test job has neither. Stub whichever is missing for
+    this test only (monkeypatch undoes it), and never leave a stub-bound ui_app module for other tests."""
+    for name in ("pyperclip", "webview"):
+        try:
+            __import__(name)
+        except ImportError:
+            monkeypatch.setitem(sys.modules, name, MagicMock())
+    had = "ui_app" in sys.modules
+    import ui_app as module
+    yield module
+    if not had:
+        sys.modules.pop("ui_app", None)
+
+
+def test_the_windows_bridge_passes_the_whole_answer_on(srv, monkeypatch, tmp_path, ui_app):
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
     api = ui_app.Api.__new__(ui_app.Api)   # the bridge method needs no engine
     r = api.sync_test(url_of(srv), srv.token)
@@ -126,8 +143,7 @@ def test_the_windows_bridge_passes_the_whole_answer_on(srv, monkeypatch, tmp_pat
     assert r["device_name"] == sync.device_name({})   # no device name saved: the computer name, as on the notes
 
 
-def test_the_windows_bridge_never_raises(monkeypatch, tmp_path):
-    import ui_app
+def test_the_windows_bridge_never_raises(monkeypatch, tmp_path, ui_app):
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
     monkeypatch.setattr(sync, "test_relay", lambda *a: (_ for _ in ()).throw(ValueError("x")))
     api = ui_app.Api.__new__(ui_app.Api)
