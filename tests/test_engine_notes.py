@@ -157,3 +157,20 @@ def test_cancel_and_too_short_recordings_drop_the_streamer(eng):
     eng.chunks = [b"\x00\x00" * 10]
     eng.stop()
     assert s2.cancelled and eng.streaming is None
+
+
+def test_a_401_through_the_relay_tells_the_user_to_check_the_relay_token(eng, monkeypatch):
+    def refused(cfg, pcm, exe, label):
+        raise core.ApiError(401, "API 401: unauthorised")
+
+    monkeypatch.setattr(core, "process_detailed", refused)
+    eng.cfg = {"keep_history": False, "relay_proxy": True, "relay_url": "https://yuvipi.tail1234.ts.net", "relay_token": "T"}
+    eng.start()
+    eng.chunks = speech()
+    eng.stop()
+    assert "relay token" in eng.messages[-1] and "relay page" in eng.messages[-1]
+    eng.cfg = {"keep_history": False}   # no relay: the old wording stays
+    eng.start()
+    eng.chunks = speech()
+    eng.stop()
+    assert eng.messages[-1].startswith("The server rejected the API key. Check Vox > Settings.")
