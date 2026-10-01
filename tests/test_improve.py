@@ -233,7 +233,8 @@ def test_every_apply_is_a_version_and_revert_goes_back():
     c1 = improve.apply(p1, ids(p1, "dictionary", "rule"), cfg, now=10)
     c2 = improve.apply(p2, ids(p2, "dictionary", "rule"), c1, now=20)
     assert [v["t"] for v in c2["my_cleanup_rules_versions"]] == [10, 20]
-    assert c2["my_cleanup_rules_versions"][1] == {"t": 20, "rules": "Existing rule.\nRule A.", "added": ["Zed"]}
+    assert c2["my_cleanup_rules_versions"][1] == {"t": 20, "rules": "Existing rule.\nRule A.", "added": ["Zed"],
+                                                          "added_rules": ["Rule B."]}
     r = improve.revert(c2)   # the last version only
     assert r["my_cleanup_rules"] == "Existing rule.\nRule A." and r["dictionary"][-1] == "Atlas" and "Zed" not in r["dictionary"]
     assert [v["t"] for v in r["my_cleanup_rules_versions"]] == [10]
@@ -304,3 +305,38 @@ def test_an_empty_or_tiny_history_still_runs_and_garbage_back_changes_nothing():
     assert improve.apply(p, [], cfg, now=1) == cfg
     p = run([entry(1)], lambda m: answer(rules=["Only one."]), cfg)
     assert improve.apply(p, ids(p, "rule"), cfg, now=1)["my_cleanup_rules"] == "Existing rule.\nOnly one."
+
+
+# ---- Revert removes only what the apply added, not rules written later (R3-M6) -----------------------------------------------
+
+def test_revert_keeps_a_rule_the_user_added_after_the_apply():
+    cfg = cfg0(my_cleanup_rules="Keep it short.")
+    p = improve.parse_proposal(answer(rules=["Use British spelling."]))
+    c1 = improve.apply(p, ids(p, "rule"), cfg, now=1)
+    assert c1["my_cleanup_rules_versions"][0]["added_rules"] == ["Use British spelling."]
+    c1["my_cleanup_rules"] += "\nMy own rule."
+    r = improve.revert(c1, -1)["my_cleanup_rules"]
+    assert "Keep it short." in r and "My own rule." in r and "Use British spelling." not in r
+
+
+def test_revert_of_several_versions_removes_each_added_rule_and_keeps_edits_in_between():
+    cfg = cfg0(my_cleanup_rules="Keep it short.")
+    p1 = improve.parse_proposal(answer(rules=["Rule A."]))
+    p2 = improve.parse_proposal(answer(rules=["Rule B."]))
+    c1 = improve.apply(p1, ids(p1, "rule"), cfg, now=1)
+    c1["my_cleanup_rules"] += "\nMine."
+    c2 = improve.apply(p2, ids(p2, "rule"), c1, now=2)
+    assert improve.revert(c2, 0)["my_cleanup_rules"].split("\n") == ["Keep it short.", "Mine."]
+    assert improve.revert(c2)["my_cleanup_rules"].split("\n") == ["Keep it short.", "Rule A.", "Mine."]
+
+
+def test_a_version_from_before_added_rules_existed_still_restores_its_snapshot():
+    cfg = cfg0(my_cleanup_rules="New text.", my_cleanup_rules_versions=[{"t": 1, "rules": "Old text.", "added": []}])
+    assert improve.revert(cfg)["my_cleanup_rules"] == "Old text."
+
+
+def test_an_apply_that_changes_nothing_makes_no_version_even_when_the_rules_have_blank_lines():
+    cfg = cfg0(my_cleanup_rules="Rule one.\n\nRule two.\n")
+    p = improve.parse_proposal(answer(rules=["Rule one."]))
+    out = improve.apply(p, ids(p, "rule"), cfg, now=1)
+    assert out["my_cleanup_rules"] == cfg["my_cleanup_rules"] and not out.get("my_cleanup_rules_versions")
