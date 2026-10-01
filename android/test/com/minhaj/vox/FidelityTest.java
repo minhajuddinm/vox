@@ -43,6 +43,12 @@ public final class FidelityTest {
         return sb.toString();
     }
 
+    private static String withoutBlock(String[] words, int start, int n) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < words.length; i++) if (i < start || i >= start + n) sb.append(words[i]).append(' ');
+        return sb.toString();
+    }
+
     /** What a good Light cleanup does to a long text: capitals, commas, full stops and paragraph breaks only. */
     private static String punctuate(String text) {
         String[] words = text.split(" ");
@@ -139,6 +145,19 @@ public final class FidelityTest {
         StringBuilder missingChunk = new StringBuilder();
         for (int i = 0; i < gw.length; i++) if (i < 600 || i >= 750) missingChunk.append(gw[i]).append(' ');
         eq("long missing chunk", false, Fidelity.ok(raw, missingChunk.toString(), "light"));
+
+        // Light also loses at most 12 words whatever the percentage (twin of the Python tests)
+        String raw1k = longText(1000);
+        String[] w1k = punctuate(raw1k).split("\\s+");
+        eq("light cap 12 passes", true, Fidelity.ok(raw1k, withoutBlock(w1k, 400, 12), "light"));
+        eq("light cap 13 fails", false, Fidelity.ok(raw1k, withoutBlock(w1k, 400, 13), "light"));
+        eq("light cap 25 fails", false, Fidelity.ok(raw1k, withoutBlock(w1k, 400, 25), "light"));
+        eq("light cap 25 recall alone passes", true, Fidelity.wordRecall(raw1k, withoutBlock(w1k, 400, 25)) >= 0.97);
+        eq("light cap 25 looksValid", false, ApiClient.looksValid(raw1k, withoutBlock(w1k, 400, 25), "light"));
+        eq("standard 25 passes", true, Fidelity.ok(raw1k, withoutBlock(w1k, 400, 25), "standard"));
+        eq("standard 200 fails", false, Fidelity.ok(raw1k, withoutBlock(w1k, 400, 200), "standard"));
+        String noisy = raw1k.replaceAll(" and ", " um and ");
+        eq("noises are not counted", true, Fidelity.ok(noisy, punctuate(raw1k), "light"));
 
         // looksValid keeps the old rules and adds the guard
         String r60 = longText(60);

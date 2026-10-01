@@ -253,6 +253,39 @@ def test_a_long_dictation_missing_one_chunk_fails():
     assert core.fidelity_ok(raw, " ".join(words), "light")
 
 
+def _without_block(words, start, n):
+    return " ".join(words[:start] + words[start + n:])
+
+
+def test_light_loses_at_most_twelve_words_whatever_the_percentage():
+    """Review fix: 97% of 1000 words is 30 words, enough to drop a whole paragraph silently. Light also has an
+    absolute cap of 12 missing words (Fidelity.LIGHT_MAX_MISSING)."""
+    raw = long_text(1000)
+    words = punctuate(raw).split()
+    assert core.fidelity_ok(raw, _without_block(words, 400, 12), "light")        # 12 missing: the limit
+    assert not core.fidelity_ok(raw, _without_block(words, 400, 13), "light")    # 13 missing
+    assert not core.fidelity_ok(raw, _without_block(words, 400, 25), "light")    # a dropped sentence or two
+    assert not core.fidelity_ok(raw, _without_block(words, 400, 30), "light")
+    assert core.word_recall(raw, _without_block(words, 400, 25)) >= 0.97         # the percentage alone would pass
+    assert not core.looks_valid(raw, _without_block(words, 400, 25), "light")
+
+
+def test_the_light_cap_does_not_touch_short_dictations_and_noises_do_not_count():
+    raw = long_text(1000)
+    noisy = raw.replace(" and ", " um and ", 40)   # 40 pure noises dropped: not lost words
+    assert core.fidelity_ok(noisy, punctuate(raw), "light")
+    short = long_text(100)
+    assert not core.fidelity_ok(short, _without_block(punctuate(short).split(), 40, 4), "light")   # 4% still fails
+
+
+def test_standard_keeps_the_percentage_rule_only():
+    """Standard removes false starts and self-corrections, so no absolute cap: 4% of 1000 words may go."""
+    raw = long_text(1000)
+    words = punctuate(raw).split()
+    assert core.fidelity_ok(raw, _without_block(words, 400, 25), "standard")
+    assert not core.fidelity_ok(raw, _without_block(words, 400, 200), "standard")
+
+
 def test_long_text_with_many_fillers_in_standard():
     noisy = []
     for i, w in enumerate(long_text(600).split()):

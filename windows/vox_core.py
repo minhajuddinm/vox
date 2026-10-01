@@ -497,11 +497,15 @@ def word_recall(raw, cleaned):
     return 1.0 if not r else _matched(r, c) / len(r)
 
 
+LIGHT_MAX_MISSING = 12   # Light: more raw words than this missing is a lost sentence, whatever the percentage
+
+
 def fidelity_ok(raw, cleaned, strength="light"):
     """True when the cleanup kept enough of the spoken words.
 
     Light (anything but "standard"): only pure noises (um, uh, er...) may be missing; at least 97% of the words must be
-    there and the text must not be shorter than 90% of the words minus one. Standard: fillers, filler phrases and
+    there, at most LIGHT_MAX_MISSING (12) may be missing in total (97% of a long dictation is a whole paragraph) and the
+    text must not be shorter than 90% of the words minus one. Standard: fillers, filler phrases and
     immediate repeats are not expected; 85% of the rest must be there and the text at least 60% as long. Under four
     words the length rule is skipped."""
     if not cleaned or not cleaned.strip():
@@ -509,7 +513,10 @@ def fidelity_ok(raw, cleaned, strength="light"):
     standard = str(strength or "").strip().lower() == "standard"
     r, c = _compare_tokens(raw, cleaned)
     r = _drop_fillers(r, standard)
-    if _matched(r, c) * 100 < (85 if standard else 97) * len(r):
+    kept = _matched(r, c)
+    if kept * 100 < (85 if standard else 97) * len(r):
+        return False
+    if not standard and len(r) - kept > LIGHT_MAX_MISSING:
         return False
     if len(r) < 4:
         return True

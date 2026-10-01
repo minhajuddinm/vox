@@ -23,6 +23,9 @@ final class Fidelity {
     static final Set<String> FILLERS = new HashSet<>(Arrays.asList(
             "um", "uh", "er", "erm", "ah", "hmm", "like", "you know", "i mean", "sort of", "kind of"));
 
+    /** Light: more raw words than this missing is a lost sentence, whatever the percentage (twin of LIGHT_MAX_MISSING). */
+    static final int LIGHT_MAX_MISSING = 12;
+
     /** Spoken commands (see the prompt): "new line", "new paragraph" and the punctuation names become breaks and symbols. */
     private static final Set<String> COMMAND_PHRASES = new HashSet<>(Arrays.asList("new line", "new paragraph", "question mark"));
     private static final Set<String> COMMAND_WORDS = new HashSet<>(Arrays.asList("comma", "period", "colon"));
@@ -302,8 +305,8 @@ final class Fidelity {
 
     /**
      * True when the cleanup kept enough of the spoken words. Light (anything but "standard"): only pure noises (um, uh,
-     * er...) may be missing; at least 97% of the words must be there and the text must not be shorter than 90% of the
-     * words minus one. Standard: fillers, filler phrases and immediate repeats are not expected; 85% of the rest must be
+     * er...) may be missing; at least 97% of the words must be there, at most {@link #LIGHT_MAX_MISSING} may be missing
+     * in total (97% of a long dictation is a whole paragraph) and the text must not be shorter than 90% of the words minus one. Standard: fillers, filler phrases and immediate repeats are not expected; 85% of the rest must be
      * there and the text at least 60% as long. Under four words the length rule is skipped.
      */
     static boolean ok(String raw, String cleaned, String strength) {
@@ -311,7 +314,9 @@ final class Fidelity {
         boolean standard = strength != null && strength.trim().toLowerCase(Locale.ROOT).equals("standard");
         List<String> r = dropFillers(rawTokens(raw, cleaned), standard);
         List<String> c = mergeNumbers(wordTokens(cleaned));
-        if ((long) matched(r, c) * 100 < (long) (standard ? 85 : 97) * r.size()) return false;
+        int kept = matched(r, c);
+        if ((long) kept * 100 < (long) (standard ? 85 : 97) * r.size()) return false;
+        if (!standard && r.size() - kept > LIGHT_MAX_MISSING) return false;
         if (r.size() < 4) return true;
         return standard ? c.size() * 10 >= 6 * r.size() : c.size() * 10 + 10 >= 9 * r.size();
     }
