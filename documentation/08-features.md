@@ -17,7 +17,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | Paste into the focused app; only when the window is unchanged (else copy and say so); old clipboard restored unless `keep_clipboard`, and never over something newer | yes | - | orig | `paste.paste_text`, `Engine.paste` | py `test_paste` |
 | Insert into the focused field via accessibility | - | yes | orig | `VoxAccessibilityService.insertText` | - |
 | Language lock (Whisper language code) | yes | yes | orig | `language` setting | - |
-| History with search, copy, delete, clear; stats (Windows) | yes | yes | orig | `core.history_*`, window; `Prefs.history` | - |
+| History with search, copy, delete, clear; Home status card (provider, models, last Test, sync, notes, last dictation) | yes | yes | orig | `core.history_*`, window; `Prefs.history` | - |
 | Start with Windows | yes | - | orig | `ui_app.set_autostart` | - |
 
 ## Added by PR 1

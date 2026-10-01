@@ -176,6 +176,8 @@ public class DictationService extends Service {
             default: Toast.makeText(this, "Vox is busy", Toast.LENGTH_SHORT).show();
         }
     }
+    /** True while a recording that failed to go through is kept for Retry (Home shows it as the last dictation outcome). */
+    boolean hasUnsent() { return hasPending; }
 
     private Notification buildNotification() {
         Intent open = new Intent(this, MainActivity.class);
