@@ -25,6 +25,9 @@ log = logging.getLogger("vox")
 
 PAUSED = "Paused: wrong window"
 RECOVER = "tray icon > Keep listening > Recover listening session"
+MIC_SILENT_SECONDS = 5   # a live microphone delivers a block every ~0.1 s, even in silence: this long without one, it is dead
+MIC_LOST = ("The microphone stopped sending sound (unplugged, taken by another app, or the PC slept). "
+            "Listening ended and what you said before is saved.")
 REPLAY_BLOCK = 32000   # bytes per queue item when saved audio is played back into a session (1 s)
 
 
@@ -60,6 +63,7 @@ class Listening:
         self._held = []                          # (spoken, cleaned) of the pieces that were not typed
         self._failed = False
         self._halted = False
+        self._mic_lost = False
 
     # ------------------------------------------------------------ what the pill shows
     @property
@@ -113,7 +117,11 @@ class Listening:
         s = self.session
         try:
             while True:
-                pcm = self._q.get()
+                try:
+                    pcm = self._q.get(timeout=MIC_SILENT_SECONDS)
+                except queue.Empty:   # no audio and no stop: end through the normal path so what was heard is saved
+                    self._mic_lost, pcm = True, None
+                    self.host.notify(MIC_LOST)
                 if pcm is not None:
                     self._keep(pcm)
                 with self._lock:
@@ -213,7 +221,7 @@ class Listening:
     def _finish(self):
         """Everything said is text: type what is left, save the note, report. Runs once, on the stt thread."""
         s = self.session
-        kind = "error" if self._failed else "sent"
+        kind = "error" if self._failed or self._mic_lost else "sent"
         try:
             if self._typer:
                 self._out.put(None)

@@ -334,3 +334,36 @@ def test_a_buffer_that_cannot_be_discarded_still_ends_the_session_cleanly(monkey
     host = Host()
     run(host, utterances(1), buffer=Stuck())
     assert host.notes and host.states == ["busy", "idle"] and host.flashes == ["sent"]
+
+
+def test_a_microphone_that_goes_silent_ends_the_session_and_saves_what_was_heard(monkeypatch):
+    monkeypatch.setattr(listen, "MIC_SILENT_SECONDS", 0.3)
+    monkeypatch.setattr(core, "transcribe", Script(["before it died."]))
+    host = Host()
+    lis = listen.Listening(host, NOCLEAN, "note", focus=lambda: "notepad.exe")
+    lis.start()
+    lis.audio(utterances(1), 0, 0, None)             # then the callback stops: nothing more arrives, no stop() call
+    assert lis.done.wait(20), "a dead microphone left the session listening"
+    assert host.notes == [("before it died.", "before it died.")]
+    assert any("microphone" in m.lower() for m in host.messages)
+    assert host.mic_closed >= 1 and host.flashes == ["error"] and host.states == ["busy", "idle"]
+
+
+def test_a_dead_microphone_with_nothing_heard_says_so_once(monkeypatch):
+    monkeypatch.setattr(listen, "MIC_SILENT_SECONDS", 0.3)
+    host = Host()
+    lis = listen.Listening(host, NOCLEAN, "note", focus=lambda: "notepad.exe")
+    lis.start()
+    assert lis.done.wait(20)
+    assert host.notes == [] and len([m for m in host.messages if "microphone" in m.lower()]) == 1
+
+
+def test_a_replayed_session_is_not_cut_short_by_the_microphone_watch(monkeypatch, tmp_path):
+    monkeypatch.setattr(listen, "MIC_SILENT_SECONDS", 0.3)
+    monkeypatch.setattr(core, "transcribe", Script(["old words."]))
+    host = Host()
+    lis = listen.Listening(host, NOCLEAN, "note", focus=lambda: "notepad.exe")
+    lis.start()
+    lis.replay(utterances(1))
+    assert lis.done.wait(20)
+    assert host.notes == [("old words.", "old words.")] and not any("microphone" in m.lower() for m in host.messages)
