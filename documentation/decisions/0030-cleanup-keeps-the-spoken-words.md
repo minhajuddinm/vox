@@ -1,6 +1,6 @@
 # 0030. Cleanup keeps the spoken words: a fidelity guard, a Light default, the raw text always kept
 
-Status: Accepted (the guard, the prompt rewrite, the Light default, the Settings row and "Use raw" are built; the fuzzy dictionary and the benchmark are not, see [p9a](../specs/p9a-cleanup-keeps-my-words.md))
+Status: Accepted (the guard, the prompt rewrite, the Light default, the Settings row, "Use raw" and the fuzzy dictionary pass are built; the benchmark is not, see [p9a](../specs/p9a-cleanup-keeps-my-words.md))
 Date: 2026-10-01
 
 ## Context

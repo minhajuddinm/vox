@@ -87,7 +87,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/ApiClient.java` | HTTP calls to the server plus the pure cleanup helpers (prompt, sanitize, replacements, spoken commands, silence filter, retry policy). |
 | `android/src/com/minhaj/vox/Prefs.java` | All settings and the history, in SharedPreferences. |
 | `android/src/com/minhaj/vox/Providers.java` | Java twin of `windows/providers.py`: per-role settings, model classification and parsing, messages, reasoning fields. |
-| `android/src/com/minhaj/vox/Terms.java` | Parses the dictionary text into terms and replacements. |
+| `android/src/com/minhaj/vox/Terms.java` | Parses the dictionary text into terms and replacements, and applies the terms' spellings to the final text (`fuzzy`). |
 | `android/src/com/minhaj/vox/Fidelity.java` | The fidelity guard: word tokens, word recall and `ok(raw, cleaned, strength)` (Java twin of `fidelity_ok` in `vox_core.py`). |
 | `android/src/com/minhaj/vox/NotificationActions.java` | Pure choice of the foreground notification buttons (at most three) and its Retry hint line. |
 | `android/src/com/minhaj/vox/InsertGuard.java` | Pure typing guard: never type a restored dictation (empty target package), refuse a switched app, and the toast words. |
@@ -141,6 +141,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_warmup.py` | Connection warm-up (`vox_core.warm`) and the shared session. |
 | `tests/test_user_context.py` | The "about you" context: cleaning, prompt placement, sent with cleanup. |
 | `tests/test_prompt.py` | The cleanup prompt: role line first, About you right after it, strength and structure rules, examples that pass the guard, the same bytes for the same inputs, the strength `cleanup` sends. |
+| `tests/test_fuzzy_dictionary.py` | The fuzzy dictionary pass: pipeline wiring, replacement lines win, idempotent over every golden row, speed, Python and Java share one stoplist. |
 | `tests/test_cleanup_fidelity.py` | The fidelity guard: tokens, recall (numbers, symbols, spoken commands), Light and Standard, long dictations, `looks_valid`, `process_text` fallback. |
 | `tests/test_level.py` | The meter curve and the scrolling level history. |
 | `tests/test_notes.py` | The notes store: add, edit, delete, search with FTS5 and the LIKE fallback, filters. |

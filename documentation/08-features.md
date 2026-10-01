@@ -10,6 +10,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | AI cleanup (fillers, self-corrections, punctuation, lists, numbers); phrases shorter than the `cleanup_min_words` setting (default 3) skip it | yes | yes | orig | `vox_core.cleanup`, `needs_cleanup` / `ApiClient.cleanup`, `needsCleanup` | py `test_vox_core`, `test_parity`; java `ApiClientTest`, `ParityTest` |
 | Tone per app (formal / neutral / casual / very casual / raw) | yes | yes | orig | `vox_core.style_for` / `Prefs.styleFor` | py `test_vox_core` |
 | Personal dictionary: terms, people, `wrong => right` replacements | yes | yes | orig | `vox_core.dictionary_terms`, `apply_replacements` / `Terms`, `ApiClient.applyReplacements` | py + java parity |
+| Dictionary terms applied to the final text: another case or one letter off is put right (single-word terms of 5+ letters; [06-pipeline.md](06-pipeline.md)) | yes | yes | new | `vox_core.fuzzy_dictionary` / `Terms.fuzzy` | py + java parity (`fuzzydict` rows), `tests/test_fuzzy_dictionary.py` |
 | Hold-to-talk shortcut, five choices | yes | - | orig | `Engine.on_combo_down/up` | - |
 | Hands-free mode (double-tap, press to finish, Esc cancels) | yes | - | orig | `Engine` | - |
 | Floating mic bubble (tap to start/stop, drag, long press) | - | yes | orig | `VoxAccessibilityService`, `BubbleView` | - |
