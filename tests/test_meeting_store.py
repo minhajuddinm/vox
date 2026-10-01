@@ -187,6 +187,8 @@ def test_ask_skips_a_meeting_whose_id_is_not_valid(meeting_mod, monkeypatch):
 
 def test_every_sample_of_every_block_ends_up_in_a_frame_or_the_remainder(meeting_mod):
     np = pytest.importorskip("numpy")
+    if not hasattr(np, "arange"):   # CI has no numpy and other tests leave a bare stub module in sys.modules
+        pytest.skip("real numpy needed")
     mt = meeting_mod
     blocks = [np.arange(i * 1600, (i + 1) * 1600, dtype=np.float32) for i in range(10)]
     rest, frames = np.zeros(0, np.float32), []
