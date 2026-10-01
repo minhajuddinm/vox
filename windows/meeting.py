@@ -356,6 +356,10 @@ class Meeting:
                 time.sleep(6 * (attempt + 1) if e.code == 429 else 3)
             except requests.RequestException as e:
                 self.last_error = f"Network: {e}"
+                timed_out = isinstance(e, requests.Timeout) and not isinstance(e, requests.ConnectTimeout)
+                if not core.retryable(0, timed_out, core.providers.uses_relay(self.get_cfg())):
+                    log.warning("stt timed out through the relay (%s), not sent again", e)   # the shared rule: the relay is still on it
+                    return None
                 log.warning("stt network error (%s), retry %s", e, attempt)
                 time.sleep(3)
         return None
