@@ -4,7 +4,7 @@ Everything a user can set, everything Vox writes to disk, and the formats. `docu
 
 ## Windows settings (`%APPDATA%\Vox\config.json`)
 
-Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CONFIG`), saved by `save_config`. The window edits it; the engine reloads it within a second. The `api_key` value is stored protected (`dpapi:<base64>`, see [09-security-privacy.md](09-security-privacy.md)) and is plain text in memory.
+Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CONFIG`; a file that is not valid JSON, not an object or unreadable is moved aside as `config.json.bad-<unix time>` and the defaults are used, so Vox still starts; a UTF-8 BOM is accepted), saved by `save_config`. The window edits it; the engine reloads it within a second. The `api_key` value is stored protected (`dpapi:<base64>`, see [09-security-privacy.md](09-security-privacy.md)) and is plain text in memory.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
