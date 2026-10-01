@@ -141,7 +141,10 @@ windows/                Windows app (Python) and its installer scripts
 
 | Path | What it covers |
 |---|---|
-| `tests/conftest.py` | Puts `windows/` on the import path for the tests. |
+| `tests/conftest.py` | Puts `windows/` and `relay/` on the import path, routes `vox_core._post` through `requests.post`, and isolates the profile: every test runs with its own empty `APPDATA`, `LOCALAPPDATA`, `HOME`, `USERPROFILE` and `XDG_*` folders, and an audit hook raises `test touched the real profile` for any file, folder or sqlite call on the real Vox folders recorded at import. A test that needs a particular `APPDATA` sets its own. |
+| `tests/test_conftest_guard.py` | The isolation: own folders per test, the real Vox profile is refused, a test's own `APPDATA` still works. |
+| `tests/test_ci_workflow.py` | Text checks on `.github/workflows/build.yml` and `android/build.sh`: a tag build without the keystore secret fails, other builds say they use a throw-away key and name the artifact after it. |
+| `tests/test_repo_hygiene.py` | `git check-ignore` for the files that hold secrets (`config.json`, `.env`, `relay.json`, `relay.db`, keystores, `*.pem`, ...) wherever they are in the tree. |
 | `tests/requirements.txt` | Pinned test dependencies (`requests`, `pytest`). |
 | `tests/test_vox_core.py` | Prompt, sanitize, replacements, dictionary, style, WAV and silence-phrase helpers. |
 | `tests/test_endpoint_config.py` | Configurable server address, auth header, key test, cleanup fallback. |

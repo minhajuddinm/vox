@@ -76,7 +76,7 @@ State of the code, honestly. Update this page when you fix or discover something
 ### Build and release
 
 - CI runs the tests and the Android build on pull requests; the Windows build runs only on tags or by hand.
-- Without the `ANDROID_KEYSTORE_B64` secret, every CI APK has a new signing key and cannot update an installed app.
+- Without the `ANDROID_KEYSTORE_B64` secret, a tag build fails and every other CI APK (`Vox-android-debug-key`) has a new signing key and cannot update an installed app.
 - `windows/build_app.bat` installs an unpinned PyInstaller (CI pins one) and its failure text tells the user to "send it to Claude" (original wording).
 - Uploaded audio is uncompressed WAV (about 32 KB per second of speech) on Windows; on Android clips of 4 s or more go up as m4a (not run on a phone yet).
 

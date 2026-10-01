@@ -27,7 +27,7 @@ Put the API key in the window's Settings, or in `%APPDATA%\Vox\config.json` (it 
 
 | Suite | Command | Covers |
 |---|---|---|
-| Python | `python -m pytest -q` (from the repo root) | 1940 tests collected at the time of writing (`python -m pytest --collect-only -q`): `tests/test_*.py`. On Windows 1938 pass and 2 are skipped (the two POSIX file-permission tests in `test_relay_admin.py`, which run in CI on Linux); 657 of the 1940 are the shared golden cases in `test_parity.py`; the total includes `tests/test_ui_static.py`, the text-only checks of the two HTML pages |
+| Python | `python -m pytest -q` (from the repo root) | Every test runs with its own empty profile folders (`tests/conftest.py`), and one that touches the real Vox profile fails with `test touched the real profile`. 1940 tests collected at the time of writing (`python -m pytest --collect-only -q`): `tests/test_*.py`. On Windows 1938 pass and 2 are skipped (the two POSIX file-permission tests in `test_relay_admin.py`, which run in CI on Linux); 657 of the 1940 are the shared golden cases in `test_parity.py`; the total includes `tests/test_ui_static.py`, the text-only checks of the two HTML pages |
 | Java | `bash android/run-tests.sh` (needs a JDK and `ANDROID_JAR`; see below) | 30 programs in `android/test/com/minhaj/vox/` (`ApiClientTest` 84 checks, `CorrectionsTest` 16, `EndpointTest` 39, `FidelityTest` 117, `M4aFallbackTest` 16, `LatencyTest` 75, `NoteEventsTest` 13, `NoteLogicTest` 181, `NoteTest` 29, `NotificationActionsTest`, `MultipartTest` 43, `ParityTest` 657 golden cases, `BubbleLogicTest`, `NoteBubbleLogicTest`, `OverlayDiagTest`, `DevicesViewTest` 26, `PcmTest` 12, `PlainJsonTest` 88, `ProfileMapTest` 88, `ProfileMergeTest` 40, `PendingQueueTest`, `ProvidersTest`, `RelayClientTest` 254, `SegmenterTest` 32, `StreamingSttTest` 27, `SyncEngineTest` 373, `TimingTest` 43, `RelayIntegrationTest`, `ProxyUploadIntegrationTest`), no device, no JUnit; the two integration tests run only with `--integration` (see below), so a normal run runs 28 and skips those |
 | Benchmark | `python tools/bench_cleanup.py --provider groq --strength light` | not a test and not in CI: runs the real cleanup over 45 made-up transcripts with your own key and prints speed and fidelity numbers (spec p9a, task A5); `--compare a,b` puts two models side by side, `--provider` picks a preset, results go to `%APPDATA%\Vox\bench\`; `tests/test_bench_cleanup.py` covers it offline |
 | Parity | part of both suites | `spec/golden.txt` |
@@ -56,7 +56,7 @@ Triggers: push of a tag `v*`, manual run (`workflow_dispatch`), or a pull reques
 |---|---|---|
 | `tests` | ubuntu | install `tests/requirements.txt`; `pytest -q`; documentation checker |
 | `windows` (needs `tests`) | windows | optional Google client from secret; `pip install -r windows/requirements.txt pyinstaller==6.22.3`; PyInstaller `--onedir --windowed` (with `--paths ../relay --hidden-import relay` so `Vox.exe --relay` can import `relay/relay.py`); Inno Setup; upload `VoxSetup` artifact |
-| `android` (needs `tests`) | ubuntu | install SDK parts; optional keystore from secret; compile and run the Java tests with `bash android/run-tests.sh` (`ApiClientTest`, `CorrectionsTest`, `EndpointTest`, `NoteEventsTest`, `NoteLogicTest`, `NoteTest`, `DevicesViewTest`, `ParityTest spec/golden.txt`, `PcmTest`, `PlainJsonTest`, `ProfileMapTest`, `ProfileMergeTest`, `ProvidersTest`, `RelayClientTest`, `SyncEngineTest`); the same script with `--integration` (the sync client against the real relay, using the runner's `python3`; no downloads); `android/build.sh`; upload `Vox-android` artifact (`Vox.apk`) |
+| `android` (needs `tests`) | ubuntu | install SDK parts; optional keystore from secret; compile and run the Java tests with `bash android/run-tests.sh` (`ApiClientTest`, `CorrectionsTest`, `EndpointTest`, `NoteEventsTest`, `NoteLogicTest`, `NoteTest`, `DevicesViewTest`, `ParityTest spec/golden.txt`, `PcmTest`, `PlainJsonTest`, `ProfileMapTest`, `ProfileMergeTest`, `ProvidersTest`, `RelayClientTest`, `SyncEngineTest`); the same script with `--integration` (the sync client against the real relay, using the runner's `python3`; no downloads); `android/build.sh`; upload the APK artifact (`Vox-android`, or `Vox-android-debug-key` when no `ANDROID_KEYSTORE_B64` secret is set) (`Vox.apk`) |
 | `release` (tags only) | ubuntu | download artifacts, publish a GitHub Release with `VoxSetup.exe` and `Vox.apk` |
 
 Workflow permissions are `contents: read`; only `release` has `contents: write`. All third-party Actions are pinned by commit SHA (comments give the version).
@@ -66,7 +66,7 @@ Secrets: `GOOGLE_CLIENT_JSON` (Windows Google sign-in), `ANDROID_KEYSTORE_B64` (
 ## Building locally
 
 - **Windows installer flow:** `windows\build_app.bat` (Python 3.10+): makes a venv in `%LOCALAPPDATA%\Vox\venv`, installs requirements and an unpinned PyInstaller, builds, and installs to `%LOCALAPPDATA%\Programs\Vox` with a Start-menu shortcut and autostart entry. It passes the same `--paths "%~dp0..\relay" --hidden-import relay` as the workflow; `tests/test_relay_cli.py` checks that both build files keep those two flags, but no PyInstaller build with them has been run yet.
-- **Android:** `ANDROID_HOME=... ./android/build.sh` produces `android/build/Vox.apk`. Steps: aapt2 compile/link, javac (source 8), d8, zip, zipalign, apksigner. If `android/vox.keystore` is missing it generates one.
+- **Android:** `ANDROID_HOME=... ./android/build.sh` produces `android/build/Vox.apk`. Steps: aapt2 compile/link, javac (source 8), d8, zip, zipalign, apksigner. If `android/vox.keystore` is missing it says so and generates a throw-away one, except on a tag build (`GITHUB_REF` is `refs/tags/v...`), where it stops.
 
 ## Releasing
 
@@ -76,7 +76,7 @@ Secrets: `GOOGLE_CLIENT_JSON` (Windows Google sign-in), `ANDROID_KEYSTORE_B64` (
 
 ## Signing and updating the phone app
 
-A phone only accepts an APK update signed with the same key as the installed one. CI builds without the `ANDROID_KEYSTORE_B64` secret create a new throwaway key each time, so such APKs need the old app uninstalled first (this clears its settings). Set the secret to make updates work.
+A phone only accepts an APK update signed with the same key as the installed one. A tag build without the `ANDROID_KEYSTORE_B64` secret fails (`::error::`) instead of releasing an APK with a throwaway key. Other CI builds (pull requests, manual runs) without the secret still build with a new throwaway key, say so in the log with a warning and upload the APK as `Vox-android-debug-key`; such APKs need the old app uninstalled first (this clears its settings). Set the secret to make updates work.
 
 ## Windows-specific traps for contributors
 

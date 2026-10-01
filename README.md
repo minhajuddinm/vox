@@ -189,10 +189,10 @@ GitHub Actions builds `VoxSetup.exe` and `Vox.apk` (about 10 minutes) and attach
 
 **Google sign-in in releases:** repository **Settings** → **Secrets and variables** → **Actions** → secret `GOOGLE_CLIENT_JSON` containing the Desktop OAuth client JSON. Without it, releases build without the Google button.
 
-**Android signing key:** every APK must be signed with the same key, or phones refuse the update. The key (`android/vox.keystore`) is kept out of git. Store it as the repository secret `ANDROID_KEYSTORE_B64` (the file in base64). Without the secret, CI generates a new key each time.
+**Android signing key:** every APK must be signed with the same key, or phones refuse the update. The key (`android/vox.keystore`) is kept out of git. Store it as the repository secret `ANDROID_KEYSTORE_B64` (the file in base64). Without the secret a tag build fails; other CI builds use a new throw-away key and name the artifact `Vox-android-debug-key`.
 
 **Build locally:** Android: `ANDROID_HOME=... ./android/build.sh` (JDK 17+, platform 34, build-tools 36). Windows: run `windows\build_app.bat` (Python 3.10+). It builds and installs to `%LOCALAPPDATA%\Programs\Vox`. For Google sign-in, put the client JSON at `windows\google_client.json` (ignored by git).
 
-**Never commit** `windows/config.json` (contains a key), `windows/google_client.json` or `android/vox.keystore`. All are in `.gitignore`.
+**Never commit** a `config.json` (contains a key), `google_client.json`, `.env` files, `relay.json` or `relay.db` (the relay's token and notes), keystores (`*.keystore`, `*.jks`, `*.p12`) or `*.pem` files. All are in `.gitignore`, wherever in the tree they are.
 
 **Code map:** `vox_app.py` entry point · `engine.py` tray, hotkey, recording, paste · `overlay.py` pill · `vox_core.py` Groq calls, prompts, config · `ui_app.py` + `ui/index.html` window · `meeting.py` notes · `gcal.py`, `vcalendar.py` calendar · `installer.iss` installer · `android/` Android app (`assets/index.html` UI, `VoxAccessibilityService.java` bubble and text insertion, `DictationService.java` recording and Groq).

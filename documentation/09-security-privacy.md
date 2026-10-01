@@ -59,8 +59,8 @@ There is no analytics, crash reporting or Vox backend. Audio and text go only to
 
 ## Secrets in the repository and CI
 
-- Never commit `config.json`, `google_client.json`, `client_secret*.json`, keystores (all in `.gitignore`).
-- CI secrets: `GOOGLE_CLIENT_JSON`, `ANDROID_KEYSTORE_B64`, and optionally `ANDROID_KEYSTORE_PASS`. Without the keystore secret each CI run creates a new throwaway signing key.
+- Never commit `config.json`, `google_client.json`, `client_secret*.json`, `.env` files, `relay.json`, `relay.db`, keystores or `*.pem` files (all in `.gitignore`, anywhere in the tree; `tests/test_repo_hygiene.py` checks it).
+- CI secrets: `GOOGLE_CLIENT_JSON`, `ANDROID_KEYSTORE_B64`, and optionally `ANDROID_KEYSTORE_PASS`. Without the keystore secret a tag build fails, and other CI runs create a new throwaway signing key (artifact `Vox-android-debug-key`).
 - Workflow permissions are read-only except the `release` job; third-party Actions are pinned by commit SHA.
 
 ## Known gaps (also listed in [12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md))
