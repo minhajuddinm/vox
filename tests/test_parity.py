@@ -71,6 +71,23 @@ def relay_devices(field):
     return out
 
 
+def health_answer(field):
+    """The `k=v;k=v` fields of a relaycheck row as the relay's JSON would give them: s:text is a string, n:number a number,
+    b:true / b:false a boolean; an empty field is no usable answer (None)."""
+    if not field:
+        return None
+    out = {}
+    for item in field.split(";"):
+        key, value = item.split("=", 1)
+        kind, text = value.split(":", 1)
+        out[key] = text if kind == "s" else (float(text) if "." in text else int(text)) if kind == "n" else text == "true"
+    return out
+
+
+def relaycheck_text(r):
+    return f"{'true' if r['ok'] else 'false'};{'true' if r['reachable'] else 'false'};{'true' if r['token_ok'] else 'false'};{r['relay_version']};{r['notes']}"
+
+
 def devices_text(rows):
     return "|".join(f"{r['state']};{'true' if r['this'] else 'false'};{r['ago']};{r['name']}" for r in rows)
 
@@ -126,5 +143,7 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert core.retryable(int(f[0]), f[1] == "true", f[2] == "true") == (f[3] == "true")
     elif kind == "devices":   # now, this device's name, the relay's devices, the rows the card shows
         assert devices_text(sync.devices_view(relay_devices(f[2]), float(f[0]), f[1])) == f[3]
+    elif kind == "relaycheck":   # HTTP status of /health (0 = no answer), the answer's fields, ok;reachable;token_ok;relay_version;notes
+        assert relaycheck_text(sync.relay_check(int(f[0]), health_answer(f[1]), "dev", "failure")) == f[2]
     else:
         pytest.fail(f"unknown case kind {kind}")

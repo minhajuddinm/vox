@@ -337,6 +337,23 @@ public final class RelayClientTest {
         eq("check: a token with a space", "false/" + RelayClient.problem(base, "a b"), show(RelayClient.check(base, "a b", "d")));
         eq("check: none of those reached the server", 0, seen.size());
 
+        // ---- check(): what the test learned (the decision itself is pinned by the relaycheck rows in spec/golden.txt)
+        answer(200, "{\"ok\": true, \"version\": \"0.2\", \"notes\": 3}");
+        RelayClient.Check full = RelayClient.check(base, TOKEN, "Pixel 7");
+        eq("check fields: a good test", "true/true/true/Pixel 7/0.2/3", full.ok + "/" + full.reachable + "/" + full.tokenOk + "/" + full.deviceName + "/" + full.relayVersion + "/" + full.notes);
+        eq("check fields: the device name is the one the header carries", "Caf?", RelayClient.check(base, TOKEN, "Café").deviceName);
+        answer(200, "{\"ok\": true, \"version\": \"<b>0.2</b>\"}");
+        eq("check fields: a version that could carry markup is dropped", "true/", RelayClient.check(base, TOKEN, "d").ok + "/" + RelayClient.check(base, TOKEN, "d").relayVersion);
+        answer(401, "{\"error\": \"missing or wrong token\"}");
+        RelayClient.Check noToken = RelayClient.check(base, "wrong", "d");
+        eq("check fields: a refused token is reachable, not ok", "false/true/false", noToken.ok + "/" + noToken.reachable + "/" + noToken.tokenOk);
+        answer(403, "{\"error\": \"this relay belongs to another tailnet user\"}");
+        RelayClient.Check otherUser = RelayClient.check(base, TOKEN, "d");
+        eq("check fields: another tailnet user: reachable and the token was right", "false/true/true/The relay belongs to another Tailscale user.", otherUser.ok + "/" + otherUser.reachable + "/" + otherUser.tokenOk + "/" + otherUser.message);
+        RelayClient.Check off = RelayClient.check(deadUrl, TOKEN, "Pixel 7");
+        eq("check fields: offline is not reachable and still names the device", "false/false/false/Pixel 7/0", off.ok + "/" + off.reachable + "/" + off.tokenOk + "/" + off.deviceName + "/" + off.notes);
+        eq("check fields: the token is in none of the texts", false, (full.message + full.deviceName + full.relayVersion + noToken.message + off.message).contains(TOKEN));
+
         // ---- devices(): the Devices card (GET /devices, rows from DevicesView)
         answer(200, "{\"devices\": [{\"name\": \"Pixel 7\", \"first_seen\": 1.5, \"last_seen\": 999990.5, \"requests\": 4, \"login\": \"me@example.com\"},"
                 + " {\"name\": \"Laptop\", \"first_seen\": 1.5, \"last_seen\": 990000, \"requests\": 9, \"login\": \"\"}]}");

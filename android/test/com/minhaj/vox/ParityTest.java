@@ -77,6 +77,24 @@ public final class ParityTest {
         return sb.toString();
     }
 
+    /** The `k=v;k=v` fields of a relaycheck row as PlainJson would give them: s:text is a String, n:number a Long (or a Double when written with a point), b:true / b:false a Boolean; empty is no usable answer (null). */
+    private static Map<String, Object> healthAnswer(String field) {
+        if (field.isEmpty()) return null;
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (String item : field.split(";")) {
+            int eq = item.indexOf('='), colon = item.indexOf(':', eq);
+            String key = item.substring(0, eq), text = item.substring(colon + 1);
+            char type = item.charAt(eq + 1);
+            out.put(key, type == 's' ? text : type == 'b' ? (Object) Boolean.valueOf(text.equals("true"))
+                    : text.contains(".") ? (Object) Double.valueOf(text) : (Object) Long.valueOf(text));
+        }
+        return out;
+    }
+
+    private static String relayCheckText(RelayCheck.Result r) {
+        return r.ok + ";" + r.reachable + ";" + r.tokenOk + ";" + r.relayVersion + ";" + r.notes;
+    }
+
     private static void eq(int line, String kind, String expected, String actual) {
         checks++;
         if (!expected.equals(actual)) {
@@ -171,6 +189,9 @@ public final class ParityTest {
                     break;
                 case "devices":   // now, this device's name, the relay's devices, the rows the card shows
                     eq(ln, kind, f[3], devicesText(DevicesView.rows(relayDevices(f[2]), Double.parseDouble(f[0]), f[1])));
+                    break;
+                case "relaycheck":   // HTTP status of /health (0 = no answer), the answer's fields, ok;reachable;token_ok;relay_version;notes
+                    eq(ln, kind, f[2], relayCheckText(RelayCheck.of(Integer.parseInt(f[0]), healthAnswer(f[1]), "dev", "failure")));
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);

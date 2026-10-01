@@ -370,6 +370,9 @@ public final class RelayIntegrationTest {
         RelayClient.Check bad = RelayClient.check(relay.url, "not-the-token", "phone-a");
         eq("check: a wrong token is refused", false, bad.ok);
         eq("check: in plain words", "The relay refused the token.", bad.message);
+        eq("check: the relay's version is reported (the relay sends a short string such as 0.2)", true, good.relayVersion.matches("[0-9]+([.][0-9]+)*"));
+        eq("check: reachable and the token took", "true/true/phone-a", good.reachable + "/" + good.tokenOk + "/" + good.deviceName);
+        eq("check: a wrong token is reachable but not accepted", "true/false/", bad.reachable + "/" + bad.tokenOk + "/" + bad.relayVersion);
     }
 
     /** The two phones have used the relay by now: the Devices card lists both, marks the asking one, and a wrong token gets no list. */

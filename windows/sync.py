@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import platform
+import re
 import threading
 import time
 
@@ -20,6 +21,9 @@ log = logging.getLogger("vox.sync")
 TIMEOUT = 15          # seconds per request
 INTERVAL = 90         # seconds between background syncs
 PUSH_BATCH = 100
+NOT_A_RELAY = "That address did not answer like a Vox relay."
+MAX_NOTES = 1_000_000_000   # the most notes the Test connection answer shows (Android twin: RelayCheck.MAX_NOTES)
+VERSION_OK = re.compile(r"[0-9A-Za-z.+_-]{1,20}")   # what a relay version may look like (see relay_check)
 _session = requests.Session()
 
 
@@ -113,25 +117,49 @@ def _call(method, url, path, token, device, headers=None, allow=(), **kw):
     try:
         return r.status_code, r.json()
     except ValueError:
-        raise SyncError("That address did not answer like a Vox relay.")
+        raise SyncError(NOT_A_RELAY)
 
 
 def _request(method, url, path, token, device, **kw):
     return _call(method, url, path, token, device, **kw)[1]
 
 
+def relay_check(status, health, device, failure=""):
+    """What the Test connection button reports, from the HTTP status of GET /health (0: no answer) and its parsed JSON
+    answer (None: none usable): {"ok", "reachable", "token_ok", "device_name", "relay_version", "notes", "message"}.
+    `ok`: a relay answered and took the token. `reachable`: a relay answered at all; a 401 or 403 is a relay's own
+    refusal, so it counts, any other failure does not. `token_ok`: the token was accepted; the relay checks it before
+    the tailnet owner, so a 403 means the token was right. `relay_version` is kept only as 1 to 20 of letters, digits
+    and . + _ - (a relay sends a short string such as "0.2"), `notes` only as a whole number (a fraction is cut, a
+    string, boolean or negative number is 0, more than MAX_NOTES is cut to it); both are only read from an answer that is ok. `device_name` is the name
+    the asking call sent (it is what the relay lists this device as). `failure` is the caller's words for a failure
+    (the message of SyncError). Android twin: RelayCheck.of (golden rows `relaycheck`)."""
+    base = {"ok": False, "reachable": False, "token_ok": False, "device_name": device, "relay_version": "", "notes": 0}
+    if 200 <= status < 300:
+        if not isinstance(health, dict) or health.get("ok") is not True:
+            return dict(base, message=NOT_A_RELAY)
+        notes_n, version = health.get("notes"), health.get("version")
+        notes_n = int(notes_n) if isinstance(notes_n, (int, float)) and not isinstance(notes_n, bool) and math.isfinite(notes_n) else 0
+        notes_n = max(0, min(MAX_NOTES, notes_n))
+        version = version.strip() if isinstance(version, str) else ""
+        return dict(base, ok=True, reachable=True, token_ok=True, notes=notes_n,
+                    relay_version=version if VERSION_OK.fullmatch(version) else "",
+                    message=f"Connected. The relay holds {notes_n} notes.")
+    if status in (401, 403):
+        return dict(base, reachable=True, token_ok=status == 403, message=failure)
+    return dict(base, message=failure or NOT_A_RELAY)
+
+
 def test_relay(url, token, device="Vox"):
-    """{"ok", "message"}: can this address and token reach a relay?"""
+    """relay_check's answer for this address and token: can they reach a relay? Makes no request when they are unusable."""
     err = problem(url, token)
     if err:
-        return {"ok": False, "message": err}
+        return relay_check(0, None, device, err)
     try:
         h = _request("GET", url.strip().rstrip("/"), "/health", token.strip(), device)
     except SyncError as e:
-        return {"ok": False, "message": str(e)}
-    if not isinstance(h, dict) or not h.get("ok"):
-        return {"ok": False, "message": "That address did not answer like a Vox relay."}
-    return {"ok": True, "message": f"Connected. The relay holds {h.get('notes', 0)} notes."}
+        return relay_check(e.status, None, device, str(e))
+    return relay_check(200, h, device)
 
 
 # ------------------------------------------------------------------ the devices list
@@ -156,7 +184,7 @@ def fetch_devices(cfg):
         raise
     devices = body.get("devices") if isinstance(body, dict) else None
     if not isinstance(devices, list) or not all(isinstance(d, dict) for d in devices):
-        raise SyncError("That address did not answer like a Vox relay.")
+        raise SyncError(NOT_A_RELAY)
     return devices
 
 

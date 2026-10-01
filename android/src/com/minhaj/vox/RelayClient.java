@@ -65,28 +65,44 @@ final class RelayClient implements RelayApi {
         return "";
     }
 
-    /** The outcome of {@link #check}: whether it worked, and what to tell the user either way. */
+    /**
+     * The outcome of {@link #check}: whether it worked, what to tell the user either way, and what the test learned
+     * (RelayCheck.Result): {@code reachable}, {@code tokenOk}, {@code deviceName} (as the relay lists this phone),
+     * {@code relayVersion} ("" when unknown) and {@code notes}.
+     */
     static final class Check {
         final boolean ok;
         final String message;
+        final boolean reachable;
+        final boolean tokenOk;
+        final String deviceName;
+        final String relayVersion;
+        final long notes;
 
-        Check(boolean ok, String message) {
-            this.ok = ok;
-            this.message = message;
+        Check(RelayCheck.Result r) {
+            this.ok = r.ok;
+            this.message = r.message;
+            this.reachable = r.reachable;
+            this.tokenOk = r.tokenOk;
+            this.deviceName = r.deviceName;
+            this.relayVersion = r.relayVersion;
+            this.notes = r.notes;
         }
     }
 
-    /** Can this address and token reach a relay? (sync.test_relay). Never throws. Makes no request when the settings are unusable. */
+    /**
+     * Can this address and token reach a relay? (sync.test_relay; the decision is RelayCheck.of). Never throws. Makes no
+     * request when the settings are unusable. The relay lists this phone under the name as it goes into the header, and
+     * that is the name reported.
+     */
     static Check check(String url, String token, String device) {
+        String sent = headerText(device);
         String err = problem(url, token);
-        if (!err.isEmpty()) return new Check(false, err);
+        if (!err.isEmpty()) return new Check(RelayCheck.of(0, null, sent, err));
         try {
-            Map<String, Object> health = asMap(new RelayClient(url, token, device).call("GET", "/health", null, null));
-            if (health == null || !Boolean.TRUE.equals(health.get("ok"))) return new Check(false, RelayError.NOT_A_RELAY);
-            Object notes = health.get("notes");
-            return new Check(true, "Connected. The relay holds " + (notes instanceof Number ? ((Number) notes).longValue() : 0) + " notes.");
+            return new Check(RelayCheck.of(200, asMap(new RelayClient(url, token, device).call("GET", "/health", null, null)), sent, ""));
         } catch (RelayError e) {
-            return new Check(false, e.message);
+            return new Check(RelayCheck.of(e.status, null, sent, e.message));
         }
     }
 

@@ -554,13 +554,25 @@ public class MainActivity extends Activity {
             SyncWorker.syncNow(MainActivity.this, r -> answerSync(callback, r.ok(), r.ok() ? "Synced." : r.error));
         }
 
-        /** Tries the saved relay address and token and answers callback("{ok, message}"). */
+        /**
+         * Test connection: tries the saved relay address and token and answers
+         * callback("{ok, reachable, token_ok, device_name, relay_version, notes, message}") (the same fields as the Windows
+         * app's sync_test, from RelayCheck).
+         */
         @JavascriptInterface
         public void syncTest(String callback) {
             final String url = prefs.relayUrl(), token = prefs.relayToken(), device = prefs.deviceName();
             new Thread(() -> {
                 RelayClient.Check c = RelayClient.check(url, token, device);
-                answerSync(callback, c.ok, c.message);
+                JSONObject res = new JSONObject();
+                put(res, "ok", c.ok);
+                put(res, "reachable", c.reachable);
+                put(res, "token_ok", c.tokenOk);
+                put(res, "device_name", c.deviceName);
+                put(res, "relay_version", c.relayVersion);
+                put(res, "notes", c.notes);
+                put(res, "message", c.message);
+                js(callback + "(" + JSONObject.quote(res.toString()) + ")");
             }, "vox-sync-test").start();
         }
 
