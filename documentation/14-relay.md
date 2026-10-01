@@ -42,6 +42,7 @@ The page is served with a Content-Security-Policy that allows only its own inlin
 | `GET /notes/{id}` | one note (404 if unknown or deleted) |
 | `DELETE /notes/{id}` | turns the note into a marker: content, title and tags removed, `deleted: true`, new sequence number |
 | `GET /notes?q=&tag=&from=&to=&limit=` | search (words match as word starts, all must match; times are epoch seconds), newest first, deleted notes excluded |
+| `GET /devices` | `{devices: [{name, first_seen, last_seen, requests, login}]}`, newest first (epoch seconds): the devices that sent `X-Vox-Device` on any request. Needs the token like every route (and the owner check when set); same fields as the management page's Devices table (`login` is the Tailscale user the relay saw); no events, no notes. Used by the Devices card in the apps. |
 | `GET /profile` | `{version, data}`; version 0 and empty data before the first save |
 | `PUT /profile` with `If-Match: VERSION` | replaces the profile if `VERSION` is current (`0` or `*` for the first save). 200 with the new version; 412 with the current profile when stale; 428 when `If-Match` is missing. |
 | `GET /admin/status` | numbers for the Overview tab |
