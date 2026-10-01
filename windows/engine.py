@@ -18,6 +18,7 @@ from pynput import keyboard
 
 import audio_devices
 import listen as listen_mod
+import improve
 import logo
 import notes
 import paste as paste_mod
@@ -711,6 +712,28 @@ class Engine:
             except Exception:
                 log.exception("calendar watch failed")
 
+    def check_improve_reminder(self, now=None):
+        """The weekly "Improve my cleanup" reminder: a tray message once a week while the switch is on. It never runs the
+        improvement and sends nothing; turning the switch on only starts the week."""
+        now = time.time() if now is None else now
+        action = improve.remind_action(self.cfg, now)
+        if not action:
+            return
+        cfg = core.load_config()   # the file, not our copy: the window may have saved settings since we read it
+        cfg["improve_remind_last"] = now
+        core.save_config(cfg)
+        self.cfg["improve_remind_last"] = now
+        if action == "remind":
+            self.notify("It is time to look at Improve my cleanup (Vox > Settings). Nothing is sent until you press Run once and confirm.")
+
+    def _watch_improve(self):
+        while True:
+            try:
+                self.check_improve_reminder()
+            except Exception:
+                log.exception("improve reminder failed")
+            time.sleep(3600)
+
     # --------------------------------------------------- control server
     def _serve(self):
         """Local HTTP API used by the Vox window (127.0.0.1 only, random port, secret token)."""
@@ -778,6 +801,7 @@ class Engine:
         threading.Thread(target=self._watch_config, daemon=True).start()
         threading.Thread(target=self._serve, daemon=True, name="control").start()
         threading.Thread(target=self._watch_calendar, daemon=True, name="calendar").start()
+        threading.Thread(target=self._watch_improve, daemon=True, name="improve").start()
         self.sync.start()
         self.icon.run_detached()
         log.info("engine started, hotkey=%s", self.cfg.get("hotkey"))

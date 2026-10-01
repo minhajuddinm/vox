@@ -131,6 +131,11 @@ td.arrow { color: var(--muted); width: 24px; padding: 0; text-align: center; }
 .setting:last-child { border-bottom: 0; }
 .setting .t { font-weight: 550; }
 .setting .d { color: var(--muted); font-size: 12.5px; }
+.irow { display: flex; gap: 12px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--line); }
+label.irow { cursor: pointer; }
+.irow:last-child { border-bottom: 0; }
+.irow .ik { flex: none; width: 96px; color: var(--muted); }
+.irow .it { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .setting > div:first-child { flex: 1; }
 .switch { width: 40px; height: 22px; }
 .switch span { cursor: pointer; }
@@ -368,6 +373,18 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="setting"><div><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases are pasted as spoken, which is faster. Enter 1 to clean up everything (1 to 20).</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" style="width:76px"></div>
       <div class="setting"><div><div class="t">Cleanup strength</div><div class="d">Light keeps every word you said and only fixes punctuation, capitals, spelling and paragraphs. Standard also removes fillers (um, you know) and false starts. If the cleanup lost words, Vox types your words as spoken instead.</div></div><select id="cleanup-strength"><option value="light">Light</option><option value="standard">Standard</option></select></div>
     </div>
+    <div class="card list" id="improve-card" style="margin-top:10px">
+      <div class="setting"><div><div class="t">Improve my cleanup</div><div class="d">Once in a while, a stronger AI model reads your recent dictations (what you said and what Vox typed) and suggests dictionary words, replacements and cleanup rules for you to accept or reject. Nothing is sent until you press Run once and confirm, and nothing changes until you press Apply. Every change can be reverted. About you is only ever suggested to, never changed.</div></div></div>
+      <div class="setting"><div><div class="t">Look at</div><div class="d" id="improve-counts"></div></div><select id="improve-days"><option value="7">The last 7 days</option><option value="14">The last 14 days</option><option value="30">The last 30 days</option><option value="90">The last 90 days</option><option value="0">All saved dictations</option></select></div>
+      <div class="setting"><div><div class="t">Model</div><div class="d">Runs on <span id="improve-provider"></span>, the server used for cleanup. Pick from its model list or type a name. Default openai/gpt-oss-120b.</div></div><input type="text" id="improve-model" list="llm-models" style="width:260px" placeholder="openai/gpt-oss-120b"><button class="btn" id="improve-run">Run once</button></div>
+      <div class="setting" id="improve-confirm-box" style="display:none"><div><div class="t" id="improve-confirm-text"></div><div class="d" id="improve-confirm-extra"></div></div><button class="btn" id="improve-confirm">Send</button><button class="btn ghost" id="improve-cancel">Cancel</button></div>
+      <div class="status" id="improve-status" style="padding:0 18px"></div>
+      <div id="improve-proposal" style="padding:4px 18px 8px"></div>
+      <div class="setting" id="improve-actions" style="display:none"><div class="d">Tick what you want to keep, then Apply. Unticked items are dropped.</div><button class="btn ghost" id="improve-all">Tick all</button><button class="btn" id="improve-apply">Apply</button></div>
+      <div class="setting"><div><div class="t">Applied changes</div><div class="d">Revert undoes that change and every later one.</div></div></div>
+      <div id="improve-versions" style="padding:0 18px 12px"></div>
+      <div class="setting"><div><div class="t">Remind me weekly</div><div class="d">A message from the tray icon once a week. It only reminds you: it never runs by itself and never sends anything.</div></div><label class="switch"><input type="checkbox" id="improve-remind"><span></span></label></div>
+    </div>
 
     <h2>Privacy</h2>
     <p class="sub" style="margin:-6px 0 12px" id="leaves">What leaves this PC: your audio and its transcript go to your voice server, and the cleanup text goes to your cleanup server (both through your relay when it is the AI server). Vox has no analytics and no server of its own.</p>
@@ -569,7 +586,7 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   if (b.dataset.page === "home") refresh();
   if (b.dataset.page === "notes") enterNotes();
   if (b.dataset.page === "voicenotes") { renderVoiceNotes(); pollNote(); renderSync(); }
-  if (b.dataset.page === "settings") loadDevices();
+  if (b.dataset.page === "settings") { loadDevices(); loadImprove(); }
 });
 
 function styleOptions(sel, value) { sel.innerHTML = STYLES.map(([v, l]) => `<option value="${v}">${l}</option>`).join(""); sel.value = value || "neutral"; }
@@ -768,6 +785,8 @@ function renderSettings() {
   $("cleanup-min").value = c.cleanup_min_words || 3;
   $("cleanup-strength").value = c.cleanup_strength === "standard" ? "standard" : "light";
   $("note-hotkey").value = c.note_hotkey || ""; noteHotkeyStatus();
+  if (document.activeElement !== $("improve-model")) $("improve-model").value = c.improve_model || "";
+  $("improve-days").value = String(c.improve_days ?? 7);
   $("autostart").checked = S.autostart;
   $("stt").value = c.stt_model || ""; $("llm").value = c.llm_model || "";
   $("data-dir").textContent = S.data_dir;
@@ -949,6 +968,72 @@ async function loadDevices(asked) {
   $("devices-refresh").disabled = false; box.innerHTML = devicesHtml(res);
 }
 $("devices-refresh").onclick = () => loadDevices(true);
+// ---------- Improve my cleanup (Settings): a run sends part of the history to the cleanup server, so it starts only from the confirm step
+const IMPROVE_KINDS = { dictionary: "Add word", replacement: "Replace", rule: "Cleanup rule" };
+function improveItemsHtml(r) {
+  const items = r.items || [], keep = items.filter(i => IMPROVE_KINDS[i.kind]), about = items.filter(i => i.kind === "about");
+  let html = r.error ? `<div class="status bad">${esc(r.error)}</div>` : items.length ? "" : '<div class="dempty">The model found nothing to change.</div>';
+  html += keep.map(i => `<label class="irow"><input type="checkbox" data-id="${esc(i.id)}"><span class="ik">${IMPROVE_KINDS[i.kind]}</span><span class="it">${esc(i.text)}</span></label>`).join("");
+  if (about.length) html += `<div class="sub-h">Suggestions for About you</div><div class="dempty">Vox never changes your About you text. Edit it yourself on the Dictionary page if you agree.</div>` + about.map(i => `<div class="irow"><span class="ik">About you</span><span class="it">${esc(i.text)}</span></div>`).join("");
+  if ((r.findings || []).length) html += `<div class="sub-h">Cleanups that changed your words</div>` + r.findings.map(f => `<div class="irow"><span class="it">${esc(f.note)}</span></div>`).join("");
+  return html;
+}
+function improveVersionsHtml(vs) {
+  if (!vs.length) return '<div class="dempty">No changes applied yet.</div>';
+  return vs.map(v => `<div class="srow"><span class="sl">${esc(new Date(v.t * 1000).toLocaleDateString())}</span><span class="sv">${esc(v.text)} <button class="btn ghost" data-rev="${+v.index}" title="Undo this change and every later one">Revert</button></span></div>`).join("");
+}
+let improveShown = null, improveAsk = null;   // the numbers last looked up, and the ones in the confirm sentence: Send uses exactly those, or nothing
+async function loadImprove() {
+  const s = improveShown = await api().improve_state(+$("improve-days").value);
+  $("improve-counts").textContent = s.count ? `${s.count} dictation${s.count === 1 ? "" : "s"}, about ${s.chars.toLocaleString()} characters, roughly ${s.tokens.toLocaleString()} tokens`
+    + (s.lost ? `. ${s.lost} of them lost words or fell back to your raw words.` : "") : s.note;
+  $("improve-provider").textContent = s.provider;
+  $("improve-run").disabled = !s.can_run;
+  $("improve-versions").innerHTML = improveVersionsHtml(s.versions);
+  $("improve-remind").checked = s.remind;
+}
+$("improve-days").onchange = () => { $("improve-confirm-box").style.display = "none"; save({ improve_days: +$("improve-days").value }); loadImprove(); };
+$("improve-model").onchange = () => { $("improve-confirm-box").style.display = "none"; save({ improve_model: $("improve-model").value.trim() }); };
+$("improve-run").onclick = async () => {
+  $("improve-status").textContent = "";
+  await loadImprove();
+  if (!improveShown.can_run) return;
+  improveAsk = improveShown;
+  $("improve-confirm-text").textContent = improveAsk.confirm;
+  $("improve-confirm-extra").textContent = improveAsk.extra ? `Also sent: your About you text, dictionary and cleanup rules (${improveAsk.extra.toLocaleString()} characters).` : "";
+  $("improve-confirm-box").style.display = "";
+};
+$("improve-cancel").onclick = () => { $("improve-confirm-box").style.display = "none"; };
+$("improve-confirm").onclick = async () => {
+  const sh = improveAsk, model = $("improve-model").value, st = $("improve-status");
+  $("improve-confirm-box").style.display = "none"; $("improve-run").disabled = true;
+  st.className = "status"; st.textContent = "Asking " + sh.provider + "… this can take a minute.";
+  $("improve-proposal").innerHTML = ""; $("improve-actions").style.display = "none";
+  let r;
+  try { r = await api().improve_run(sh.days, model, sh.count, sh.chars); } catch (e) { r = { ok: false, error: "The run could not be started." }; }
+  $("improve-run").disabled = false;
+  if (!r.ok) { st.className = "status bad"; st.textContent = r.error; if (r.stale) loadImprove(); return; }
+  st.className = "status ok"; st.textContent = "Done. Nothing is applied yet.";
+  $("improve-proposal").innerHTML = improveItemsHtml(r);
+  $("improve-actions").style.display = r.items.some(i => IMPROVE_KINDS[i.kind]) ? "" : "none";
+  loadImprove();
+};
+$("improve-all").onclick = () => $("improve-proposal").querySelectorAll("input[data-id]").forEach(b => { b.checked = true; });
+$("improve-apply").onclick = async () => {
+  const r = await api().improve_apply([...$("improve-proposal").querySelectorAll('input[data-id]:checked')].map(b => b.dataset.id)), st = $("improve-status");
+  if (!r.ok) { st.className = "status bad"; st.textContent = r.error; return; }
+  if (!r.applied) { toast("Nothing ticked"); return; }
+  st.className = "status ok"; st.textContent = `Applied ${r.applied} change${r.applied === 1 ? "" : "s"}. You can revert them below.`;
+  $("improve-proposal").innerHTML = ""; $("improve-actions").style.display = "none";
+  await refresh(); loadImprove();   // the Dictionary page works from the page's copy of the settings, so it must see the new words
+};
+$("improve-versions").onclick = async (e) => {
+  const b = e.target.closest("[data-rev]"); if (!b) return;
+  const r = await api().improve_revert(+b.dataset.rev), st = $("improve-status");
+  st.className = "status " + (r.ok ? "ok" : "bad"); st.textContent = r.ok ? "Reverted." : r.error;
+  await refresh(); loadImprove();
+};
+$("improve-remind").onchange = (e) => save({ improve_remind: e.target.checked, improve_remind_last: 0 }, e.target.checked ? "You will be reminded weekly" : "Reminder off");
 $("auto-notes").onchange = (e) => save({ auto_notes: e.target.checked });
 $("open-about").onclick = () => document.querySelector('nav button[data-page="dictionary"]').click();
 $("open-data").onclick = () => api().open_data_folder();

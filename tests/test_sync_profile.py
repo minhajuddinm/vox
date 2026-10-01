@@ -281,3 +281,15 @@ def test_a_relay_change_keeps_the_keys_flag_and_resets_the_rest(dev, srv):
     sync.follow_relay(a["relay_url"])
     assert notes.get_meta("profile_keys_sent") == "1"
     assert notes.get_meta("profile_version") == "0"                      # the rest of the state is still reset
+
+
+def test_the_learned_cleanup_rules_travel_but_their_versions_stay_on_the_device(dev, srv):
+    a = dev("A")
+    set_cfg(my_cleanup_rules="Write Atlas, not atlas.", my_cleanup_rules_versions=[{"t": 1, "rules": "", "added": []}])
+    assert sync.sync_once(a)["profile"] == "sent"
+    data = srv.store.get_profile()["data"]
+    assert data["my_cleanup_rules"] == "Write Atlas, not atlas." and "my_cleanup_rules_versions" not in data
+    b = dev("B")
+    assert sync.sync_once(b)["profile"] == "received"
+    c = cfg_now()
+    assert c["my_cleanup_rules"] == "Write Atlas, not atlas." and c["my_cleanup_rules_versions"] == []

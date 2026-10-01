@@ -67,6 +67,8 @@ public final class Prefs {
     public String raw(String key) { return sp.getString(key, ""); }
     /** Free text about the user (work, projects, style) added to every cleanup request. */
     public String userContext() { return sp.getString("user_context", ""); }
+    /** The cleanup rules learned on the PC (Improve my cleanup), received through profile sync; the phone only reads them. */
+    public String myCleanupRules() { return sp.getString("my_cleanup_rules", ""); }
     public String language() { return sp.getString("language", "").trim(); }
     /**
      * This phone's name on the notes it records and on the relay: what the user typed, else the phone model, else
@@ -123,6 +125,7 @@ public final class Prefs {
         m.put("default_style", defaultStyle());
         m.put("cleanup", cleanupEnabled());
         m.put("language", language());
+        m.put("my_cleanup_rules", myCleanupRules());
         m.put("provider", provider());
         m.put("base_url", baseUrl());
         m.put("stt_base_url", raw("stt_base_url"));

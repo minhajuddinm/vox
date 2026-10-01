@@ -284,6 +284,12 @@ public final class ParityTest {
                 case "context":
                     eq(ln, kind, f[1], ApiClient.cleanContext(f[0]));
                     break;
+                case "rules":   // text => my_cleanup_rules made safe for the prompt
+                    eq(ln, kind, f[1], ApiClient.cleanRules(f[0]));
+                    break;
+                case "promptrules":   // strength, style, terms, app, About you, my cleanup rules => the cleanup prompt
+                    eq(ln, kind, f[6], ApiClient.systemPrompt(f[1], items(f[2], "|"), f[3], f[4], f[0], f[5]));
+                    break;
                 case "level":
                     eq(ln, kind, f[1], String.format(java.util.Locale.ROOT, "%.3f", Pcm.levelFromRms(Double.parseDouble(f[0]))));
                     break;
