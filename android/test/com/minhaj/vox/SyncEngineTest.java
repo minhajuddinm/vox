@@ -259,9 +259,13 @@ public final class SyncEngineTest {
     }
 
     static final class Env {
-        final MemStore store = new MemStore();
+        final MemStore store;
         final FakeRelay relay = new FakeRelay();
         final FakeCfg cfg = new FakeCfg();
+
+        Env() { this(new MemStore()); }
+
+        Env(MemStore store) { this.store = store; }
 
         SyncResult sync() {
             return new SyncEngine(store, relay, cfg).syncOnce();
@@ -431,6 +435,22 @@ public final class SyncEngineTest {
         eq("many refused: counted in the plural", "105 notes could not be sent: The relay answered HTTP 400 (bad note id).", r.error);
         eq("many refused: each one tried once", true, e.relay.puts(id(1000)) == 1 && e.relay.puts(id(1000 + 104)) == 1);
         eq("many refused: the good one is on the relay", true, e.relay.notes.containsKey(last.id));
+
+        // a first sync of many notes reads each dirty row a bounded number of times, not once per batch for ever
+        final int[] rows = {0};
+        MemStore counting = new MemStore() {
+            @Override public List<Note> dirtyNotes(int limit) {
+                List<Note> out = super.dirtyNotes(limit);
+                rows[0] += out.size();
+                return out;
+            }
+        };
+        e = new Env(counting);
+        int total = NoteLogic.PUSH_BATCH * 5;
+        for (int i = 0; i < total; i++) e.store.add(id(2000 + i), "n" + i, 1 + i);
+        r = e.sync();
+        eq("many notes: all sent", total, r.pushed);
+        eq("many notes: rows read stay linear (about the batch size per batch)", true, rows[0] <= total + 2 * NoteLogic.PUSH_BATCH);
 
         // the statuses that mean "this note" and those that do not (the same rule as sync.SyncError.permanent)
         for (int status = 400; status < 500; status++) {
@@ -638,6 +658,22 @@ public final class SyncEngineTest {
         eq("412: the other device's change was kept", list("from another device"), race.relay.profile.get("people"));
         eq("412: and taken here too", list("from another device"), race.cfg.profile.get("people"));
         eq("412: the relay was looked at again", 3, callsStarting(race.relay, "GET profile").size());
+
+        // received on the first try, then the PUT is refused (412): the second try finds those settings already here,
+        // but the result must still say "both" so the phone's profile listener is told
+        final Env rr = new Env();
+        rr.cfg.profile.put("dictionary", list("mine"));
+        rr.sync();
+        rr.cfg.profile.put("dictionary", list("mine", "mine-too"));
+        rr.relay.profile.put("people", list("Ada"));
+        rr.relay.profileVersion++;
+        rr.relay.raceOnce = new Runnable() {   // another device saves without changing anything we merge
+            public void run() { rr.relay.profileVersion++; }
+        };
+        r = rr.sync();
+        eq("412 after receiving: both", "both", r.profile);
+        eq("412 after receiving: the received setting was written once", 1, rr.cfg.writes.size());
+        eq("412 after receiving: two PUTs", 2, callsStarting(rr.relay, "PUT profile").size() - 1);
 
         // a relay that never settles: three tries, then a message
         e = new Env();

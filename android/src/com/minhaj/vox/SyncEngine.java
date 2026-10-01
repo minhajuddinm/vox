@@ -83,11 +83,13 @@ final class SyncEngine {
     private void push(Run run) throws RelayApi.RelayError {
         // Every version handled in this run (sent, or refused for good) is remembered, so none is tried twice in one
         // run: a refused note stays dirty and would otherwise be handed back by dirtyNotes() for ever. dirtyNotes() is
-        // asked for that many more notes so the ones handled already cannot fill the batch and hide the rest.
+        // asked for that many more notes so the refused ones (the only handled ones that stay dirty) cannot fill the
+        // batch and hide the rest. A sent note is marked synced and no longer comes back, so it needs no extra room.
         Set<String> handled = new HashSet<>();
+        int parked = 0;
         while (true) {
             List<Note> batch = new ArrayList<>();
-            for (Note n : store.dirtyNotes(NoteLogic.PUSH_BATCH + handled.size())) {
+            for (Note n : store.dirtyNotes(NoteLogic.PUSH_BATCH + parked)) {
                 if (handled.contains(versionKey(n))) continue;
                 batch.add(n);
                 if (batch.size() == NoteLogic.PUSH_BATCH) break;
@@ -101,6 +103,7 @@ final class SyncEngine {
                 } catch (RelayApi.RelayError e) {
                     if (!e.permanent()) throw e;   // the relay, the token or the network is the problem, not this note
                     run.refused.add(e.message);
+                    parked++;
                     continue;
                 }
                 Map<String, Object> stored = asMap(out == null ? null : out.get("note"));
@@ -160,6 +163,7 @@ final class SyncEngine {
      * taken off the relay's document.
      */
     private String syncProfile() throws RelayApi.RelayError {
+        boolean receivedAny = false;   // settings written here in any attempt: a retry sees them as local, so remember them
         for (int attempt = 0; attempt < PROFILE_ATTEMPTS; attempt++) {
             boolean keysOn = cfg.syncKeys();
             Set<String> fields = profileFields(keysOn);
@@ -177,12 +181,15 @@ final class SyncEngine {
             for (Map.Entry<String, Object> e : merged.entrySet()) {
                 if (!Objects.equals(local.get(e.getKey()), e.getValue())) received.put(e.getKey(), e.getValue());
             }
-            if (!received.isEmpty()) cfg.writeProfile(received);
+            if (!received.isEmpty()) {
+                cfg.writeProfile(received);
+                receivedAny = true;
+            }
             boolean staleKeys = false;   // keys were switched off: take them off the relay
             if (!keysOn) for (String k : ProfileMerge.KEY_FIELDS) if (data.containsKey(k)) staleKeys = true;
             if (merged.equals(remoteShared) && !staleKeys) {
                 remember(version, merged);
-                return received.isEmpty() ? "" : "received";
+                return receivedAny ? "received" : "";
             }
             Map<String, Object> doc = new LinkedHashMap<>();   // keep the fields other devices added
             for (Map.Entry<String, Object> e : data.entrySet()) {
@@ -192,7 +199,7 @@ final class SyncEngine {
             try {
                 RelayApi.Profile out = api.putProfile(version, doc);
                 remember(out.version, merged);
-                return received.isEmpty() ? "sent" : "both";
+                return receivedAny ? "both" : "sent";
             } catch (RelayApi.RelayError e) {
                 if (e.status != 412) throw e;
                 // someone wrote in between: look again
