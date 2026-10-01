@@ -18,5 +18,5 @@ cmd: sudo cat /var/lib/vox-relay/relay.json
 step: Publish it to your tailnet. This is what adds HTTPS. Never use tailscale funnel, which puts it on the open internet. The second command shows the address.
 cmd: sudo tailscale serve --bg 8765
 cmd: tailscale serve status
-step: Enter that address (like https://yuvipi.your-tailnet.ts.net) and the token in the fields above, then press Test connection. It tells you whether the relay is reachable, whether the token works, and the name this device shows under.
+step: Enter that address (like https://your-pi.your-tailnet.ts.net) and the token in the fields above, then press Test connection. It tells you whether the relay is reachable, whether the token works, and the name this device shows under.
 note: No Raspberry Pi? A Windows PC can run it: in the Vox tray menu tick Run relay on this PC, then run tailscale serve --bg 8765 in a terminal. It only works while that PC is on and Vox is running.

@@ -48,6 +48,17 @@ def test_merge3_takes_the_side_that_changed_and_the_relay_on_a_clash():
     assert sync.merge3({"z": 1}, {}, {"z": 1}) == {}          # removed here, unchanged there
 
 
+def test_merge3_a_blank_default_on_the_other_side_never_wipes_a_value_when_there_is_no_base():
+    # the first sync of a device: no snapshot yet, the other device only holds blank defaults
+    mine = {"user_context": "me", "dictionary": ["Vox"], "people": ["Ada"]}
+    blank = {"user_context": "", "dictionary": [], "people": []}
+    assert sync.merge3({}, mine, blank) == mine
+    assert sync.merge3({}, blank, mine) == mine                          # the mirror case: the other side's value
+    assert sync.merge3({}, blank, blank) == blank
+    # with a snapshot, clearing a field on purpose is still a change like any other
+    assert sync.merge3({"user_context": "me"}, {"user_context": "me"}, {"user_context": ""}) == {"user_context": ""}
+
+
 def test_shared_fields_never_include_device_specific_settings():
     off = set(sync.shared_fields({}))
     on = set(sync.shared_fields({"relay_sync_keys": True}))
@@ -293,3 +304,15 @@ def test_the_learned_cleanup_rules_travel_but_their_versions_stay_on_the_device(
     assert sync.sync_once(b)["profile"] == "received"
     c = cfg_now()
     assert c["my_cleanup_rules"] == "Write Atlas, not atlas." and c["my_cleanup_rules_versions"] == []
+
+
+def test_a_first_sync_against_blank_phone_defaults_keeps_the_pcs_settings(dev, srv):
+    # the phone synced first: the relay holds only its blank defaults (version 1). The PC has never synced.
+    srv.store.put_profile({"user_context": "", "dictionary": [], "people": []}, "0")
+    a = dev("PC")
+    set_cfg(user_context="I am Y", dictionary=["Vox"])
+    assert sync.sync_once(a)["profile"] == "sent"
+    c = cfg_now()
+    assert c["user_context"] == "I am Y" and c["dictionary"] == ["Vox"]
+    data = srv.store.get_profile()["data"]
+    assert data["user_context"] == "I am Y" and data["dictionary"] == ["Vox"]

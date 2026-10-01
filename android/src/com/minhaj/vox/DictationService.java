@@ -555,7 +555,14 @@ public class DictationService extends Service {
         if (job == jobId) { stream = null; pending.endJob(); setState(IDLE); }
     }
 
-    private File fileOf(PendingQueue.Entry e) { return new File(getCacheDir(), PendingQueue.fileName(e)); }
+    /** Where the unsent recordings live: the app's own folder, which Android does not empty when it trims the cache or the user clears it (and which is left out of backups). */
+    private File pendingDir() {
+        File d = new File(getNoBackupFilesDir(), "pending");
+        d.mkdirs();
+        return d;
+    }
+
+    private File fileOf(PendingQueue.Entry e) { return new File(pendingDir(), PendingQueue.fileName(e)); }
 
     /** A new entry whose id is the time now, made unique so two recordings never share a file. */
     private synchronized PendingQueue.Entry newEntry(String pkg, String label, String dest) {
@@ -582,7 +589,8 @@ public class DictationService extends Service {
 
     /** At service start: delete unsent recordings older than 7 days and keep the rest (files written before a restart are retried). */
     private void restorePending() {
-        File[] files = getCacheDir().listFiles();
+        PendingQueue.migrate(getCacheDir(), pendingDir());   // earlier versions kept them in the cache folder
+        File[] files = pendingDir().listFiles();
         if (files == null) return;
         for (File f : files) {
             String name = f.getName();

@@ -41,7 +41,7 @@ def items(field, sep="|"):
 
 def remote_wins(has_local, local_updated, remote_updated, remote_deleted):
     """True when notes.apply_remote lets a note from the relay replace the local copy (run against a temporary notes.db)."""
-    remote = {"id": "n1", "created_at": 1.0, "updated_at": remote_updated, "title": "remote", "text": "remote",
+    remote = {"id": "a1" * 16, "created_at": 1.0, "updated_at": remote_updated, "title": "remote", "text": "remote",
               "deleted": remote_deleted}
     if has_local:
         notes.apply_remote(dict(remote, updated_at=local_updated, title="local", text="local", deleted=False))

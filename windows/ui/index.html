@@ -392,10 +392,10 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="setting"><div><div class="t">Keep dictation history</div><div class="d">Saves what you dictate on this PC, for the history list. Off means nothing is saved.</div></div><label class="switch"><input type="checkbox" id="keep-history"><span></span></label></div>
       <div class="setting"><div><div class="t">Keep dictation on the clipboard</div><div class="d">Off by default: after pasting, your earlier copied text comes back. A copied image or file is not restored. On keeps your text copied so you can paste it again with Ctrl + V.</div></div><label class="switch"><input type="checkbox" id="keep-clip"><span></span></label></div>
       <div class="setting"><div><div class="t">Sync voice notes with my relay</div><div class="d">Keeps your voice notes the same on your phone and PCs through a relay you run yourself (a small server, for example on a Raspberry Pi, reached over Tailscale). While on, the relay receives the full text, raw transcript, tags and device name of each voice note, and your About you text, dictionary, people, default style, cleanup switch and language. Needs its address and token.</div></div><label class="switch"><input type="checkbox" id="relay-sync"><span></span></label></div>
-      <div class="setting"><div><div class="t">Relay address</div><div class="d">For example https://yuvipi.your-tailnet.ts.net. Plain http is only allowed for this PC, your local network and Tailscale.</div></div><input type="text" id="relay-url" style="width:280px" placeholder="https://..."></div>
+      <div class="setting"><div><div class="t">Relay address</div><div class="d">For example https://your-pi.your-tailnet.ts.net. Plain http is only allowed for this PC, your local network and Tailscale.</div></div><input type="text" id="relay-url" style="width:280px" placeholder="https://..."></div>
       <div class="setting"><div><div class="t">Relay token</div><div class="d">Stored only on this PC. Find it in the relay's management page setup or its relay.json.</div><div class="status" id="relay-status"></div><div id="relay-check"></div></div><input type="password" id="relay-token" style="width:220px"><button class="btn ghost" id="relay-test">Test connection</button></div>
       <div class="setting"><div><div class="t">Also share my provider settings and API keys</div><div class="d">Off by default. When on, the AI provider, models and API keys are copied to your other devices through the relay, so anyone with the relay token can read them. Turning this off here removes this device's keys from the relay once. Any other device that still shares keys will put them back, so turn it off on every device.</div></div><label class="switch"><input type="checkbox" id="relay-keys"><span></span></label></div>
-      <div class="setting"><div><div class="t">This device's name</div><div class="d">Sent to the relay and shown on its page and on the notes made here. Blank uses the computer name.</div></div><input type="text" id="device-name" style="width:220px" placeholder="e.g. laptop-uv"></div>
+      <div class="setting"><div><div class="t">This device's name</div><div class="d">Sent to the relay and shown on its page and on the notes made here. Blank uses the computer name.</div></div><input type="text" id="device-name" style="width:220px" placeholder="e.g. my-laptop"></div>
       <div class="setting"><div><div class="t">About you</div><div class="d">Added to every cleanup request, so it goes to your cleanup server. While sync is on it is also copied to your relay. Edit it on the Dictionary page.</div></div><button class="btn ghost" id="open-about">Open</button></div>
     </div>
     <div class="card" id="relay-help-card" style="margin-top:10px">
@@ -408,7 +408,7 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
 sudo cp relay.py /opt/vox-relay/</pre><button type="button" class="btn ghost rs-copy" data-copy="sudo mkdir -p /opt/vox-relay&#10;sudo cp relay.py /opt/vox-relay/">Copy commands</button></li><li><div class="rs-t">Try it once by hand. It prints where it listens. Stop it with Ctrl+C.</div><pre class="rs-cmd">python3 /opt/vox-relay/relay.py --data-dir /tmp/vox-relay-test --show-token</pre><button type="button" class="btn ghost rs-copy" data-copy="python3 /opt/vox-relay/relay.py --data-dir /tmp/vox-relay-test --show-token">Copy command</button></li><li><div class="rs-t">Install it as a service, so it starts at boot and restarts if it stops (vox-relay.service is next to relay.py).</div><pre class="rs-cmd">sudo cp vox-relay.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now vox-relay</pre><button type="button" class="btn ghost rs-copy" data-copy="sudo cp vox-relay.service /etc/systemd/system/&#10;sudo systemctl daemon-reload&#10;sudo systemctl enable --now vox-relay">Copy commands</button></li><li><div class="rs-t">Read the token. Keep it private: anyone with the token and a way to reach the relay can read your notes.</div><pre class="rs-cmd">sudo cat /var/lib/vox-relay/relay.json</pre><button type="button" class="btn ghost rs-copy" data-copy="sudo cat /var/lib/vox-relay/relay.json">Copy command</button></li><li><div class="rs-t">Publish it to your tailnet. This is what adds HTTPS. Never use tailscale funnel, which puts it on the open internet. The second command shows the address.</div><pre class="rs-cmd">sudo tailscale serve --bg 8765
-tailscale serve status</pre><button type="button" class="btn ghost rs-copy" data-copy="sudo tailscale serve --bg 8765&#10;tailscale serve status">Copy commands</button></li><li><div class="rs-t">Enter that address (like https://yuvipi.your-tailnet.ts.net) and the token in the fields above, then press Test connection. It tells you whether the relay is reachable, whether the token works, and the name this device shows under.</div></li></ol>
+tailscale serve status</pre><button type="button" class="btn ghost rs-copy" data-copy="sudo tailscale serve --bg 8765&#10;tailscale serve status">Copy commands</button></li><li><div class="rs-t">Enter that address (like https://your-pi.your-tailnet.ts.net) and the token in the fields above, then press Test connection. It tells you whether the relay is reachable, whether the token works, and the name this device shows under.</div></li></ol>
 <p class="rs-note">No Raspberry Pi? A Windows PC can run it: in the Vox tray menu tick Run relay on this PC, then run tailscale serve --bg 8765 in a terminal. It only works while that PC is on and Vox is running.</p>
 </div>
 </details>
@@ -534,7 +534,7 @@ async function save(part, msg = "Saved") { Object.assign(S.config, part); await 
 // ---- voice notes
 async function renderVoiceNotes() {
   const list = await api().notes_list($("vn-q").value.trim(), $("vn-period").value, "");
-  $("vn-list").innerHTML = list.length ? list.map(n => `<div class="card" data-id="${n.id}" style="margin-bottom:10px">
+  $("vn-list").innerHTML = list.length ? list.map(n => `<div class="card" data-id="${esc(n.id)}" style="margin-bottom:10px">
       <div class="row"><b class="grow">${esc(n.title || "Untitled")}</b><span style="color:var(--muted);font-size:12px">${esc(new Date(n.created_at * 1000).toLocaleString())}${n.secs ? " · " + Math.round(n.secs) + " s" : ""}</span></div>
       <div class="vn-text" style="white-space:pre-wrap;margin:8px 0">${esc(n.text)}</div>
       <div class="row"><button class="btn ghost" data-act="copy">Copy</button><button class="btn ghost" data-act="edit">Edit</button><button class="btn ghost" data-act="del" style="color:var(--danger)">Delete</button></div>
@@ -580,9 +580,10 @@ $("vn-list").onclick = async (e) => {
     await api().note_edit(id, card.querySelector("b").textContent, card.querySelector(".vn-edit").value); renderVoiceNotes();
   }
 };
-document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+document.querySelectorAll("nav button").forEach(b => b.onclick = async () => {
   document.querySelectorAll("nav button").forEach(x => x.classList.toggle("active", x === b));
   document.querySelectorAll(".page").forEach(p => p.classList.toggle("active", p.id === b.dataset.page));
+  if (["dictionary", "styles", "settings"].includes(b.dataset.page)) await refresh();   // the sync thread may have changed the file
   if (b.dataset.page === "home") refresh();
   if (b.dataset.page === "notes") enterNotes();
   if (b.dataset.page === "voicenotes") { renderVoiceNotes(); pollNote(); renderSync(); }
@@ -694,9 +695,7 @@ async function learnFix(t) {
     const b = ev.target.closest("[data-addsugg]");
     if (!b) return;
     const [w, r] = pairs[+b.dataset.addsugg];
-    const { terms, repl } = dictLists();
-    if (!repl.some(([x]) => x.toLowerCase() === w.toLowerCase())) repl.push([w, r]);
-    await setDict(terms, repl);
+    if (!dictLists().repl.some(([x]) => x.toLowerCase() === w.toLowerCase())) await editList("dictionary", api().dict_add_repl(w, r));
     b.textContent = "Added"; b.disabled = true;
     toast(`Vox will now write "${r}"`);
   };
@@ -717,7 +716,9 @@ function dictLists() {
   for (const line of S.config.dictionary || []) if (!line.includes("=>") && line.trim()) terms.push(line.trim());
   return { terms, repl: dictRepls(S.config.dictionary) };
 }
-function setDict(terms, repl) { return save({ dictionary: dictLines(terms, repl) }); }
+// Each edit changes one item in the file's current list (the bridge reads config.json again): a list sent from this page
+// could be stale and would wipe words that the sync thread received from another device.
+async function editList(key, answer, msg = "Saved") { S.config[key] = await answer; toast(msg); }
 function renderAbout() { if (document.activeElement !== $("about")) $("about").value = S.config.user_context || ""; aboutCount(); }
 $("about").oninput = aboutCount;
 $("about").onchange = () => save({ user_context: $("about").value.trim() });
@@ -727,19 +728,19 @@ function renderDict() {
   $("terms").innerHTML = terms.length ? terms.map((t, i) => `<span class="chip">${esc(t)}<button data-i="${i}" title="Remove">${ICON_X}</button></span>`).join("") : '<span class="style-tag">No words yet.</span>';
   $("repls").innerHTML = repl.length ? repl.map(([w, r], i) => `<tr><td>${esc(w)}</td><td class="arrow">→</td><td><b>${esc(r)}</b></td><td style="width:40px"><button class="icon-btn" data-r="${i}">${ICON_DEL}</button></td></tr>`).join("") : '<tr><td class="empty">No replacements yet.</td></tr>';
 }
-$("add-term").onclick = async () => { const v = $("term").value.trim(); if (!v) return; const { terms, repl } = dictLists(); if (!terms.includes(v)) terms.push(v); $("term").value = ""; await setDict(terms, repl); renderDict(); };
+$("add-term").onclick = async () => { const v = $("term").value.trim(); if (!v) return; $("term").value = ""; await editList("dictionary", api().dict_add_term(v)); renderDict(); };
 $("term").onkeydown = (e) => { if (e.key === "Enter") $("add-term").click(); };
-$("terms").onclick = async (e) => { const b = e.target.closest("button"); if (!b) return; const { terms, repl } = dictLists(); terms.splice(+b.dataset.i, 1); await setDict(terms, repl); renderDict(); };
-$("add-repl").onclick = async () => { const w = $("wrong").value.trim(), r = $("right").value.trim(); if (!w || !r) return; const { terms, repl } = dictLists(); repl.push([w, r]); $("wrong").value = $("right").value = ""; await setDict(terms, repl); renderDict(); };
+$("terms").onclick = async (e) => { const b = e.target.closest("button"); if (!b) return; const t = dictLists().terms[+b.dataset.i]; if (t === undefined) return; await editList("dictionary", api().dict_remove_term(t)); renderDict(); };
+$("add-repl").onclick = async () => { const w = $("wrong").value.trim(), r = $("right").value.trim(); if (!w || !r) return; $("wrong").value = $("right").value = ""; await editList("dictionary", api().dict_add_repl(w, r)); renderDict(); };
 $("right").onkeydown = (e) => { if (e.key === "Enter") $("add-repl").click(); };
 function renderPeople() {
   const p = S.config.people || [];
   $("people").innerHTML = p.length ? p.map((t, i) => `<span class="chip">${esc(t)}<button data-i="${i}" title="Remove">${ICON_X}</button></span>`).join("") : '<span class="style-tag">No names yet.</span>';
 }
-$("add-person").onclick = async () => { const v = $("person").value.trim(); if (!v) return; const p = [...(S.config.people || [])]; if (!p.includes(v)) p.push(v); $("person").value = ""; await save({ people: p }); renderPeople(); };
+$("add-person").onclick = async () => { const v = $("person").value.trim(); if (!v) return; $("person").value = ""; await editList("people", api().people_add(v)); renderPeople(); };
 $("person").onkeydown = (e) => { if (e.key === "Enter") $("add-person").click(); };
-$("people").onclick = async (e) => { const b = e.target.closest("button"); if (!b) return; const p = [...(S.config.people || [])]; p.splice(+b.dataset.i, 1); await save({ people: p }, "Removed"); renderPeople(); };
-$("repls").onclick = async (e) => { const b = e.target.closest("[data-r]"); if (!b) return; const { terms, repl } = dictLists(); repl.splice(+b.dataset.r, 1); await setDict(terms, repl); renderDict(); };
+$("people").onclick = async (e) => { const b = e.target.closest("button"); if (!b) return; const n = (S.config.people || [])[+b.dataset.i]; if (n === undefined) return; await editList("people", api().people_remove(n), "Removed"); renderPeople(); };
+$("repls").onclick = async (e) => { const b = e.target.closest("[data-r]"); if (!b) return; const pair = dictLists().repl[+b.dataset.r]; if (!pair) return; await editList("dictionary", api().dict_remove_repl(pair[0], pair[1])); renderDict(); };
 
 // ---------- styles
 function renderStyles() {
@@ -1205,7 +1206,16 @@ function mdSummary(src, done) {
   return out + (inList ? "</ul>" : "");
 }
 
+let pendingNotes = null;   // {mid, text, tmr}: the My notes text that is waiting for its 700 ms autosave
+async function flushNotes() {   // sends it now, to the meeting it was typed in
+  const pn = pendingNotes;
+  if (!pn) return;
+  clearTimeout(pn.tmr); pendingNotes = null;
+  await api().meeting_save_notes(pn.mid, pn.text);
+}
+
 function renderMeeting(r) {
+  flushNotes();
   const d = DET, m = d.meta;
   const people = [d.me, ...(m.attendees || [])];
   const speakers = [...new Set(d.lines.map(l => l.who))].filter(n => !people.includes(n));
@@ -1236,9 +1246,16 @@ function renderMeeting(r) {
     $("tr-q").oninput = (e) => { $("tr-body").innerHTML = blocks(d.lines, e.target.value.trim()) || '<p class="style-tag">No matches.</p>'; };
   } else {
     body.innerHTML = `<textarea class="mynotes" id="my-notes" placeholder="Your own notes for this meeting. Saved automatically, kept separate from the AI summary.">${esc(d.my_notes)}</textarea>`;
-    let tmr; $("my-notes").oninput = (e) => { clearTimeout(tmr); tmr = setTimeout(async () => { d.my_notes = e.target.value; await api().meeting_save_notes(SEL, d.my_notes); toast("Saved"); }, 700); };
+    const mid = SEL;   // the meeting this textarea belongs to: SEL may have changed when the timer fires
+    $("my-notes").oninput = (e) => {
+      if (pendingNotes) clearTimeout(pendingNotes.tmr);
+      const pn = { mid, text: e.target.value, tmr: 0 };
+      d.my_notes = pn.text;
+      pn.tmr = setTimeout(async () => { if (pendingNotes === pn) { pendingNotes = null; await api().meeting_save_notes(pn.mid, pn.text); toast("Saved"); } }, 700);
+      pendingNotes = pn;
+    };
   }
-  r.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { TAB = b.dataset.tab; renderMeeting(r); });
+  r.querySelectorAll("[data-tab]").forEach(b => b.onclick = async () => { await flushNotes(); TAB = b.dataset.tab; renderMeeting(r); });
   const drawMQ = () => {
     const qa = d.__qa || [];
     $("mq-out").innerHTML = qa.map(x => `<div class="qa"><div class="q">${esc(x.q)}</div><div class="a">${x.a === null ? '<span class="style-tag">Thinking…</span>' : linkTimes(x.a)}</div></div>`).join("");
@@ -1260,10 +1277,12 @@ function renderMeeting(r) {
   $("mh-title").onblur = async (e) => { const t = e.target.textContent.trim(); if (t && t !== m.title) { m.title = await api().meeting_rename(SEL, t); ML = await api().meetings(); renderList(); toast("Renamed"); } };
   $("md-copy").onclick = async () => { await api().copy(`# ${m.title}\n\n${d.summary}`); toast("Summary copied"); };
   $("md-open").onclick = () => api().meeting_open(SEL);
-  $("md-del").onclick = async () => { await api().meeting_delete(SEL); SEL = null; DET = null; RIGHT = "empty"; ML = await api().meetings(); renderList(); renderRight(); toast("Deleted"); };
+  $("md-del").onclick = async () => { if (pendingNotes && pendingNotes.mid === SEL) { clearTimeout(pendingNotes.tmr); pendingNotes = null; }   // no save into a deleted meeting
+    await api().meeting_delete(SEL); SEL = null; DET = null; RIGHT = "empty"; ML = await api().meetings(); renderList(); renderRight(); toast("Deleted"); };
 }
 
 async function openMeeting(mid, seek) {
+  await flushNotes();   // a pending edit of the meeting we are leaving is saved first
   if (mid !== SEL && seek === undefined) TAB = "summary";
   SEL = mid; RIGHT = "meeting";
   DET = await api().meeting_detail(mid);

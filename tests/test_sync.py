@@ -203,7 +203,8 @@ def test_old_databases_are_upgraded_and_their_notes_get_sent(dev, srv):
     assert sync.sync_once(a)["pushed"] == 1 and srv.store.get_note("a" * 32)["text"] == "from before sync existed"
 
 
-def test_apply_remote_rules():
+def test_apply_remote_rules(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))   # never the real profile's notes.db (the conftest guard also stops that)
     n = notes.add("local")
     base = {"id": n["id"], "source": "voice note", "title": "t", "text": "remote", "raw": "", "created_at": n["created_at"], "secs": 0, "device": "x", "tags": ["a"], "seq": 5}
     assert notes.apply_remote(dict(base, updated_at=n["updated_at"] - 10, deleted=False)) is False   # older: ignored

@@ -149,7 +149,10 @@ windows/                Windows app (Python) and its installer scripts
 
 | Path | What it covers |
 |---|---|
-| `tests/conftest.py` | Puts `windows/` on the import path for the tests. |
+| `tests/conftest.py` | Puts `windows/` and `relay/` on the import path, routes `vox_core._post` through `requests.post`, and isolates the profile: every test runs with its own empty `APPDATA`, `LOCALAPPDATA`, `HOME`, `USERPROFILE` and `XDG_*` folders, and an audit hook raises `test touched the real profile` for any file, folder or sqlite call on the real Vox folders recorded at import. A test that needs a particular `APPDATA` sets its own. |
+| `tests/test_conftest_guard.py` | The isolation: own folders per test, the real Vox profile is refused, a test's own `APPDATA` still works. |
+| `tests/test_ci_workflow.py` | Text checks on `.github/workflows/build.yml` and `android/build.sh`: a tag build without the keystore secret fails, other builds say they use a throw-away key and name the artifact after it. |
+| `tests/test_repo_hygiene.py` | `git check-ignore` for the files that hold secrets (`config.json`, `.env`, `relay.json`, `relay.db`, keystores, `*.pem`, ...) wherever they are in the tree. |
 | `tests/requirements.txt` | Pinned test dependencies (`requests`, `pytest`). |
 | `tests/test_vox_core.py` | Prompt, sanitize, replacements, dictionary, style, WAV and silence-phrase helpers. |
 | `tests/test_endpoint_config.py` | Configurable server address, auth header, key test, cleanup fallback. |
@@ -193,6 +196,15 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_timing.py` | The timing core: stage maths with missing marks and a backwards clock, median and p90, biggest stage, text format, summaries (skipped cleanup not counted as 0 ms), per-model medians and the Speed card's `speed_view`. |
 | `tests/test_timing_pipeline.py` | Where the Windows marks are set: the per-thread `core.timing_scope` (stt and llm marks, a failed cleanup still closes its mark, one thread only), `core.timing_info`, and the window's `get_speed`. |
 | `tests/test_ui_speed.py` | The Speed card: the shared renderer `speedHtml` / `fmtMs` run with node (biggest stage marked, dash for a stage that did not run, names escaped, empty state), and the card's ids and bridge call on both pages. |
+| `tests/test_config_load.py` | `load_config` with a BOM, a cut-off file, a non-object and a read-only file. |
+| `tests/test_unreadable_answers.py` | An answer the server got wrong (empty `choices`, null `text`) does not throw a dictation away. |
+| `tests/test_engine_safety.py` | `_process` keeps the recording on an unexpected error, a failing paste or note save; a failing hotkey handler or tray icon does not raise (skipped without the Windows packages). |
+| `tests/test_calendar_privacy.py` | The secret iCal address stays out of the log, `calendar.json` and `config.json`; clearing it removes the cache. |
+| `tests/test_gcal.py` | Google tokens are protected on disk, a plain legacy file is migrated, an unreadable one asks to connect again. |
+| `tests/test_calendar_status.py` | A declined invite is dropped, an unanswered one only reminds, only an accepted one auto-starts (`calendar_action`). |
+| `tests/test_meeting_store.py` | A failed export still lists the meeting and removes the raw audio; a cut-off meeting is recovered (`recover_unfinished`). |
+| `tests/test_ui_app_bridge.py` | Dictionary and People edits change one item in the file's current list, not a stale page list. |
+| `tests/test_hostile_note_id.py` | A note id from the relay that is not 32 hex characters is ignored, in `apply_remote` and in a sync. |
 | `tests/test_engine_notes.py` | The engine's voice-note mode (skipped where the Windows runtime packages are missing). |
 | `tests/test_engine_flash.py` | The pill's "sent" and "error" signal: `Engine.flash` timing, expiry, what cancels it, no flash without a pill, and which events raise which one (skipped where the Windows runtime packages are missing). |
 | `tests/test_overlay_mode.py` | Every branch of `overlay_mode` (flash over the meeting timer, flash only while idle). |

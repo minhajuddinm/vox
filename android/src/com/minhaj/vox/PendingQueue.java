@@ -182,4 +182,21 @@ public final class PendingQueue {
         if (id <= 0) return null;
         return new Entry(id, "", "", dest);
     }
+
+    /**
+     * Moves every unsent recording (a file written by {@link #fileName}, or the old single slot {@code vox_pending.wav})
+     * from {@code from} to {@code to}: earlier versions kept them in the cache folder, which Android may empty.
+     * Other files stay. Returns how many were moved; a file that cannot be renamed stays where it is.
+     */
+    public static int migrate(java.io.File from, java.io.File to) {
+        java.io.File[] files = from.listFiles();
+        if (files == null) return 0;
+        to.mkdirs();
+        int moved = 0;
+        for (java.io.File f : files) {
+            String name = f.getName();
+            if ((name.equals("vox_pending.wav") || parseFileName(name) != null) && f.renameTo(new java.io.File(to, name))) moved++;
+        }
+        return moved;
+    }
 }

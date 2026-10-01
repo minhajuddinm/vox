@@ -160,7 +160,9 @@ remotewins	true	7	6	true	false
 # Profile sync: merge3 = base local remote expected, one shared field's value on each side (sync.merge3 /
 # ProfileMerge.merge3). ~ = the field is absent (a removed field). The side that changed since base wins; if both
 # changed differently the relay's (remote) value wins; an absent result drops the field. An empty field is the
-# empty string, which is a value like any other (a cleared field is not a removal).
+# empty string, which is a value like any other (a cleared field is not a removal). One exception: with no base
+# (the device's first sync) a blank remote ("" or an empty list) never replaces a local value that is not blank,
+# because it is only the other device's default; the lists are covered in ProfileMergeTest and test_sync_profile.
 # Expected values were produced by running the Python function.
 merge3	a	a	a	a
 merge3	a	b	a	b
@@ -181,6 +183,8 @@ merge3	a		a
 merge3	a	a		
 merge3	a		c	c
 merge3	~		~	
+merge3	~	x		x
+merge3	~		x	x
 merge3		a		a
 # profilefields = which settings take part in the profile sync, in this order: shared = always, keys = only with
 # relay_sync_keys (sync.PROFILE_FIELDS, PROFILE_KEY_FIELDS / ProfileMerge.SHARED_FIELDS, KEY_FIELDS).

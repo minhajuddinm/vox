@@ -308,3 +308,48 @@ def test_the_windows_page_has_the_note_shortcut_row():
     assert "api().set_note_hotkey(" in html and "api().note_hotkey_problem(" in html
     app = read(UI_APP)
     assert "def set_note_hotkey(" in app and "def note_hotkey_problem(" in app
+
+
+# ---------- review round F3: stale lists, notes autosave, note ids
+
+WINDOWS_PAGE = read(PAGES["windows"])
+
+
+def test_note_ids_are_escaped_in_the_windows_page():
+    assert 'data-id="${n.id}"' not in WINDOWS_PAGE
+    assert 'data-id="${esc(n.id)}"' in WINDOWS_PAGE
+
+
+def test_my_notes_autosave_saves_to_the_meeting_it_was_typed_in():
+    assert "meeting_save_notes(SEL" not in WINDOWS_PAGE
+    assert "meeting_save_notes(pn.mid" in WINDOWS_PAGE
+    body = WINDOWS_PAGE.split("async function openMeeting(", 1)[1].split("\n}", 1)[0]
+    assert "flushNotes()" in body and body.index("flushNotes()") < body.index("meeting_detail")
+    assert "flushNotes()" in WINDOWS_PAGE.split("function renderMeeting(", 1)[1].split("\n}", 1)[0]
+
+
+def test_windows_page_edits_dictionary_and_people_through_the_one_item_bridge_calls():
+    # a whole list from a stale S.config wiped words synced from another device
+    assert not re.search(r"save\(\s*\{\s*(dictionary|people)\s*:", WINDOWS_PAGE)
+    assert "setDict(" not in WINDOWS_PAGE
+    for name in ("dict_add_term", "dict_remove_term", "dict_add_repl", "dict_remove_repl", "people_add", "people_remove"):
+        assert f"api().{name}(" in WINDOWS_PAGE
+
+
+def test_windows_page_refreshes_before_showing_dictionary_styles_and_settings():
+    handler = WINDOWS_PAGE.split('document.querySelectorAll("nav button").forEach(b => b.onclick', 1)[1].split("\n});", 1)[0]
+    assert re.search(r'\["dictionary",\s*"styles",\s*"settings"\]\.includes\(b\.dataset\.page\)\)\s*await refresh\(\)', handler)
+
+
+def test_android_key_test_shows_the_refused_address_answer():
+    # MainActivity.Bridge.testKey answers "address" for an address the app refuses; the page must say so (not "No internet")
+    assert 'callback + "(\'address\')"' in open(MAIN_ACTIVITY, encoding="utf-8").read()
+    page = read(PAGES["android"])
+    start = page.index("window.keyResult")
+    assert 'r === "address"' in page[start:start + 900]
+
+
+@pytest.mark.parametrize("name", ["windows", "android"])
+def test_pages_hold_no_personal_hostnames(name):
+    text = open(PAGES[name], encoding="utf-8").read().lower()
+    assert "yuvipi" not in text and "laptop-uv" not in text

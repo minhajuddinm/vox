@@ -51,6 +51,10 @@ public final class ProfileMergeTest {
         eq("booleans: local turned it on", true, ProfileMerge.merge3(false, true, false));
         eq("booleans: relay turned it off", false, ProfileMerge.merge3(true, true, false));
         eq("empty string is a value, not absent", "", ProfileMerge.merge3("a", "", "a"));
+        eq("no base: a blank default on the relay does not wipe a value here", "x", ProfileMerge.merge3(null, "x", ""));
+        eq("no base: a blank list on the relay does not wipe a list here", list("a"), ProfileMerge.merge3(null, list("a"), new java.util.ArrayList<String>()));
+        eq("no base: a blank here yields the relay's value", "x", ProfileMerge.merge3(null, "", "x"));
+        eq("with a base, clearing on the relay is a change", "", ProfileMerge.merge3("x", "x", ""));
         eq("absent on all sides", null, ProfileMerge.merge3(null, null, null));
         eq("removed here, changed there: the relay's value", "c", ProfileMerge.merge3("a", null, "c"));
         eq("changed here, removed there: the relay's removal", null, ProfileMerge.merge3("a", "b", null));
