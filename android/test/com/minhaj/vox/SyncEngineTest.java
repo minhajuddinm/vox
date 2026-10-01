@@ -104,6 +104,11 @@ public final class SyncEngineTest {
             metaLog.add(k + "=" + v);
         }
 
+        @Override
+        public void markAllDirty() {
+            for (Note n : notes.values()) n.dirty = true;
+        }
+
         Note add(String text, double updatedAt) {
             return add(id(notes.size() + 1), text, updatedAt);
         }
@@ -245,12 +250,14 @@ public final class SyncEngineTest {
     /** The settings of this phone, as relay fields (what ProfileMap.toProfile gives), and what the engine wrote into them. */
     static class FakeCfg implements SyncConfig {
         boolean keys;
+        String url = "http://relay.test:8787";
         Map<String, Object> profile = map("user_context", "", "dictionary", list(), "people", list(), "default_style", "neutral", "cleanup", true, "language", "",
                 "provider", "groq", "base_url", "https://api.groq.com/openai/v1", "stt_base_url", "", "llm_base_url", "", "stt_model", "whisper-large-v3-turbo",
                 "llm_model", "openai/gpt-oss-20b", "api_key", "gsk_phone", "stt_api_key", "", "llm_api_key", "");
         final List<Map<String, Object>> writes = new ArrayList<>();
 
         @Override public boolean syncKeys() { return keys; }
+        @Override public String relayUrl() { return url; }
         @Override public Map<String, Object> readProfile() { return new LinkedHashMap<>(profile); }
         @Override public void writeProfile(Map<String, Object> received) {
             writes.add(new LinkedHashMap<>(received));
@@ -260,12 +267,20 @@ public final class SyncEngineTest {
 
     static final class Env {
         final MemStore store;
-        final FakeRelay relay = new FakeRelay();
+        final FakeRelay relay;
         final FakeCfg cfg = new FakeCfg();
 
         Env() { this(new MemStore()); }
 
-        Env(MemStore store) { this.store = store; }
+        Env(MemStore store) { this(store, new FakeRelay()); }
+
+        /** A second device syncing with the same relay. */
+        Env(FakeRelay shared) { this(new MemStore(), shared); }
+
+        Env(MemStore store, FakeRelay relay) {
+            this.store = store;
+            this.relay = relay;
+        }
 
         SyncResult sync() {
             return new SyncEngine(store, relay, cfg).syncOnce();
@@ -286,6 +301,8 @@ public final class SyncEngineTest {
         pulling();
         profileSync();
         profileKeys();
+        keysDoNotFlap();
+        relayChange();
         neverThrows();
         loopGuards();
         wireFormat();
@@ -367,7 +384,7 @@ public final class SyncEngineTest {
         eq("offline: the message says Tailscale", "Cannot reach the relay (is Tailscale running?): UnknownHostException", r.error);
         eq("offline: nothing counted", "0/0", r.pushed + "/" + r.pulled);
         eq("offline: still dirty", true, e.store.notes.get(n.id).dirty);
-        eq("offline: nothing written to the store's settings", new ArrayList<String>(), e.store.metaLog);
+        eq("offline: nothing written to the store's settings but the relay address", Arrays.asList("relay_origin=http://relay.test:8787"), e.store.metaLog);
         eq("offline: the relay has nothing", 0, e.relay.notes.size());
         e.relay.down = null;
         r = e.sync();   // a new engine, like the next app start
@@ -469,7 +486,7 @@ public final class SyncEngineTest {
         eq("401: the message", "The relay refused the token.", r.error);
         eq("401: nothing counted", "0/0", r.pushed + "/" + r.pulled);
         eq("401: the note is still dirty", true, e.store.notes.get(n.id).dirty);
-        eq("401: no setting changed", new ArrayList<String>(), e.store.metaLog);
+        eq("401: no setting changed but the relay address", Arrays.asList("relay_origin=http://relay.test:8787"), e.store.metaLog);
         eq("401: the profile was not touched", 0, e.cfg.writes.size());
         eq("401: the relay was asked once", 1, e.relay.calls.size());
 
@@ -757,8 +774,8 @@ public final class SyncEngineTest {
         r = off.sync();
         eq("keys off here: the relay's key is not taken", false, off.cfg.profile.get("api_key").equals("gsk_other"));
         eq("keys off here: but About you is", "hello", off.cfg.profile.get("user_context"));
-        eq("keys off here: and the key is taken off the relay", false, off.relay.profile.containsKey("api_key"));
-        eq("keys off here: the key in the snapshot is gone too", false, ((Map<?, ?>) parse(off.store.meta.get("profile_snapshot"))).containsKey("api_key"));
+        eq("keys off here: the relay's key is left alone (this device never sent keys)", "gsk_other", off.relay.profile.get("api_key"));
+        eq("keys off here: the key is not in the snapshot", false, ((Map<?, ?>) parse(off.store.meta.get("profile_snapshot"))).containsKey("api_key"));
 
         // a key that is not an address this phone may use is not taken
         Env bad = new Env();
@@ -768,6 +785,104 @@ public final class SyncEngineTest {
         bad.sync();
         eq("bad address: not taken", "https://api.groq.com/openai/v1", bad.cfg.profile.get("base_url"));
         eq("bad address: the usable model is", "whisper-1", bad.cfg.profile.get("stt_model"));
+    }
+
+    /** F6 part 1: a device with keys off must not undo the keys another device put on the relay. */
+    private static void keysDoNotFlap() {
+        Env pc = new Env();
+        pc.cfg.keys = true;
+        pc.cfg.profile.put("api_key", "gsk_pc");
+        Env phone = new Env(pc.relay);   // keys off, like the phone's default
+        pc.sync();
+        eq("flap: the PC put its key on the relay", "gsk_pc", pc.relay.profile.get("api_key"));
+        for (int round = 1; round <= 4; round++) {
+            phone.sync();
+            pc.sync();
+            eq("flap round " + round + ": the key stays on the relay", "gsk_pc", pc.relay.profile.get("api_key"));
+            eq("flap round " + round + ": the phone never writes the key", false, phone.cfg.profile.get("api_key").equals("gsk_pc"));
+            eq("flap round " + round + ": the PC is not asked to change its key", true, pc.cfg.writes.isEmpty());
+        }
+        long version = pc.relay.profileVersion;
+        phone.sync();
+        pc.sync();
+        eq("flap: settled, the relay's profile version no longer moves", version, pc.relay.profileVersion);
+
+        // a setting changed on the phone keeps the key on the relay too
+        phone.cfg.profile.put("user_context", "from phone");
+        phone.sync();
+        eq("flap: the phone's own change is sent", "from phone", pc.relay.profile.get("user_context"));
+        eq("flap: and the key is still there", "gsk_pc", pc.relay.profile.get("api_key"));
+        pc.sync();
+        eq("flap: the PC got the change", "from phone", pc.cfg.profile.get("user_context"));
+        eq("flap: the PC still has its key", "gsk_pc", pc.cfg.profile.get("api_key"));
+
+        // the real switch: a device that sent keys and now has them off takes them off the relay, once
+        Env two = new Env(pc.relay);
+        two.cfg.keys = true;
+        two.sync();
+        two.cfg.keys = false;
+        two.sync();
+        eq("flap switch: the keys left the relay", false, pc.relay.profile.containsKey("api_key"));
+        long afterStrip = pc.relay.profileVersion;
+        two.sync();
+        two.sync();
+        eq("flap switch: stripped once, then quiet", afterStrip, pc.relay.profileVersion);
+        eq("flap switch: the flag is cleared", "", two.store.getMeta("profile_keys_sent", ""));
+        // another device puts keys back: this one (keys off, flag cleared) leaves them
+        pc.relay.profile.put("api_key", "gsk_again");
+        pc.relay.profileVersion++;
+        two.sync();
+        eq("flap switch: later keys from another device stay", "gsk_again", pc.relay.profile.get("api_key"));
+    }
+
+    /** F6 part 2: the sync state belongs to one relay; another address means everything is sent again. */
+    private static void relayChange() {
+        Env e = new Env();
+        Note a = e.store.add("first", 100);
+        Note b = e.store.add("second", 200);
+        Note gone = e.store.add("third", 300);
+        e.sync();
+        gone.deleted = true;
+        gone.updatedAt = 400;
+        gone.dirty = true;
+        e.sync();
+        eq("relay change: set up, all clean", false, a.dirty || b.dirty || gone.dirty);
+        eq("relay change: the origin is remembered", "http://relay.test:8787", e.store.meta.get("relay_origin"));
+
+        // the same relay spelled differently: nothing is reset
+        e.cfg.url = "HTTP://Relay.TEST:8787/";
+        SyncResult r = e.sync();
+        eq("relay change: another spelling is not another relay", "0/", r.pushed + "/" + r.error);
+        eq("relay change: no note sent again", 1, e.relay.puts(a.id));
+        eq("relay change: the cursor is kept", String.valueOf(e.relay.seq), e.store.meta.get("relay_cursor"));
+        eq("relay change: a path counts (another place on the same host)", false, SyncEngine.originOf("http://h/a").equals(SyncEngine.originOf("http://h/b")));
+
+        // a new, empty relay (with a note another device put there first)
+        FakeRelay fresh = new FakeRelay();
+        fresh.store(id(99), "from the PC", 150, false);
+        e.cfg.url = "http://other.test:8787/";
+        SyncResult r2 = new SyncEngine(e.store, fresh, e.cfg).syncOnce();
+        eq("relay change: no error", "", r2.error);
+        eq("relay change: the live notes are pushed", true, fresh.notes.containsKey(a.id) && fresh.notes.containsKey(b.id));
+        eq("relay change: the delete marker is pushed", Boolean.TRUE, fresh.notes.get(gone.id).get("deleted"));
+        eq("relay change: three sent", 3, r2.pushed);
+        eq("relay change: the note the new relay had is received", "from the PC", e.store.notes.get(id(99)).text);
+        eq("relay change: all clean again", false, a.dirty || b.dirty || gone.dirty);
+        eq("relay change: the cursor follows the new relay", String.valueOf(fresh.seq), e.store.meta.get("relay_cursor"));
+        eq("relay change: the profile is sent to the new relay", 1L, fresh.profileVersion);
+        eq("relay change: the new origin is remembered", "http://other.test:8787", e.store.meta.get("relay_origin"));
+        r2 = new SyncEngine(e.store, fresh, e.cfg).syncOnce();
+        eq("relay change: quiet afterwards", "0/0", r2.pushed + "/" + r2.pulled);
+
+        // a first sync after an update has no origin saved: it is recorded, not treated as a change
+        Env old = new Env();
+        Note n = old.store.add("kept", 1);
+        old.store.markSynced(n.id, 1, 5);
+        old.store.setMeta("relay_cursor", "5");
+        old.sync();
+        eq("relay change: no origin saved yet is not a change", "5", old.store.meta.get("relay_cursor"));
+        eq("relay change: note not sent again", 0, old.relay.puts(n.id));
+        eq("relay change: origin recorded", "http://relay.test:8787", old.store.meta.get("relay_origin"));
     }
 
     private static Object parse(String s) {
