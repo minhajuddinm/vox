@@ -90,6 +90,11 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/Providers.java` | Java twin of `windows/providers.py`: per-role settings, model classification and parsing, messages, reasoning fields. |
 | `android/src/com/minhaj/vox/Terms.java` | Parses the dictionary text into terms and replacements. |
 | `android/src/com/minhaj/vox/Timing.java` | Pure Java twin of `windows/timing.py` (marks, stages, median, p90, biggest stage, "1.4 s" text, summary, `byModel`, `speedView` for the Speed card, `historyMap` the keys of a history row's timing); pinned by the `timing_*` rows of `spec/golden.txt`. |
+| `android/src/com/minhaj/vox/Segmenter.java` | Pure Java twin of `Segmenter` in `windows/vox_core.py`: cuts a recording that is still going on into pieces at pauses (12 s minimum, 28 s maximum, 0.6 s pause); the `segcuts` golden rows prove it cuts where Windows does, whatever the block size. |
+| `android/src/com/minhaj/vox/StreamingStt.java` | Pure Java twin of `windows/streaming.py`: a worker thread cuts the audio with `Segmenter` and sends each piece to speech to text (with the end of the text before it as context) while the user is still talking; `finish` returns the text, or null when the caller should send the whole recording. The server call is a `Transcriber` callback, so it is tested with a fake. |
+| `android/src/com/minhaj/vox/Latency.java` | Pure latency rules: 5 s connect timeout, speech and cleanup read timeouts that grow with the audio and the words, which failures count as "never reached the server" (the fast retry), the cleanup `max_tokens` bound, and when to warm the connection again. |
+| `android/src/com/minhaj/vox/UploadFormat.java` | Pure rule for the audio container of an upload (WAV under 4 s, m4a from 4 s), its type and file name, and when an encoded file is used. |
+| `android/src/com/minhaj/vox/AudioUpload.java` | Makes the uploaded file: encodes the 16 kHz PCM as AAC in an m4a file (`MediaCodec` and `MediaMuxer`, 64 kbit/s) when `UploadFormat` says so, and falls back to the WAV on any encoder failure. Android classes, so it is only compile-checked here. |
 | `android/src/com/minhaj/vox/NotificationActions.java` | Pure choice of the foreground notification buttons (at most three) and its Retry hint line. |
 | `android/src/com/minhaj/vox/InsertGuard.java` | Pure typing guard: never type a restored dictation (empty target package), refuse a switched app, and the toast words. |
 | `android/src/com/minhaj/vox/PinnedUrlConfig.java` | A `SyncConfig` with the relay address fixed for one sync run (the address is read once per run). |
@@ -167,6 +172,9 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/NotificationActionsTest.java` | Notification buttons (never more than three in any state), the Retry hint and the typing guard. |
 | `android/test/com/minhaj/vox/PcmTest.java` | Silence gate. |
 | `android/test/com/minhaj/vox/TimingTest.java` | The Java timing core: stages, skipped cleanup, clock, summary rules, per-model medians, `speedView` from history rows. |
+| `android/test/com/minhaj/vox/SegmenterTest.java` | `Segmenter` beyond the golden rows: nothing lost, the same pieces for any block size, reuse after `rest()`. |
+| `android/test/com/minhaj/vox/StreamingSttTest.java` | `StreamingStt` with a fake server: order and context, the first piece going out before the recording ends, only the tail left after, failure, slow server, silent and hallucinated pieces, cancel. |
+| `android/test/com/minhaj/vox/LatencyTest.java` | The timeout and token rules of `Latency`, the connect-failure classification and the `UploadFormat` rule. |
 | `android/test/com/minhaj/vox/CorrectionsTest.java` | Correction suggestions. |
 | `android/test/com/minhaj/vox/PendingQueueTest.java` | The unsent-recordings queue: oldest-first order, cap drops the oldest, cancel rules (live recording and Retry discard nothing, only a fresh queued entry), remove on success, age purge, file names. |
 | `android/test/com/minhaj/vox/NoteLogicTest.java` | Note rules beyond the golden rows: Python-style whitespace and `strip`, search words, tag clean-up and its cap, null inputs, merge edge cases. |
