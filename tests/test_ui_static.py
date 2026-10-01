@@ -318,3 +318,11 @@ WINDOWS_PAGE = read(PAGES["windows"])
 def test_note_ids_are_escaped_in_the_windows_page():
     assert 'data-id="${n.id}"' not in WINDOWS_PAGE
     assert 'data-id="${esc(n.id)}"' in WINDOWS_PAGE
+
+
+def test_my_notes_autosave_saves_to_the_meeting_it_was_typed_in():
+    assert "meeting_save_notes(SEL" not in WINDOWS_PAGE
+    assert "meeting_save_notes(pn.mid" in WINDOWS_PAGE
+    body = WINDOWS_PAGE.split("async function openMeeting(", 1)[1].split("\n}", 1)[0]
+    assert "flushNotes()" in body and body.index("flushNotes()") < body.index("meeting_detail")
+    assert "flushNotes()" in WINDOWS_PAGE.split("function renderMeeting(", 1)[1].split("\n}", 1)[0]

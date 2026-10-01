@@ -1205,7 +1205,16 @@ function mdSummary(src, done) {
   return out + (inList ? "</ul>" : "");
 }
 
+let pendingNotes = null;   // {mid, text, tmr}: the My notes text that is waiting for its 700 ms autosave
+async function flushNotes() {   // sends it now, to the meeting it was typed in
+  const pn = pendingNotes;
+  if (!pn) return;
+  clearTimeout(pn.tmr); pendingNotes = null;
+  await api().meeting_save_notes(pn.mid, pn.text);
+}
+
 function renderMeeting(r) {
+  flushNotes();
   const d = DET, m = d.meta;
   const people = [d.me, ...(m.attendees || [])];
   const speakers = [...new Set(d.lines.map(l => l.who))].filter(n => !people.includes(n));
@@ -1236,9 +1245,16 @@ function renderMeeting(r) {
     $("tr-q").oninput = (e) => { $("tr-body").innerHTML = blocks(d.lines, e.target.value.trim()) || '<p class="style-tag">No matches.</p>'; };
   } else {
     body.innerHTML = `<textarea class="mynotes" id="my-notes" placeholder="Your own notes for this meeting. Saved automatically, kept separate from the AI summary.">${esc(d.my_notes)}</textarea>`;
-    let tmr; $("my-notes").oninput = (e) => { clearTimeout(tmr); tmr = setTimeout(async () => { d.my_notes = e.target.value; await api().meeting_save_notes(SEL, d.my_notes); toast("Saved"); }, 700); };
+    const mid = SEL;   // the meeting this textarea belongs to: SEL may have changed when the timer fires
+    $("my-notes").oninput = (e) => {
+      if (pendingNotes) clearTimeout(pendingNotes.tmr);
+      const pn = { mid, text: e.target.value, tmr: 0 };
+      d.my_notes = pn.text;
+      pn.tmr = setTimeout(async () => { if (pendingNotes === pn) { pendingNotes = null; await api().meeting_save_notes(pn.mid, pn.text); toast("Saved"); } }, 700);
+      pendingNotes = pn;
+    };
   }
-  r.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { TAB = b.dataset.tab; renderMeeting(r); });
+  r.querySelectorAll("[data-tab]").forEach(b => b.onclick = async () => { await flushNotes(); TAB = b.dataset.tab; renderMeeting(r); });
   const drawMQ = () => {
     const qa = d.__qa || [];
     $("mq-out").innerHTML = qa.map(x => `<div class="qa"><div class="q">${esc(x.q)}</div><div class="a">${x.a === null ? '<span class="style-tag">Thinking…</span>' : linkTimes(x.a)}</div></div>`).join("");
@@ -1260,10 +1276,12 @@ function renderMeeting(r) {
   $("mh-title").onblur = async (e) => { const t = e.target.textContent.trim(); if (t && t !== m.title) { m.title = await api().meeting_rename(SEL, t); ML = await api().meetings(); renderList(); toast("Renamed"); } };
   $("md-copy").onclick = async () => { await api().copy(`# ${m.title}\n\n${d.summary}`); toast("Summary copied"); };
   $("md-open").onclick = () => api().meeting_open(SEL);
-  $("md-del").onclick = async () => { await api().meeting_delete(SEL); SEL = null; DET = null; RIGHT = "empty"; ML = await api().meetings(); renderList(); renderRight(); toast("Deleted"); };
+  $("md-del").onclick = async () => { if (pendingNotes && pendingNotes.mid === SEL) { clearTimeout(pendingNotes.tmr); pendingNotes = null; }   // no save into a deleted meeting
+    await api().meeting_delete(SEL); SEL = null; DET = null; RIGHT = "empty"; ML = await api().meetings(); renderList(); renderRight(); toast("Deleted"); };
 }
 
 async function openMeeting(mid, seek) {
+  await flushNotes();   // a pending edit of the meeting we are leaving is saved first
   if (mid !== SEL && seek === undefined) TAB = "summary";
   SEL = mid; RIGHT = "meeting";
   DET = await api().meeting_detail(mid);
