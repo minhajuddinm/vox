@@ -30,6 +30,8 @@ public final class ApiClient {
 
     private final String apiKey;
     private final String base;
+    private volatile HttpURLConnection active;   // the request in flight, so abort() can cut it
+    private volatile boolean aborted;
 
     public ApiClient(String apiKey, String baseUrl) {
         this.apiKey = apiKey == null ? "" : apiKey.trim();
@@ -530,6 +532,16 @@ public final class ApiClient {
         return out;
     }
 
+    /**
+     * Stops what this client is doing: the request in flight fails at once and a later one is refused ("cancelled").
+     * Call it off the main thread (disconnect closes a socket).
+     */
+    public void abort() {
+        aborted = true;
+        HttpURLConnection c = active;
+        if (c != null) c.disconnect();
+    }
+
     /** Opens the connection a dictation is about to use (TLS handshake included), so the upload does not wait for it. */
     public void warm() {
         try {
@@ -618,7 +630,10 @@ public final class ApiClient {
     }
 
     private HttpURLConnection get(String url) throws IOException {
+        if (aborted) throw new IOException("cancelled");
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        active = c;
+        if (aborted) throw new IOException("cancelled");
         c.setConnectTimeout(5000);
         c.setReadTimeout(5000);
         if (!apiKey.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + apiKey);
@@ -630,7 +645,10 @@ public final class ApiClient {
     private HttpURLConnection open(String url, int readMs) throws IOException {
         String problem = Endpoint.error(base);
         if (problem != null) throw new IOException(problem);
+        if (aborted) throw new IOException("cancelled");
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        active = c;
+        if (aborted) throw new IOException("cancelled");   // abort() came between the two checks
         c.setRequestMethod("POST");
         c.setConnectTimeout(Latency.CONNECT_MS);
         c.setReadTimeout(readMs);
