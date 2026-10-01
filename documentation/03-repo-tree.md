@@ -89,6 +89,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/Providers.java` | Java twin of `windows/providers.py`: per-role settings, model classification and parsing, messages, reasoning fields. |
 | `android/src/com/minhaj/vox/Terms.java` | Parses the dictionary text into terms and replacements. |
 | `android/src/com/minhaj/vox/NotificationActions.java` | Pure choice of the foreground notification buttons (at most three) and its Retry hint line. |
+| `android/src/com/minhaj/vox/OverlayDiag.java` | Pure bubble diagnostics: a ring buffer of the last 50 events that can make the bubble appear or vanish, its one-line event text, the service and battery lines and the copyable report, kept in memory and in a small private file (`files/overlay_diag.log`). |
 | `android/src/com/minhaj/vox/InsertGuard.java` | Pure typing guard: never type a restored dictation (empty target package), refuse a switched app, and the toast words. |
 | `android/src/com/minhaj/vox/PinnedUrlConfig.java` | A `SyncConfig` with the relay address fixed for one sync run (the address is read once per run). |
 | `android/src/com/minhaj/vox/Endpoint.java` | Server address rules (which hosts may use plain http). |
@@ -165,6 +166,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/PendingQueueTest.java` | The unsent-recordings queue: oldest-first order, cap drops the oldest, cancel rules (live recording and Retry discard nothing, only a fresh queued entry), remove on success, age purge, file names. |
 | `android/test/com/minhaj/vox/NoteLogicTest.java` | Note rules beyond the golden rows: Python-style whitespace and `strip`, search words, tag clean-up and its cap, null inputs, merge edge cases. |
 | `android/test/com/minhaj/vox/NoteTest.java` | The `Note` value class: defaults and `copy`. |
+| `android/test/com/minhaj/vox/OverlayDiagTest.java` | `OverlayDiag`: ring size and order, merging of a repeated event, event text, file round trip, damaged and unwritable file, the only-typing reason and kind, the report text. |
 | `android/test/com/minhaj/vox/NoteEventsTest.java` | `NoteEvents`: order, no double add, remove, a failing listener, adding during a fire, several threads. |
 | `android/test/com/minhaj/vox/ParityTest.java` | Runs `spec/golden.txt` against the Java helpers. |
 | `android/test/com/minhaj/vox/ProfileMergeTest.java` | Profile merge beyond the golden rows: lists and booleans, removals, null maps, fields outside the set, inputs left unchanged, the field lists. |

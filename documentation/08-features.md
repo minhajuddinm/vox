@@ -12,6 +12,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | Personal dictionary: terms, people, `wrong => right` replacements | yes | yes | orig | `vox_core.dictionary_terms`, `apply_replacements` / `Terms`, `ApiClient.applyReplacements` | py + java parity |
 | Hold-to-talk shortcut, five choices | yes | - | orig | `Engine.on_combo_down/up` | - |
 | Hands-free mode (double-tap, press to finish, Esc cancels) | yes | - | orig | `Engine` | - |
+| Bubble diagnostics card in Settings (service connected or killed, battery optimisation, the last 50 bubble events with reasons, copy report) | no | yes | `OverlayDiag`, `VoxAccessibilityService.diag`, `MainActivity.Bridge.getDiagnostics` | java `OverlayDiagTest`; py `test_ui_static` (card ids, bridge method) |
 | Floating mic bubble (tap to start/stop, drag, long press) | - | yes | orig | `VoxAccessibilityService`, `BubbleView` | - |
 | Recording pill (waveform, dots) | yes | - | orig | `overlay.py` | - |
 | Paste into the focused app; only when the window is unchanged (else copy and say so); old clipboard restored unless `keep_clipboard`, and never over something newer | yes | - | orig | `paste.paste_text`, `Engine.paste` | py `test_paste` |

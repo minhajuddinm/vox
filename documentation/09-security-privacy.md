@@ -31,6 +31,7 @@ There is no analytics, crash reporting or Vox backend. Audio and text go only to
 | Meeting notes and transcripts | `%APPDATA%\Vox\meetings`, `Documents\Vox Notes` | Plain text |
 | Google tokens | `google_token.json` | Plain JSON with default file permissions |
 | Control token | `engine.json` | Random per run, deleted on quit; readable by the same Windows user |
+| Bubble diagnostics log (Android) | `files/overlay_diag.log` | App-private, plain text, at most 50 events (what the bubble did and why, screen on or off, unlock, rotation; no dictated text, no app names, no package names). Never sent anywhere; the Copy report button only puts it on the clipboard when the user taps it |
 | Failed dictation audio (Android) | `cache/vox_pending_<id>_<dest>.wav` (up to 5) | Until sent, cleared in the notification, cancelled (that recording only), dropped as the oldest, or 7 days old; kept across a service stop |
 | Failed dictation audio (Windows) | Memory only (`Engine.pending`) | Lost when Vox quits |
 
