@@ -1,6 +1,6 @@
 # 14. The relay
 
-An optional server the user runs on their own machine (PC, Raspberry Pi, any Linux box) so a phone and a PC can share voice notes and a profile. **This page describes what exists in the code today: the server, its management page, the Windows client (voice notes and the profile) and running the server from the Windows app. The Android app does not use it yet.** Set-up steps for a Raspberry Pi are in [../relay/README.md](../relay/README.md).
+An optional server the user runs on their own machine (PC, Raspberry Pi, any Linux box) so a phone and a PC can share voice notes and a profile. **This page describes what exists in the code today: the server, its management page, the Windows client and the Android client (voice notes and the shared profile) and running the server from the Windows app.** The Android client is only compile-checked and tested off-device; it has not run against a relay on a phone. Set-up steps for a Raspberry Pi are in [../relay/README.md](../relay/README.md).
 
 ## What it is
 
@@ -13,7 +13,7 @@ An optional server the user runs on their own machine (PC, Raspberry Pi, any Lin
 | Data folder | Windows `%APPDATA%\VoxRelay`, macOS `~/Library/Application Support/VoxRelay`, elsewhere `$XDG_DATA_HOME/vox-relay` (default `~/.local/share/vox-relay`): `relay.json` (token, port, owner) and `relay.db` (SQLite, WAL). On POSIX the folder is `0700` and `relay.json` is created `0600`. |
 | Reaching it | publish to the user's own tailnet: `tailscale serve --bg 8765` (HTTPS with a `*.ts.net` certificate, tailnet only). Never Funnel. |
 | Auth | every data request needs `Authorization: Bearer <token>` (constant-time compare). If `owner` is set, the `Tailscale-User-Login` header (added by `tailscale serve`) must match it. |
-| Limits | body 1 MB (a bigger upload is read and dropped, up to 5 MB, then answered 413 so the client sees the answer); note text 100,000 characters; 20 tags; profile 64 KB; a connection that stalls for 30 s is dropped |
+| Limits | body 1 MB (a bigger upload is read and dropped, up to 5 MB, then answered 413 so the client sees the answer); note text 100,000 characters (longer text is silently cut to that length, not refused with a 400); 20 tags; profile 64 KB; a connection that stalls for 30 s is dropped |
 | Logging | no access log (paths carry search words and note ids); the management page keeps the last 100 requests in memory only (method, path with ids replaced, result, device name) |
 
 ## Management page
@@ -64,9 +64,9 @@ Note fields: `id` (32 lowercase hex characters, made by the client), `source`, `
 
 ## Clients
 
-- **Windows:** `windows/sync.py` (settings `relay_sync`, `relay_url`, `relay_token`, `device_name`). It sends changed voice notes with `PUT /notes/{id}`, fetches `GET /changes` from its stored cursor and merges by `updated_at`; it runs at start, every 90 seconds and after each saved note, and sends `X-Vox-Device`. See [decisions/0022-sync-client-dirty-flag-and-cursor.md](decisions/0022-sync-client-dirty-flag-and-cursor.md).
+- **Windows:** `windows/sync.py` (settings `relay_sync`, `relay_url`, `relay_token`, `device_name`). It sends changed voice notes with `PUT /notes/{id}`, fetches `GET /changes` from its stored cursor and merges by `updated_at`; it runs at start, every 90 seconds and after each saved note, and sends `X-Vox-Device`. See [decisions/0022-sync-client-dirty-flag-and-cursor.md](decisions/0022-sync-client-dirty-flag-and-cursor.md). A note the relay refuses for good (a 4xx other than 401, 403 and 429, for example 400 for a bad id) is skipped for that run and reported ("1 note could not be sent: ..."); it stays `dirty`, is tried once more in every later run, and does not stop the other notes, the pull or the profile. Any other failure (network, 401, 403, 429, 5xx) stops the run and keeps what was done.
 - **Profile:** the same client also syncs the profile document (`GET`/`PUT /profile` with `If-Match`): a fixed set of settings merged field by field, provider settings and keys only when `relay_sync_keys` is on. See [decisions/0023-profile-sync-three-way-merge.md](decisions/0023-profile-sync-three-way-merge.md).
-- **Android:** not built.
+- **Android:** `SyncEngine`, `RelayClient`, `SyncWorker` (`android/src/com/minhaj/vox/`), the same protocol and rules as the Windows client: notes and profile, `X-Vox-Device` and the bearer token on every request, runs when the app opens, when the dictation service starts, when settings are saved and every 90 seconds while the process lives (no background scheduler: a phone that never opens the app syncs at the next open). The phone keeps the dictionary and people as text with one entry per line and shares them as lists; `llm_reasoning` is not a phone setting and is left alone. Details and the field table are in [05-android-app.md](05-android-app.md), "Relay sync". `RelayIntegrationTest` runs this client against the real `relay/relay.py` (see [10-build-test-release.md](10-build-test-release.md)).
 
 ## Running it from Vox on Windows
 
@@ -80,4 +80,4 @@ The tray menu has a checkbox **Run relay on this PC** (setting `relay_run`, port
 
 ## Not built yet
 
-Android client and outbox, syncing dictation history, meetings and per-app styles, audio blobs, proxy mode (the relay making the speech and cleanup calls so keys never leave it), restoring a backup from the page, a guided `tailscale serve` set-up inside the apps (today the tray item shows the command once), a Settings-page switch for the PC's own relay (only the tray item exists). Verified only on Windows and, through CI, on x86 and arm64 Linux; the systemd unit, the Raspberry Pi steps and a real phone or PC reaching the relay through `tailscale serve` have not been tried. Decision records: [decisions/0020-relay-design.md](decisions/0020-relay-design.md), [decisions/0021-relay-portable-with-a-web-page.md](decisions/0021-relay-portable-with-a-web-page.md).
+A run of the Android client on a real phone, a background scheduler for the phone (after the first kick the 90 s tick runs for as long as the app's process lives, accessibility service included, and nothing syncs once the system ends the process), syncing dictation history, meetings and per-app styles, audio blobs, proxy mode (the relay making the speech and cleanup calls so keys never leave it), restoring a backup from the page, a guided `tailscale serve` set-up inside the apps (today the tray item shows the command once), a Settings-page switch for the PC's own relay (only the tray item exists). Verified only on Windows and, through CI, on x86 and arm64 Linux; the systemd unit, the Raspberry Pi steps and a real phone or PC reaching the relay through `tailscale serve` have not been tried. Decision records: [decisions/0020-relay-design.md](decisions/0020-relay-design.md), [decisions/0021-relay-portable-with-a-web-page.md](decisions/0021-relay-portable-with-a-web-page.md).

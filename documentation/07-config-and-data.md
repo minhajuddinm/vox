@@ -23,7 +23,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `relay_sync` | bool | `false` | Sync voice notes with a relay (see [14-relay.md](14-relay.md)). |
 | `relay_url` | string | `""` | Address of the relay (for example `https://yuvipi.your-tailnet.ts.net`). Same rule as the server address: plain http only for private hosts. |
 | `relay_token` | string | `""` | The relay's bearer token. DPAPI-protected like the API keys. |
-| `relay_sync_keys` | bool | `false` | Also share the provider settings and API keys through the relay (`provider`, `base_url`, `stt_base_url`, `llm_base_url`, `stt_model`, `llm_model`, `llm_reasoning`, `api_key`, `stt_api_key`, `llm_api_key`). Off removes them from the relay on the next sync. |
+| `relay_sync_keys` | bool | `false` | Also share the provider settings and API keys through the relay (`provider`, `base_url`, `stt_base_url`, `llm_base_url`, `stt_model`, `llm_model`, `llm_reasoning`, `api_key`, `stt_api_key`, `llm_api_key`). Switching it off on a device that had it on removes them from the relay once, on the next sync; a device that never sent keys leaves other devices' keys alone. |
 | `relay_run` | bool | `false` | Run a relay on this PC while Vox is running (the tray item "Run relay on this PC" sets it). The engine starts `Vox.exe --relay` as a child process and stops it when Vox quits. Never synced. See [14-relay.md](14-relay.md). |
 | `relay_port` | int | `8765` | Port the PC's own relay listens on (127.0.0.1 only); the relay's own default. An unusable value means 8765. Publish it with `tailscale serve --bg PORT`. Never synced. |
 | `stream_stt` | bool | `true` | Send long recordings to speech-to-text in pieces while the user is still speaking (recordings shorter than about 13 s are unaffected). |
@@ -63,8 +63,13 @@ Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_de
 | `stt_api_key`, `llm_api_key` | string | blank | Key for that role's own server; used only with its own address. |
 | `user_context` | string | blank | Same as the Windows setting: background text added to every cleanup request. |
 | `language` | string | `""` | Whisper language code. |
-| `dictionary` | string (lines) | comment header | Terms and `wrong => right` lines, one per line. |
-| `people` | string (lines) | `""` | Names, one per line. |
+| `device_name` | string | `""` | This phone's name on the notes it records and on the relay; blank uses the phone model (`Build.MODEL`), and `android-phone` when that is empty too. Trimmed, at most 60 code points (`Prefs.deviceName`, the rule of `NoteLogic.deviceName`). Set in Settings, Sync between devices. |
+| `relay_sync` | bool | `false` | Sync voice notes with a relay (the Settings switch "Sync voice notes with my relay"). Read with `Prefs.relaySync`. |
+| `relay_url` | string | `""` | Address of the relay. Saved only when `Endpoint.error` accepts it (plain http only for private hosts); a trailing slash is removed. Read with `Prefs.relayUrl`. |
+| `relay_token` | string | `""` | The relay's bearer token. A secret like `api_key`: stored in these private preferences only, never logged. Read with `Prefs.relayToken`. |
+| `relay_sync_keys` | bool | `false` | Also share the provider settings and API keys through the relay ("Also share my provider settings and API keys"): `provider`, `base_url`, `stt_base_url`, `llm_base_url`, `stt_model`, `llm_model`, `api_key`, `stt_api_key`, `llm_api_key` (not `llm_reasoning`, which the phone has no setting for). Off removes them from the relay on the next sync. Read with `Prefs.relaySyncKeys`. |
+| `dictionary` | string (lines) | comment header | Terms and `wrong => right` lines, one per line. With relay sync it is shared as a list of text, without the comment lines (`ProfileMap`). |
+| `people` | string (lines) | `""` | Names, one per line. Shared like `dictionary`. |
 | `app_styles` | string (lines) | `Prefs.DEFAULT_APP_STYLES` | `package = style` per line. |
 | `default_style` | string | `neutral` | Style for other apps. |
 | `cleanup` | bool | `true` | Run the AI cleanup. |
@@ -72,6 +77,9 @@ Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_de
 | `keep_history` | bool | `true` | Save dictations. |
 | `only_typing` | bool | `true` | Show the bubble only while a text field is focused. |
 | `bubble_x`, `bubble_y` | int | -1 (default spot) | Saved bubble position. |
+| `note_bubble` | bool | `false` | Show the second, always-visible bubble that starts and stops a voice note (drawn by the accessibility service, independent of the focused field and of `only_typing`). |
+| `note_bubble_x`, `note_bubble_y` | int | -1 (default spot: right edge, 55% down) | Saved position of the note bubble. |
+| `note_notification` | bool | `false` | Keep an ongoing "Record note" notification in the shade. `Bridge.state` reports `note_bubble` and `note_notification`; `Bridge.save` accepts them. |
 | `history` | string (JSON array) | `[]` | Up to 500 entries, newest first. |
 
 ## Relay settings (`relay.json` in the relay's data folder: Windows `%APPDATA%\VoxRelay`, macOS `~/Library/Application Support/VoxRelay`, otherwise `~/.local/share/vox-relay`)
@@ -92,7 +100,7 @@ The relay's data lives next to it in `relay.db` (SQLite: tables `notes` with a `
 |---|---|---|
 | `config.json` | window, engine (migration) | Settings above. |
 | `history.jsonl` | engine | One JSON object per line: `t` (Unix seconds), `app` (exe name), `raw`, `text`, `words`, `secs`. Grows without limit; the window shows the newest 300. |
-| `notes.db` (+ `notes.db-wal`, `notes.db-shm`) | engine, window | SQLite, table `notes`: `id` (32 hex chars), `source` (`voice note`), `title`, `text`, `raw`, `created_at` and `updated_at` (Unix seconds), `secs`, `device`, `tags` (JSON list), `deleted` (0 or 1; a deleted note keeps only the marker row). Sync columns: `dirty` (1 = changed here and not yet accepted by the relay; notes from before sync count as changed) and `seq` (the relay's sequence number, 0 if unknown). Table `sync_meta` (`key`, `value`) holds `relay_cursor`, `profile_version` and `profile_snapshot` (the shared settings as of the last profile sync). Table `notes_fts` (FTS5: `id`, `title`, `text`) exists when SQLite has FTS5. Not encrypted. |
+| `notes.db` (+ `notes.db-wal`, `notes.db-shm`) | engine, window | SQLite, table `notes`: `id` (32 hex chars), `source` (`voice note`), `title`, `text`, `raw`, `created_at` and `updated_at` (Unix seconds), `secs`, `device`, `tags` (JSON list), `deleted` (0 or 1; a deleted note keeps only the marker row). Sync columns: `dirty` (1 = changed here and not yet accepted by the relay; notes from before sync count as changed) and `seq` (the relay's sequence number, 0 if unknown). Table `sync_meta` (`key`, `value`) holds `relay_cursor`, `profile_version` and `profile_snapshot` (the shared settings as of the last profile sync), `relay_origin` (the relay address this state belongs to: when the address changes the cursor and profile state are reset and every note and delete marker is sent again) and `profile_keys_sent` (`1` once this device has put keys on the relay). Table `notes_fts` (FTS5: `id`, `title`, `text`) exists when SQLite has FTS5. Not encrypted. |
 | `vox.log`, `vox.log.1`, `vox.log.2` | engine | Rotating log (1 MB each). |
 | `window.log` (+ backups) | window | Same for the window process. |
 | `relay.log` (+ backups) | `Vox.exe --relay` | Same for the relay process started by the tray item; holds the traceback when the relay crashes or cannot start (for example its data folder cannot be created; checked: exit code 1 and an `uncaught` traceback). A taken port is not such a case on Windows: the relay binds with `SO_REUSEADDR`, so it does not fail, and the app checks the port itself before starting and says so in a tray notification ([14-relay.md](14-relay.md)). |
@@ -107,7 +115,7 @@ Files written by the app while it runs: `history.jsonl` is appended; `config.jso
 
 ## Files on the phone
 
-Only the SharedPreferences file above, plus `cache/vox_pending.wav` while a dictation is waiting to be sent or retried (deleted on success, on cancel, and when the service stops).
+The SharedPreferences file above, plus `cache/vox_pending_<id>_<dest>.wav` (one file per unsent dictation or voice note, at most 5; deleted on success, on "Clear", when dropped as the oldest, after 7 days, or when that very recording is cancelled; they stay when the service stops), plus the voice notes database `databases/notes.db` (with `notes.db-wal` and `notes.db-shm` while it is open; created by `NotesStore` the first time it is used). It has the same tables and columns as `notes.db` on the PC (see above): `notes` (`id`, `source`, `title`, `text`, `raw`, `created_at`, `updated_at`, `secs`, `device`, `tags`, `deleted`, `dirty`, `seq`), `sync_meta` (`key`, `value`) and, when the phone's SQLite has FTS5, `notes_fts`. A note's `id` is 32 lowercase hex characters and times are Unix seconds. Notes recorded on the phone (note mode) are added by `DictationService` with `source` `voice note`, the cleaned text in `text`, the transcript before cleanup in `raw`, `secs` from the recording and `device` from `Prefs.deviceName()`. On the phone `sync_meta` holds `relay_cursor` (the relay's sequence number up to which notes were fetched, written after every page), `profile_version` and `profile_snapshot` (the shared settings as of the last profile sync, as JSON written by `PlainJson`; a damaged value counts as none), `relay_origin` and `profile_keys_sent` (as on the PC); the relay sync reads and writes them (see [05-android-app.md](05-android-app.md), "Relay sync"). Not encrypted; the app does not allow Android backup (`allowBackup="false"`), so the database is not copied to Google's cloud.
 
 ## Never commit
 

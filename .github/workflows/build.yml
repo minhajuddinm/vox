@@ -94,6 +94,11 @@ jobs:
       - name: Unit tests (android/run-tests.sh)
         run: |
           ANDROID_JAR="$ANDROID_HOME/platforms/android-34/android.jar" bash android/run-tests.sh
+      - name: Sync client against the real relay (android/run-tests.sh --integration)
+        # The test starts relay/relay.py itself (the runner's python3, a free port on 127.0.0.1, a temp data folder).
+        # Nothing is downloaded.
+        run: |
+          ANDROID_JAR="$ANDROID_HOME/platforms/android-34/android.jar" bash android/run-tests.sh --integration
       - name: Build APK
         env:
           KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}

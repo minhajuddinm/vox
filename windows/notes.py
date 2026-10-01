@@ -72,9 +72,21 @@ def _tags(tags):
     return out
 
 
-def _auto_title(text):
+def auto_title(text):
+    """The title a note gets when none is given: its first 7 words, plus "..." when there are more.
+    Android twin: NoteLogic.autoTitle (same rule, checked by the `title` rows of spec/golden.txt)."""
     words = (text or "").split()
     return " ".join(words[:7]) + ("..." if len(words) > 7 else "")
+
+
+def _words(query):
+    return re.findall(r"\w+", query or "", re.UNICODE)
+
+
+def fts_query(query):
+    """The FTS5 MATCH string for a search box text: every word as a quoted prefix token (`"tok"*`), joined by spaces;
+    "" when there is no word. Android twin: NoteLogic.ftsQuery (the `ftsq` rows of spec/golden.txt)."""
+    return " ".join(f'"{t}"*' for t in _words(query))
 
 
 def _row(r):
@@ -95,7 +107,7 @@ def add(text, raw="", secs=0.0, source=SOURCE_NOTE, device="", tags=None, title=
     """Saves a note and returns it as a dict."""
     text = (text or "").strip()
     now = time.time()
-    note = {"id": uuid.uuid4().hex, "source": source, "title": (title or "").strip() or _auto_title(text),
+    note = {"id": uuid.uuid4().hex, "source": source, "title": (title or "").strip() or auto_title(text),
             "text": text, "raw": raw or "", "created_at": created or now, "updated_at": now,
             "secs": round(float(secs or 0), 1), "device": device, "tags": _tags(tags), "deleted": False}
     with contextlib.closing(_connect()) as con, con:
@@ -141,13 +153,13 @@ def delete(nid):
 
 def search(query="", source=None, since=None, until=None, tag=None, limit=200):
     """Newest first. `query` words must all appear (as word starts); `since`/`until` are epoch seconds."""
-    tokens = re.findall(r"\w+", query or "", re.UNICODE)
+    tokens = _words(query)
     where, args, join = ["n.deleted = 0"], [], ""
     with contextlib.closing(_connect()) as con:
         if tokens and USE_FTS and _has_fts(con):
             join = "JOIN notes_fts f ON f.id = n.id"
             where.append("notes_fts MATCH ?")
-            args.append(" ".join(f'"{t}"*' for t in tokens))
+            args.append(fts_query(query))
         else:
             for t in tokens:
                 where.append("(n.title LIKE ? OR n.text LIKE ?)")
@@ -191,6 +203,12 @@ def dirty_notes(limit=100):
     with contextlib.closing(_connect()) as con:
         rows = con.execute("SELECT * FROM notes WHERE dirty = 1 ORDER BY updated_at LIMIT ?", (int(limit),)).fetchall()
     return [_row(r) for r in rows]
+
+
+def mark_all_dirty():
+    """Every note and delete marker is sent again at the next sync (the relay address changed: the new relay has none of them)."""
+    with contextlib.closing(_connect()) as con, con:
+        con.execute("UPDATE notes SET dirty = 1")
 
 
 def mark_synced(nid, sent_updated_at, seq):

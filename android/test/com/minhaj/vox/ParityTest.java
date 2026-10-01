@@ -36,6 +36,16 @@ public final class ParityTest {
         return out;
     }
 
+    /** ProfileMerge.merge3 on one field whose value on each side is a string, or "~" when the field is absent there. */
+    private static String mergedValue(String base, String local, String remote) {
+        Object v = ProfileMerge.merge3(absentIfTilde(base), absentIfTilde(local), absentIfTilde(remote));
+        return v == null ? "~" : (String) v;
+    }
+
+    private static String absentIfTilde(String v) {
+        return v.equals("~") ? null : v;
+    }
+
     private static void eq(int line, String kind, String expected, String actual) {
         checks++;
         if (!expected.equals(actual)) {
@@ -99,6 +109,28 @@ public final class ParityTest {
                     break;
                 case "gate":
                     eq(ln, kind, f[4], ApiClient.needsCleanup(f[0], f[1], "true".equals(f[2]), f[3]) ? "true" : "false");
+                    break;
+                case "title":
+                    eq(ln, kind, f[1], NoteLogic.autoTitle(f[0]));
+                    break;
+                case "ftsq":
+                    eq(ln, kind, f[1], NoteLogic.ftsQuery(f[0]));
+                    break;
+                case "remotewins":
+                    eq(ln, kind, f[4], NoteLogic.remoteWins(f[0].equals("true"), Double.parseDouble(f[1]),
+                            Double.parseDouble(f[2]), f[3].equals("true")) ? "true" : "false");
+                    break;
+                case "merge3":
+                    eq(ln, kind, f[3], mergedValue(f[0], f[1], f[2]));
+                    break;
+                case "profilefields":
+                    eq(ln, kind, f[1], String.join("|", f[0].equals("keys") ? ProfileMerge.KEY_FIELDS : ProfileMerge.SHARED_FIELDS));
+                    break;
+                case "devname":   // a typed, non-blank name: the model argument is never used
+                    eq(ln, kind, f[1], NoteLogic.deviceName(f[0], "model"));
+                    break;
+                case "permanent":   // a refusal that will come back every time (4xx except 401, 403, 429)
+                    eq(ln, kind, f[1], new RelayApi.RelayError(Integer.parseInt(f[0]), "x").permanent() ? "true" : "false");
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);

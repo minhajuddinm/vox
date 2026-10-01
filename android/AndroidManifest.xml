@@ -51,6 +51,22 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- Quick settings tile "Voice note". The system binds to it, so it must be exported. -->
+        <service
+            android:name=".NoteTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_note"
+            android:label="@string/tile_note_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <!-- Active tile: requestListeningState only works for these. DictationService requests an update on each state change. -->
+            <meta-data
+                android:name="android.service.quicksettings.ACTIVE_TILE"
+                android:value="true" />
+        </service>
+
         <service
             android:name=".VoxAccessibilityService"
             android:exported="false"

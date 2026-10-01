@@ -4,7 +4,9 @@ import os
 
 import pytest
 
+import notes
 import providers
+import sync
 import vox_core as core
 
 GOLDEN = os.path.join(os.path.dirname(__file__), "..", "spec", "golden.txt")
@@ -36,8 +38,26 @@ def items(field, sep="|"):
     return [x for x in field.split(sep) if x]
 
 
+def remote_wins(has_local, local_updated, remote_updated, remote_deleted):
+    """True when notes.apply_remote lets a note from the relay replace the local copy (run against a temporary notes.db)."""
+    remote = {"id": "n1", "created_at": 1.0, "updated_at": remote_updated, "title": "remote", "text": "remote",
+              "deleted": remote_deleted}
+    if has_local:
+        notes.apply_remote(dict(remote, updated_at=local_updated, title="local", text="local", deleted=False))
+    return notes.apply_remote(remote)
+
+
+def merged_value(base, local, remote):
+    """sync.merge3 on one profile field whose value on each side is a string, or "~" when the field is absent there;
+    the result in the same notation."""
+    def side(v):
+        return {} if v == "~" else {"k": v}
+    return sync.merge3(side(base), side(local), side(remote)).get("k", "~")
+
+
 @pytest.mark.parametrize("kind,f", cases())
-def test_golden(kind, f):
+def test_golden(kind, f, tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))   # the notes rows use a real (temporary) notes.db
     if kind == "sanitize":
         assert core.sanitize(f[0]) == f[1]
     elif kind == "looks_valid":
@@ -66,5 +86,19 @@ def test_golden(kind, f):
         assert core.is_silence_hallucination(f[0]) == (f[1] == "true")
     elif kind == "gate":
         assert core.needs_cleanup(f[0], f[1], f[2] == "true", f[3]) == (f[4] == "true")
+    elif kind == "title":
+        assert notes.auto_title(f[0]) == f[1]
+    elif kind == "ftsq":
+        assert notes.fts_query(f[0]) == f[1]
+    elif kind == "remotewins":
+        assert remote_wins(f[0] == "true", float(f[1]), float(f[2]), f[3] == "true") == (f[4] == "true")
+    elif kind == "merge3":
+        assert merged_value(f[0], f[1], f[2]) == f[3]
+    elif kind == "profilefields":
+        assert "|".join(sync.PROFILE_KEY_FIELDS if f[0] == "keys" else sync.PROFILE_FIELDS) == f[1]
+    elif kind == "devname":
+        assert sync.device_name({"device_name": f[0]}) == f[1]
+    elif kind == "permanent":
+        assert sync.SyncError("x", int(f[0])).permanent == (f[1] == "true")
     else:
         pytest.fail(f"unknown case kind {kind}")

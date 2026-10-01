@@ -28,7 +28,7 @@ Original author: Muhammad Minhajuddin (repository `minhajuddinm/vox`, commits up
 ## Non-goals and limits
 
 - No iOS or macOS or Linux app. The Windows code has some non-Windows branches only so tests can run on Linux CI.
-- No Vox cloud. The only sync is optional and goes through a relay the user runs (see [14-relay.md](14-relay.md)); today only the Windows app uses it (voice notes and profile), the phone does not sync yet, and dictation history and meetings never sync.
+- No Vox cloud. The only sync is optional and goes through a relay the user runs (see [14-relay.md](14-relay.md)); the Windows app and the Android app use it (voice notes and profile; the Android client has not run on a phone yet), and dictation history and meetings never sync.
 - Android meeting notes do not exist.
 - Speech is not processed on the device: audio always goes to the configured server.
 - No Vox-run service of any kind. The maintainer receives no data.

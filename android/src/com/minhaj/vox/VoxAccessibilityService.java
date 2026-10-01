@@ -11,6 +11,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
@@ -23,18 +24,19 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Toast;
 
 /**
- * Owns the floating bubble (an accessibility overlay, so no "draw over apps" permission is needed),
- * tracks the focused text field, and inserts the final text into it.
+ * Owns the floating bubbles (accessibility overlays, so no "draw over apps" permission is needed): the mic bubble,
+ * which tracks the focused text field and inserts the final text into it, and the optional voice note bubble, which
+ * is always on screen while "note_bubble" is on and starts or stops a note.
  */
 public class VoxAccessibilityService extends AccessibilityService implements DictationService.Listener {
     public static volatile VoxAccessibilityService instance;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private WindowManager wm;
-    private BubbleView bubble;
-    private WindowManager.LayoutParams lp;
-    private boolean bubbleShown;
-    private boolean pendingStart;
+    /** The mic bubble: on screen near a focused text field (always, when "only_typing" is off). */
+    private Floating dictation;
+    /** The voice note bubble: on screen whenever "note_bubble" is on, whatever is focused. */
+    private Floating noteBubble;
 
     private AccessibilityNodeInfo editNode;
     private String editPkg;
@@ -45,13 +47,14 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         instance = this;
         DictationService.setListener(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
-        createBubble();
+        createBubbles();
         refreshVisibility();
+        NoteEntry.applySettings(this);   // puts the "Record note" notification back after a reboot
     }
 
     @Override
     public boolean onUnbind(Intent intent) {
-        removeBubble();
+        removeBubbles();
         instance = null;
         DictationService.setListener(null);
         return super.onUnbind(intent);
@@ -59,7 +62,7 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
 
     @Override
     public void onDestroy() {
-        removeBubble();
+        removeBubbles();
         instance = null;
         DictationService.setListener(null);
         super.onDestroy();
@@ -113,54 +116,96 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
     }
 
     public void refreshVisibility() {
-        if (bubble == null) return;
-        boolean busy = DictationService.instance != null
-                && DictationService.instance.getState() != DictationService.IDLE;
-        boolean want = busy || !new Prefs(this).onlyWhenTyping() || editNode != null;
-        try {
-            if (want && !bubbleShown) { wm.addView(bubble, lp); bubbleShown = true; }
-            else if (!want && bubbleShown) { wm.removeView(bubble); bubbleShown = false; }
-        } catch (Exception e) {
-            bubbleShown = false; // the window manager refused (service going away, overlay revoked)
-        }
+        if (dictation == null) return;
+        DictationService svc = DictationService.instance;
+        // A note being recorded or sent is the note bubble's business: it must not bring the mic bubble up.
+        boolean busy = svc != null && svc.getState() != DictationService.IDLE && !svc.isNoteJob();
+        Prefs p = new Prefs(this);
+        dictation.setVisible(busy || !p.onlyWhenTyping() || editNode != null);
+        noteBubble.setVisible(p.noteBubble());   // independent of the focused field and of only_typing
     }
 
     // ------------------------------------------------------------- bubble
 
-    private void createBubble() {
-        DisplayMetrics dm = getResources().getDisplayMetrics();
-        int size = (int) (60 * dm.density);
-        bubble = new BubbleView(this);
-        lp = new WindowManager.LayoutParams(size, size,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                PixelFormat.TRANSLUCENT);
-        lp.gravity = Gravity.TOP | Gravity.START;
-        Prefs p = new Prefs(this);
-        lp.x = p.bubbleX() >= 0 ? p.bubbleX() : dm.widthPixels - size;
-        lp.y = p.bubbleY() >= 0 ? p.bubbleY() : (int) (dm.heightPixels * 0.35);
+    /** One floating bubble: its view, its place on screen, and whether it is currently added to the window manager. */
+    private final class Floating {
+        final BubbleView view;
+        final WindowManager.LayoutParams lp;
+        final boolean note;
+        boolean shown;
 
-        final int slop = ViewConfiguration.get(this).getScaledTouchSlop();
-        final int longPress = ViewConfiguration.getLongPressTimeout() + 150;
-        bubble.setOnTouchListener(new BubbleTouch(slop, longPress));
+        Floating(boolean note) {
+            this.note = note;
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            int size = (int) (60 * dm.density);
+            view = new BubbleView(VoxAccessibilityService.this, note);
+            lp = new WindowManager.LayoutParams(size, size,
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    PixelFormat.TRANSLUCENT);
+            lp.gravity = Gravity.TOP | Gravity.START;
+            Prefs p = new Prefs(VoxAccessibilityService.this);
+            int x = note ? p.noteBubbleX() : p.bubbleX();
+            int y = note ? p.noteBubbleY() : p.bubbleY();
+            // default spots: the right edge, the note bubble lower down so the two do not sit on top of each other
+            lp.x = x >= 0 ? x : dm.widthPixels - size;
+            lp.y = y >= 0 ? y : (int) (dm.heightPixels * (note ? 0.55 : 0.35));
+
+            final int slop = ViewConfiguration.get(VoxAccessibilityService.this).getScaledTouchSlop();
+            final int longPress = ViewConfiguration.getLongPressTimeout() + 150;
+            view.setOnTouchListener(new BubbleTouch(this, slop, longPress));
+        }
+
+        void setVisible(boolean want) {
+            try {
+                if (want && !shown) { wm.addView(view, lp); shown = true; }
+                else if (!want && shown) { wm.removeView(view); shown = false; }
+            } catch (Exception e) {
+                shown = false; // the window manager refused (service going away, overlay revoked)
+            }
+        }
+
+        void remove() {
+            if (shown) {
+                try { wm.removeView(view); } catch (Exception ignored) { }
+            }
+            shown = false;
+        }
+
+        void savePosition() {
+            Prefs p = new Prefs(VoxAccessibilityService.this);
+            if (note) p.saveNoteBubblePos(lp.x, lp.y);
+            else p.saveBubblePos(lp.x, lp.y);
+        }
+    }
+
+    private void createBubbles() {
+        dictation = new Floating(false);
+        noteBubble = new Floating(true);
     }
 
     private final class BubbleTouch implements View.OnTouchListener {
+            private final Floating f;
             private final int slop;
             private final int longPress;
-            BubbleTouch(int slop, int longPress) { this.slop = slop; this.longPress = longPress; }
             float downX, downY;
             int startX, startY;
             boolean dragging, longFired;
-            final Runnable onLong = () -> { longFired = true; onBubbleLongPress(); };
+            final Runnable onLong;
+            BubbleTouch(Floating f, int slop, int longPress) {
+                this.f = f;
+                this.slop = slop;
+                this.longPress = longPress;
+                this.onLong = () -> { longFired = true; onBubbleLongPress(f); };
+            }
 
             @Override
             public boolean onTouch(View v, MotionEvent ev) {
                 switch (ev.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
                         downX = ev.getRawX(); downY = ev.getRawY();
-                        startX = lp.x; startY = lp.y;
+                        startX = f.lp.x; startY = f.lp.y;
                         dragging = false; longFired = false;
                         main.postDelayed(onLong, longPress);
                         return true;
@@ -170,16 +215,16 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
                             dragging = true;
                             main.removeCallbacks(onLong);
                         }
-                        if (dragging && bubbleShown) {
-                            lp.x = (int) (startX + dx);
-                            lp.y = (int) (startY + dy);
-                            wm.updateViewLayout(bubble, lp);
+                        if (dragging && f.shown) {
+                            f.lp.x = (int) (startX + dx);
+                            f.lp.y = (int) (startY + dy);
+                            wm.updateViewLayout(f.view, f.lp);
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
                         main.removeCallbacks(onLong);
-                        if (dragging) snapToEdge();
-                        else if (!longFired) onBubbleTap();
+                        if (dragging) snapToEdge(f);
+                        else if (!longFired) { if (f.note) onNoteBubbleTap(); else onBubbleTap(); }
                         return true;
                     case MotionEvent.ACTION_CANCEL:
                         main.removeCallbacks(onLong);
@@ -189,30 +234,43 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
             }
     }
 
-    private void snapToEdge() {
+    private void snapToEdge(Floating f) {
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        int w = lp.width;
-        lp.x = (lp.x + w / 2 < dm.widthPixels / 2) ? 0 : dm.widthPixels - w;
-        lp.y = Math.max(0, Math.min(lp.y, dm.heightPixels - lp.height));
-        if (bubbleShown) wm.updateViewLayout(bubble, lp);
-        new Prefs(this).saveBubblePos(lp.x, lp.y);
+        int w = f.lp.width;
+        f.lp.x = (f.lp.x + w / 2 < dm.widthPixels / 2) ? 0 : dm.widthPixels - w;
+        f.lp.y = Math.max(0, Math.min(f.lp.y, dm.heightPixels - f.lp.height));
+        if (f.shown) wm.updateViewLayout(f.view, f.lp);
+        f.savePosition();
     }
 
-    private void removeBubble() {
-        if (bubble != null && bubbleShown) {
-            try { wm.removeView(bubble); } catch (Exception ignored) { }
-        }
-        bubbleShown = false;
+    private void removeBubbles() {
+        if (dictation != null) dictation.remove();
+        if (noteBubble != null) noteBubble.remove();
     }
 
     private void onBubbleTap() {
+        final long tapAt = SystemClock.elapsedRealtime(); // for the "tap->recording" log in DictationService
         DictationService svc = DictationService.instance;
         if (svc == null) {
-            // The mic service can only start from a visible activity. Flash a transparent one.
-            pendingStart = true;
+            if (isPasswordField(editNode)) {
+                toast("Vox does not type into password fields");
+                return;
+            }
+            // The mic service can only start from a visible activity. Flash a transparent one: it passes these
+            // extras on, the service starts recording itself as soon as it is in the foreground, then closes it.
+            dictation.view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
             Intent i = new Intent(this, TrampolineActivity.class)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                    .putExtra(DictationService.EXTRA_START, true)
+                    .putExtra(DictationService.EXTRA_PKG, editPkg)
+                    .putExtra(DictationService.EXTRA_LABEL, appLabel(editPkg))
+                    .putExtra(DictationService.EXTRA_DEST, DictationService.DEST_DICTATION)
+                    .putExtra(DictationService.EXTRA_TAP_AT, tapAt);
             startActivity(i);
+            return;
+        }
+        if (svc.getState() != DictationService.IDLE && svc.isNoteJob()) {
+            toast("Vox is busy with a voice note");   // this bubble shows no sign of it, so a tap must not end the note
             return;
         }
         switch (svc.getState()) {
@@ -221,11 +279,11 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
                     toast("Vox does not type into password fields");
                     break;
                 }
-                bubble.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-                svc.startRecording(editPkg, appLabel(editPkg));
+                dictation.view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                svc.startRecording(editPkg, appLabel(editPkg), DictationService.DEST_DICTATION, tapAt);
                 break;
             case DictationService.RECORDING:
-                bubble.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                dictation.view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                 svc.stopRecording();
                 break;
             default:
@@ -233,11 +291,37 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         }
     }
 
-    /** Long press: cancel while busy, otherwise open settings. */
-    private void onBubbleLongPress() {
-        bubble.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+    /**
+     * Tap on the voice note bubble: start a note, or finish the one being recorded. Unlike dictation it does not care
+     * about the focused field (a note is not typed anywhere), so a password field does not matter.
+     */
+    private void onNoteBubbleTap() {
+        final long tapAt = SystemClock.elapsedRealtime();
         DictationService svc = DictationService.instance;
-        if (svc != null && svc.getState() != DictationService.IDLE) {
+        noteBubble.view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+        if (svc == null) {
+            // Same as the dictation bubble: the microphone service can only start from a visible activity.
+            startActivity(NoteEntry.startIntent(this).putExtra(DictationService.EXTRA_TAP_AT, tapAt));
+            return;
+        }
+        switch (svc.getState()) {
+            case DictationService.IDLE:
+                svc.startRecording(null, "", DictationService.DEST_NOTE, tapAt);
+                break;
+            case DictationService.RECORDING:
+                if (svc.isNoteJob()) svc.stopRecording();
+                else toast("Finish the dictation first");
+                break;
+            default:
+                break;
+        }
+    }
+
+    /** Long press: cancel this bubble's own job while it is busy, otherwise open settings. */
+    private void onBubbleLongPress(Floating f) {
+        f.view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        DictationService svc = DictationService.instance;
+        if (svc != null && svc.getState() != DictationService.IDLE && svc.isNoteJob() == f.note) {
             svc.cancel();
             toast("Cancelled");
         } else {
@@ -245,30 +329,26 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         }
     }
 
-    /** Called by DictationService once it is running in the foreground. */
-    void onDictationServiceReady() {
-        if (!pendingStart) return;
-        pendingStart = false;
-        main.postDelayed(() -> {
-            DictationService svc = DictationService.instance;
-            if (svc != null) {
-                if (bubble != null) bubble.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-                svc.startRecording(editPkg, appLabel(editPkg));
-            }
-        }, 350);
-    }
-
     // ------------------------------------------------------ service events
+
+    /** True when the job in progress is a voice note (then the note bubble shows it and the mic bubble stays idle). */
+    private static boolean noteJob() {
+        DictationService svc = DictationService.instance;
+        return svc != null && svc.isNoteJob();
+    }
 
     @Override
     public void onState(int s) {
-        if (bubble != null) bubble.setState(s);
+        boolean note = noteJob();
+        if (dictation != null) dictation.view.setState(note ? DictationService.IDLE : s);
+        if (noteBubble != null) noteBubble.view.setState(note ? s : DictationService.IDLE);
         refreshVisibility();
     }
 
     @Override
     public void onLevel(float level) {
-        if (bubble != null) bubble.setLevel(level);
+        Floating f = noteJob() ? noteBubble : dictation;
+        if (f != null) f.view.setLevel(level);
     }
 
     @Override
@@ -288,6 +368,12 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
     }
 
     private void insertText(String text, String targetPkg) {
+        // A restored dictation (its app is unknown: pkg "") is never typed, whatever the focused field reports.
+        if (InsertGuard.check(targetPkg, null) == InsertGuard.NO_TARGET) {
+            copyToClipboard(text);
+            toast(InsertGuard.message(InsertGuard.NO_TARGET));
+            return;
+        }
         AccessibilityNodeInfo node = null;
         try { node = findFocus(AccessibilityNodeInfo.FOCUS_INPUT); } catch (Exception ignored) { }
         if (node == null || !node.isEditable()) {
@@ -303,11 +389,11 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
             toast("Vox does not type into password fields");
             return;
         }
-        CharSequence nodePkg = node.getPackageName();
-        if (targetPkg != null && nodePkg != null && !targetPkg.contentEquals(nodePkg)) {
+        int verdict = InsertGuard.check(targetPkg, node.getPackageName());
+        if (verdict != InsertGuard.TYPE) {
             // The user switched apps while Vox was working: do not type into the wrong one.
             copyToClipboard(text);
-            toast("You switched apps. Dictation copied to clipboard.");
+            toast(InsertGuard.message(verdict));
             return;
         }
 

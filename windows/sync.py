@@ -23,7 +23,15 @@ _session = requests.Session()
 
 
 class SyncError(Exception):
-    pass
+    def __init__(self, message, status=0):
+        super().__init__(message)
+        self.status = status   # the HTTP status, 0 when there was none (network failure, answer that is not a relay's)
+
+    @property
+    def permanent(self):
+        """True when sending the same thing again will always fail: a 4xx other than 401, 403 and 429. The relay refuses
+        that note itself, so one note must not stop the others (Android twin: RelayApi.RelayError.permanent)."""
+        return 400 <= self.status < 500 and self.status not in (401, 403, 429)
 
 
 def device_name(cfg):
@@ -40,6 +48,33 @@ def settings(cfg):
     if not url or not token:
         return None
     return url, token, device_name(cfg)
+
+
+def origin_of(url):
+    """The relay address as the sync state is tied to it: no trailing slash, scheme and host in lower case."""
+    u = (url or "").strip().rstrip("/")
+    i = u.find("://")
+    if i < 0:
+        return u.lower()
+    j = u.find("/", i + 3)
+    return u.lower() if j < 0 else u[:j].lower() + u[j:]
+
+
+def follow_relay(url):
+    """The sync state (cursor, profile version and snapshot, which notes the relay has) describes one relay. When the
+    address changes, start from zero and send everything again, notes and delete markers. An install with no address
+    saved yet keeps its state and just records it. The address is saved last, so a run that stops half way repeats this."""
+    origin = origin_of(url)
+    saved = notes.get_meta("relay_origin", "")
+    if origin == saved:
+        return
+    if saved:
+        notes.set_meta("relay_cursor", 0)
+        notes.set_meta("profile_version", 0)
+        notes.set_meta("profile_snapshot", "{}")
+        notes.set_meta("profile_keys_sent", "")
+        notes.mark_all_dirty()
+    notes.set_meta("relay_origin", origin)
 
 
 def problem(url, token):
@@ -64,11 +99,11 @@ def _call(method, url, path, token, device, headers=None, allow=(), **kw):
         raise SyncError("Cannot reach the relay (is Tailscale running?): " + type(e).__name__)
     if r.status_code not in allow:
         if r.status_code == 401:
-            raise SyncError("The relay refused the token.")
+            raise SyncError("The relay refused the token.", 401)
         if r.status_code == 403:
-            raise SyncError("The relay belongs to another Tailscale user.")
+            raise SyncError("The relay belongs to another Tailscale user.", 403)
         if r.status_code >= 400:
-            raise SyncError(f"The relay answered HTTP {r.status_code}.")
+            raise SyncError(f"The relay answered HTTP {r.status_code}.", r.status_code)
     try:
         return r.status_code, r.json()
     except ValueError:
@@ -124,6 +159,7 @@ def merge3(base, local, remote):
 def sync_profile(url, token, device):
     """Two-way sync of the shared settings with the relay's profile document. Returns "", "sent", "received" or
     "both"; raises SyncError. The relay refuses a stale write (If-Match), so a race is retried, not lost."""
+    received_any = False   # settings written here in any attempt: a retry sees them as local, so remember them
     for _ in range(3):
         cfg = core.load_config()
         fields = shared_fields(cfg)
@@ -140,19 +176,32 @@ def sync_profile(url, token, device):
             live = core.load_config()
             live.update(received)
             core.save_config(live)
-        stale_keys = not keys_on and any(k in data for k in PROFILE_KEY_FIELDS)   # keys were switched off: take them off the relay
+            received_any = True
+        # Keys leave the relay only on this device's own on-to-off switch (it sent keys, now they are off). A device that
+        # never sent keys leaves other devices' keys alone, or two devices would undo each other for ever.
+        relay_has_keys = any(k in data for k in PROFILE_KEY_FIELDS)
+        sent_keys = notes.get_meta("profile_keys_sent", "") == "1"
+        stale_keys = not keys_on and sent_keys and relay_has_keys
+        if not keys_on and sent_keys and not relay_has_keys:
+            notes.set_meta("profile_keys_sent", "")   # someone else took them off already
         if merged == remote_shared and not stale_keys:
+            if keys_on:
+                notes.set_meta("profile_keys_sent", "1")
             notes.set_meta("profile_version", version)
             notes.set_meta("profile_snapshot", json.dumps(merged))
-            return "received" if received else ""
-        doc = {k: v for k, v in data.items() if k not in PROFILE_KEY_FIELDS or keys_on}   # keep fields other devices added
+            return "received" if received_any else ""
+        doc = {k: v for k, v in data.items() if k not in PROFILE_KEY_FIELDS or not stale_keys}   # keep fields other devices added, their keys too
         doc.update(merged)
         status, out = _call("PUT", url, "/profile", token, device, headers={"If-Match": str(version)}, allow=(412,), json=doc)
         if status == 412:
             continue   # someone wrote in between: look again
+        if keys_on:
+            notes.set_meta("profile_keys_sent", "1")
+        elif stale_keys:
+            notes.set_meta("profile_keys_sent", "")
         notes.set_meta("profile_version", out["version"])
         notes.set_meta("profile_snapshot", json.dumps(merged))
-        return "both" if received else "sent"
+        return "both" if received_any else "sent"
     raise SyncError("The profile keeps changing on the relay; it will be tried again later.")
 
 
@@ -166,13 +215,25 @@ def sync_once(cfg):
     if err:
         return {"pushed": 0, "pulled": 0, "error": err}
     pushed = pulled = 0
+    refused = []   # what the relay said about each note it refuses for good: those notes are skipped, the rest goes on
     try:
+        follow_relay(url)   # inside the try: a database error is a result, never a dead sync thread
+        handled = set()   # (id, updated_at) of every version sent or refused in this run, so none is tried twice in a run
+        parked = 0        # refused notes: the only handled ones that stay dirty, so the only ones that need room in the batch
         while True:
-            batch = notes.dirty_notes(PUSH_BATCH)
+            batch = [n for n in notes.dirty_notes(PUSH_BATCH + parked) if (n["id"], n["updated_at"]) not in handled][:PUSH_BATCH]
             if not batch:
                 break
             for n in batch:
-                out = _request("PUT", url, "/notes/" + n["id"], token, device, json=wire(n))
+                handled.add((n["id"], n["updated_at"]))
+                try:
+                    out = _request("PUT", url, "/notes/" + n["id"], token, device, json=wire(n))
+                except SyncError as e:
+                    if not e.permanent:
+                        raise   # the relay, the token or the network is the problem, not this note: stop and try again later
+                    refused.append(str(e))
+                    parked += 1
+                    continue
                 stored = out["note"]
                 if out["applied"]:
                     notes.mark_synced(n["id"], n["updated_at"], stored["seq"])
@@ -197,7 +258,8 @@ def sync_once(cfg):
     except Exception as e:
         log.exception("sync failed")
         return {"pushed": pushed, "pulled": pulled, "error": "Sync failed: " + type(e).__name__}
-    return {"pushed": pushed, "pulled": pulled, "error": "", "profile": profile}
+    error = f"{len(refused)} note{'s' if len(refused) != 1 else ''} could not be sent: {refused[0]}" if refused else ""
+    return {"pushed": pushed, "pulled": pulled, "error": error, "profile": profile}
 
 
 class SyncWorker:
