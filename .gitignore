@@ -2,6 +2,17 @@
 windows/config.json
 windows/google_client.json
 client_secret*.json
+config.json
+google_client.json
+.env
+.env.*
+relay.json
+relay.json.tmp
+relay.db
+relay.db-*
+*.jks
+*.p12
+*.pem
 *.log
 # build output
 android/build/
