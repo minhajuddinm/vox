@@ -113,8 +113,9 @@ public final class PendingQueue {
 
     /**
      * Reads a file name written by {@link #fileName}. Returns null for any other name. A recording found after a
-     * restart has lost its app: pkg is "" (never null, so a dictation is not typed into whatever field has focus:
-     * the text is copied to the clipboard instead) and the label is empty.
+     * restart has lost its app: pkg is "" (never null) and the label is empty. VoxAccessibilityService never types a
+     * dictation whose pkg is empty (InsertGuard.NO_TARGET, whatever package the focused field reports): the text is
+     * copied to the clipboard instead.
      */
     public static Entry parseFileName(String name) {
         if (name == null || !name.startsWith(PREFIX) || !name.endsWith(SUFFIX)) return null;

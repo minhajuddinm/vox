@@ -143,6 +143,9 @@ public class DictationService extends Service {
         }
         if (intent != null && ACTION_CLEAR.equals(intent.getAction())) {
             clearUnsent();
+            // A Clear that reached a service which is not running as the foreground service (a stale button) has nothing
+            // to keep alive: with nothing recording or queued it must not leave a background service behind.
+            if (instance == null && state == IDLE && pending.size() == 0) stopSelf(startId);
             return START_NOT_STICKY;
         }
         Notification n = buildNotification();
@@ -196,27 +199,32 @@ public class DictationService extends Service {
                 .setSmallIcon(R.drawable.ic_stat_mic)
                 .setContentTitle(noting ? "Recording a voice note" : hasPending ? unsent : "Vox is ready")
                 .setContentText(noting ? "Tap Stop when you are done"
-                        : hasPending ? "Tap Retry to send it again" : "Tap the bubble in any text field to dictate")
+                        : hasPending ? NotificationActions.retryHint(pending.size()) : "Tap the bubble in any text field to dictate")
                 .setContentIntent(openPi)
                 .setOngoing(true);
-        if (noting) {
-            Intent stopRec = new Intent(this, DictationService.class).setAction(ACTION_STOP_RECORDING);
-            PendingIntent stopRecPi = PendingIntent.getService(this, 3, stopRec, PendingIntent.FLAG_IMMUTABLE);
-            b.addAction(new Notification.Action.Builder(null, "Stop", stopRecPi).build());
+        // At most three buttons (Android shows no more): NotificationActions decides which.
+        for (String a : NotificationActions.choose(noting, pending.size())) {
+            if (NotificationActions.STOP.equals(a)) {
+                Intent stopRec = new Intent(this, DictationService.class).setAction(ACTION_STOP_RECORDING);
+                PendingIntent stopRecPi = PendingIntent.getService(this, 3, stopRec, PendingIntent.FLAG_IMMUTABLE);
+                b.addAction(new Notification.Action.Builder(null, a, stopRecPi).build());
+            } else if (NotificationActions.RETRY.equals(a)) {
+                Intent retry = new Intent(this, DictationService.class).setAction(ACTION_RETRY);
+                PendingIntent retryPi = PendingIntent.getService(this, 2, retry, PendingIntent.FLAG_IMMUTABLE);
+                b.addAction(new Notification.Action.Builder(null, a, retryPi).build());
+            } else if (NotificationActions.CLEAR.equals(a)) {
+                Intent clear = new Intent(this, DictationService.class).setAction(ACTION_CLEAR);
+                PendingIntent clearPi = PendingIntent.getService(this, 4, clear, PendingIntent.FLAG_IMMUTABLE);
+                b.addAction(new Notification.Action.Builder(null, a, clearPi).build());
+            } else {
+                b.addAction(new Notification.Action.Builder(null, a, stopPi).build());
+            }
         }
-        if (hasPending) {
-            Intent clear = new Intent(this, DictationService.class).setAction(ACTION_CLEAR);
-            PendingIntent clearPi = PendingIntent.getService(this, 4, clear, PendingIntent.FLAG_IMMUTABLE);
-            Intent retry = new Intent(this, DictationService.class).setAction(ACTION_RETRY);
-            PendingIntent retryPi = PendingIntent.getService(this, 2, retry, PendingIntent.FLAG_IMMUTABLE);
-            b.addAction(new Notification.Action.Builder(null, "Retry", retryPi).build());
-            b.addAction(new Notification.Action.Builder(null, "Clear", clearPi).build());
-        }
-        b.addAction(new Notification.Action.Builder(null, "Turn off", stopPi).build());
         return b.build();
     }
 
     private void refreshNotification() {
+        if (instance != this) return;   // not the foreground service (turned off, or a stale button): never repost the ongoing notification
         try {
             getSystemService(NotificationManager.class).notify(1, buildNotification());
         } catch (Exception ignored) { }
@@ -466,14 +474,25 @@ public class DictationService extends Service {
         if (files == null) return;
         for (File f : files) {
             String name = f.getName();
-            if (name.equals("vox_pending.wav")) { f.delete(); continue; }   // the old single-slot file of earlier versions: its app and destination are unknown
-            PendingQueue.Entry e = PendingQueue.parseFileName(name);
+            PendingQueue.Entry e = name.equals("vox_pending.wav") ? migrateOldSlot(f) : PendingQueue.parseFileName(name);
             if (e != null) {
                 lastEntryId = Math.max(lastEntryId, e.id);
                 for (PendingQueue.Entry d : pending.add(e)) fileOf(d).delete();
             }
         }
         for (PendingQueue.Entry old : pending.purgeOlder(System.currentTimeMillis())) fileOf(old).delete();
+    }
+
+    /**
+     * The old single-slot file of earlier versions ({@code vox_pending.wav}): the user was told it was kept, so it moves
+     * into the queue as one entry. Its app and destination are unknown, so it is a restored dictation (pkg "": the text
+     * is copied to the clipboard, never typed). Its id is its modified time, made unique. Returns null (the file is
+     * left where it is, to be tried again at the next start) when it cannot be renamed.
+     */
+    private PendingQueue.Entry migrateOldSlot(File old) {
+        long id = Math.max(old.lastModified() > 0 ? old.lastModified() : System.currentTimeMillis(), lastEntryId + 1);
+        PendingQueue.Entry e = new PendingQueue.Entry(id, "", "", DEST_DICTATION);
+        return old.renameTo(fileOf(e)) ? e : null;
     }
 
     /**
