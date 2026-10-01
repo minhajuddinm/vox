@@ -16,6 +16,7 @@ import sync
 import timing
 import vcalendar
 import providers
+import session
 import vox_core as core
 
 log = logging.getLogger("vox.ui")
@@ -113,6 +114,20 @@ class Api:
                 self.save_config({"hotkey": h["keys"]})
                 return h["label"]
         return None
+
+    def set_note_hotkey(self, text):
+        """Saves the note shortcut as {"value", "label", "problem"}: the normalised text ("" is off) and its label,
+        or the reason it was refused (then nothing is saved and the value is empty)."""
+        hk, problem = session.parse_note_hotkey(text, core.load_config().get("hotkey"))
+        if not problem:
+            self.save_config({"note_hotkey": hk.text if hk else ""})
+        return {"value": hk.text if hk else "", "label": hk.label if hk else "", "problem": problem}
+
+    def note_hotkey_problem(self, text=None):
+        """Why the note shortcut (the saved one when `text` is None) cannot be used, or ''. Asked after the
+        dictation shortcut changes too: the engine ignores a note shortcut that holds it."""
+        cfg = core.load_config()
+        return session.parse_note_hotkey(cfg.get("note_hotkey") if text is None else text, cfg.get("hotkey"))[1]
 
     def check_key(self, key, base_url=None):
         """True/False when the server answers; None when it cannot be reached or the address is refused."""

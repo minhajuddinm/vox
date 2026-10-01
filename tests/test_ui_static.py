@@ -298,3 +298,13 @@ def test_android_service_brings_the_note_bubble_up_for_a_note_in_progress():
     assert "NoteBubbleLogic.visible(noteOn, noteRec, noteSaving)" in svc
     assert "isNoteRecording()" in svc and "flashNote(BubbleView.SENT)" in svc and "flashNote(BubbleView.ERROR)" in svc
     assert "NoteBubbleLogic.timer(" in read(os.path.join(d, "BubbleView.java"))
+
+
+def test_the_windows_page_has_the_note_shortcut_row():
+    """E5: a text field for the note shortcut, its status line, and the two bridge calls that exist in ui_app.py."""
+    html = read(PAGES["windows"])
+    assert 'id="note-hotkey"' in html and 'id="note-hotkey-status"' in html
+    assert '$("note-hotkey").value = c.note_hotkey' in html
+    assert "api().set_note_hotkey(" in html and "api().note_hotkey_problem(" in html
+    app = read(UI_APP)
+    assert "def set_note_hotkey(" in app and "def note_hotkey_problem(" in app

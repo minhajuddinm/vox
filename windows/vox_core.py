@@ -58,6 +58,7 @@ DEFAULT_CONFIG = {
     "cleanup_min_words": 3,
     "cleanup_strength": "light",
     "listen_target": "note",
+    "note_hotkey": "ctrl+alt+n",
     "keep_history": True,
     "keep_clipboard": False,
     "default_style": "neutral",

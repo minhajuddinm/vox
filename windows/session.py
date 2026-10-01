@@ -22,11 +22,53 @@ _STOP = re.compile(r"[\s,]*\bstop,?\s+listening[\s.!?,;:]*$", re.I)
 
 Segment = namedtuple("Segment", "id pcm para")   # para: a long pause came before this piece
 
+NOTE_HOTKEY_DEFAULT = "ctrl+alt+n"
+_MODS = {"ctrl": "Ctrl", "alt": "Alt", "shift": "Shift", "cmd": "Win"}   # in the order they are written
+_MOD_NAMES = {"control": "ctrl", "ctl": "ctrl", "option": "alt", "win": "cmd", "windows": "cmd", "super": "cmd"}
+_DICTATION_KEYS = {"ctrl", "ctrl_l", "ctrl_r", "cmd", "alt", "alt_r", "shift", "space"}   # engine.KEY_ALIASES
+_F_KEY = re.compile(r"f([1-9]|1[0-2])$")
+NoteHotkey = namedtuple("NoteHotkey", "text mods vk label")   # vk: Windows virtual-key code of the main key
+
 
 def listen_target(cfg):
     """The keep-listening target from the settings ("note" or "type"); anything else means "note"."""
     t = cfg.get("listen_target")
     return t if t in TARGETS else "note"
+
+
+def _vk(key):
+    if len(key) == 1 and key.isascii() and key.isalnum():
+        return ord(key.upper())
+    m = _F_KEY.match(key)
+    return 0x6F + int(m.group(1)) if m else None
+
+
+def parse_note_hotkey(text, dictation=()):
+    """The note hotkey from its setting ("ctrl+alt+n"): (NoteHotkey, "") when usable, (None, "") when the setting is
+    empty (off), (None, problem) otherwise. Usable: at least one of Ctrl, Alt, Win (Shift may join them) and exactly
+    one letter, digit or F1-F12, and not containing the dictation shortcut (`dictation`, the "hotkey" setting): that
+    one starts a dictation as soon as its keys are down, before the last key of this combo."""
+    if text is None or (isinstance(text, str) and not text.strip()):
+        return None, ""
+    hint = "Use Ctrl, Alt or Win plus one letter, digit or F key, for example %s." % NOTE_HOTKEY_DEFAULT
+    parts = [_MOD_NAMES.get(p.strip(), p.strip()) for p in text.lower().split("+")] if isinstance(text, str) else []
+    mods = {p for p in parts if p in _MODS}
+    keys = [p for p in parts if p not in _MODS]
+    if len(set(parts)) != len(parts) or len(keys) != 1 or _vk(keys[0]) is None or not mods - {"shift"}:
+        return None, hint
+    ordered = tuple(m for m in _MODS if m in mods)
+    dictation = {k.split("_")[0] for k in dictation if k in _DICTATION_KEYS} if isinstance(dictation, (list, tuple)) else set()
+    dictation = dictation or {"ctrl", "cmd"}
+    if dictation <= mods:
+        names = " + ".join(_MODS[m] for m in _MODS if m in dictation)
+        return None, "That includes your dictation shortcut (%s), which would start a dictation first. Pick another combination." % names
+    label = " + ".join([_MODS[m] for m in ordered] + [keys[0].upper()])
+    return NoteHotkey("+".join(ordered + (keys[0],)), ordered, _vk(keys[0]), label), ""
+
+
+def note_hotkey(cfg):
+    """`parse_note_hotkey` for the settings: the "note_hotkey" and "hotkey" entries of `cfg`."""
+    return parse_note_hotkey(cfg.get("note_hotkey"), cfg.get("hotkey"))
 
 
 def stop_requested(text):

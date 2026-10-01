@@ -65,6 +65,12 @@ def foreground_app():
         return ""
 
 
+def key_vk(key):
+    """Windows virtual-key code of a pynput key (a letter, digit or F key), or None. The code, not the char: with
+    Ctrl held the char of N is a control character, and it changes between the press and the release."""
+    return getattr(key, "vk", None) or getattr(getattr(key, "value", None), "vk", None)
+
+
 ICONS = {k: logo.draw(64, k) for k in ("idle", "rec", "busy")}
 ICONS["listen"] = ICONS["rec"]   # keep listening is a recording as far as the tray icon goes
 
@@ -91,11 +97,14 @@ class Engine:
     flash_until = 0.0
     timing = None   # the timing.Timing of the recording in progress (the Speed card); None when there is none
     listening = None   # the listen.Listening of the keep-listening session in progress (also while it saves); None when none
+    note_hotkey = None   # the session.NoteHotkey of the note shortcut; None when it is off or unusable
+    note_key_down = False   # its main key is held (a key repeat must not toggle again)
 
     def __init__(self):
         self.cfg = core.load_config()
         self.cfg_mtime = self._mtime()
         self.hotkey = self._hotkey()
+        self.note_hotkey = self._note_hotkey()
         self.pressed = set()
         self.recording = False
         self.busy = False
@@ -132,6 +141,9 @@ class Engine:
                 pystray.MenuItem(lambda _: "Stop meeting notes" if self.meeting.active else "Start meeting notes",
                                  self.toggle_meeting),
                 pystray.MenuItem(lambda _: "Stop listening" if self.listening else "Start listening", self.toggle_listening),
+                pystray.MenuItem(lambda _: "%s (%s)" % ("Stop listening" if self.listening else "Start a note",
+                                                        self.note_hotkey and self.note_hotkey.label),   # None: hidden below
+                                 self.toggle_note_listening, visible=lambda _: self.note_hotkey is not None),
                 pystray.MenuItem("Keep listening: Note", lambda *_: self.set_listen_target("note"), radio=True,
                                  checked=lambda _: session_mod.listen_target(self.cfg) == "note"),
                 pystray.MenuItem("Keep listening: Type", lambda *_: self.set_listen_target("type"), radio=True,
@@ -153,12 +165,19 @@ class Engine:
         keys = [k for k in self.cfg.get("hotkey", ["ctrl", "cmd"]) if k in KEY_ALIASES]
         return [KEY_ALIASES[k] for k in keys] or [KEY_ALIASES["ctrl"], KEY_ALIASES["cmd"]]
 
+    def _note_hotkey(self):
+        hk, problem = session_mod.note_hotkey(self.cfg)
+        if problem:
+            log.warning("note shortcut %r is off: %s", self.cfg.get("note_hotkey"), problem)
+        return hk
+
     def reload_if_changed(self):
         m = self._mtime()
         if m != self.cfg_mtime:
             self.cfg_mtime = m
             self.cfg = core.load_config()
             self.hotkey = self._hotkey()
+            self.note_hotkey = self._note_hotkey()
             log.info("settings reloaded, hotkey=%s", self.cfg.get("hotkey"))
             self.sync.trigger()   # a changed profile setting goes to the relay; a run with nothing new changes nothing
 
@@ -266,6 +285,12 @@ class Engine:
         return all(self.pressed & group for group in self.hotkey)
 
     def on_press(self, key):
+        hk = self.note_hotkey
+        if hk and key_vk(key) == hk.vk:   # the note shortcut's main key: never kept in `pressed` (its char varies)
+            if not self.note_key_down and all(self.pressed & KEY_ALIASES[m] for m in hk.mods):
+                self.note_key_down = True
+                self.toggle_note_listening()
+            return
         self.pressed.add(key)
         if key == keyboard.Key.esc and self.listening:
             self.stop_listening()   # ends it and saves what was said: audio is never thrown away
@@ -278,6 +303,10 @@ class Engine:
             self.on_combo_down()
 
     def on_release(self, key):
+        hk = self.note_hotkey
+        if hk and key_vk(key) == hk.vk:
+            self.note_key_down = False
+            return
         self.pressed.discard(key)
         if self.combo_was_down and not self.combo_down():
             self.combo_was_down = False
@@ -544,11 +573,11 @@ class Engine:
 
     # ------------------------------------------------------------ keep listening
     # The session (listen.py) does the work; these are the engine's side: the microphone, the pill state, the setting.
-    def start_listening(self):
-        """Double press: keeps listening to a Note or typed pieces (setting listen_target) until it is stopped."""
+    def start_listening(self, target=None):
+        """Double press: keeps listening to a Note or typed pieces (setting listen_target, or `target`) until it is stopped."""
         if self.recording or self.busy or self.listening or not self._ready():
             return
-        target = session_mod.listen_target(self.cfg)
+        target = target or session_mod.listen_target(self.cfg)
         try:
             buf = session_mod.SessionBuffer(session_mod.buffer_dir(), target)   # the audio on disk, for a crash
         except OSError:
@@ -580,6 +609,16 @@ class Engine:
             self.stop_listening()
         else:
             self.start_listening()
+
+    def toggle_note_listening(self, *_):
+        """The note shortcut and its tray entry: one press starts a note (a session with the target Note whatever
+        the setting says), the next ends it and saves it. Waits while a session is saving."""
+        if self.busy:
+            return
+        if self.listening:
+            self.stop_listening()
+        else:
+            self.start_listening("note")
 
     def close_mic(self):
         self._close_stream()

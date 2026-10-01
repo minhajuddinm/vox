@@ -285,3 +285,133 @@ def test_quit_waits_for_a_running_session_to_save(eng, monkeypatch):
     monkeypatch.setattr(engine_mod.os, "_exit", lambda code: order.append("exit"))
     eng.quit()
     assert order == ["stop", "exit"]
+
+
+# ------------------------------------------------------------------ the note hotkey (task E5)
+KeyCode = engine_mod.keyboard.KeyCode
+
+
+def n_key(char="\x0e"):
+    """The N key as the Windows hook reports it: with Ctrl held its char is a control character, its vk stays 0x4E."""
+    return KeyCode.from_vk(0x4E, char=char)
+
+
+@pytest.fixture
+def noted(eng, monkeypatch):
+    """An engine with the default note hotkey whose start/stop calls are recorded."""
+    eng.note_hotkey = session.parse_note_hotkey("ctrl+alt+n")[0]
+    eng.note_key_down = False
+    eng.calls = []
+    monkeypatch.setattr(eng, "start_listening", lambda target=None: eng.calls.append(("start", target)))
+    monkeypatch.setattr(eng, "stop_listening", lambda *_: eng.calls.append("stop"))
+    return eng
+
+
+def chord(e, *keys):
+    for k in keys:
+        e.on_press(k)
+
+
+def let_go(e, *keys):
+    for k in keys:
+        e.on_release(k)
+
+
+def test_the_note_hotkey_starts_a_note_and_the_same_hotkey_ends_it(noted):
+    chord(noted, Key.ctrl_l, Key.alt_l, n_key())
+    assert noted.calls == [("start", "note")]
+    let_go(noted, n_key("n"), Key.alt_l, Key.ctrl_l)              # the char differs on release: the vk matches
+    noted.listening = FakeListening(noted, {}, "note")
+    chord(noted, Key.ctrl_l, Key.alt_l, n_key())
+    assert noted.calls == [("start", "note"), "stop"]
+
+
+def test_holding_the_note_hotkey_does_not_toggle_again(noted):
+    chord(noted, Key.ctrl_l, Key.alt_l, n_key(), n_key(), n_key())   # key repeat
+    assert noted.calls == [("start", "note")]
+    let_go(noted, n_key("n"))
+    chord(noted, n_key())                                          # a new press with the modifiers still down
+    assert len(noted.calls) == 2
+
+
+def test_the_main_key_without_its_modifiers_does_nothing_and_is_not_remembered(noted):
+    chord(noted, n_key("n"))
+    chord(noted, Key.ctrl_l, n_key())                              # Ctrl+N alone: not the combo
+    assert noted.calls == [] and noted.pressed == {Key.ctrl_l}
+    let_go(noted, n_key("n"), Key.ctrl_l)
+    assert noted.pressed == set() and not noted.note_key_down
+
+
+def test_the_modifiers_may_be_the_right_hand_ones(noted):
+    chord(noted, Key.ctrl_r, Key.alt_r, n_key())
+    assert noted.calls == [("start", "note")]
+
+
+def test_an_f_key_is_found_by_its_virtual_key_code(noted):
+    noted.note_hotkey = session.parse_note_hotkey("ctrl+f9")[0]
+    chord(noted, Key.ctrl_l, Key.f9)
+    assert noted.calls == [("start", "note")]
+
+
+def test_while_a_session_is_finishing_the_note_hotkey_waits(noted):
+    noted.listening, noted.busy = FakeListening(noted, {}, "note"), True
+    chord(noted, Key.ctrl_l, Key.alt_l, n_key())
+    assert noted.calls == []
+
+
+def test_with_the_setting_empty_the_keys_are_ordinary_keys(noted):
+    noted.note_hotkey = None
+    chord(noted, Key.ctrl_l, Key.alt_l, n_key())
+    assert noted.calls == []
+
+
+def test_the_note_hotkey_is_not_the_dictation_shortcut(noted, monkeypatch):
+    started = []
+    monkeypatch.setattr(noted, "start", lambda: started.append(1))
+    chord(noted, Key.ctrl_l, Key.alt_l, n_key())
+    assert started == []                                           # Ctrl+Alt is no part of Ctrl+Win
+
+
+def test_the_note_hotkey_starts_a_note_whatever_the_listen_target_is(eng, mic):
+    eng.cfg["listen_target"] = "type"
+    eng.start_listening("note")
+    assert eng.listening.target == "note"
+    eng.listening.buffer.close()
+
+
+def test_the_hotkey_toggle_starts_a_note_then_stops_it(eng, mic):
+    eng.cfg["listen_target"] = "type"
+    eng.toggle_note_listening()
+    lis = eng.listening
+    assert lis.target == "note" and lis.calls == ["start"]
+    eng.toggle_note_listening()
+    assert lis.calls == ["start", "stop"]
+    lis.buffer.close()
+
+
+def test_the_engine_reads_the_note_hotkey_from_the_settings_and_drops_a_conflicting_one(eng):
+    eng.cfg.update({"note_hotkey": "Ctrl+Alt+N", "hotkey": ["ctrl_l", "cmd"]})
+    assert eng._note_hotkey().text == "ctrl+alt+n"
+    eng.cfg["hotkey"] = ["ctrl", "alt"]                            # Ctrl+Alt would start a dictation first
+    assert eng._note_hotkey() is None
+    eng.cfg.update({"note_hotkey": "", "hotkey": ["ctrl_l", "cmd"]})
+    assert eng._note_hotkey() is None
+
+
+def test_the_parse_rule_knows_the_same_dictation_key_names_as_the_engine():
+    assert session._DICTATION_KEYS == set(engine_mod.KEY_ALIASES)
+    assert set(session._MODS) <= set(engine_mod.KEY_ALIASES)
+
+
+def test_the_tray_has_a_note_entry_with_the_hotkey_only_while_it_is_set(eng, monkeypatch):
+    monkeypatch.setattr(engine_mod.keyboard, "Controller", lambda: object())
+    monkeypatch.setattr(engine_mod.core, "load_config", lambda: {"note_hotkey": "ctrl+alt+n"})
+    monkeypatch.setattr(engine_mod.Engine, "_mtime", lambda self: 0)
+    monkeypatch.setattr(engine_mod.Engine, "_hotkey", lambda self: set())
+    e = engine_mod.Engine()
+    item = next(i for i in e.icon.menu.items if "(Ctrl + Alt + N)" in i.text)
+    assert item.text == "Start a note (Ctrl + Alt + N)" and item.visible
+    e.listening = FakeListening(e, {}, "note")
+    assert item.text == "Stop listening (Ctrl + Alt + N)"
+    e.note_hotkey = None
+    assert not item.visible
