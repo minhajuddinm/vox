@@ -22,6 +22,6 @@ The roadmap these come from (v2: any provider, lighter, faster, personal context
 | [p7e-android-sync.md](p7e-android-sync.md) | Android relay sync and profile merge | Implemented (not run on a device) |
 | [p8b-design-refresh.md](p8b-design-refresh.md) | Design and privacy refresh: shared UI parts, regrouped settings and Status card, result flash on the pill and bubble, safer paste, privacy text | Implemented (not seen on a screen, phone or packaged build) |
 
-| [p9a-cleanup-keeps-my-words.md](p9a-cleanup-keeps-my-words.md) | Cleanup keeps my words: fidelity guard (built), prompt rewrite and About you first, strength setting and Use raw, fuzzy dictionary, benchmark (not built) | Partly implemented (guard only; not seen on a device or in CI) |
+| [p9a-cleanup-keeps-my-words.md](p9a-cleanup-keeps-my-words.md) | Cleanup keeps my words: fidelity guard, prompt rewrite and About you first, strength setting (Light default) and Use raw (all built), fuzzy dictionary, benchmark (not built) | Partly implemented (A1 to A3; not seen on a device or in CI) |
 
 Later specs (write each just before its work starts): lightweight build (see the roadmap in [../12-known-issues-and-roadmap.md](../12-known-issues-and-roadmap.md)); p9b to p9f of the v2 part 3 plan (speed and timings, devices list, Android bubble, keep listening, weekly improvement).
