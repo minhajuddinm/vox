@@ -4,7 +4,7 @@ Everything a user can set, everything Vox writes to disk, and the formats. `docu
 
 ## Windows settings (`%APPDATA%\Vox\config.json`)
 
-Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CONFIG`; a file that is not valid JSON, not an object or unreadable is moved aside as `config.json.bad-<unix time>` and the defaults are used, so Vox still starts; a UTF-8 BOM is accepted), saved by `save_config`. The window edits it; the engine reloads it within a second. The `api_key` value is stored protected (`dpapi:<base64>`, see [09-security-privacy.md](09-security-privacy.md)) and is plain text in memory.
+Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CONFIG`; a file that is not valid JSON, not an object or unreadable is moved aside as `config.json.bad-<unix time>` and the defaults are used, so Vox still starts; a UTF-8 BOM is accepted; a value of the wrong type, such as `null` for `dictionary` or `hotkey`, is replaced by its default, and the list settings `dictionary`, `people` and `hotkey` keep only their text items), saved by `save_config`. The window edits it; the engine reloads it within a second. The `api_key` value is stored protected (`dpapi:<base64>`, see [09-security-privacy.md](09-security-privacy.md)) and is plain text in memory.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -130,7 +130,7 @@ The relay's data lives next to it in `relay.db` (SQLite: tables `notes` with a `
 
 The cleanup benchmark (`tools/bench_cleanup.py`, run by hand) writes `%APPDATA%\Vox\bench\bench-DATE.json`: the numbers and each cleaned answer for the synthetic corpus, no key, no personal text; delete the folder whenever you like.
 
-Files written by the app while it runs: `history.jsonl` is appended; `config.json`, `history` rewrites and meeting JSON use a temp file and replace (`.tmp` then `os.replace`) where the code does so (`save_config`, `write_history`, meeting `_write_json`).
+Files written by the app while it runs: `history.jsonl` is appended (a cut-off last line gets a newline before the next entry, and an invalid byte only damages its own line when read); `config.json`, `history` rewrites and meeting JSON use a temp file and replace (`.tmp` then `os.replace`) where the code does so (`save_config`, `write_history`, meeting `_write_json`).
 
 ## Files on the phone
 

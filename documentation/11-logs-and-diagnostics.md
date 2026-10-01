@@ -22,7 +22,7 @@ Messages worth knowing:
 | `keep listening: piece N is text X ms after it ended` | One piece of a session became text; X is the wait from the end of the speech |
 | `keep listening: ...` (warning or traceback) | A piece could not be sent, the audio buffer could not be written or removed, typing or the cleanup failed; the audio file under `%APPDATA%\Vox\listen` is kept after a failure |
 | `note shortcut '...' is off: ...` | The note shortcut setting is not usable (for example it contains the dictation shortcut) and is ignored |
-| `notify: ...` | A tray notification was shown (text included), e.g. "Vox did not hear anything (loudest sound N of 32768)..." |
+| `notify: ...` | A tray notification was shown (text included, except note and meeting titles, which log `(private text not logged)`), e.g. "Vox did not hear anything (loudest sound N of 32768)..." |
 | `api error: ...` | The server answered with an error status |
 | `settings reloaded, hotkey=...` | `config.json` changed and was re-read |
 | `uncaught` / `thread crashed` | A bug; read the traceback that follows |

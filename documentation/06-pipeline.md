@@ -122,7 +122,7 @@ Pure classes, tested in `LatencyTest`, `SegmenterTest`, `StreamingSttTest` and t
 | Upload container | WAV below 4 s or 100 KB, otherwise AAC-LC in m4a (64 kbit/s); the WAV is used when the encoder fails or is not smaller, and when the server answered 400, 415 or 422 to an m4a that its WAV then got through (`ApiClient.transcribeRaw` resends once and `Providers.m4aAllowed` skips m4a for that server until the app restarts) |
 | Pieces while recording | `Segmenter` 12 s minimum, 28 s maximum, 0.6 s pause (the Windows numbers); each piece is sent with the last 150 characters of the text before it (plus the dictionary terms, 600 characters at most) as the prompt; a last piece under 0.3 s is not sent |
 
-If any piece fails, or the recording was never long enough to be cut, or the pieces gave no text, the whole recording is sent as before.
+If any piece fails, or the recording was never long enough to be cut, or the pieces gave no text, the whole recording is sent as before. Windows: a recording over `MAX_UPLOAD_BYTES` (20 MB, about 10 minutes) is not sent whole (the servers refuse about 25 MB): `process_detailed` cuts it at pauses with `Segmenter` and sends the pieces one by one, with the same context.
 
 ## "About you" context in the cleanup prompt
 
