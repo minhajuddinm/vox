@@ -26,7 +26,7 @@ There is no analytics, crash reporting or Vox backend.
 | Meeting notes and transcripts | `%APPDATA%\Vox\meetings`, `Documents\Vox Notes` | Plain text |
 | Google tokens | `google_token.json` | Plain JSON with default file permissions |
 | Control token | `engine.json` | Random per run, deleted on quit; readable by the same Windows user |
-| Failed dictation audio (Android) | `cache/vox_pending.wav` | Until sent, cancelled or the service stops |
+| Failed dictation audio (Android) | `cache/vox_pending_<id>_<dest>.wav` (up to 5) | Until sent, cleared in the notification, cancelled (that recording only), dropped as the oldest, or 7 days old; kept across a service stop |
 | Failed dictation audio (Windows) | Memory only (`Engine.pending`) | Lost when Vox quits |
 
 ## Network rules
