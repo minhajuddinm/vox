@@ -354,6 +354,19 @@ public final class ParityTest {
                 case "relaycheck":   // HTTP status of /health (0 = no answer), the answer's fields, ok;reachable;token_ok;relay_version;notes
                     eq(ln, kind, f[2], relayCheckText(RelayCheck.of(Integer.parseInt(f[0]), healthAnswer(f[1]), "dev", "failure")));
                     break;
+                case "bubbleclamp": {   // x, y, screen w, screen h, bubble w, bubble h, expected "x,y"
+                    int[] p = BubbleLogic.clamp(Integer.parseInt(f[0]), Integer.parseInt(f[1]), Integer.parseInt(f[2]),
+                            Integer.parseInt(f[3]), Integer.parseInt(f[4]), Integer.parseInt(f[5]));
+                    eq(ln, kind, f[6], p[0] + "," + p[1]);
+                    break;
+                }
+                case "bubbleshow":   // only typing, always show, field focused, screen on, service ready, expected
+                    eq(ln, kind, f[5], BubbleLogic.shouldShow(f[0].equals("true"), f[1].equals("true"), f[2].equals("true"),
+                            f[3].equals("true"), f[4].equals("true")) ? "true" : "false");
+                    break;
+                case "bubbleaction":   // wanted, shown, window still attached, expected none|add|remove|repair
+                    eq(ln, kind, f[3], BubbleLogic.action(f[0].equals("true"), f[1].equals("true"), f[2].equals("true")));
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);

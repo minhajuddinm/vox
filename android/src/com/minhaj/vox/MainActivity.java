@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -14,6 +15,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
@@ -29,6 +31,7 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -73,6 +76,17 @@ public class MainActivity extends Activity {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 2);
         }
         NoteEntry.applySettings(this);   // brings the "Record note" notification back (Android 14 lets users swipe it away)
+    }
+
+    /** True when the accessibility service is switched on in Android's settings (it may still not be running). */
+    private boolean a11yEnabledInSettings() {
+        String list = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        if (list == null) return false;
+        ComponentName me = new ComponentName(this, VoxAccessibilityService.class);
+        for (String part : list.split(":")) {
+            if (part.equalsIgnoreCase(me.flattenToString()) || part.equalsIgnoreCase(me.flattenToShortString())) return true;
+        }
+        return false;
     }
 
     private boolean isDark() {
@@ -134,6 +148,7 @@ public class MainActivity extends Activity {
                 cfg.put("cleanup_min_words", ApiClient.cleanMinWords(prefs.cleanupMinWords()));
                 cfg.put("keep_history", prefs.keepHistory());
                 cfg.put("only_typing", prefs.onlyWhenTyping());
+                cfg.put("always_show_bubble", prefs.alwaysShowBubble());
                 cfg.put("note_bubble", prefs.noteBubble());
                 cfg.put("note_notification", prefs.noteNotification());
                 cfg.put("default_style", prefs.defaultStyle());
@@ -199,6 +214,7 @@ public class MainActivity extends Activity {
                 if (c.has("cleanup_min_words")) e.putString("cleanup_min_words", String.valueOf(ApiClient.cleanMinWords(c.getString("cleanup_min_words"))));
                 if (c.has("keep_history")) e.putBoolean("keep_history", c.getBoolean("keep_history"));
                 if (c.has("only_typing")) e.putBoolean("only_typing", c.getBoolean("only_typing"));
+                if (c.has("always_show_bubble")) e.putBoolean("always_show_bubble", c.getBoolean("always_show_bubble"));
                 if (c.has("note_bubble")) e.putBoolean("note_bubble", c.getBoolean("note_bubble"));
                 if (c.has("note_notification")) e.putBoolean("note_notification", c.getBoolean("note_notification"));
                 if (c.has("default_style")) e.putString("default_style", c.getString("default_style"));
@@ -258,6 +274,37 @@ public class MainActivity extends Activity {
                 try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); }
                 catch (Exception e) { openAppInfo(); }
             });
+        }
+
+        /**
+         * The Settings "Bubble diagnostics" card: {connected, service, battery_ok, battery, events[], report}. {@code events} are
+         * the last 20 lines of the on-phone overlay log, newest first; {@code report} is the text the Copy button copies.
+         */
+        @JavascriptInterface
+        public String getDiagnostics() {
+            try {
+                boolean connected = VoxAccessibilityService.instance != null;
+                String service = OverlayDiag.serviceLine(a11yEnabledInSettings(), connected);
+                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                boolean batteryOk = pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+                String battery = OverlayDiag.batteryLine(batteryOk);
+                List<OverlayDiag.Event> events = OverlayDiag.shared(new File(getFilesDir(), OverlayDiag.FILE_NAME)).last(20);
+                TimeZone zone = TimeZone.getDefault();
+                JSONArray lines = new JSONArray();
+                for (OverlayDiag.Event e : events) lines.put(e.text(zone));
+                JSONObject o = new JSONObject();
+                o.put("connected", connected);
+                o.put("service", service);
+                o.put("battery_ok", batteryOk);
+                o.put("battery", battery);
+                o.put("events", lines);
+                o.put("report", OverlayDiag.report("Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")",
+                        service, battery, events, zone));
+                return o.toString();
+            } catch (Exception e) {
+                Log.w("vox", "diagnostics failed: " + e.getClass().getSimpleName());
+                return "{}";
+            }
         }
 
         @JavascriptInterface

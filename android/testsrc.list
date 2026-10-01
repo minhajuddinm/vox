@@ -32,3 +32,5 @@ android/src/com/minhaj/vox/Latency.java
 android/src/com/minhaj/vox/UploadFormat.java
 android/src/com/minhaj/vox/DevicesView.java
 android/src/com/minhaj/vox/RelayCheck.java
+android/src/com/minhaj/vox/OverlayDiag.java
+android/src/com/minhaj/vox/BubbleLogic.java

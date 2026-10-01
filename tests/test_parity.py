@@ -188,6 +188,23 @@ def relaycheck_text(r):
 
 def devices_text(rows):
     return "|".join(f"{r['state']};{'true' if r['this'] else 'false'};{r['ago']};{r['name']}" for r in rows)
+# The floating bubble exists only on Android (BubbleLogic.java). The reference below is the rule written down once more
+# in Python, so the golden rows are an executable spec that a second implementation also meets; the Java side runs the
+# very same rows in ParityTest.
+def bubble_clamp(x, y, screen_w, screen_h, bubble_w, bubble_h):
+    return (min(max(x, 0), max(0, screen_w - bubble_w)), min(max(y, 0), max(0, screen_h - bubble_h)))
+
+
+def bubble_show(only_typing, always_show, field_focused, screen_on, service_ready):
+    if not service_ready or not screen_on:
+        return False
+    return always_show or not only_typing or field_focused
+
+
+def bubble_action(wanted, shown, attached):
+    if wanted:
+        return "add" if not shown else ("none" if attached else "repair")
+    return "remove" if shown else "none"
 
 
 @pytest.mark.parametrize("kind,f", cases())
@@ -263,5 +280,12 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert devices_text(sync.devices_view(relay_devices(f[2]), float(f[0]), f[1])) == f[3]
     elif kind == "relaycheck":   # HTTP status of /health (0 = no answer), the answer's fields, ok;reachable;token_ok;relay_version;notes
         assert relaycheck_text(sync.relay_check(int(f[0]), health_answer(f[1]), "dev", "failure")) == f[2]
+    elif kind == "bubbleclamp":   # x, y, screen w, screen h, bubble w, bubble h, expected "x,y"
+        x, y = bubble_clamp(*[int(v) for v in f[:6]])
+        assert f"{x},{y}" == f[6]
+    elif kind == "bubbleshow":   # only typing, always show, field focused, screen on, service ready, expected
+        assert bubble_show(*[v == "true" for v in f[:5]]) == (f[5] == "true")
+    elif kind == "bubbleaction":   # wanted, shown, window still attached, expected none|add|remove|repair
+        assert bubble_action(*[v == "true" for v in f[:3]]) == f[3]
     else:
         pytest.fail(f"unknown case kind {kind}")
