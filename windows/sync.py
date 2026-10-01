@@ -65,6 +65,9 @@ def origin_of(url):
     return u.lower() if j < 0 else u[:j].lower() + u[j:]
 
 
+PROFILE_SKIPPED = "skipped, config unreadable"   # sync_profile's answer while config.json cannot be opened
+
+
 def follow_relay(url):
     """The sync state (cursor, profile version and snapshot, which notes the relay has) describes one relay. When the
     address changes, start from zero and send everything again, notes and delete markers. An install with no address
@@ -82,8 +85,12 @@ def follow_relay(url):
         notes.set_meta("profile_version", 0)
         notes.set_meta("profile_snapshot", "{}")
         notes.mark_all_dirty()
-    elif core.load_config().get("relay_sync_keys"):
-        notes.set_meta("profile_keys_sent", "1")
+    else:
+        keys_on = core.load_config().get("relay_sync_keys")
+        if core.config_is_fallback():
+            return   # the real setting is unknown: do not record the address, so this runs again next time
+        if keys_on:
+            notes.set_meta("profile_keys_sent", "1")
     notes.set_meta("relay_origin", origin)
 
 
@@ -279,10 +286,13 @@ def merge3(base, local, remote):
 
 def sync_profile(url, token, device):
     """Two-way sync of the shared settings with the relay's profile document. Returns "", "sent", "received" or
-    "both"; raises SyncError. The relay refuses a stale write (If-Match), so a race is retried, not lost."""
+    "both" or PROFILE_SKIPPED (config.json cannot be opened: the defaults are not the user's settings, so nothing is sent or
+    written); raises SyncError. The relay refuses a stale write (If-Match), so a race is retried, not lost."""
     received_any = False   # settings written here in any attempt: a retry sees them as local, so remember them
     for _ in range(3):
         cfg = core.load_config()
+        if core.config_is_fallback():
+            return PROFILE_SKIPPED
         fields = shared_fields(cfg)
         keys_on = bool(cfg.get("relay_sync_keys"))
         _, remote = _call("GET", url, "/profile", token, device)
@@ -295,6 +305,8 @@ def sync_profile(url, token, device):
         received = {k: v for k, v in merged.items() if cfg.get(k) != v}
         if received:
             live = core.load_config()
+            if core.config_is_fallback():
+                return PROFILE_SKIPPED
             live.update(received)
             core.save_config(live)
             received_any = True

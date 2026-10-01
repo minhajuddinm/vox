@@ -180,6 +180,12 @@ _OPEN_TRIES = 4          # another process may be replacing the file for a momen
 _OPEN_PAUSE = 0.05
 
 
+def config_is_fallback():
+    """True after a load_config that could not open config.json and returned the defaults, false after a load that read it.
+    Anything that sends settings to the relay or another device must not send such defaults as the user's settings."""
+    return _config_unread
+
+
 def _read_config_file(path):
     """The parsed file. OSError (could not open or read: possibly only for a moment) is retried a few times and then
     raised; ValueError means the file was read but is not valid."""
