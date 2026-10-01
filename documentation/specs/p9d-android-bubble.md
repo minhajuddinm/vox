@@ -1,6 +1,6 @@
 # Spec P9d: the Android bubble that keeps disappearing
 
-Status: tasks D1 (diagnostics) and D2 (watchdog, clamp, Always show the bubble, battery prompt) are built on branch `feat/p9d-bubble`. Not run on a phone. Date: 2026-10-01. Request R5 in the part 3 notes: on his older APK the floating bubble keeps disappearing. No decision record: the choices below are small and easy to reverse.
+Status: Implemented on branch `feat/p9d-bubble` (tasks D1 diagnostics, D2 watchdog, clamp, Always show and battery prompt, D3 docs), **not run on a phone**. Date: 2026-10-01. Request R5 in the part 3 notes: on his older APK the floating bubble keeps disappearing. No decision record: the choices below are small and easy to reverse (the two that someone may question, the battery screen and the screen-off removal, are explained under Deviations). Behaviour as built: [05-android-app.md](../05-android-app.md), [08-features.md](../08-features.md), [11-logs-and-diagnostics.md](../11-logs-and-diagnostics.md).
 
 ## Goal
 Find out why the bubble disappears, put it back by itself when the system drops it, and let him keep it on screen when he wants it.
@@ -45,7 +45,37 @@ Find out why the bubble disappears, put it back by itself when the system drops 
 6. Battery: if the card says Vox may be restricted, tap **Open battery settings**, set Vox to not optimised, come back: the prompt is gone and the line says it is not restricted.
 7. Leave the phone idle for 30 minutes with the screen on in another app: the bubble is still there. If it vanished, open the card, tap Copy report and send it: the last events say what happened.
 8. Open Settings, System while the voice note bubble is on: both bubbles show; lock and unlock: both come back.
-9. Split-screen, a foldable or a floating window: check the bubble stays on screen (the screen size comes from the display metrics of the service, which may not be the window size here).
+9. Restart the phone and wait a minute: the Service line says "Connected" again and the bubble is back (log: Service connected, Bubble added).
+10. Split-screen, a foldable or a floating window: check the bubble stays on screen (the screen size comes from the display metrics of the service, which may not be the window size here).
+
+## Deviations from the plan
+- **No golden Python implementation.** The plan asked for golden rows for `BubbleLogic.clamp`. The bubble exists only on Android, so Python has no production code to compare; the 53 rows are an executable spec run by `ParityTest` against `BubbleLogic` and by `tests/test_parity.py` against a short reference copy of the three rules kept in that file. They prove the Java rules, not Python/Java parity.
+- **Screen-off removal (not in the plan).** `shouldShow` takes `screenOn`, so the bubbles come off while the screen is off and go back on screen on. A guess that this clears stale overlays after sleep; the checklist (step 3) tests it and the `screenOn` term in `shouldShow` is what to drop if it annoys.
+- **Battery prompt opens the list, not the direct dialog.** `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (a one-tap "allow" dialog) is restricted by Google Play and the install-safety task (G2) wants fewer permissions, so the button opens Android's battery optimisation list (falling back to the app info screen).
+- **Only-typing hide and show are their own log events** (`only_typing_hide`, `only_typing_show`), not a generic remove with a reason.
+- **Diagnostics write the log file on the calling thread.** It is small (50 lines) and events are rare; not measured.
+- The README "Verified against" paragraph and the test counts in `10-build-test-release.md` were left to this last task (D3) so the two earlier tasks did not edit the same lines.
+
+## Not in this step
+- Android-side changes outside the bubble (the note bubble that appears while a note records is branch G, task G1; it touches the same service and comes after this branch is integrated).
+- A foreground notification to keep the accessibility service alive (Android does not allow an app to keep or restart its own accessibility service; the diagnostics card only tells him).
+- Sending the diagnostics anywhere: the log stays on the phone; Copy report puts text on the clipboard and nothing else (see [09-security-privacy.md](../09-security-privacy.md)).
+
+## Done when
+- The Bubble diagnostics card and the Always show switch exist on the Android Settings page and the page calls only bridge methods that exist (`tests/test_ui_static.py`).
+- The pure rules and the event text pass their tests in Java (`BubbleLogicTest`, `OverlayDiagTest`, `ParityTest`) and the same golden rows pass in `tests/test_parity.py`.
+- Every Android source compiles (`android/compile-check.sh`) and the documentation checker passes.
+- Still open, and only he can close it: the ten-step device checklist above on his phone.
+
+## Verification done (Windows only, 2026-10-01)
+Each piece was written test first (failing run, then passing run). Final run at the D3 commit: `python -m pytest -q` 913 passed, 2 skipped (915 collected; 262 of them golden cases in `test_parity.py`); `javatest.cmd` 19 Java programs run, all pass (`BubbleLogicTest`, `OverlayDiagTest` and `ParityTest` with 262 golden cases among them; the two integration programs skipped as usual); `javatest.cmd compile` `compile-check: OK (35 files)`; `python tools/sync_ui.py --check` `ui-shared OK`; `python documentation/tools/check_docs.py` OK.
+
+## Not verified
+- Nothing ran on a phone: the receiver registration (including the API 33+ `RECEIVER_NOT_EXPORTED` path), the real `WindowManager` add and remove, `onConfigurationChanged` being delivered to the service, `SCREEN_ON`, `SCREEN_OFF` and `USER_PRESENT` reaching it, the battery and accessibility-enabled checks, and the bridge call are type-checked only.
+- That the watchdog fixes his bubble, and that `isAttachedToWindow()` reports a dropped overlay (a 2 s grace is used for a fresh view).
+- The two new Settings pieces (the card and the switch) were never rendered on a screen; only their ids and the page script's syntax were checked.
+- Foldables, split screen and floating windows.
+- The `--integration` Java tests and the CI `android` job were not run on this branch.
 
 ## Known limits
 - Some phone makers kill accessibility services in ways no app can prevent (the card shows it). The watchdog cannot run while the service is dead; only Android can restart it.
