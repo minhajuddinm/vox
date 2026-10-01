@@ -32,7 +32,7 @@ There is no analytics, crash reporting or Vox backend. Audio and text go only to
 | Windows API key | `%APPDATA%\Vox\config.json` | Windows DPAPI (`secret.py`), value `dpapi:<base64>`; only the same Windows user on the same PC can open it |
 | Android API keys and relay token | SharedPreferences `vox` | App-private storage only (no extra encryption); `allowBackup="false"`. The relay token (`relay_token`) is handled like the API key: never logged, sent only to the relay's own address |
 | History | `history.jsonl` (Windows) / SharedPreferences (Android) | Plain text. Switch it off with **Keep dictation history**; then nothing is saved. Each line also carries its `timing` (stage times in milliseconds, model names, provider host or `relay`) for the Speed card; it is never sent or synced ([decision 0031](decisions/0031-timings-stay-on-the-device.md)) |
-| Meeting audio | `meetings\<id>\*.raw` | Deleted after the notes are written unless `keep_audio`; a crash can leave it behind |
+| Meeting audio | `meetings\<id>\*.raw` | Deleted after the notes are written unless `keep_audio` (also when the copy to Documents fails); after a crash it is deleted at the next start, when the cut-off meeting is recovered, unless `keep_audio` is on |
 | Meeting notes and transcripts | `%APPDATA%\Vox\meetings`, `Documents\Vox Notes` | Plain text |
 | Google tokens | `google_token.json` | Windows DPAPI for `refresh_token` and `access_token` (`gcal._save_token`); only the same Windows user on the same PC can open them, anything else means "Connect again". The file itself has default permissions |
 | Control token | `engine.json` | Random per run, deleted on quit; readable by the same Windows user |

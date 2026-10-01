@@ -529,8 +529,8 @@ class Meeting:
 
     # --------------------------------------------------------------- saving
     def _save_transcript(self):
-        with open(os.path.join(self.folder(), "transcript.json"), "w", encoding="utf-8") as f:
-            json.dump({"id": self.id, "started": self.started, "entries": self.entries, "qa": self.qa}, f, ensure_ascii=False)
+        _write_json(os.path.join(self.folder(), "transcript.json"),   # atomic: a crash cannot leave half a transcript
+                    {"id": self.id, "started": self.started, "entries": self.entries, "qa": self.qa})
 
     def _notes(self, cfg, transcript):
         terms = ", ".join(((self.event or {}).get("attendees", []) + core.dictionary_terms(cfg))[:150]) or "none"
@@ -600,13 +600,19 @@ class Meeting:
             meta = {"id": self.id, "title": title, "started": self.started, "duration": duration,
                     "words": sum(len(e["text"].split()) for e in self.entries),
                     "attendees": (self.event or {}).get("attendees", [])}
-            safe = re.sub(r'[<>:"/\\|?*]+', "", title)[:60].strip() or "Meeting"
-            export = os.path.join(notes_export_dir(cfg), f"{when:%Y-%m-%d %H%M} {safe}.md")
-            with open(export, "w", encoding="utf-8") as f:
-                f.write(full)
-            meta["export"] = export
-            with open(os.path.join(self.folder(), "meta.json"), "w", encoding="utf-8") as f:
-                json.dump(meta, f)
+            meta_path = os.path.join(self.folder(), "meta.json")
+            _write_json(meta_path, meta)   # first: the meeting is listed even when the copy in Documents fails
+            try:
+                safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "", title)[:60].strip() or "Meeting"
+                export = os.path.join(notes_export_dir(cfg), f"{when:%Y-%m-%d %H%M} {safe}.md")
+                with open(export, "w", encoding="utf-8") as f:
+                    f.write(full)
+                meta["export"] = export
+            except Exception as e:   # e.g. Controlled Folder Access on Documents: the notes stay in the Vox folder
+                log.exception("could not export the notes")
+                meta["export_error"] = type(e).__name__
+                export = "(not exported)"
+            _write_json(meta_path, meta)
             if not cfg.get("keep_audio"):
                 for s in self.sources:
                     try:
@@ -642,6 +648,49 @@ def list_meetings():
     return out
 
 
+_ID = re.compile(r"\d{8}-\d{6}")   # the folder name of a meeting (see Meeting._start)
+
+
+def recover_unfinished(cfg, skip_id=None):
+    """Gives a meeting that was cut off (quit, crash, shutdown) a notes file and a meta.json, so it is listed.
+
+    Such a folder has the live transcript and the raw call audio but no meta.json, so it was invisible and its audio
+    stayed for ever. The notes are just the live transcript; the audio is removed unless keep_audio is on."""
+    base = meetings_dir()
+    for d in sorted(os.listdir(base)):
+        folder = os.path.join(base, d)
+        if not _ID.fullmatch(d) or d == skip_id or not os.path.isdir(folder) or os.path.exists(os.path.join(folder, "meta.json")):
+            continue
+        raws = [n for n in os.listdir(folder) if n.endswith(".raw")]
+        tr_path = os.path.join(folder, "transcript.json")
+        if not raws and not os.path.exists(tr_path):
+            continue   # an empty folder: nothing to recover
+        try:
+            tr = _read_json(tr_path, {"entries": []})
+            entries = [e for e in tr.get("entries", []) if isinstance(e, dict) and "text" in e]
+            lines = []
+            for e in entries:
+                t = int(e.get("t", 0))
+                who = e.get("name") if e.get("name") not in (None, "", "Unknown") else e.get("who", "Others")
+                lines.append(f"[{t // 60:02d}:{t % 60:02d}] {who}: {e['text']}")
+            with open(os.path.join(folder, "notes.md"), "w", encoding="utf-8") as f:
+                f.write("# Unfinished meeting\n\nVox stopped before the notes were written. The live transcript is below.\n\n"
+                        "## Transcript\n\n" + ("\n".join(lines) or "_empty_") + "\n")
+            started = tr.get("started") or datetime.strptime(d, "%Y%m%d-%H%M%S").timestamp()
+            _write_json(os.path.join(folder, "meta.json"), {
+                "id": d, "title": "Unfinished meeting", "started": started, "duration": 0,
+                "words": sum(len(e["text"].split()) for e in entries), "attendees": [], "unfinished": True})
+            if not cfg.get("keep_audio"):
+                for n in raws:
+                    try:
+                        os.remove(os.path.join(folder, n))
+                    except OSError:
+                        pass
+            log.info("meeting %s was cut off; recovered its live transcript", d)
+        except Exception:
+            log.exception("could not recover meeting %s", d)
+
+
 def read_notes(mid):
     p = os.path.join(meetings_dir(), os.path.basename(mid), "notes.md")
     with open(p, encoding="utf-8") as f:
@@ -668,7 +717,7 @@ def _read_json(path, default):
 
 
 def _write_json(path, data):
-    tmp = path + ".tmp"
+    tmp = "%s.%d.tmp" % (path, threading.get_ident())   # the live thread and the final pass can both save
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
     os.replace(tmp, path)
@@ -710,7 +759,9 @@ def save_my_notes(mid, text):
 
 def set_done(mid, index, done):
     p = os.path.join(_folder_of(mid), "meta.json")
-    meta = _read_json(p, {})
+    meta = _read_json(p, None)
+    if meta is None:   # no such meeting: do not invent one
+        return
     s = set(meta.get("done", []))
     (s.add if done else s.discard)(int(index))
     meta["done"] = sorted(s)
@@ -719,7 +770,9 @@ def set_done(mid, index, done):
 
 def rename(mid, title):
     p = os.path.join(_folder_of(mid), "meta.json")
-    meta = _read_json(p, {})
+    meta = _read_json(p, None)
+    if meta is None:
+        return ""
     meta["title"] = title.strip()[:120] or meta.get("title", "")
     _write_json(p, meta)
     return meta["title"]
@@ -747,7 +800,7 @@ def ask(cfg, question):
         except OSError:
             continue
         s = _score(m.get("title", ""), words) * 5 + _score(text, words)
-        scored.append((s, m["started"], m, text))
+        scored.append((s, m.get("started", 0), m, text))
     if not scored:
         return {"answer": "No meetings recorded yet.", "sources": []}
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)

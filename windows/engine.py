@@ -29,7 +29,7 @@ import sync
 import timing as timing_mod
 import vox_core as core
 import vcalendar
-from meeting import Meeting
+from meeting import Meeting, recover_unfinished
 from overlay import Overlay
 
 log = logging.getLogger("vox")
@@ -846,6 +846,10 @@ class Engine:
 
     # ------------------------------------------------------------------ run
     def run(self):
+        try:
+            recover_unfinished(self.cfg)   # a meeting cut off by a quit or a crash gets its live transcript back
+        except Exception:
+            log.exception("could not recover unfinished meetings")
         listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
         listener.daemon = True
         listener.start()
