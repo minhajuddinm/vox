@@ -113,12 +113,13 @@ def fetch(cfg, force=False):
         except OSError:
             pass
         return {"events": [], "error": "", "fetched": 0, "source": ""}
+    cached = {}
     try:
         with open(cache_path(), encoding="utf-8") as f:
             cached = json.load(f)
         if not force and cached.get("source") == source and time.time() - cached.get("fetched", 0) < CACHE_SECONDS:
             return cached
-    except (OSError, ValueError):
+    except (OSError, ValueError, AttributeError):
         pass
     now = datetime.now(timezone.utc)
     try:
@@ -132,7 +133,11 @@ def fetch(cfg, force=False):
     except Exception as e:
         msg = _safe_error(e, url)
         log.warning("calendar fetch failed: %s", msg)
-        data = {"source": source, "events": [], "error": msg, "fetched": time.time()}
+        # keep the events of the last good fetch (the same calendar): an empty list would hide the next meeting from the
+        # watcher for the whole cache time. Looks stale after 30 s, so the next normal call tries again.
+        old = cached.get("events") if isinstance(cached, dict) and cached.get("source") == source else None
+        data = {"source": source, "events": old if isinstance(old, list) else [], "error": msg,
+                "fetched": time.time() - CACHE_SECONDS + 30}
     with open(cache_path(), "w", encoding="utf-8") as f:
         json.dump(data, f)
     return data
