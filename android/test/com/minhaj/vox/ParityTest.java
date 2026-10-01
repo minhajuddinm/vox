@@ -129,6 +129,9 @@ public final class ParityTest {
                 case "devname":   // a typed, non-blank name: the model argument is never used
                     eq(ln, kind, f[1], NoteLogic.deviceName(f[0], "model"));
                     break;
+                case "proxyurl":   // relay_url, role, address (blank when no relay address)
+                    eq(ln, kind, f[2], Providers.proxyUrl(f[0], f[1]));
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);
