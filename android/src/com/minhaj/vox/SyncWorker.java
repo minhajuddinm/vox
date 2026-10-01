@@ -77,8 +77,20 @@ final class SyncWorker {
 
     // ------------------------------------------------------------------ asking for a run
 
+    private static final java.util.concurrent.atomic.AtomicBoolean LISTENING = new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * Makes a saved note trigger a sync: registers, once per process, a listener on {@link NoteEvents} that calls
+     * {@link #kick}. Idempotent; holds only the application context, so no Activity or Service is leaked.
+     */
+    static void start(Context c) {
+        final Context appCtx = c.getApplicationContext();
+        NoteEvents.addSavedListenerOnce(LISTENING, () -> kick(appCtx));
+    }
+
     /** Syncs soon, in the background, when sync is on. Cheap and safe to call from anywhere on any thread. */
     static void kick(Context c) {
+        start(c);   // every entry point (app resume, service start, settings) also makes sure notes trigger a sync
         try {
             if (enabled(new Prefs(c))) get(c).request(null);
         } catch (RuntimeException e) {

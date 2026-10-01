@@ -22,6 +22,16 @@ final class NoteEvents {
         if (r != null) SAVED.addIfAbsent(r);
     }
 
+    /**
+     * Adds {@code r} only the first time it is called with this {@code guard} (the flag is set on that call); returns
+     * whether it was added. Lets a caller register "once per process" without a lock of its own.
+     */
+    static boolean addSavedListenerOnce(java.util.concurrent.atomic.AtomicBoolean guard, Runnable r) {
+        if (!guard.compareAndSet(false, true)) return false;
+        addSavedListener(r);
+        return true;
+    }
+
     /** Stops calling {@code r}; does nothing when it was not added. */
     static void removeSavedListener(Runnable r) {
         SAVED.remove(r);
