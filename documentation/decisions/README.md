@@ -41,6 +41,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0033](0033-the-improvement-run-sends-transcripts-only-on-an-explicit-button.md) | The improvement run sends transcripts only on an explicit button and changes nothing by itself | Accepted (not run on a real model) |
 | [0034](0034-devices-list-is-the-relays-own-list-asked-on-a-switch-or-a-press.md) | The devices list is the relay's own list, asked only on a switch or a press | Accepted |
 | [0035](0035-sideload-warnings-are-explained-not-engineered-away.md) | Sideload warnings are explained in the app, not engineered away | Accepted |
+| [0036](0036-fuzzy-dictionary-guesses-only-for-long-terms.md) | The fuzzy dictionary guesses a spelling only for terms of 7+ letters | Accepted |
 
 ## Template
 

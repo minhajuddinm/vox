@@ -14,7 +14,7 @@
 | Cleanup strength | `light` (keep every spoken word except pure noises such as um and uh) or `standard` (also drop fillers, repeats and false starts); the setting `cleanup_strength` (Settings, "Cleanup strength"; `light` unless set) chooses the prompt's rule and how strict the fidelity guard is. |
 | Use raw | The History button that copies the words as spoken (the entry's `raw`) when they differ from the typed text. An entry whose cleanup the fidelity guard rejected says "cleanup rejected, your words as spoken". |
 | Fallback text | What is typed when the fidelity guard rejects a cleanup: the raw words with spoken commands applied and a capital at the start and after each sentence end or line break (`fallback_text`, `ApiClient.fallbackText`), then the dictionary. |
-| Fuzzy dictionary pass | The step after `apply_replacements` that puts a single-word term of 5+ letters right when the text has it in another case or one letter off (`fuzzy_dictionary`, `Terms.fuzzy`); words on the `COMMON_WORDS` stoplist are never changed. |
+| Fuzzy dictionary pass | The step after `apply_replacements` that puts a single-word term of 5+ letters right when the text has it in another case, and a term of 7+ letters also when the text has it one letter off (`fuzzy_dictionary`, `Terms.fuzzy`); words on the `COMMON_WORDS` stoplist are never changed. |
 | Benchmark | `tools/bench_cleanup.py`: a hand-run developer tool that scores a cleanup model on a 45-row synthetic corpus (latency, word recall, added words, guard pass, term accuracy); local only, not in CI. |
 | Raw transcript | The Whisper text before cleanup. Used as the fallback when cleanup fails. |
 | Style | Tone for cleanup: `formal`, `casual`, `very_casual`, `neutral`, or `raw` (no cleanup). Chosen per app. |
@@ -30,7 +30,7 @@
 | Improve my cleanup | The Settings card that sends a confirmed set of saved dictations to a stronger model and shows proposals (dictionary words, replacements, rules) to accept per item. |
 | Learned rules (`my_cleanup_rules`) | Up to 2,000 characters of short cleanup rules, one per line, added by Improve my cleanup; part of the cleanup prompt and the synced profile. |
 | Silence gate | The check that skips upload when the loudest sample is below 655 (of 32768). |
-| Silence hallucination | Whisper inventing "thank you", "bye" and similar on silence. Filtered out. |
+| Silence hallucination | Whisper inventing "thank you", "bye" and similar on silence. Filtered out; in a recording sent in pieces only while no text has been heard yet (a closing "Thank you." after real speech is kept). |
 | Pending recording | A dictation that failed to send and is kept for retry. |
 | Job (Android) | One dictation, identified by an increasing `jobId`; stale jobs cannot change state. |
 | Golden file | `spec/golden.txt`: expected outputs that the Python and Java cleanup helpers must both produce. |

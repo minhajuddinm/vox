@@ -44,7 +44,7 @@ Median of an even count averages the two middle values, rounded down; p90 is the
 
 ## Needs a phone (or a real network) to prove
 Nothing below has run outside unit tests, a fake server and the compile check.
-- The m4a encoder (`MediaCodec` and `MediaMuxer`) on real phones, and that Groq, OpenAI-compatible servers and the relay accept the m4a (the relay path was run with a WAV only).
+- The m4a encoder (`MediaCodec` and `MediaMuxer`) on real phones, and that Groq, OpenAI-compatible servers and the relay accept the m4a (the relay path was run with a WAV only). Added in the integration review fixes: a server that answers 400, 415 or 422 to an m4a gets the same audio as WAV once (`ApiClient.transcribeRaw`, also for the pieces sent while recording) and is remembered until the app restarts; tested against a stand-in server (`M4aFallbackTest`), not against whisper.cpp itself.
 - The recorder started on its own thread on Android 14 and 15, and the real `tap->recording` time.
 - Pieces sent while recording against a real server, the 3 s warm-up gap, and the real saving of each item: read it from the Speed card.
 - The `mayThink` name list against real thinking models (Ollama Qwen3 or DeepSeek R1, Groq gpt-oss): an unrecognised thinking model gets only the 256 floor.

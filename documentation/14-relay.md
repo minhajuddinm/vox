@@ -57,7 +57,7 @@ The page is served with a Content-Security-Policy that allows only its own inlin
 | `POST /admin/rotate-token` | writes a new token to `relay.json` and adopts it; answer `{token}` |
 | `POST /proxy/stt/audio/transcriptions`, `GET /proxy/stt/models`, `POST /proxy/llm/chat/completions`, `GET /proxy/llm/models` | forwarded to the role's AI server; see "Proxy routes" below |
 
-Any client may send `X-Vox-Device: <name>` on every request so the page can show which devices use the relay. The `/admin` endpoints use the same token as the data endpoints (single user).
+Any client may send `X-Vox-Device: <name>` on every request so the page can show which devices use the relay. A header is latin-1, so both apps send the name in the Android spelling (every character outside printable ASCII becomes `?`; `sync._ascii_name`, `RelayClient.headerText`): a PC named with a typographic apostrophe is listed as `Yuvraj?s PC`, and the Devices card still marks it as this device. The `/admin` endpoints use the same token as the data endpoints (single user).
 
 Note fields: `id` (32 lowercase hex characters, made by the client), `source`, `title`, `text`, `raw`, `created_at`, `updated_at` (epoch seconds), `secs`, `device`, `tags` (list), `deleted`; the relay adds `seq`.
 

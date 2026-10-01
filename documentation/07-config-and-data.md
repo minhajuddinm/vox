@@ -35,7 +35,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `relay_run` | bool | `false` | Run a relay on this PC while Vox is running (the tray item "Run relay on this PC" sets it). The engine starts `Vox.exe --relay` as a child process and stops it when Vox quits. Never synced. See [14-relay.md](14-relay.md). |
 | `relay_port` | int | `8765` | Port the PC's own relay listens on (127.0.0.1 only); the relay's own default. An unusable value means 8765. Publish it with `tailscale serve --bg PORT`. Never synced. |
 | `stream_stt` | bool | `true` | Send long recordings to speech-to-text in pieces while the user is still speaking (recordings shorter than about 13 s are unaffected). |
-| `device_name` | string | `""` | This PC's name on the relay and on the notes it records; blank uses the computer name. |
+| `device_name` | string | `""` | This PC's name on the relay and on the notes it records; blank uses the computer name. Any characters are fine; in the `X-Vox-Device` header those outside printable ASCII go as `?` (as on Android). |
 | `language` | string | `""` | Whisper language code; empty = auto detect. |
 | `input_device` | string | `""` | Microphone name for dictation; empty = Windows default. Not used by meeting notes. |
 | `cleanup` | bool | `true` | Run the AI cleanup. |
