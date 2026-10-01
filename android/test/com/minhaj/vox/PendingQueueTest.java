@@ -181,6 +181,20 @@ public final class PendingQueueTest {
         eq("migrate with nothing left", 0, PendingQueue.migrate(cacheDir, filesDir));
         eq("migrate from a missing folder", 0, PendingQueue.migrate(new java.io.File(cacheDir, "nope"), filesDir));
 
+        // sweepUploads: temp upload files a kill left behind go, fresh ones and other files stay
+        java.io.File cache = java.nio.file.Files.createTempDirectory("vox-pq-sweep").toFile();
+        long sweepNow = System.currentTimeMillis(), tenMin = 10 * 60 * 1000L;
+        java.io.File oldUp = new java.io.File(cache, "vox-up-1.wav"), freshUp = new java.io.File(cache, "vox-up-2.m4a"), keep = new java.io.File(cache, "keep.wav");
+        for (java.io.File f : new java.io.File[]{oldUp, freshUp, keep}) java.nio.file.Files.write(f.toPath(), new byte[]{1});
+        oldUp.setLastModified(sweepNow - 2 * tenMin);
+        freshUp.setLastModified(sweepNow);
+        keep.setLastModified(sweepNow - 2 * tenMin);
+        eq("sweepUploads counts what it deleted", 1, PendingQueue.sweepUploads(cache, sweepNow, tenMin));
+        eq("sweepUploads deleted the old temp upload", false, oldUp.exists());
+        eq("sweepUploads kept the fresh temp upload", true, freshUp.exists());
+        eq("sweepUploads kept other files", true, keep.exists());
+        eq("sweepUploads from a missing folder", 0, PendingQueue.sweepUploads(new java.io.File(cache, "nope"), sweepNow, tenMin));
+
         System.out.println("PendingQueueTest ok");
     }
 }

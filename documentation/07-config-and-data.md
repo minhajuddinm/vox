@@ -4,7 +4,7 @@ Everything a user can set, everything Vox writes to disk, and the formats. `docu
 
 ## Windows settings (`%APPDATA%\Vox\config.json`)
 
-Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CONFIG`; a file that is not valid JSON, not an object or unreadable is moved aside as `config.json.bad-<unix time>` and the defaults are used, so Vox still starts; a UTF-8 BOM is accepted), saved by `save_config`. The window edits it; the engine reloads it within a second. The `api_key` value is stored protected (`dpapi:<base64>`, see [09-security-privacy.md](09-security-privacy.md)) and is plain text in memory.
+Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CONFIG`; a file that is not valid JSON, not an object or unreadable is moved aside as `config.json.bad-<unix time>` and the defaults are used, so Vox still starts; a UTF-8 BOM is accepted; a value of the wrong type, such as `null` for `dictionary` or `hotkey`, is replaced by its default, and the list settings `dictionary`, `people` and `hotkey` keep only their text items), saved by `save_config`. The window edits it; the engine reloads it within a second. The `api_key` value is stored protected (`dpapi:<base64>`, see [09-security-privacy.md](09-security-privacy.md)) and is plain text in memory.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -21,7 +21,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `llm_reasoning` | string | `auto` | `auto` sends `reasoning_effort` only to gpt-oss models (and stops if the server refuses it); `off` never sends it. |
 | `user_context` | string | `""` | Free text about the user (work, projects, style, terms) added to every cleanup request; at most 8,000 characters are used. |
 | `my_cleanup_rules` | string | `""` | The cleanup rules learned by "Improve my cleanup", one per line; at most 2,000 characters are used, in a tagged block after the strength rule of the cleanup prompt. Part of the synced profile (the phone receives it). |
-| `my_cleanup_rules_versions` | list | `[]` | The last 20 changes `improve.apply` made ({`t`, the rules before it, the dictionary lines it added}) so that `improve.revert` can undo them. This device only; never synced. |
+| `my_cleanup_rules_versions` | list | `[]` | The last 20 changes `improve.apply` made ({`t`, the rules before it, the dictionary lines it added, the rule lines it added as `added_rules`}) so that `improve.revert` can undo them: it removes exactly the lines the versions added and keeps rules written since (a version without `added_rules`, from an older Vox, puts its whole snapshot back). This device only; never synced. |
 | `improve_model` | string | `openai/gpt-oss-120b` | The model a run of "Improve my cleanup" uses on the cleanup server (or the relay). |
 | `improve_days` | number | `7` | How far back the card looks: 7, 14, 30, 90 days or 0 for all saved dictations. |
 | `improve_remind` | bool | `false` | The weekly tray reminder to look at "Improve my cleanup". It only shows a message; it never runs anything. |
@@ -75,6 +75,7 @@ Settings shown in the Windows window: `relay_proxy`, `api_key`, `base_url`, `hot
 | `user_context` | string | blank | Same as the Windows setting: background text added to every cleanup request. |
 | `my_cleanup_rules` | string | blank | Same as the Windows setting, read only: the rules learned on the PC arrive through the profile sync and go into the cleanup prompt (`Prefs.myCleanupRules()`). |
 | `language` | string | `""` | Whisper language code. |
+| `mic_device` | string | `""` | The microphone chosen in Settings, Voice & audio, as a `MicChoice.key` (device type, a bar and the product name, for example `7|Buds`; never the numeric id). Empty is the phone's default. Per phone: not part of the profile that syncs through the relay. Read with `Prefs.micDevice`. |
 | `device_name` | string | `""` | This phone's name on the notes it records and on the relay; blank uses the phone model (`Build.MODEL`), and `android-phone` when that is empty too. Trimmed, at most 60 code points (`Prefs.deviceName`, the rule of `NoteLogic.deviceName`). Set in Settings, Sync between devices. |
 | `relay_sync` | bool | `false` | Sync voice notes with a relay (the Settings switch "Sync voice notes with my relay"). Read with `Prefs.relaySync`. |
 | `relay_url` | string | `""` | Address of the relay. Saved only when `Endpoint.error` accepts it (plain http only for private hosts); a trailing slash is removed. Read with `Prefs.relayUrl`. |
@@ -122,7 +123,7 @@ The relay's data lives next to it in `relay.db` (SQLite: tables `notes` with a `
 | `window.log` (+ backups) | window | Same for the window process. |
 | `relay.log` (+ backups) | `Vox.exe --relay` | Same for the relay process started by the tray item; holds the traceback when the relay crashes or cannot start (for example its data folder cannot be created; checked: exit code 1 and an `uncaught` traceback). A taken port is not such a case on Windows: the relay binds with `SO_REUSEADDR`, so it does not fail, and the app checks the port itself before starting and says so in a tray notification ([14-relay.md](14-relay.md)). |
 | `engine.json` | engine | `{"port", "token", "pid"}` for the control server. Deleted on quit. |
-| `calendar.json` | `vcalendar` | Cached events `{"source", "events", "error", "fetched"}` (5 minutes). `source` is `google:<email>` or `ics:<hash of the link>`, never the link; the file is removed when the link is cleared. |
+| `calendar.json` | `vcalendar` | Cached events `{"source", "events", "error", "fetched"}` (5 minutes; after a failed fetch the last good events of the same source, with `fetched` set so that the next normal call retries after about 30 seconds). `source` is `google:<email>` or `ics:<hash of the link>`, never the link; the file is removed when the link is cleared. |
 | `google_token.json` | `gcal` | `{"refresh_token", "access_token", "expires", "email"}`. The two tokens are `dpapi:<base64>` (Windows login); the email is plain. Written through a temp file and replaced. |
 | `google_client.json` | build (optional) | OAuth client for Google sign-in; ignored by git. |
 | `meetings\<id>\` | `meeting` | `transcript.json` `{"id", "started", "entries": [{"t", "who", "text", "name"?}], "qa"}`, `notes.md`, `meta.json` `{"id", "title", "started", "duration", "words", "attendees", "export", "export_error"?, "unfinished"?, "done"}`, optional `my_notes.md`, and `you.raw` / `others.raw` (16 kHz int16 speech pieces; removed after the notes are written unless `keep_audio`). A cut-off meeting is recovered at the next start with `"unfinished": true` and its live transcript as notes. `<id>` is `YYYYMMDD-HHMMSS`. |
@@ -130,7 +131,7 @@ The relay's data lives next to it in `relay.db` (SQLite: tables `notes` with a `
 
 The cleanup benchmark (`tools/bench_cleanup.py`, run by hand) writes `%APPDATA%\Vox\bench\bench-DATE.json`: the numbers and each cleaned answer for the synthetic corpus, no key, no personal text; delete the folder whenever you like.
 
-Files written by the app while it runs: `history.jsonl` is appended; `config.json`, `history` rewrites and meeting JSON use a temp file and replace (`.tmp` then `os.replace`) where the code does so (`save_config`, `write_history`, meeting `_write_json`).
+Files written by the app while it runs: `history.jsonl` is appended (a cut-off last line gets a newline before the next entry, and an invalid byte only damages its own line when read); `config.json`, `history` rewrites and meeting JSON use a temp file and replace (`.tmp` then `os.replace`) where the code does so (`save_config`, `write_history`, meeting `_write_json`).
 
 ## Files on the phone
 

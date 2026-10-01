@@ -105,6 +105,13 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onDestroy() {
+        if (web != null) { web.removeJavascriptInterface("Vox"); web.destroy(); }
+        main.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
+
+    @Override
     protected void onPause() {
         SyncWorker.setProfileListener(null);
         super.onPause();
@@ -175,7 +182,10 @@ public class MainActivity extends Activity {
                 o.put("service", DictationService.instance != null);
                 o.put("history", prefs.history());
                 JSONObject status = new JSONObject();   // what the Home status card cannot work out from the settings and history
-                status.put("notes", NotesStore.get(MainActivity.this).count());
+                int noteCount = 0;
+                try { noteCount = NotesStore.get(MainActivity.this).count(); }
+                catch (RuntimeException ignored) { }   // a damaged notes database must not blank the whole app (SQLiteException)
+                status.put("notes", noteCount);
                 DictationService svc = DictationService.instance;
                 status.put("unsent", svc != null && svc.hasUnsent());
                 o.put("status", status);
@@ -186,6 +196,34 @@ public class MainActivity extends Activity {
                 return "{}";
             }
         }
+
+        /**
+         * The Microphone row of Settings: {@code {current, options: [{key, label}]}} with the microphones Android reports now
+         * (the saved one is listed as "not connected" when it is not among them). Empty current = the phone's default.
+         */
+        @JavascriptInterface
+        public String getMics() {
+            try {
+                JSONObject o = new JSONObject();
+                JSONArray list = new JSONArray();
+                String cur = prefs.micDevice();
+                boolean seen = cur.isEmpty();
+                for (MicChoice.Option op : MicChoice.options(DictationService.micCandidates(MainActivity.this))) {
+                    list.put(new JSONObject().put("key", op.key).put("label", op.label));
+                    if (op.key.equals(cur)) seen = true;
+                }
+                if (!seen) list.put(new JSONObject().put("key", cur).put("label", MicChoice.labelOfKey(cur) + " (not connected)"));
+                o.put("current", cur);
+                o.put("options", list);
+                return o.toString();
+            } catch (Exception e) {
+                return "{\"current\":\"\",\"options\":[]}";
+            }
+        }
+
+        /** Saves the microphone chosen in Settings (a key from getMics; empty = the phone's default). */
+        @JavascriptInterface
+        public void setMic(String key) { prefs.setMicDevice(key); }
 
         /** The Speed card (Home): medians per stage over the last 50 timed dictations, per model, and the last 10. Local data only. */
         @SuppressWarnings("unchecked")

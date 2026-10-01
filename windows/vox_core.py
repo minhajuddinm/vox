@@ -31,7 +31,8 @@ SAMPLE_RATE = 16000
 LEVEL_FLOOR = 0.004         # normalised rms of a quiet room: below it the meter shows nothing
 LEVEL_GAIN = 30             # how fast the meter fills as the voice gets louder
 SILENCE_PEAK = 655          # 16-bit peak (about -34 dBFS) below which a recording is treated as silence
-RETRY_STATUS = (500, 502, 503, 504)   # server trouble worth retrying; 429 is left to the callers
+MAX_UPLOAD_BYTES = 20_000_000  # a recording bigger than this is sent in pieces (the speech servers refuse about 25 MB)
+RETRY_STATUS =(500, 502, 503, 504)   # server trouble worth retrying; 429 is left to the callers
 
 DEFAULT_CONFIG = {
     "api_key": "",
@@ -123,19 +124,26 @@ def history_path():
 
 
 def add_history(entry):
-    with open(history_path(), "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    with open(history_path(), "a+b") as f:
+        f.seek(0, os.SEEK_END)
+        if f.tell():
+            f.seek(-1, os.SEEK_END)
+            if f.read(1) != b"\n":   # a cut-off last line: start a new line so two entries do not glue together
+                f.write(b"\n")
+        f.write((json.dumps(entry, ensure_ascii=False) + "\n").encode("utf-8"))
 
 
 def read_history():
     out = []
     try:
-        with open(history_path(), encoding="utf-8") as f:
+        with open(history_path(), encoding="utf-8", errors="replace") as f:
             for line in f:
                 try:
-                    out.append(json.loads(line))
+                    entry = json.loads(line)
                 except ValueError:
-                    pass
+                    continue
+                if isinstance(entry, dict):
+                    out.append(entry)
     except FileNotFoundError:
         pass
     return out
@@ -147,6 +155,22 @@ def write_history(entries):
         for e in entries:
             f.write(json.dumps(e, ensure_ascii=False) + "\n")
     os.replace(tmp, history_path())
+
+
+def _fix_types(cfg):
+    """A value of the wrong type (null, a list where a dict belongs, ...) must not crash the app: use the default."""
+    for k, default in DEFAULT_CONFIG.items():
+        v = cfg.get(k)
+        if isinstance(default, list):
+            if not isinstance(v, list):
+                cfg[k] = list(default)
+            elif k in ("dictionary", "people", "hotkey"):
+                cfg[k] = [x for x in v if isinstance(x, str)]
+        elif isinstance(default, dict):
+            if not isinstance(v, dict):
+                cfg[k] = dict(default)
+        elif isinstance(default, str) and v is None:
+            cfg[k] = ""
 
 
 def load_config():
@@ -169,6 +193,7 @@ def load_config():
         return dict(DEFAULT_CONFIG)
     merged = dict(DEFAULT_CONFIG)
     merged.update(cfg)
+    _fix_types(merged)
     stored = {k: merged.get(k) or "" for k in KEY_FIELDS}
     for k, v in stored.items():
         merged[k] = secret.unprotect(v)
@@ -455,6 +480,12 @@ def whisper_prompt_with_context(terms, context=""):
     if context:
         prompt = (prompt + " " + context.strip())[-600:]
     return prompt
+
+
+def one_line(text, limit):
+    """Text from outside (a calendar invite) as one line of at most `limit` characters: tabs, line breaks and other control
+    characters become single spaces."""
+    return " ".join("".join(" " if ord(c) < 32 or ord(c) == 127 else c for c in str(text)).split())[:limit]
 
 
 def sanitize(text):
@@ -957,6 +988,14 @@ def check_response(r, via_relay=False):
     return r.json()
 
 
+# An explicit list, not ip.is_private: that also holds 6to4 (2002::/16), Teredo (2001::/32) and reserved IPv4 ranges, which
+# are routed over the internet. The same list is in android Endpoint.java and relay/relay.py (spec/golden.txt "privatehost").
+# An IPv4-mapped IPv6 address (::ffff:a.b.c.d) is in none of them, so it needs https like the Android app.
+_PRIVATE_NETS = [ipaddress.ip_network(n) for n in (
+    "127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10",    # 100.64: Tailscale
+    "::1/128", "fc00::/7", "fe80::/10")]
+
+
 def is_private_host(host):
     """True for addresses where plain http is acceptable: this PC, the home/office LAN and Tailscale."""
     host = (host or "").strip("[]").lower().rstrip(".")
@@ -967,7 +1006,7 @@ def is_private_host(host):
     except ValueError:
         # A name: single-label names, .local/.lan and Tailscale MagicDNS names never leave the private network.
         return "." not in host or host.endswith((".local", ".lan", ".ts.net"))
-    return ip.is_loopback or ip.is_private or ip.is_link_local or ip in ipaddress.ip_network("100.64.0.0/10")
+    return any(ip in net for net in _PRIVATE_NETS)
 
 
 def endpoint_error(cfg):
@@ -1129,6 +1168,20 @@ def cleanup(cfg, raw, style, app_label):
 Result = namedtuple("Result", "raw text cleaned cleanup_error fidelity_fallback", defaults=(False,))
 
 
+def _transcribe_in_pieces(cfg, pcm_bytes):
+    """A recording too big for one upload (the server limit is 25 MB, about 13 minutes) is cut at pauses and sent piece by
+    piece, each with the end of the text before it as context (the same as streaming.py, which imports this module)."""
+    seg = Segmenter()
+    texts = []
+    for piece in seg.feed(pcm_bytes) + [seg.rest()]:
+        if not piece or is_silent(piece):
+            continue
+        text = transcribe(cfg, pcm_to_wav(piece), " ".join(texts)[-150:])
+        if text and not (not texts and is_silence_hallucination(text)):
+            texts.append(text)
+    return " ".join(texts).strip()
+
+
 def process_detailed(cfg, pcm_bytes, exe, app_label):
     """Full pipeline. Result.raw and Result.text are '' when nothing was said.
 
@@ -1138,7 +1191,10 @@ def process_detailed(cfg, pcm_bytes, exe, app_label):
     """
     _mark("stt_start")
     try:
-        raw = transcribe(cfg, pcm_to_wav(pcm_bytes))
+        if len(pcm_bytes) > MAX_UPLOAD_BYTES:
+            raw = _transcribe_in_pieces(cfg, pcm_bytes)
+        else:
+            raw = transcribe(cfg, pcm_to_wav(pcm_bytes))
     finally:
         _mark("stt_done")
     return process_text(cfg, raw, exe, app_label)

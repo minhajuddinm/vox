@@ -27,11 +27,12 @@ windows/                Windows app (Python) and its installer scripts
 
 | Path | What it is |
 |---|---|
-| `README.md` | The project's front page for outsiders: what Vox is, features, screenshots to take, status and known limits, install (Windows, Android with the sideload warnings), short user guide, privacy summary, build and test, repository map, contributing and the licence status. User-facing; not this documentation. |
+| `README.md` | The project's front page for outsiders: what Vox is, features, screenshots to take, status and known limits, install (Windows, Android with the sideload warnings), short user guide, privacy summary, build and test, repository map, contributing and the licence (MIT). User-facing; not this documentation. |
 | `AGENTS.md` | Short entry point for coding agents; points here. |
 | `CHANGELOG.md` | Release-style change history. |
-| `CONTRIBUTING.md` | How to contribute: setup, running the tests, the golden-rows rule, the docs-sync rule, the pull request checklist, and that contributions take the licence the owner selects. |
+| `CONTRIBUTING.md` | How to contribute: setup, running the tests, the golden-rows rule, the docs-sync rule, the pull request checklist, and that contributions are accepted under the MIT licence. |
 | `SECURITY.md` | How to report a vulnerability privately (GitHub private vulnerability reporting) and a short trust model; links to [09-security-privacy.md](09-security-privacy.md) and the relay pages. |
+| `LICENSE` | The MIT licence, "Copyright (c) 2026 Vox contributors". |
 | `CODE_OF_CONDUCT.md` | Points to the Contributor Covenant 2.1 and says how to raise a conduct concern privately. |
 | `.gitattributes` | Forces LF line endings for `*.sh` and `*.list` so the test runner works on Windows checkouts with `core.autocrlf=true`. |
 | `.gitignore` | Keeps secrets (`config.json`, `google_client.json`, keystores), logs, build output, the local `.venv/` and the local agent scratch folder `.superpowers/` out of git. |
@@ -67,7 +68,7 @@ windows/                Windows app (Python) and its installer scripts
 | `windows/relay_host.py` | Runs the relay as a child process of the engine (`Vox.exe --relay`): the command line, start and stop, a hidden window, and a Windows job object so the child never outlives Vox. |
 | `windows/session.py` | Keep listening, pure part (no hardware): `ListenSession` (utterances cut at pauses, texts back in any order, stop phrase, 60 minute limit), `same_target` (type only into the chosen window) and `SessionBuffer` (audio appended to a file, left-over sessions listed for recovery). |
 | `windows/listen.py` | Keep listening, running part: `Listening` takes the microphone audio through a `ListenSession`, turns each piece into text in the background (`streaming.piece_text`) and ends in one cleaned note (Note target) or typed pieces (Type target, only in the app it started in); marks `seg_end` and `seg_text` per piece. |
-| `windows/paste.py` | `paste_text`: pastes into the focused app only if the window is still the one the dictation started in, and restores the old clipboard only if it still holds our text. The real Win32, clipboard and key calls are in `SystemDeps`; tests pass their own. |
+| `windows/paste.py` | `paste_text`: pastes into the focused app only if the window is still the one the dictation started in, and restores the old clipboard (all copyable formats) only if it still holds our text; the dictation is set with the exclude-from-history markers. The real Win32, clipboard and key calls are in `SystemDeps`; tests pass their own. |
 | `windows/streaming.py` | Sends the finished parts of a long recording to speech-to-text while the user is still speaking (worker thread, falls back to the whole recording). |
 | `windows/improve.py` | Pure core of "Improve my cleanup" (no network): picks the history pairs to send, estimates the cost, builds the request, reads and caps the answer (`parse_proposal`), applies the accepted items to the config with versions and `revert`, and lists the cleanups that lost words. |
 | `windows/timing.py` | Pure timing core (stdlib): `Timing` marks (`key_down` ... `inserted`) become the six stage durations (`start`, `rec`, `stt`, `llm`, `insert`, `total`); `median`, `p90`, `biggest`, `format_ms`, `summarize` over the newest N history entries, `by_model` (medians per voice and cleanup model pair) and `speed_view` (everything the Speed card shows, from the history). Local only, nothing is sent. Java twin `Timing.java`. |
@@ -111,13 +112,14 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/OverlayDiag.java` | Pure bubble diagnostics: a ring buffer of the last 50 events that can make the bubble appear or vanish, its one-line event text, the service and battery lines and the copyable report, kept in memory and in a small private file (`files/overlay_diag.log`). |
 | `android/src/com/minhaj/vox/BubbleLogic.java` | Pure bubble rules: `clamp` keeps a saved position on the current screen, `shouldShow` is the visibility rule (only-typing, Always show, focused field, screen on, service ready), `action` is the watchdog's decision (none, add, remove, repair) and `WATCHDOG_MS` is its 30 s period. |
 | `android/src/com/minhaj/vox/NoteBubbleLogic.java` | Pure note bubble rules: `visible` (the persistent switch, a note recording, a note being saved) and `timer` (the recording time as `m:ss` or `h:mm:ss`). |
-| `android/src/com/minhaj/vox/InsertGuard.java` | Pure typing guard: never type a restored dictation (empty target package), refuse a switched app, and the toast words. |
+| `android/src/com/minhaj/vox/InsertGuard.java` | Pure typing guard: never type a restored dictation (empty target package), refuse a switched app, the toast words, and `route` (type, copy to the clipboard when accessibility is off, or nothing for a cancelled job). |
+| `android/src/com/minhaj/vox/MicChoice.java` | Pure microphone choice: the saved key (device type and product name, never the numeric id), labels, the deduplicated list for Settings, which connected device to prefer (or null for the phone default), and when to show the "not connected" notice once. |
 | `android/src/com/minhaj/vox/HintGuard.java` | Pure placeholder check: is the "text" an empty field reports only its hint ("Message" in WhatsApp and Telegram)? Typing then starts from an empty field. |
 | `android/src/com/minhaj/vox/PinnedUrlConfig.java` | A `SyncConfig` with the relay address fixed for one sync run (the address is read once per run). |
 | `android/src/com/minhaj/vox/Endpoint.java` | Server address rules (which hosts may use plain http). |
 | `android/src/com/minhaj/vox/Pcm.java` | Silence gate for raw 16-bit audio. |
 | `android/src/com/minhaj/vox/Corrections.java` | Suggests dictionary entries from a user's fix to a dictation. |
-| `android/src/com/minhaj/vox/PendingQueue.java` | Pure queue of the unsent recordings of `DictationService` (one entry and file per failed recording, oldest first, at most 5, 7-day age rule, file-name format, and which in-flight job a cancel may discard). |
+| `android/src/com/minhaj/vox/PendingQueue.java` | Pure queue of the unsent recordings of `DictationService` (one entry and file per failed recording, oldest first, at most 5, 7-day age rule, file-name format, which in-flight job a cancel may discard, and `sweepUploads`, the deleter of old `vox-up-*` temp upload files). |
 | `android/src/com/minhaj/vox/NoteLogic.java` | Pure voice-note rules shared with `windows/notes.py`: automatic title, search words and string, which side wins a sync merge, tag clean-up, push batch size. |
 | `android/src/com/minhaj/vox/Note.java` | Plain value class for one voice note (or delete marker): the columns of the notes table. No Android or JSON classes, so the sync code and its tests can use it. |
 | `android/src/com/minhaj/vox/NoteEvents.java` | The "a note was saved" hook: a static, thread-safe list of `Runnable` listeners (`addSavedListener`, `removeSavedListener`, `fireSaved`). Pure Java. |
@@ -190,7 +192,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_listen.py` | The running session with the speech calls and the window replaced: Note and Type targets, stop phrase, limit, window change, failed pieces, recovery, latency marks. |
 | `tests/test_engine_listen.py` | The engine side: double press, Esc, tray entries, the `listen_target` setting, microphone errors, recovery. |
 | `tests/test_note_hotkey.py` | The note shortcut: the pure parse and duplicate rule, and the window bridge that saves it. |
-| `tests/test_improve.py` | The pure improvement core with a fake provider: transcript selection and budget, request, tolerant parsing and caps, apply and revert, About you never applied, the fidelity report. |
+| `tests/test_improve.py` | The pure improvement core with a fake provider: transcript selection and budget, request, tolerant parsing and caps, apply and revert (revert keeps rules written later), About you never applied, the fidelity report. |
 | `tests/test_improve_card.py` | The Improve my cleanup card: preview and confirm sentence, versions, reminder rule, the one server call, the window bridge (nothing is sent before the confirmed numbers) and the tray reminder. |
 | `tests/test_ui_improve.py` | The card's ids and place on the Windows page, that only the confirm button runs it, and its two renderers (escaping). |
 | `tests/test_timing.py` | The timing core: stage maths with missing marks and a backwards clock, median and p90, biggest stage, text format, summaries (skipped cleanup not counted as 0 ms), per-model medians and the Speed card's `speed_view`. |
@@ -201,15 +203,16 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_engine_safety.py` | `_process` keeps the recording on an unexpected error, a failing paste or note save; a failing hotkey handler or tray icon does not raise (skipped without the Windows packages). |
 | `tests/test_calendar_privacy.py` | The secret iCal address stays out of the log, `calendar.json` and `config.json`; clearing it removes the cache. |
 | `tests/test_gcal.py` | Google tokens are protected on disk, a plain legacy file is migrated, an unreadable one asks to connect again. |
-| `tests/test_calendar_status.py` | A declined invite is dropped, an unanswered one only reminds, only an accepted one auto-starts (`calendar_action`). |
-| `tests/test_meeting_store.py` | A failed export still lists the meeting and removes the raw audio; a cut-off meeting is recovered (`recover_unfinished`). |
-| `tests/test_ui_app_bridge.py` | Dictionary and People edits change one item in the file's current list, not a stale page list. |
+| `tests/test_calendar_status.py` | A declined invite is dropped, an unanswered one only reminds, only an accepted one auto-starts (`calendar_action`); invite text is one clean line and bounded; `meeting.export_name`. |
+| `tests/test_meeting_store.py` | A failed export still lists the meeting and removes the raw audio; a cut-off meeting is recovered (`recover_unfinished`); a bad meeting id deletes and writes nothing; no audio is dropped between blocks (`_frames`). |
+| `tests/test_ui_app_bridge.py` | Dictionary and People edits change one item in the file's current list, not a stale page list; the meeting bridge refuses a bad id. |
 | `tests/test_hostile_note_id.py` | A note id from the relay that is not 32 hex characters is ignored, in `apply_remote` and in a sync. |
 | `tests/test_engine_notes.py` | The engine's voice-note mode (skipped where the Windows runtime packages are missing). |
 | `tests/test_engine_flash.py` | The pill's "sent" and "error" signal: `Engine.flash` timing, expiry, what cancels it, no flash without a pill, and which events raise which one (skipped where the Windows runtime packages are missing). |
 | `tests/test_overlay_mode.py` | Every branch of `overlay_mode` (flash over the meeting timer, flash only while idle). |
 | `tests/test_flash_constants.py` | Drift guard: `BubbleView.SENT_MS` / `ERROR_MS` equal `FLASH_SECONDS` in `engine.py`. |
-| `tests/test_paste.py` | `paste_text` with injected fakes (window unchanged or changed, clipboard restore rules) and the engine's "Copied; the window changed" notice. |
+| `tests/test_engine_mic.py` | `Engine._open_mic` refreshes PortAudio's device list once when a chosen microphone is missing or fails to open (skipped without the Windows packages). |
+| `tests/test_paste.py` | `paste_text` with injected fakes (window unchanged or changed, clipboard snapshot and restore rules, the exclude-from-history markers, Ctrl+V as a virtual key) and the engine's "Copied; the window changed" notice. |
 | `tests/test_docs_todo.py` | The path-to-page rules of `documentation/tools/docs_todo.py`. |
 | `tests/test_ui_shared.py` | `tools/sync_ui.py --check` passes on the committed pages and fails when a generated block is edited by hand (on temp copies). |
 | `tests/test_ui_static.py` | Static checks of both HTML pages: every looked-up id exists, no duplicate ids, every bridge call (`api().NAME`, `V.NAME(`) names a real method of `Api` / `MainActivity.Bridge`. |
@@ -217,6 +220,9 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/ApiClientTest.java` | Prompt (role, About you first, strength, structure, examples), sanitize, replacements, retry policy, silence phrases. |
 | `android/test/com/minhaj/vox/EndpointTest.java` | Server address rules. |
 | `android/test/com/minhaj/vox/NotificationActionsTest.java` | Notification buttons (never more than three in any state), the Retry hint and the typing guard. |
+| `android/test/com/minhaj/vox/InsertGuardTest.java` | `InsertGuard.route` (typed, copied when no accessibility listener is attached, nothing for a cancelled job) and the existing typing check. |
+| `android/test/com/minhaj/vox/ManifestTest.java` | Reads `android/AndroidManifest.xml` as text: `.MainActivity` handles `orientation` and `screenSize` changes itself and not `uiMode`. |
+| `android/test/com/minhaj/vox/MicChoiceTest.java` | Plain-Java checks for `MicChoice` (keys, labels, deduplication, `pick`, the one-time warning). |
 | `android/test/com/minhaj/vox/HintGuardTest.java` | Plain-Java checks for `HintGuard`: placeholders are recognised, real text is never mistaken for one. |
 | `android/test/com/minhaj/vox/PcmTest.java` | Silence gate. |
 | `android/test/com/minhaj/vox/TimingTest.java` | The Java timing core: stages, skipped cleanup, clock, summary rules, per-model medians, `speedView` from history rows. |
@@ -337,6 +343,7 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p2b-stream-long-dictations.md` | Spec for P2b: send long recordings in pieces while speaking. |
 | `documentation/decisions/0036-fuzzy-dictionary-guesses-only-for-long-terms.md` | ADR: the one-letter dictionary guess only for terms of 7+ letters; a short name keeps the case fix. |
 | `documentation/decisions/0035-sideload-warnings-are-explained-not-engineered-away.md` | ADR: explain the Play Protect and Restricted setting warnings in the app; no `isAccessibilityTool`, targetSdk stays 34, minimum permissions. |
+| `documentation/specs/p9h-android-mic-choice.md` | Spec for the Android Microphone setting: what was built, the Bluetooth limits and the device checklist (not run on a phone). |
 | `documentation/specs/p9g2-install-safety.md` | Spec for part 3 branch G task G2: the Install help card, the permission clean-up, why targetSdk stays 34, what a sideloaded APK cannot avoid, the unverified list. |
 | `documentation/specs/p9e-keep-listening.md` | Spec for part 3 branch E: keep listening (Note and Type targets, stop phrase, note shortcut, crash-safe buffer and recovery), the checklist that needs no phone, what was not verified, Android out of scope. |
 | `documentation/specs/p9f-improve-my-cleanup.md` | Spec for part 3 branch F: the Improve my cleanup card, what one run sends, the proposal, apply and revert, `my_cleanup_rules` in the prompt and the profile sync, the checklist, known limits. |

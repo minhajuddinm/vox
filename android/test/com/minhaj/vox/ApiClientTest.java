@@ -175,6 +175,33 @@ public final class ApiClientTest {
             eq("local checkKey does not throw", null, e.toString());
         }
 
+        // abort: a send that is waiting for a server that never answers ends at once (cancel must not leave the worker stuck)
+        try (java.net.ServerSocket silent = new java.net.ServerSocket(0, 5, java.net.InetAddress.getByName("127.0.0.1"))) {
+            java.io.File wav = java.io.File.createTempFile("vox-abort-test", ".wav");
+            java.nio.file.Files.write(wav.toPath(), new byte[1024]);
+            final ApiClient client = new ApiClient("k", "http://127.0.0.1:" + silent.getLocalPort() + "/v1");
+            final IOException[] failure = new IOException[1];
+            Thread t = new Thread(() -> {
+                try { client.transcribeRaw(ApiClient.Upload.wav(wav), "m", "", ""); }
+                catch (IOException e) { failure[0] = e; }
+            });
+            t.start();
+            Thread.sleep(300);
+            client.abort();
+            t.join(3000);
+            eq("abort ends a send that waits for the server", false, t.isAlive());
+            eq("abort makes the send fail with an IOException", true, failure[0] != null);
+            try {
+                client.transcribeRaw(ApiClient.Upload.wav(wav), "m", "", "");
+                eq("an aborted client refuses a new request", true, false);
+            } catch (IOException e) {
+                eq("an aborted client refuses a new request", "cancelled", e.getMessage());
+            }
+            wav.delete();
+        } catch (Exception e) {
+            eq("abort test does not fail on its own", null, e.toString());
+        }
+
         System.out.println("OK: " + checks + " checks passed");
     }
 }

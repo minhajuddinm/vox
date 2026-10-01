@@ -33,6 +33,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 RELAY_VERSION = "0.2"
+MAX_CLOCK_AHEAD = 86400    # seconds a note time may be ahead of the relay clock
 MAX_BODY = 1_000_000        # bytes accepted in one request
 MAX_TEXT = 100_000          # characters kept per text field
 MAX_TAGS = 20
@@ -94,6 +95,10 @@ class BodyTooLarge(Exception):
     pass
 
 
+class LengthRequired(BadRequest):
+    """Chunked upload: answered 411 (the other framing problems are a plain 400)."""
+
+
 def _text(value, limit=MAX_TEXT):
     return ("" if value is None else str(value))[:limit]
 
@@ -105,6 +110,16 @@ def _number(value, name):
         raise BadRequest(f"{name} must be a number")
     if not math.isfinite(f):
         raise BadRequest(f"{name} must be a number")
+    return f
+
+
+def _time_field(value, name):
+    """A note time in seconds. More than a day ahead of the relay is refused (that is a clock in milliseconds or a
+    broken one: such a note would win over every later edit and delete)."""
+    now = time.time()
+    f = _number(now if value is None else value, name)
+    if f > now + MAX_CLOCK_AHEAD:
+        raise BadRequest(f"{name} is too far in the future (seconds since 1970, not milliseconds)")
     return f
 
 
@@ -126,8 +141,8 @@ def clean_note(raw, note_id=None):
         "title": "" if deleted else _text(raw.get("title"), 300),
         "text": "" if deleted else _text(raw.get("text")),
         "raw": "" if deleted else _text(raw.get("raw")),
-        "created_at": _number(raw.get("created_at", time.time()), "created_at"),
-        "updated_at": _number(raw.get("updated_at", time.time()), "updated_at"),
+        "created_at": _time_field(raw.get("created_at"), "created_at"),
+        "updated_at": _time_field(raw.get("updated_at"), "updated_at"),
         "secs": max(0.0, _number(raw.get("secs", 0), "secs")),
         "device": _text(raw.get("device"), 60),
         "tags": [] if deleted else tags,
@@ -184,20 +199,24 @@ class RelayStore:
         """Stores a note unless a newer version is already here. Returns (stored_note, applied)."""
         note = clean_note(raw, note_id)
         with self._lock, contextlib.closing(self._connect()) as con, con:
-            cur = con.execute("SELECT * FROM notes WHERE id = ?", (note["id"],)).fetchone()
-            if cur is not None:
-                old = self._row(cur)
-                if old["updated_at"] > note["updated_at"] or all(old[k] == note[k] for k in NOTE_FIELDS):
-                    return old, False   # an older or identical write: keep what we have, no new sequence number
-            con.execute("INSERT OR REPLACE INTO notes (id, source, title, text, raw, created_at, updated_at, secs, device, tags, deleted) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (note["id"], note["source"], note["title"], note["text"], note["raw"], note["created_at"],
-                         note["updated_at"], note["secs"], note["device"], json.dumps(note["tags"]), int(note["deleted"])))
-            if self._has_fts(con):
-                con.execute("DELETE FROM notes_fts WHERE id = ?", (note["id"],))
-                if not note["deleted"]:
-                    con.execute("INSERT INTO notes_fts (id, title, text) VALUES (?, ?, ?)", (note["id"], note["title"], note["text"]))
-            stored = self._row(con.execute("SELECT * FROM notes WHERE id = ?", (note["id"],)).fetchone())
+            return self._store_note(con, note)
+
+    def _store_note(self, con, note):
+        """The body of `upsert_note` on an open connection (the caller holds the lock and the transaction)."""
+        cur = con.execute("SELECT * FROM notes WHERE id = ?", (note["id"],)).fetchone()
+        if cur is not None:
+            old = self._row(cur)
+            if old["updated_at"] > note["updated_at"] or all(old[k] == note[k] for k in NOTE_FIELDS):
+                return old, False   # an older or identical write: keep what we have, no new sequence number
+        con.execute("INSERT OR REPLACE INTO notes (id, source, title, text, raw, created_at, updated_at, secs, device, tags, deleted) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (note["id"], note["source"], note["title"], note["text"], note["raw"], note["created_at"],
+                     note["updated_at"], note["secs"], note["device"], json.dumps(note["tags"]), int(note["deleted"])))
+        if self._has_fts(con):
+            con.execute("DELETE FROM notes_fts WHERE id = ?", (note["id"],))
+            if not note["deleted"]:
+                con.execute("INSERT INTO notes_fts (id, title, text) VALUES (?, ?, ?)", (note["id"], note["title"], note["text"]))
+        stored = self._row(con.execute("SELECT * FROM notes WHERE id = ?", (note["id"],)).fetchone())
         return stored, True
 
     def get_note(self, nid):
@@ -206,13 +225,15 @@ class RelayStore:
         return self._row(r) if r else None
 
     def delete_note(self, nid, updated_at=None):
-        """Turns a note into a delete marker (content removed). Returns the marker, or None if unknown."""
-        with contextlib.closing(self._connect()) as con:
+        """Turns a note into a delete marker (content removed). Returns (marker, applied), or None if unknown."""
+        with self._lock, contextlib.closing(self._connect()) as con, con:    # read and write in one step: no one slips in between
             r = con.execute("SELECT * FROM notes WHERE id = ?", (nid,)).fetchone()
-        if r is None:
-            return None
-        marker = dict(self._row(r), deleted=True, updated_at=max(float(updated_at or 0), time.time()))
-        return self.upsert_note(marker)[0]
+            if r is None:
+                return None
+            old = self._row(r)
+            # later than the stored time too, or a note stamped ahead of this clock (a fast phone) would "win" over its own delete
+            stamp = max(float(updated_at or 0), time.time(), old["updated_at"] + 0.001)
+            return self._store_note(con, clean_note(dict(old, deleted=True, updated_at=stamp)))
 
     def changes(self, since=0, limit=200):
         """Notes and delete markers written after sequence number `since`, oldest first."""
@@ -335,18 +356,45 @@ def default_data_dir():
     return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "vox-relay")
 
 
+class DataDirError(Exception):
+    """The data folder (or relay.json) is not safe to use: the relay refuses to start rather than adopt it."""
+
+
+def _check_private(path, what):
+    """POSIX only (Windows has no such modes; see the known limit in the docs): `path` must belong to the user running
+    the relay and must not be writable by anyone else, otherwise someone else could have planted the token in it or
+    could swap files under us. A folder that is merely readable by others is closed to 0700 (a file to 0600).
+    A symlink is followed on purpose (systemd's DynamicUser makes /var/lib/<name> one): what counts is where it leads."""
+    if os.name != "posix":
+        return
+    st = os.stat(path)
+    if st.st_uid != os.getuid():
+        raise DataDirError(f"{what} {path} belongs to another user. Use a folder of your own (for example --data-dir \"$(mktemp -d)\").")
+    if st.st_mode & 0o022:
+        raise DataDirError(f"{what} {path} can be changed by other users. Run: chmod go-w {path}  (or pick another folder).")
+    if st.st_mode & 0o077:
+        os.chmod(path, 0o700 if os.path.isdir(path) else 0o600)
+
+
 def _write_config(path, cfg):
     tmp = path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # private from the first byte on Linux and macOS
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(tmp)      # whatever is there (a leftover, or a symlink someone planted) is not written through
+    # O_EXCL and O_NOFOLLOW: never open an existing file or follow a link; private from the first byte on Linux and macOS
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
     os.replace(tmp, path)
 
 
 def load_config(data_dir, port=None, owner=None):
-    """Reads relay.json in `data_dir`, creating it (with a new random token) on first use."""
+    """Reads relay.json in `data_dir`, creating it (with a new random token) on first use.
+    Raises DataDirError when the folder or the file is not the running user's own (POSIX)."""
     os.makedirs(data_dir, mode=0o700, exist_ok=True)
+    _check_private(data_dir, "The data folder")
     path = os.path.join(data_dir, "relay.json")
+    if os.path.exists(path):
+        _check_private(path, "The file")
     cfg = {}
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
@@ -382,6 +430,13 @@ _KEY_RE = re.compile(r"[\x21-\x7e]*")      # printable ASCII without spaces: saf
 _HOST_RE = re.compile(r"[a-z0-9._-]+")
 
 
+# The same explicit list as windows/vox_core.py and android Endpoint.java (spec/golden.txt "privatehost"), not ip.is_private,
+# which also holds 6to4, Teredo and reserved ranges that are routed over the internet.
+_PRIVATE_NETS = [ipaddress.ip_network(n) for n in (
+    "127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10",
+    "::1/128", "fc00::/7", "fe80::/10")]
+
+
 def is_private_host(host):
     """True for hosts where plain http is acceptable: this machine, the home or office LAN and Tailscale.
     The same rule as windows/vox_core.py (the relay cannot import app code)."""
@@ -393,7 +448,7 @@ def is_private_host(host):
     except ValueError:
         # A name: single-label names, .local/.lan and Tailscale MagicDNS names never leave the private network.
         return "." not in host or host.endswith((".local", ".lan", ".ts.net"))
-    return ip.is_loopback or ip.is_private or ip.is_link_local or ip in ipaddress.ip_network("100.64.0.0/10")
+    return any(ip in net for net in _PRIVATE_NETS)
 
 
 def upstream_problem(url):
@@ -688,10 +743,11 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def _json_body(self):
-        try:
-            n = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            raise BadRequest("bad Content-Length")
+        n, problem = self._body_length()     # strict: "-1", "+5" or a repeated Content-Length must not reach read()
+        if problem:
+            self.close_connection = True     # the end of the body is unknown, so this connection cannot be reused
+            raise (LengthRequired if problem[0] == 411 else BadRequest)(problem[1])
+        n = n or 0
         if n > MAX_BODY:
             self._drain(n)
             raise BodyTooLarge()
@@ -785,7 +841,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, {"note": note, "applied": applied})
                 if method == "DELETE":
                     marker = store.delete_note(nid)
-                    return self._send(200, {"note": marker}) if marker else self._send(404, {"error": "no such note"})
+                    if not marker:
+                        return self._send(404, {"error": "no such note"})
+                    return self._send(200, {"note": marker[0], "applied": marker[1]})
             if parts == ["profile"]:
                 if method == "GET":
                     return self._send(200, store.get_profile())
@@ -798,6 +856,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404 if method in ("GET", "PUT", "DELETE") else 405, {"error": "unknown request"})
         except BodyTooLarge:
             return self._send(413, {"error": "request too large"})
+        except LengthRequired as e:
+            return self._send(411, {"error": str(e)})
         except (BadRequest, ValueError, KeyError) as e:
             return self._send(400, {"error": str(e) or "bad request"})
         except Exception:
@@ -854,7 +914,10 @@ class Handler(BaseHTTPRequestHandler):
                                                "Check its address and key on the management page."}, n)
         if n > MAX_PROXY_BODY[kind]:
             return self._refuse(413, {"error": "request too large"}, n)
+        if not srv.proxy_running.acquire(blocking=False):     # exchanges still alive (an abandoned one lives on until its read ends)
+            return self._refuse(429, {"error": "busy"}, n)
         if not srv.proxy_slots.acquire(blocking=False):
+            srv.proxy_running.release()
             return self._refuse(429, {"error": "busy"}, n)
         once = threading.Lock()     # the slot is given back by whoever comes first: the exchange, or the watcher of a
                                     # client that left (its upstream read may take a while to notice, see forward_upstream)
@@ -866,6 +929,7 @@ class Handler(BaseHTTPRequestHandler):
             reply = self._exchange(n, base, key, suffix, kind, method, release)
         finally:
             release()
+            srv.proxy_running.release()     # only here, when the exchange has really ended (never from the watcher)
         if reply is None:       # the client left: nobody to answer
             self._status = 499
             self.close_connection = True
@@ -967,6 +1031,7 @@ class RelayServer(ThreadingHTTPServer):
         self.store, self.token, self.owner, self.data_dir = store, token, owner, data_dir
         self.upstream = upstream_settings(upstream)   # replaced as a whole, never changed in place
         self.config_lock = threading.Lock()           # one writer at a time for relay.json
+        self.proxy_running = threading.BoundedSemaphore(2 * PROXY_SLOTS)   # exchanges alive at all, abandoned ones included
         self.proxy_slots = threading.BoundedSemaphore(PROXY_SLOTS)   # upstream exchanges in flight (and their bodies in memory)
         self.started = time.time()
         self._events = collections.deque(maxlen=100)
@@ -1053,7 +1118,11 @@ def main(argv=None):
     ap.add_argument("--owner", default=None, help="only accept this Tailscale login (from `tailscale serve`)")
     ap.add_argument("--show-token", action="store_true", help="print the token clients need, then start")
     args = ap.parse_args(argv)
-    server = make_server(args.data_dir, port=args.port, owner=args.owner)
+    try:
+        server = make_server(args.data_dir, port=args.port, owner=args.owner)
+    except DataDirError as e:
+        print("Not starting:", e, file=sys.stderr, flush=True)
+        return 1
     port = server.server_address[1]
     print(f"Vox relay {RELAY_VERSION} listening on 127.0.0.1:{port}. Publish it to your tailnet with: tailscale serve --bg {port}")
     print(f"Management page: open that address in a browser. Data folder: {args.data_dir}", flush=True)

@@ -20,7 +20,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | Bubble diagnostics card in Settings (service connected or killed, battery optimisation, the last 50 bubble events with reasons, copy report) | no | yes | `OverlayDiag`, `VoxAccessibilityService.diag`, `MainActivity.Bridge.getDiagnostics` | java `OverlayDiagTest`; py `test_ui_static` (card ids, bridge method) |
 | Floating mic bubble (tap to start/stop, drag, long press) | - | yes | orig | `VoxAccessibilityService`, `BubbleView` | - |
 | Recording pill (waveform, dots) | yes | - | orig | `overlay.py` | - |
-| Paste into the focused app; only when the window is unchanged (else copy and say so); old clipboard restored unless `keep_clipboard`, and never over something newer | yes | - | orig | `paste.paste_text`, `Engine.paste` | py `test_paste` |
+| Paste into the focused app; only when the window is unchanged (else copy and say so); dictation kept out of Win+V and cloud clipboard history; whole old clipboard restored unless `keep_clipboard`, and never over something newer | yes | - | orig | `paste.paste_text`, `Engine.paste` | py `test_paste` |
 | Insert into the focused field via accessibility | - | yes | orig | `VoxAccessibilityService.insertText` | - |
 | Language lock (Whisper language code) | yes | yes | orig | `language` setting | - |
 | History with search, copy, delete, clear; Home status card (provider, models, last Test, sync, notes, last dictation) | yes | yes | orig | `core.history_*`, window; `Prefs.history` | - |
@@ -61,7 +61,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | Silence gate: nothing is uploaded for a silent recording | yes | yes | `vox_core.is_silent` / `Pcm.isSilent` | py `test_robustness`; java `PcmTest` |
 | Type only into the app you started in; refuse password fields | - | yes | `VoxAccessibilityService.insertText` | - |
 | Dictation state machine that survives cancel and errors | - | yes | `DictationService` job ids | - |
-| Choose the microphone | yes | - | `audio_devices.py`, `input_device` | py `test_audio_devices` |
+| Choose the microphone (Android: Phone default or a connected input device, kept by type and name; not run on a phone) | yes | yes | `audio_devices.py`, `input_device` / `MicChoice`, `DictationService.preferMic`, `mic_device` | py `test_audio_devices`; java `MicChoiceTest` |
 | "Vox did not hear anything (loudest sound N)" diagnostics | yes | - | `Engine.stop`, `vox_core.peak_level` | py `test_robustness` |
 | Fix a word in History -> suggested dictionary entries | yes | yes | `vox_core.suggest_corrections` / `Corrections` | py `test_suggest_corrections`; java `CorrectionsTest` |
 | Spoken "new line"/"new paragraph" when cleanup did not run | yes | yes | `vox_core.apply_spoken_commands` / `ApiClient.applySpokenCommands` | py `test_spoken_commands`, parity; java parity |

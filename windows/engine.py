@@ -228,8 +228,9 @@ class Engine:
             pass
         os._exit(0)
 
-    def notify(self, msg):
-        log.info("notify: %s", msg)
+    def notify(self, msg, private=False):
+        """A tray balloon. `private` texts (note and meeting titles) are shown but not written to the log."""
+        log.info("notify: %s", "(private text not logged)" if private else msg)
         try:
             self.icon.notify(msg, "Vox")
         except Exception:
@@ -422,12 +423,36 @@ class Engine:
 
     def _open_mic(self, callback):
         """Starts the microphone (the chosen one when it is connected); `callback` gets every block. Raises on failure."""
-        device = audio_devices.input_index(self.cfg.get("input_device"))
-        if self.cfg.get("input_device") and device is None:
+        name = self.cfg.get("input_device")
+        device = audio_devices.input_index(name)
+        if name and device is None and self._refresh_audio():   # plugged in after Vox started?
+            device = audio_devices.input_index(name)
+        if name and device is None:
             self.notify("Your chosen microphone is not connected. Using the Windows default one.")
+        try:
+            self._start_stream(device, callback)
+        except sd.PortAudioError:
+            if not self._refresh_audio():   # a replugged microphone has a new number
+                raise
+            self._start_stream(audio_devices.input_index(name), callback)
+
+    def _start_stream(self, device, callback):
         self.stream = sd.InputStream(samplerate=core.SAMPLE_RATE, channels=1, dtype="int16",
                                      device=device, callback=callback)
         self.stream.start()
+
+    def _refresh_audio(self):
+        """PortAudio lists the devices once, when it starts. Starts it again so a microphone plugged in later shows up.
+        Only while none of our streams is open; True when it was done."""
+        if self.recording or self.listening:
+            return False
+        try:
+            sd._terminate()
+            sd._initialize()
+        except Exception:
+            log.exception("could not refresh the audio device list")
+            return False
+        return True
 
     def _audio(self, indata, frames, t, status):
         self.chunks.append(bytes(indata))
@@ -514,7 +539,7 @@ class Engine:
         """Saves a voice note, asks the sync thread to send it and says so."""
         saved = notes.add(text, raw=raw, secs=secs, source=notes.SOURCE_NOTE, device=sync.device_name(self.cfg))
         self.sync.trigger()
-        self.notify("Note saved: " + saved["title"])
+        self.notify("Note saved: " + saved["title"], private=True)
 
     def retry_last(self, *_):
         """Sends again the last recording that could not be sent."""
@@ -703,10 +728,16 @@ class Engine:
             except OSError:
                 pass
 
+        try:   # read the audio first: the session's silence timer must not run while a slow read is still going
+            pcm = session_mod.load_pcm(path)
+        except OSError:
+            log.exception("could not read the saved listening session")
+            self.notify("Could not read the saved session; it is kept.")
+            return
         lis = self.listening = listen_mod.Listening(self, self.cfg, "note", after=remove)
         self.listen_state("busy")
         lis.start()
-        lis.replay(session_mod.load_pcm(path))
+        lis.replay(pcm)
         self.notify("Recovering your listening session. The note appears when it is done.")
 
     # -------------------------------------------------------------- meeting
@@ -728,7 +759,7 @@ class Engine:
                   "organizer": "", "link": ""}
         if self.meeting.start(ev):
             what = f"'{ev['title']}'" if ev else "Meeting"
-            self.notify(f"{what} notes started. Let others know you are recording.")
+            self.notify(f"{what} notes started. Let others know you are recording.", private=True)
             return True
         self.notify(self.meeting.last_error or "Could not start meeting notes")
         return False
@@ -758,7 +789,7 @@ class Engine:
                     if action == "start":
                         self.start_meeting(ev["uid"])
                     else:
-                        self.notify(f"'{ev['title']}' is starting. Tray icon > Start meeting notes, or open Vox.")
+                        self.notify(f"'{ev['title']}' is starting. Tray icon > Start meeting notes, or open Vox.", private=True)
                     break
             except Exception:
                 log.exception("calendar watch failed")

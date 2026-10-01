@@ -18,4 +18,4 @@
 - [ ] If what leaves the device or what is stored changed: `documentation/09-security-privacy.md` and `docs/privacy.html` are updated.
 - [ ] No secrets, tokens, real host names, personal paths or personal data in the diff.
 
-Contributions are accepted under whatever licence the repository owner selects (see `CONTRIBUTING.md`).
+Contributions are accepted under the project's MIT licence (see `LICENSE` and `CONTRIBUTING.md`).

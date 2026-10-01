@@ -5,10 +5,14 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Build;
@@ -53,6 +57,8 @@ public class DictationService extends Service {
     /** Throws away every unsent recording (the notification's "Clear" button). */
     private static final String ACTION_CLEAR = "com.minhaj.vox.CLEAR_UNSENT";
     private static final int SEND_ATTEMPTS = 3;
+    /** A vox-up-* temp upload file older than this belongs to a send that was killed (see PendingQueue.sweepUploads). */
+    private static final long UPLOAD_MAX_AGE_MS = 10 * 60 * 1000L;
 
     /**
      * Extras of the start intent. TrampolineActivity passes its own extras on, so one set of keys serves both:
@@ -105,8 +111,12 @@ public class DictationService extends Service {
      * the job ends so cancel() can stop it, and handed to the worker (a local copy) by stopRecording.
      */
     private volatile StreamingStt stream;
+    /** The clients of the send in progress, so cancel() can cut its HTTP request instead of leaving the worker stuck in it. */
+    private volatile ApiClient[] liveClients;
     /** Longest wait for the pieces still being sent after the user stops, before the whole recording is sent instead. */
     private static final long STREAM_WAIT_MS = 120000;
+    /** The saved microphone choice that the "not connected" notice was already shown for (see MicChoice.shouldWarn). */
+    private static volatile String micWarnedFor;
     /** AudioRecord.getMinBufferSize never changes on a device: asked once, off the main thread. */
     private static volatile int minBuf;
     private static long lastWarm;
@@ -317,6 +327,7 @@ public class DictationService extends Service {
         // recording thread (a refusal comes back through failRecording), and the pieces go out from their own thread.
         final StreamingStt streamer = newStream(p);
         stream = streamer;
+        final String micKey = p.micDevice();   // the microphone chosen in Settings ("" = the phone's default)
         final ByteArrayOutputStream data = new ByteArrayOutputStream();
         pcm = data;
         final Timing tm = new Timing(new Timing.Clock() {
@@ -342,6 +353,7 @@ public class DictationService extends Service {
                     failRecording(job, "Microphone unavailable (another app may be using it)");
                     return;
                 }
+                preferMic(rec, micKey);
                 rec.startRecording();
                 while (recording) {
                     int n = rec.read(buf, 0, buf.length);
@@ -528,6 +540,9 @@ public class DictationService extends Service {
      */
     public synchronized void cancel() {
         jobId++;
+        final ApiClient[] live = liveClients;
+        liveClients = null;
+        if (live != null) new Thread(() -> { for (ApiClient a : live) a.abort(); }, "vox-abort").start();   // off the main thread: disconnect closes a socket
         recording = false;
         timing = null;
         dropStream();
@@ -548,6 +563,33 @@ public class DictationService extends Service {
     /** A send of this entry failed: when it was a Retry, the entry goes behind the others (and is parked after the third failure). */
     private void retryFailed(PendingQueue.Entry entry) {
         if (pending.onSendFailed(entry.id)) refreshNotification();
+    }
+
+    /** The input devices Android reports now, as the pure MicChoice sees them (no permission is needed to list them). */
+    static List<MicChoice.Candidate> micCandidates(android.content.Context c) {
+        List<MicChoice.Candidate> out = new ArrayList<>();
+        AudioManager am = (AudioManager) c.getSystemService(AUDIO_SERVICE);
+        if (am == null) return out;
+        for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_INPUTS)) {
+            out.add(new MicChoice.Candidate(d.getType(), String.valueOf(d.getProductName()), d));
+        }
+        return out;
+    }
+
+    /**
+     * Points the recorder at the microphone chosen in Settings when it is connected; otherwise the phone's default stays, and
+     * a saved choice that is not connected says so once (a toast), then not again until another choice is saved.
+     */
+    private void preferMic(AudioRecord rec, String micKey) {
+        if (micKey.isEmpty()) { micWarnedFor = null; return; }
+        MicChoice.Candidate c = MicChoice.pick(micKey, micCandidates(this));
+        if (c != null) {
+            micWarnedFor = null;
+            try { rec.setPreferredDevice((AudioDeviceInfo) c.ref); } catch (RuntimeException e) { Log.w("vox", "preferred microphone refused"); }
+        } else if (MicChoice.shouldWarn(micKey, micWarnedFor)) {
+            micWarnedFor = micKey;
+            main.post(() -> Toast.makeText(this, MicChoice.NOT_CONNECTED, Toast.LENGTH_LONG).show());
+        }
     }
 
     /** Goes back to idle, but only for the job that is still current. */
@@ -590,6 +632,7 @@ public class DictationService extends Service {
     /** At service start: delete unsent recordings older than 7 days and keep the rest (files written before a restart are retried). */
     private void restorePending() {
         PendingQueue.migrate(getCacheDir(), pendingDir());   // earlier versions kept them in the cache folder
+        PendingQueue.sweepUploads(getCacheDir(), System.currentTimeMillis(), UPLOAD_MAX_AGE_MS);   // temp upload files a kill left behind
         File[] files = pendingDir().listFiles();
         if (files == null) return;
         for (File f : files) {
@@ -629,6 +672,8 @@ public class DictationService extends Service {
             String[] stt = p.role(Providers.STT), llm = p.role(Providers.LLM);
             ApiClient g = new ApiClient(stt[1], stt[0]);
             ApiClient gl = new ApiClient(llm[1], llm[0]);
+            final ApiClient[] mine = new ApiClient[]{g, gl};
+            liveClients = mine;
             String raw = null;
             if (tm != null) tm.mark("stt_start");
             if (streamer != null) {
@@ -700,7 +745,13 @@ public class DictationService extends Service {
             // The text goes to the screen first; the recording file is removed after (a notification update that
             // would otherwise sit between the text and the screen).
             main.post(() -> {
-                if (isCurrent(job) && listener != null) listener.onResult(result, pkg);
+                int route = InsertGuard.route(isCurrent(job), listener != null);
+                if (route == InsertGuard.ROUTE_TYPE) {
+                    listener.onResult(result, pkg);
+                } else if (route == InsertGuard.ROUTE_CLIPBOARD) {   // nothing can type it (accessibility is off): the text is not lost
+                    ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Vox", result));
+                    Toast.makeText(this, InsertGuard.noListenerMessage(), Toast.LENGTH_LONG).show();
+                }
                 // The history entry is written after the text went in, so its timing includes the insertion; the
                 // write is off the main thread (the history is a JSON list in the preferences).
                 final Timing.Entry te;
@@ -725,7 +776,9 @@ public class DictationService extends Service {
             retryFailed(entry);
             postError("Network error:" + e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
         } finally {
+            if (isCurrent(job)) liveClients = null;
             if (streamer != null) streamer.cancel();   // ends its thread on every way out (a no-op once it has finished)
+            PendingQueue.sweepUploads(getCacheDir(), System.currentTimeMillis(), UPLOAD_MAX_AGE_MS);   // temp upload files an earlier kill left
             finish(job);
         }
     }

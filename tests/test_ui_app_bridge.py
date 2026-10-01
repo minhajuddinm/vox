@@ -69,3 +69,37 @@ def test_empty_input_changes_nothing(api):
     assert api.dict_add_term("  ") == ["a"]
     assert api.dict_add_repl("", "x") == ["a"]
     assert api.people_add("") == core.load_config()["people"]
+
+
+# ---- the meeting bridge refuses ids that are not meeting ids (R3-H1 / C-U7) ---------------------------------------------
+
+def test_the_meeting_bridge_refuses_a_bad_id_and_leaves_the_data_folder_alone(api, tmp_path):
+    import os
+    import meeting
+    data_dir = os.path.dirname(meeting.meetings_dir())
+    sentinel = os.path.join(data_dir, "config.json")
+    with open(sentinel, "w", encoding="utf-8") as f:
+        f.write("{}")
+    for bad in ("..", "", None):
+        assert api.meeting_delete(bad) is False
+        assert api.meeting_save_notes(bad, "x") is False
+        assert api.meeting_set_done(bad, 0, True) is False
+        assert api.meeting_rename(bad, "x") == ""
+    assert os.path.exists(sentinel) and not os.path.exists(os.path.join(data_dir, "my_notes.md"))
+
+
+def test_the_meeting_bridge_still_deletes_a_real_meeting(api):
+    import os
+    import meeting
+    d = os.path.join(meeting.meetings_dir(), "20261001-120000")
+    os.makedirs(d)
+    assert api.meeting_delete("20261001-120000") is True
+    assert not os.path.exists(d)
+
+
+def test_meeting_open_does_not_open_a_path_built_from_a_bad_id(api, monkeypatch):
+    import ui_app
+    opened = []
+    monkeypatch.setattr(ui_app.os, "startfile", lambda p: opened.append(p), raising=False)
+    api.meeting_open("..")
+    assert opened == []

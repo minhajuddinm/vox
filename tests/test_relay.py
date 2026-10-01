@@ -217,3 +217,45 @@ def test_data_survives_a_restart(tmp_path):
         assert b.store.stats() == {"notes": 1, "seq": 1}
     finally:
         b.server_close()
+
+
+# ------------------------------------------------------------------ medium round M4 (C-R1, C-R2)
+def test_deleting_a_note_stamped_in_the_future_really_deletes_it(cl):
+    n = note("ahead of the relay clock", updated_at=time.time() + 60)    # a phone whose clock runs a minute fast
+    cl.call("PUT", "/notes/" + n["id"], n)
+    st, out = cl.call("DELETE", "/notes/" + n["id"])
+    assert st == 200 and out["note"]["deleted"] is True and out["applied"] is True
+    assert out["note"]["updated_at"] > n["updated_at"]
+    assert cl.call("GET", "/notes/" + n["id"])[0] == 404
+
+
+def test_a_timestamp_in_milliseconds_is_refused(cl):
+    n = note("wrong unit", updated_at=time.time() * 1000)
+    assert cl.call("PUT", "/notes/" + n["id"], n)[0] == 400
+    assert cl.call("PUT", "/notes/" + nid(), note("x", created_at=time.time() * 1000))[0] == 400
+    assert cl.call("PUT", "/notes/" + nid(), note("a day or less ahead is fine", updated_at=time.time() + 3600))[0] == 200
+
+
+def _raw_request(srv, head, body=b"", wait=2.0):
+    """Sends a request by hand and returns the status line of the answer. The socket stays open on our side."""
+    import socket
+    s = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=wait)
+    try:
+        s.sendall(head.encode("latin-1") + body)
+        data = b""
+        while b"\r\n" not in data:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        return data.split(b"\r\n", 1)[0].decode("latin-1")
+    finally:
+        s.close()
+
+
+@pytest.mark.parametrize("length", ["-1", "1, 1", "+5", "0x10", " "])
+def test_a_malformed_content_length_is_a_400_at_once_and_reads_nothing_more(server, length):
+    head = (f"PUT /profile HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {server.token}\r\nIf-Match: 0\r\n"
+            f"Content-Length: {length}\r\n\r\n")
+    status = _raw_request(server, head, b"x" * 65536)     # the client keeps its side open: the answer must not wait for EOF
+    assert " 400 " in status

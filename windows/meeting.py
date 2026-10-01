@@ -46,6 +46,13 @@ def meetings_dir():
     return d
 
 
+def export_name(title):
+    """A title as a safe file name: no control characters and none of the characters Windows refuses in a name, one line,
+    at most 60 characters, no spaces or dots at the ends; "Meeting" when nothing is left."""
+    s = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', " ", title or "")
+    return " ".join(s.split())[:60].strip(" .") or "Meeting"
+
+
 def notes_export_dir(cfg):
     d = cfg.get("notes_folder") or os.path.join(os.path.expanduser("~"), "Documents", "Vox Notes")
     os.makedirs(d, exist_ok=True)
@@ -123,6 +130,14 @@ MEETING_ASK_PROMPT = """You answer questions about one meeting using its notes a
 
 # ------------------------------------------------------------------ recording
 
+def _frames(rest, block):
+    """Cuts `rest` (what was left over from the last block) plus `block` into whole FRAME-sample frames.
+    Returns ([frame, ...], new_rest): the remainder is shorter than a frame and starts the next call."""
+    data = np.concatenate([rest, block])
+    whole = len(data) // FRAME * FRAME
+    return [data[i:i + FRAME] for i in range(0, whole, FRAME)], data[whole:]
+
+
 class _Source(threading.Thread):
     """Records one device, cuts speech into pieces at natural pauses, and keeps every speech piece on disk
     (raw 16 kHz int16) for the final high-accuracy pass."""
@@ -137,22 +152,22 @@ class _Source(threading.Thread):
         self.speaking = False
         self.pieces = []            # [(start_seconds, byte_offset, n_samples)] of speech saved to disk
         self.raw_path = os.path.join(meeting.folder(), f"{who.lower()}.raw")
-        self.samples = 0            # samples read so far
+        self.samples = 0            # samples cut into frames so far (a remainder of less than a frame is carried over)
         self.t0 = 0.0               # meeting time of sample 0
 
     def run(self):
         noise = 0.004
         buf, buf_start, speech_frames, silence_run = [], None, 0, 0.0
+        rest = np.zeros(0, np.float32)
         try:
             with self.make_recorder() as rec, open(self.raw_path, "wb") as raw:
                 self.t0 = self.meeting.elapsed()
                 while self.meeting.active:
                     block = rec.record(numframes=SR // 10)[:, 0].astype(np.float32)   # 100 ms
-                    n = len(block)
-                    if not n:
+                    if not len(block):
                         continue
-                    for i in range(0, n - FRAME + 1, FRAME):
-                        fr = block[i:i + FRAME]
+                    frames, rest = _frames(rest, block)   # a block is not a whole number of frames: carry the remainder over
+                    for j, fr in enumerate(frames):
                         rms = float(np.sqrt(np.mean(fr * fr)))
                         # slowly track background noise so the threshold adapts to each room and device
                         noise = min(max(noise * 0.995 + rms * 0.005 if rms < noise * 3 else noise * 1.0005, 0.0015), 0.05)
@@ -160,14 +175,14 @@ class _Source(threading.Thread):
                         self.level = min(1.0, rms * 12)
                         self.speaking = voiced
                         if buf_start is None:
-                            buf_start = self.samples + i
+                            buf_start = self.samples + j * FRAME
                         buf.append(fr)
                         if voiced:
                             speech_frames += 1
                             silence_run = 0.0
                         else:
                             silence_run += FRAME / SR
-                    self.samples += n
+                    self.samples += len(frames) * FRAME
                     dur = sum(len(b) for b in buf) / SR
                     if (dur >= MIN_CHUNK and silence_run >= PAUSE) or dur >= MAX_CHUNK:
                         self._emit(buf, buf_start, speech_frames, raw)
@@ -603,8 +618,7 @@ class Meeting:
             meta_path = os.path.join(self.folder(), "meta.json")
             _write_json(meta_path, meta)   # first: the meeting is listed even when the copy in Documents fails
             try:
-                safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "", title)[:60].strip() or "Meeting"
-                export = os.path.join(notes_export_dir(cfg), f"{when:%Y-%m-%d %H%M} {safe}.md")
+                export = os.path.join(notes_export_dir(cfg), f"{when:%Y-%m-%d %H%M} {export_name(title)}.md")
                 with open(export, "w", encoding="utf-8") as f:
                     f.write(full)
                 meta["export"] = export
@@ -648,7 +662,7 @@ def list_meetings():
     return out
 
 
-_ID = re.compile(r"\d{8}-\d{6}")   # the folder name of a meeting (see Meeting._start)
+_ID = re.compile(r"[0-9]{8}-[0-9]{6}")   # the folder name of a meeting (see Meeting._start)
 
 
 def recover_unfinished(cfg, skip_id=None):
@@ -691,21 +705,29 @@ def recover_unfinished(cfg, skip_id=None):
             log.exception("could not recover meeting %s", d)
 
 
+def _folder_of(mid):
+    """The folder of a saved meeting. Raises ValueError for anything that is not a meeting id, or whose folder does not
+    sit directly inside the meetings folder: ".." used to reach the whole data folder (config, notes, history)."""
+    if not isinstance(mid, str) or not _ID.fullmatch(mid):
+        raise ValueError("not a meeting id")
+    base = meetings_dir()
+    folder = os.path.join(base, mid)
+    if os.path.dirname(os.path.realpath(folder)) != os.path.realpath(base):
+        raise ValueError("not a meeting folder")
+    return folder
+
+
 def read_notes(mid):
-    p = os.path.join(meetings_dir(), os.path.basename(mid), "notes.md")
-    with open(p, encoding="utf-8") as f:
+    with open(os.path.join(_folder_of(mid), "notes.md"), encoding="utf-8") as f:
         return f.read()
 
 
 def delete_meeting(mid):
     import shutil
-    shutil.rmtree(os.path.join(meetings_dir(), os.path.basename(mid)), ignore_errors=True)
+    shutil.rmtree(_folder_of(mid), ignore_errors=True)
 
 
 # ------------------------------------------------------------ meeting page data
-
-def _folder_of(mid):
-    return os.path.join(meetings_dir(), os.path.basename(mid))
 
 
 def _read_json(path, default):
@@ -797,7 +819,7 @@ def ask(cfg, question):
     for m in list_meetings():
         try:
             text = read_notes(m["id"])
-        except OSError:
+        except (OSError, ValueError):
             continue
         s = _score(m.get("title", ""), words) * 5 + _score(text, words)
         scored.append((s, m.get("started", 0), m, text))

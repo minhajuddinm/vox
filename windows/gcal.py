@@ -239,6 +239,9 @@ def events():
     return _parse_items(r.json().get("items", []))
 
 
+MAX_ATTENDEES = 30   # calendar text goes into prompts and file names: bounded and on one line (see core.one_line)
+
+
 def _parse_items(items):
     """Google event items in the shape of vcalendar.parse(). An event you declined is dropped; `my_status` is your
     answer ("accepted" when it is your own event or Google gives no answer)."""
@@ -255,16 +258,16 @@ def _parse_items(items):
         for a in ev.get("attendees", []):
             if a.get("self") or a.get("resource") or a.get("responseStatus") == "declined":
                 continue
-            n = a.get("displayName") or a.get("email", "").split("@")[0].replace(".", " ").title()
-            if n and n not in people:
+            n = core.one_line(a.get("displayName") or a.get("email", "").split("@")[0].replace(".", " ").title(), 80)
+            if n and n not in people and len(people) < MAX_ATTENDEES:
                 people.append(n)
         link = ev.get("hangoutLink", "")
         for ep in (ev.get("conferenceData") or {}).get("entryPoints", []):
             if ep.get("entryPointType") == "video":
                 link = link or ep.get("uri", "")
         org = ev.get("organizer", {})
-        out.append({"uid": ev.get("id", "") + "|" + str(s), "title": ev.get("summary", "(no title)"),
+        out.append({"uid": ev.get("id", "") + "|" + str(s), "title": core.one_line(ev.get("summary", "(no title)"), 120),
                     "start": s, "end": e or s, "attendees": people, "my_status": my_status,
-                    "organizer": "" if org.get("self") else (org.get("displayName") or org.get("email", "")),
+                    "organizer": "" if org.get("self") else core.one_line(org.get("displayName") or org.get("email", ""), 80),
                     "link": link})
     return out

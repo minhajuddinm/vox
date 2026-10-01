@@ -13,7 +13,6 @@ State of the code, honestly. Update this page when you fix or discover something
 | Failed Windows dictation audio lives in memory only | `Engine.pending` is lost when Vox quits (Android keeps a file until sent or cancelled). |
 | Spoken "new line" false positives | When cleanup did not run, a phrase like "a new line of code" becomes a line break. This is a deliberate trade-off. |
 | Fidelity guard limits | Counts words, not meaning: a one-word change that flips the meaning in a long text passes. Standard strength has no absolute cap, so a 1,000-word dictation can lose a few percent unseen (Light caps missing words at 12). A cleanup that turns a spoken list into numbered items and drops `first`, `second`, `third`, and a translation all count as lost words, so they fall back to the raw words. Also not understood: fractions (`a quarter`, `quarter past three`), `out of` (`three out of five` -> `3/5`) and a digit before a scale word (`2 million`); they fall back to the raw words too. The thresholds were tuned on written examples, not on real model output. Light is the default strength (the Settings row "Cleanup strength" switches to Standard), so a model that is good at removing fillers is rejected more often than before, not less. The capitals the fallback adds are a plain rule on `.`, `!`, `?` and line breaks: after an abbreviation such as `e.g.` the next word also gets a capital. See [specs/p9a-cleanup-keeps-my-words.md](specs/p9a-cleanup-keeps-my-words.md). |
-| Private-host rule differs slightly between platforms | Python's `ipaddress.is_private` also accepts a few reserved ranges (for example documentation and benchmarking blocks) that the Java `Endpoint.isPrivateHost` rejects. `spec/golden.txt` does not cover address rules. |
 | Note rules differ slightly between platforms | `notes._tags` (Windows) has no limit on the number of tags, while `NoteLogic.cleanTags` (Android) keeps at most 20 (the relay's limit); both remove double quotes; tag clean-up has no golden rows. "Word" and "space" in `auto_title` and `fts_query` follow each runtime's Unicode tables (Python 3.13: Unicode 15.1; Android's Java: whatever the phone's version has), so letters added in a newer Unicode version can count as words on one side only. The whitespace set is written out in `NoteLogic` and matches Python's `str.isspace()` exactly. |
 | A sideloaded APK cannot avoid the install warnings | Android's "Restricted setting" for the accessibility service (Android 13 and newer) and Play Protect's "App blocked" or "unknown app" prompt come from how the APK is installed, not from the manifest. The Install help card (Settings, System) lists the taps and the adb way; the real fixes are Google Play (closed testing) or an app store such as F-Droid, none of which is set up. Unconfirmed: whether the restriction returns on an update, and what Play Protect shows for adb installs ([specs/p9g2-install-safety.md](specs/p9g2-install-safety.md)). |
 | Android `targetSdkVersion` is 34 | The research recommends 35 or 36 (Play Protect warns when the target is more than two levels below the phone, so Android 17 would warn). It stays at 34 because the sources compile only against `platforms/android-34`; the steps to raise it (new platform in CI and the scripts, behaviour-change review, a device pass) are in the p9g2 spec and [decisions/0035](decisions/0035-sideload-warnings-are-explained-not-engineered-away.md). |
@@ -61,7 +60,7 @@ State of the code, honestly. Update this page when you fix or discover something
 
 - Android API key and history are not encrypted inside the app's private storage.
 - Windows history and meeting data are plain files.
-- Dictated text passes through the clipboard (clipboard history can keep it). `keep_clipboard` defaults to false, so the old clipboard text is restored after a paste.
+- Dictated text passes through the clipboard, marked so Win+V history and the cloud clipboard skip it. `keep_clipboard` defaults to false, so the old clipboard is restored after a paste (every format that is plain memory; GDI-handle formats are not copied). The clipboard code (`paste.py`) was run on the development PC against the real clipboard but not under a live dictation.
 
 ### Structure and quality
 
@@ -97,7 +96,7 @@ Ordered by how much they would help (the v2 plan; P1 to P4 are done):
 11. Tests for `engine.py` state logic, `meeting.py` text helpers and `Prefs`; a Windows UI smoke test with a stubbed `pywebview.api`.
 12. Compress uploads when the server accepts it: done on Android (m4a from 4 s, not run on a phone yet); still to do on Windows (FLAC or Opus).
 13. Make the Microphone setting apply to meeting notes.
-14. Put address rules (`is_private_host`) into `spec/golden.txt` so both platforms agree exactly.
+14. Put address rules (`is_private_host`) into `spec/golden.txt` so both platforms agree exactly. Done: golden kind `privatehost` (Python, the relay copy and Java).
 15. Merge the two hallucination lists.
 16. Check the model dropdown, About you box and meters on real devices.
 
@@ -120,12 +119,11 @@ Each needs a short spec, tests first, a docs sync and its own pull request. Sugg
 
 The README, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, the issue forms and the PR template exist. Still to do:
 
-1. **Choose a licence.** There is no `LICENSE` file; the README says reuse is not permitted until the owner chooses one. The decision belongs to the owner and the original author.
-2. **Turn on GitHub private vulnerability reporting** (repository Settings, Code security). It is off today, so `SECURITY.md` tells reporters what to do without it.
-3. **Take the screenshots** listed in the README (`docs/screenshots/`, made-up text only) and link them from the README.
-4. **Tag a new release.** The latest release, v1.2.0, predates the v2 work, so the README's install steps give the old app.
-5. **Neutral example values in the app pages** (code change): the example relay address in `ui-shared/relay-steps.txt` (run `tools/sync_ui.py` afterwards) and in the relay address hints of `windows/ui/index.html` and `android/assets/index.html` still uses the developer's own Pi host name, and the Windows device-name hint and a note in the Android preview mock use his laptop's name. They should read `your-pi.your-tailnet.ts.net` and a neutral name like the docs.
-6. **The public site's contact address.** `docs/index.html` and `docs/privacy.html` give the original author's personal email as the contact; the owner may prefer the repository's issues or private reporting.
-7. **Labels for the issue forms.** The forms add `bug`, `enhancement` and `device-test`; a label that does not exist on the repository is not applied, so create `device-test`.
+1. **Turn on GitHub private vulnerability reporting** (repository Settings, Code security). It is off today, so `SECURITY.md` tells reporters what to do without it.
+2. **Take the screenshots** listed in the README (`docs/screenshots/`, made-up text only) and link them from the README.
+3. **Tag a new release.** The latest release, v1.2.0, predates the v2 work, so the README's install steps give the old app.
+4. **Neutral example values in the app pages** (code change): the example relay address in `ui-shared/relay-steps.txt` (run `tools/sync_ui.py` afterwards) and in the relay address hints of `windows/ui/index.html` and `android/assets/index.html` still uses the developer's own Pi host name, and the Windows device-name hint and a note in the Android preview mock use his laptop's name. They should read `your-pi.your-tailnet.ts.net` and a neutral name like the docs.
+5. **The public site's contact address.** `docs/index.html` and `docs/privacy.html` give the original author's personal email as the contact; the owner may prefer the repository's issues or private reporting.
+6. **Labels for the issue forms.** The forms add `bug`, `enhancement` and `device-test`; a label that does not exist on the repository is not applied, so create `device-test`.
 
 Not planned: Android meeting notes, iOS, on-device speech recognition.

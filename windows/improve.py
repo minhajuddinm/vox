@@ -171,7 +171,7 @@ def _key(line):
 def apply(proposal, accepted_ids, cfg, now=None):
     """A new config with the accepted dictionary words, replacements and rules added (what is already there is skipped; the
     rules never grow past core.MAX_RULES: what does not fit is left out). About you suggestions are never applied. A change is
-    kept as a version in `my_cleanup_rules_versions` ({"t", "rules" before it, "added" dictionary lines}, the last 20) so that
+    kept as a version in `my_cleanup_rules_versions` ({"t", "rules" before it, "added" dictionary lines, "added_rules" rule lines}, the last 20) so that
     revert() can undo it. The config that goes in is not changed (lists that stay the same are shared)."""
     want = set(accepted_ids or ())
     picked = [i for i in proposal.items if i["id"] in want]
@@ -185,22 +185,25 @@ def apply(proposal, accepted_ids, cfg, now=None):
     old_rules = cfg.get("my_cleanup_rules") or ""
     rules = [r for r in old_rules.split("\n") if r.strip()]
     seen = {r.strip().lower() for r in rules}
+    added_rules = []
     for i in picked:
         if i["kind"] == "rule" and i["text"].lower() not in seen and len("\n".join(rules + [i["text"]])) <= core.MAX_RULES:
             seen.add(i["text"].lower())
             rules.append(i["text"])
+            added_rules.append(i["text"])
     new_rules = "\n".join(rules)
-    if not added and new_rules == old_rules:
+    if not added and not added_rules:   # nothing to change (blank lines alone are not a change)
         return dict(cfg)
     versions = (list(cfg.get("my_cleanup_rules_versions") or []) + [
-        {"t": time.time() if now is None else now, "rules": old_rules, "added": added}])[-MAX_VERSIONS:]
+        {"t": time.time() if now is None else now, "rules": old_rules, "added": added, "added_rules": added_rules}])[-MAX_VERSIONS:]
     return dict(cfg, dictionary=lines + added, my_cleanup_rules=new_rules, my_cleanup_rules_versions=versions)
 
 
 def revert(cfg, index=-1):
     """A new config as it was before version `index` of `my_cleanup_rules_versions` (the last by default): that version and
-    every later one are undone, their added dictionary lines removed (when still there) and the rules put back. An index
-    that names no version changes nothing."""
+    every later one are undone, their added dictionary lines removed (when still there) and the rule lines they added removed
+    (when still there; rules the user wrote since stay). A version from before "added_rules" existed puts its whole rules
+    snapshot back. An index that names no version changes nothing."""
     versions = list(cfg.get("my_cleanup_rules_versions") or [])
     if not isinstance(index, int) or not -len(versions) <= index < len(versions):
         return dict(cfg)
@@ -210,7 +213,17 @@ def revert(cfg, index=-1):
         for line in v.get("added", []):
             if line in lines:
                 lines.remove(line)
-    return dict(cfg, dictionary=lines, my_cleanup_rules=versions[index]["rules"], my_cleanup_rules_versions=versions[:index])
+    rules = versions[index]["rules"]
+    if all(isinstance(v.get("added_rules"), list) for v in versions[index:]):
+        current = (cfg.get("my_cleanup_rules") or "").split("\n")
+        for v in versions[index:]:
+            for rule in v["added_rules"]:
+                for k, line in enumerate(current):
+                    if line.strip() == rule.strip():
+                        del current[k]
+                        break
+        rules = "\n".join(current)
+    return dict(cfg, dictionary=lines, my_cleanup_rules=rules, my_cleanup_rules_versions=versions[:index])
 
 
 def fidelity_report(transcripts):

@@ -237,6 +237,7 @@ nav button.on .pill { background:var(--accent-soft); }
   <div class="card list">
     <div class="item"><div class="grow"><div class="t">Language</div><div class="d">Auto can switch on short phrases</div></div>
       <select class="inline" id="language"><option value="">Auto</option><option value="en">English</option><option value="ur">Urdu</option><option value="hi">Hindi</option><option value="ar">Arabic</option><option value="fr">French</option><option value="es">Spanish</option></select></div>
+    <div class="item"><div class="grow"><div class="t">Microphone</div><div class="d">Which microphone Vox listens to. The phone's own microphone unless you pick one. If dictation says it heard nothing, try another.</div></div><select class="inline" id="mic-device"></select></div>
     <div class="item"><div class="grow"><div class="t">AI cleanup</div><div class="d">Removes fillers, fixes punctuation, applies corrections</div></div><label class="switch"><input type="checkbox" id="cleanup"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases are typed as spoken, which is faster. 1 cleans up everything (1 to 20)</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" inputmode="numeric" style="width:76px"></div>
     <div class="item"><div class="grow"><div class="t">Cleanup strength</div><div class="d">Light keeps every word you said and only fixes punctuation, capitals, spelling and paragraphs. Standard also removes fillers and false starts. If the cleanup lost words, Vox types them as spoken</div></div><select class="inline" id="cleanup-strength"><option value="light">Light</option><option value="standard">Standard</option></select></div>
@@ -466,11 +467,13 @@ function previewNotes() {
 const V = window.Vox || {   // browser preview fallback
   state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, always_show_bubble: false, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, relay_proxy: false, device_name: "", note_bubble: false, note_notification: false }, status: { notes: 0, unsent: false }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
   ...previewNotes(),
+  getMics: () => JSON.stringify({ current: "", options: [{ key: "15|Preview phone", label: "Preview phone (built-in)" }, { key: "7|Preview buds", label: "Preview buds (Bluetooth)" }] }), setMic(){},
   save(){}, requestMic(){}, openAccessibility(){}, openAppInfo(){}, openBattery(){}, setService(){}, testKey(k, u, cb){ setTimeout(() => window[cb]("ok"), 300); }, listModels(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ models: [], error: "Preview only" })), 200); }, testRole(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ ok: true, message: "Preview only" })), 200); }, endpointProblem: () => "", suggestCorrections: (a, b) => JSON.stringify(a !== b ? [["vox", "Vox"]] : []), copy(){}, deleteHistory(){}, clearHistory(){}, openUrl(){}, toast(){}, apps: () => "[]", appLabel: (p) => p, getSpeed: () => JSON.stringify({ count: 0, biggest: "", stages: {}, models: [], last: [] })
 };
 const TITLES = { home: ["Vox", ""], notes: ["Voice notes", ""], dict: ["Dictionary", ""], styles: ["Styles", ""], settings: ["Settings", ""] };
 const GROQ_URL = "https://api.groq.com/openai/v1";
 let S = null, PAGE = "home";
+let modelsLoaded = false;   // not part of S: voxRefresh() replaces S, and the lists should be fetched once
 const FALLBACK_PRESETS = [{ id: "groq", name: "Groq (free tier)", base_url: GROQ_URL, key_url: "https://console.groq.com/keys", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b" },
   { id: "custom", name: "Your own server (Ollama, Whisper server, ...)", base_url: "", key_url: "" }];
 const presets = () => (S && S.presets && S.presets.length ? S.presets : FALLBACK_PRESETS);
@@ -733,8 +736,8 @@ function renderDict() {
 }
 $("w-add").onclick = () => { const v = $("w-in").value.trim(); if (!v) return; const w = words(); if (!w.includes(v)) w.push(v); $("w-in").value = ""; setDict(w, repls()); renderDict(); };
 $("p-add").onclick = () => { const v = $("p-in").value.trim(); if (!v) return; const p = [...(S.config.people || [])]; if (!p.includes(v)) p.push(v); $("p-in").value = ""; save({ people: p }); renderDict(); };
-$("words").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const w = words(), k = w.indexOf(b.dataset.v); if (k >= 0) { w.splice(k, 1); setDict(w, repls()); } renderDict(); };
-$("people").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const p = [...(S.config.people || [])], k = p.indexOf(b.dataset.v); if (k >= 0) { p.splice(k, 1); save({ people: p }); } renderDict(); };
+$("words").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const w = words(), k = +b.dataset.i; if (!isNaN(k) && k >= 0 && k < w.length) { w.splice(k, 1); setDict(w, repls()); } renderDict(); };
+$("people").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const p = [...(S.config.people || [])], k = +b.dataset.i; if (!isNaN(k) && k >= 0 && k < p.length) { p.splice(k, 1); save({ people: p }); } renderDict(); };
 $("r-add").onclick = () => { const a = $("r-wrong").value.trim(), b = $("r-right").value.trim(); if (!a || !b) return; const r = repls(); r.push([a, b]); $("r-wrong").value = $("r-right").value = ""; setDict(words(), r); renderDict(); toast("Added"); };
 $("repls").onclick = (e) => { const b = e.target.closest("[data-a]"); if (!b) return; const r = repls(), k = r.findIndex(x => x[0] === b.dataset.a && x[1] === b.dataset.b); if (k >= 0) { r.splice(k, 1); setDict(words(), r); } renderDict(); };
 ["w-in", "p-in"].forEach(id => $(id).onkeydown = (e) => { if (e.key === "Enter") $(id.replace("in", "add")).click(); });
@@ -773,8 +776,21 @@ function renderSettings() {
   $("keep-history").checked = c.keep_history !== false;
   $("note-bubble").checked = !!c.note_bubble; $("note-notification").checked = !!c.note_notification;
   $("language").value = c.language || ""; $("service").checked = S.service;
+  renderMics();
   $("about-vox").textContent = `Vox ${S.version} · no analytics, no server of its own`;
   renderDiag();
+}
+// The Microphone row: the phone's own list, asked again every time Settings is drawn (a headset can be plugged in or
+// out between two visits). The select is rebuilt only when the list changed, so an open dropdown is not closed.
+function renderMics() {
+  let m;
+  try { m = JSON.parse(V.getMics()); } catch (e) { m = { current: "", options: [] }; }
+  const sel = $("mic-device"), sig = JSON.stringify(m);
+  if (sel._sig !== sig) {
+    sel.innerHTML = `<option value="">Phone default</option>` + (m.options || []).map(o => `<option value="${esc(o.key)}">${esc(o.label)}</option>`).join("");
+    sel._sig = sig;
+  }
+  sel.value = m.current || "";
 }
 // The bubble diagnostics card: what the accessibility service and the battery setting look like now, and the last
 // events the service logged (bubble added or removed and why, screen on or off, unlock, rotation). Local only.
@@ -828,7 +844,7 @@ function renderProvider() {
   setVal("stt-url", c.stt_base_url || ""); setVal("stt-key", c.stt_api_key || "");
   setVal("llm-url", c.llm_base_url || ""); setVal("llm-key", c.llm_api_key || "");
   renderProxy();
-  if (!S.modelsLoaded && (c.api_key || !p.key_url || viaRelay())) { S.modelsLoaded = true; refreshModels(); }
+  if (!modelsLoaded && (c.api_key || !p.key_url || viaRelay())) { modelsLoaded = true; refreshModels(); }
 }
 function showModels(role, json) {
   const r = JSON.parse(json), s = $(role + "-status");
@@ -910,6 +926,7 @@ $("open-about").onclick = () => go("dict");
 $("keep-history").onchange = (e) => save({ keep_history: e.target.checked }, "Saved");
 $("cleanup-strength").onchange = (e) => save({ cleanup_strength: e.target.value }, "Saved");
 $("language").onchange = (e) => save({ language: e.target.value }, "Saved");
+$("mic-device").onchange = (e) => { V.setMic(e.target.value); toast(e.target.value ? "Microphone changed" : "Using the phone's own microphone"); };
 $("service").onchange = (e) => V.setService(e.target.checked);
 $("battery").onclick = () => V.openBattery();
 $("diag-battery-fix").onclick = () => V.openBattery();

@@ -367,3 +367,14 @@ def test_a_replayed_session_is_not_cut_short_by_the_microphone_watch(monkeypatch
     lis.replay(utterances(1))
     assert lis.done.wait(20)
     assert host.notes == [("old words.", "old words.")] and not any("microphone" in m.lower() for m in host.messages)
+
+
+# ------------------------------------------------------------------ recovery must not delete audio it did not hear
+def test_a_session_that_lost_its_microphone_does_not_remove_the_recovery_file(monkeypatch):
+    monkeypatch.setattr(listen, "MIC_SILENT_SECONDS", 0.05)
+    monkeypatch.setattr(core, "transcribe", Script([]))
+    host, removed = Host(), []
+    lis = listen.Listening(host, NOCLEAN, "note", focus=lambda: "notepad.exe", after=lambda: removed.append(1))
+    lis.start()          # nothing is replayed: the saved audio was not read in time
+    assert lis.done.wait(20)
+    assert removed == []
