@@ -473,10 +473,12 @@ public class MainActivity extends Activity {
         public String noteToggle() {
             final DictationService svc = DictationService.instance;
             int st = svc == null ? DictationService.IDLE : svc.getState();
-            if (st == DictationService.RECORDING) {
+            boolean dictating = DictationService.DEST_DICTATION.equals(DictationService.currentDest());   // a bubble dictation, not a note
+            if (st == DictationService.RECORDING && !dictating) {
                 main.post(svc::stopRecording);
                 return "{\"ok\":true,\"action\":\"stop\"}";
             }
+            if (st == DictationService.RECORDING) return errorJson("Vox is taking a dictation right now. Finish it first.");
             if (st == DictationService.PROCESSING) return errorJson("Vox is still writing down the last recording. Try again in a moment.");
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 return errorJson("Allow the microphone first (Home, Set up).");
@@ -503,14 +505,18 @@ public class MainActivity extends Activity {
             return "{\"ok\":true,\"action\":\"start\"}";
         }
 
-        /** {"recording": bool, "busy": bool}: the dictation service is recording, or is writing the recording down. */
+        /**
+         * {"recording": bool, "busy": bool}: a voice note is being recorded, or the service is busy (writing a recording
+         * down, or taking a bubble dictation, which a note must never stop).
+         */
         @JavascriptInterface
         public String noteStatus() {
             DictationService svc = DictationService.instance;
             int st = svc == null ? DictationService.IDLE : svc.getState();
+            boolean dictating = DictationService.DEST_DICTATION.equals(DictationService.currentDest());
             JSONObject o = new JSONObject();
-            put(o, "recording", st == DictationService.RECORDING);
-            put(o, "busy", st == DictationService.PROCESSING);
+            put(o, "recording", st == DictationService.RECORDING && !dictating);
+            put(o, "busy", st == DictationService.PROCESSING || (st == DictationService.RECORDING && dictating));
             return o.toString();
         }
 

@@ -212,6 +212,8 @@ public class DictationService extends Service {
     /** True while a voice note is being recorded (not while it is being sent). */
     public boolean isNoteRecording() { return state == RECORDING && isNoteJob(); }
 
+    static String currentDest() { DictationService s = instance; return s == null || s.state == IDLE ? null : s.targetDest; }   // "note", "dictation" or null (idle)
+
     // ------------------------------------------------------------ recording
 
     public void startRecording(String pkg, String label) {
