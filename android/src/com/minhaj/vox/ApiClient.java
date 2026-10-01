@@ -39,6 +39,8 @@ public final class ApiClient {
 
     /** True when Groq accepts the key, false when it rejects it. Throws on network errors. */
     public boolean checkKey() throws IOException {
+        String problem = Endpoint.error(base);
+        if (problem != null) throw new IOException(problem);   // the same address rule as every other call: never send the key to a refused address
         HttpURLConnection c = (HttpURLConnection) new URL(base + "/models").openConnection();
         c.setConnectTimeout(15000);
         c.setReadTimeout(15000);

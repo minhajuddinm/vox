@@ -796,6 +796,7 @@ window.keyResult = (r) => {
   const s = $("key-status");
   if (r === "ok") { s.className = "status ok"; s.textContent = "Key works. You're set."; }
   else if (r === "bad") { s.className = "status bad"; s.textContent = "The server rejected this key. Copy it again."; }
+  else if (r === "address") { s.className = "status bad"; s.textContent = "This address is refused: plain http only works for this phone, your local network and Tailscale. Key saved, not tested."; }
   else { s.className = "status bad"; s.textContent = "No internet. Key saved, test again later."; }
 };
 const setVal = (id, v) => { if (document.activeElement !== $(id)) $(id).value = v; };

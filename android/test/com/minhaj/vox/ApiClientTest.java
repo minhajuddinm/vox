@@ -147,6 +147,34 @@ public final class ApiClientTest {
         eq("relay: retry connect timeout", true, ApiClient.isRetryable(new java.net.SocketTimeoutException("Connect timed out"), true));
         eq("direct: retry read timeout", true, ApiClient.isRetryable(new java.net.SocketTimeoutException("Read timed out"), false));
 
+        // checkKey follows the same address rule as every other call: it never sends the key to a refused address
+        String refused = "http://203.0.113.9/v1";
+        eq("the test address is refused", true, Endpoint.error(refused) != null);
+        try {
+            new ApiClient("k", refused).checkKey();
+            eq("checkKey to a refused address throws", true, false);
+        } catch (IOException e) {
+            eq("checkKey to a refused address throws the address problem", Endpoint.error(refused), e.getMessage());
+        }
+        try {
+            final String[] seen = new String[1];
+            com.sun.net.httpserver.HttpServer srv = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+            srv.createContext("/v1/models", ex -> {
+                seen[0] = ex.getRequestHeaders().getFirst("Authorization");
+                ex.sendResponseHeaders(200, -1);
+                ex.close();
+            });
+            srv.start();
+            try {
+                eq("checkKey to a local address still works", true, new ApiClient("k", "http://127.0.0.1:" + srv.getAddress().getPort() + "/v1").checkKey());
+                eq("checkKey sends the key to a local address", "Bearer k", seen[0]);
+            } finally {
+                srv.stop(0);
+            }
+        } catch (IOException e) {
+            eq("local checkKey does not throw", null, e.toString());
+        }
+
         System.out.println("OK: " + checks + " checks passed");
     }
 }
