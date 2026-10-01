@@ -1,0 +1,8 @@
+:root {
+  --bg: #F7F7F5; --panel: #FFFFFF; --text: #1B1B1F; --muted: #6B6B73;
+  --accent: #2F5BEA; --accent-soft: #E6ECFD; --ok: #1E8E3E;
+}
+@dark {
+  --bg: #161618; --panel: #1E1E21; --text: #EDEDEF; --muted: #9A9AA3;
+  --accent: #6E8BFF; --accent-soft: #232B47; --ok: #4CC36B;
+}
