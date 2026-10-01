@@ -1049,7 +1049,11 @@ def transcribe(cfg, wav_bytes, context=""):
         timeout=60,
         via_relay=providers.uses_relay(cfg),
     )
-    return check_response(r, providers.uses_relay(cfg)).get("text", "").strip()
+    res = check_response(r, providers.uses_relay(cfg))
+    text = res.get("text", "") if isinstance(res, dict) else None
+    if not isinstance(text, str):   # a null, a number or a list: keep the recording for Retry instead of losing it
+        raise ApiError(0, "The speech server sent an answer Vox could not read")
+    return text.strip()
 
 
 def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
@@ -1098,7 +1102,12 @@ def chat_text(cfg, body, timeout=60):
         for k in extra:
             body.pop(k, None)
         r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout, via_relay=via_relay)
-    return providers.strip_think(check_response(r, via_relay)["choices"][0]["message"].get("content", ""))
+    data = check_response(r, via_relay)
+    try:
+        content = data["choices"][0]["message"].get("content")
+    except (KeyError, IndexError, TypeError, AttributeError):
+        raise ApiError(0, "The cleanup server sent an answer Vox could not read")
+    return providers.strip_think(content or "")
 
 
 def cleanup(cfg, raw, style, app_label):
@@ -1166,6 +1175,9 @@ def process_text(cfg, raw, exe, app_label):
                 error, rejected = "the cleanup answer looked wrong", True
         except (ApiError, requests.RequestException) as e:
             error = str(e)
+        except Exception as e:   # anything unexpected: the spoken words are still pasted
+            log.exception("cleanup failed")
+            error = "the cleanup failed (%s)" % type(e).__name__
         finally:
             _mark("llm_done")
     if not cleaned:
