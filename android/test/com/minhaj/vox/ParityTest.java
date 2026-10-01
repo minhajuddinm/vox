@@ -126,6 +126,9 @@ public final class ParityTest {
                 case "profilefields":
                     eq(ln, kind, f[1], String.join("|", f[0].equals("keys") ? ProfileMerge.KEY_FIELDS : ProfileMerge.SHARED_FIELDS));
                     break;
+                case "devname":   // a typed, non-blank name: the model argument is never used
+                    eq(ln, kind, f[1], NoteLogic.deviceName(f[0], "model"));
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);

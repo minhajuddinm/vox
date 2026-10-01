@@ -153,6 +153,7 @@ public class DictationService extends Service {
         } finally {
             TrampolineActivity.finishNow();   // the service is in the foreground: the trampoline is no longer needed
         }
+        SyncWorker.kick(this);   // the notes may have waited for the network: sync now that the app is running (no-op when sync is off)
         return START_NOT_STICKY;
     }
 

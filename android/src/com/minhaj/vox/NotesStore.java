@@ -5,6 +5,7 @@ import android.database.Cursor;
 import android.database.SQLException;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.database.sqlite.SQLiteStatement;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -188,8 +189,17 @@ final class NotesStore extends SQLiteOpenHelper implements SyncStore {
         return id;
     }
 
-    /** The note, or null when there is none with that id or it was deleted. */
+    /**
+     * True for a null or empty id or key. rawQuery passes its arguments as strings and Android throws
+     * IllegalArgumentException for a null one, so every query that binds an id or a key checks this first.
+     */
+    private static boolean blank(String s) {
+        return s == null || s.isEmpty();
+    }
+
+    /** The note, or null when there is none with that id (or the id is null or empty) or it was deleted. */
     Note get(String id) {
+        if (blank(id)) return null;
         Cursor c = db().rawQuery("SELECT * FROM notes WHERE id = ? AND deleted = 0", new String[]{id});
         try {
             return c.moveToFirst() ? row(c) : null;
@@ -198,15 +208,19 @@ final class NotesStore extends SQLiteOpenHelper implements SyncStore {
         }
     }
 
-    /** Changes a note; null keeps the current title, text or tags. Does nothing when the note does not exist. */
-    void update(String id, String title, String text, List<String> tags) {
+    /**
+     * Changes a note; null keeps the current title, text or tags. Returns the note as it is now, or null when the
+     * note does not exist (also for a null or empty id), like notes.update.
+     */
+    Note update(String id, String title, String text, List<String> tags) {
+        if (blank(id)) return null;
         SQLiteDatabase db = db();
         db.beginTransaction();
         try {
             Cursor c = db.rawQuery("SELECT title, text, tags FROM notes WHERE id = ? AND deleted = 0", new String[]{id});
             String newTitle, newText, newTags;
             try {
-                if (!c.moveToFirst()) return;
+                if (!c.moveToFirst()) return null;
                 newTitle = title == null ? c.getString(0) : NoteLogic.strip(title);
                 newText = text == null ? c.getString(1) : NoteLogic.strip(text);
                 newTags = tags == null ? c.getString(2) : tagsJson(tags);
@@ -216,21 +230,42 @@ final class NotesStore extends SQLiteOpenHelper implements SyncStore {
             db.execSQL("UPDATE notes SET title = ?, text = ?, tags = ?, updated_at = ?, dirty = 1 WHERE id = ?",
                     new Object[]{newTitle, newText, newTags, nowSecs(), id});
             index(db, id, newTitle, newText);
+            Cursor r = db.rawQuery("SELECT * FROM notes WHERE id = ?", new String[]{id});
+            Note updated;
+            try {
+                updated = r.moveToFirst() ? row(r) : null;
+            } finally {
+                r.close();
+            }
             db.setTransactionSuccessful();
+            return updated;
         } finally {
             db.endTransaction();
         }
     }
 
-    /** Removes a note's content and keeps a marker row (deleted = 1, dirty = 1) so a sync can tell the other devices. */
-    void delete(String id) {
+    /**
+     * Removes a note's content and keeps a marker row (deleted = 1, dirty = 1) so a sync can tell the other devices.
+     * True when a note was deleted (false for a missing or already deleted note and for a null or empty id).
+     */
+    boolean delete(String id) {
+        if (blank(id)) return false;
         SQLiteDatabase db = db();
         db.beginTransaction();
         try {
-            db.execSQL("UPDATE notes SET deleted = 1, title = '', text = '', raw = '', tags = '[]', updated_at = ?, dirty = 1 "
-                    + "WHERE id = ? AND deleted = 0", new Object[]{nowSecs(), id});
+            SQLiteStatement st = db.compileStatement("UPDATE notes SET deleted = 1, title = '', text = '', raw = '', tags = '[]', updated_at = ?, dirty = 1 "
+                    + "WHERE id = ? AND deleted = 0");
+            boolean deleted;
+            try {
+                st.bindDouble(1, nowSecs());
+                st.bindString(2, id);
+                deleted = st.executeUpdateDelete() > 0;
+            } finally {
+                st.close();
+            }
             if (useFts) db.execSQL("DELETE FROM notes_fts WHERE id = ?", new Object[]{id});
             db.setTransactionSuccessful();
+            return deleted;
         } finally {
             db.endTransaction();
         }
@@ -291,8 +326,10 @@ final class NotesStore extends SQLiteOpenHelper implements SyncStore {
 
     // ------------------------------------------------------------------ sync with a relay (notes.py, see SyncStore)
 
+    /** The value kept under {@code k}, or {@code d} when there is none (also for a null or empty key). */
     @Override
     public String getMeta(String k, String d) {
+        if (blank(k)) return d;
         Cursor c = db().rawQuery("SELECT value FROM sync_meta WHERE key = ?", new String[]{k});
         try {
             return c.moveToFirst() ? c.getString(0) : d;
@@ -301,9 +338,11 @@ final class NotesStore extends SQLiteOpenHelper implements SyncStore {
         }
     }
 
+    /** Keeps {@code v} under {@code k}; a null value is stored as "" (the column is NOT NULL) and a null or empty key is ignored. */
     @Override
     public void setMeta(String k, String v) {
-        db().execSQL("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)", new Object[]{k, v});
+        if (blank(k)) return;
+        db().execSQL("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)", new Object[]{k, nz(v)});
     }
 
     @Override
@@ -320,10 +359,12 @@ final class NotesStore extends SQLiteOpenHelper implements SyncStore {
 
     /**
      * Merges one note (or delete marker) received from the relay: NoteLogic.remoteWins decides whether it replaces
-     * the local copy. The copy that is stored is clean (dirty = 0). True when the local copy changed.
+     * the local copy. The copy that is stored is clean (dirty = 0). True when the local copy changed. A null note, or
+     * one with a null or empty id, changes nothing.
      */
     @Override
     public boolean applyRemote(Note n) {
+        if (n == null || blank(n.id)) return false;
         SQLiteDatabase db = db();
         boolean changed = false;
         db.beginTransaction();
