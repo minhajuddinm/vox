@@ -110,7 +110,7 @@ The same functions exist in both languages:
 | Cleanup system prompt | `system_prompt` | `ApiClient.systemPrompt` |
 | Whisper spelling hint | `whisper_prompt` | `ApiClient.whisperPrompt` |
 | Strip model tags/quotes | `sanitize` | `ApiClient.sanitize` |
-| Reject runaway cleanup answers | `looks_valid` | `ApiClient.looksValid` |
+| Reject runaway or word-losing cleanup answers | `looks_valid`, `fidelity_ok`, `word_recall` | `ApiClient.looksValid`, `Fidelity.ok`, `Fidelity.wordRecall` |
 | Dictionary replacements | `apply_replacements` | `ApiClient.applyReplacements` |
 | Dictionary terms | `dictionary_terms` | `Terms.terms` |
 | Spoken "new line" | `apply_spoken_commands` | `ApiClient.applySpokenCommands` |

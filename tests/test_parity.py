@@ -104,5 +104,11 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert providers.proxy_url(f[0], f[1]) == f[2]
     elif kind == "retry":   # status (0 = no answer), request timeout, via the relay, whether the same request is sent again
         assert core.retryable(int(f[0]), f[1] == "true", f[2] == "true") == (f[3] == "true")
+    elif kind == "fidelity":   # strength, raw, cleaned, whether the cleanup kept enough of the spoken words
+        assert core.fidelity_ok(f[1], f[2], f[0]) == (f[3] == "true")
+    elif kind == "tokens":   # text, its word tokens joined by |
+        assert "|".join(core.word_tokens(f[0])) == f[1]
+    elif kind == "recall":   # raw, cleaned, share of raw's words still in cleaned (3 decimals)
+        assert "%.3f" % core.word_recall(f[0], f[1]) == f[2]
     else:
         pytest.fail(f"unknown case kind {kind}")

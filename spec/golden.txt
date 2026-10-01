@@ -15,8 +15,8 @@ looks_valid	hello world	Hello, world.	true
 looks_valid	hello		false
 looks_valid	hello	   	false
 looks_valid	hi	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx	false
-looks_valid	0123456789	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy	true
-looks_valid	0123456789	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy	false
+looks_valid	0123456789	0123456789 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy	true
+looks_valid	0123456789	0123456789 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy	false
 replace	vox is here	vox=>Vox	Vox is here
 replace	VOX	vox=>Vox	Vox
 replace	voxel	vox=>Vox	voxel
@@ -227,3 +227,80 @@ retry	503	false	false	true
 retry	504	false	false	true
 retry	401	false	false	false
 retry	400	false	false	false
+# fidelity guard (Fidelity.java / vox_core.fidelity_ok): strength<TAB>raw<TAB>cleaned<TAB>ok. Light: recall >= 97%, Standard: recall >= 85% after fillers and repeats are dropped from raw.
+fidelity	light	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together	So yesterday I went to the market and bought some apples and bananas. Then I came home and cooked dinner for the whole family, and we all sat down together.	true
+fidelity	light	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together	So yesterday I went to the market and bought some apples and bananas.\n\nThen I came home and cooked dinner for the whole family, and we all sat down together.	true
+fidelity	standard	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together	So yesterday I went to the market and bought some apples and bananas. Then I came home and cooked dinner for the whole family, and we all sat down together.	true
+fidelity	light	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together	I went to the market and cooked dinner for my family.	false
+fidelity	standard	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together	I went to the market and cooked dinner for my family.	false
+fidelity	light	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together		false
+fidelity	light	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together	   	false
+fidelity	light	um so I was uh thinking that we should go to the park tomorrow if the weather is nice	So I was thinking that we should go to the park tomorrow if the weather is nice.	true
+fidelity	standard	um so I was uh thinking that we should go to the park tomorrow if the weather is nice	So I was thinking that we should go to the park tomorrow if the weather is nice.	true
+fidelity	light	I like you know the new design because it is simple and clean and fast	I like the new design because it is simple.	false
+fidelity	standard	I like you know the new design because it is simple and clean and fast	I like the new design because it is simple.	false
+fidelity	standard	so um I like you know really want to go to the beach this weekend you know	I really want to go to the beach this weekend.	true
+fidelity	light	so um I like you know really want to go to the beach this weekend you know	I really want to go to the beach this weekend.	false
+fidelity	standard	I I I want to go to to the the store	I want to go to the store.	true
+fidelity	light	I I I want to go to to the the store	I want to go to the store.	false
+fidelity	light	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together and then we watched a movie about the sea and the old man who lived near it	So yesterday I went to the market and bought some apples and bananas. Then I came home and cooked dinner for the whole family, and we all sat down together. And then we watched a movie about the sea and the old man who lived near it.	true
+fidelity	light	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together and then we watched a movie about the sea and the old man who lived near it	So yesterday I went to the market and bought apples and bananas. Then I came home and cooked dinner for the whole family, and we all sat down together. And then we watched a movie about the sea and the old man who lived near it.	true
+fidelity	light	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together and then we watched a movie about the sea and the old man who lived near it	So yesterday I went to the market and bought apples and bananas. Then I came home and cooked dinner for the family, and we all sat down together. And then we watched a movie about the sea and the old man who lived near it.	false
+fidelity	standard	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together and then we watched a movie about the sea and the old man who lived near it	So yesterday I went to the market and bought apples and bananas. Then I came home and cooked dinner for the family, and we all sat down together. And then we watched a movie about the sea and the old man who lived near it.	true
+fidelity	standard	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together and then we watched a movie about the sea and the old man who lived near it	So yesterday I went to the market and bought some apples and bananas.	false
+fidelity	light	I need twenty five copies by the fifth and about one hundred more by friday	I need 25 copies by the fifth and about 100 more by Friday.	true
+fidelity	light	I need twenty five copies by the fifth	I need twenty-five copies by the fifth.	true
+fidelity	light	the total is twenty-five dollars	The total is $25.	true
+fidelity	light	it went up by ten percent last year	It went up by 10% last year.	true
+fidelity	light	it went up by ten percent last year	It went up by 10 last year.	false
+fidelity	light	call me on five five five one two three four after lunch	Call me on 555-1234 after lunch.	true
+fidelity	light	in twenty twenty six we will launch	In 2026 we will launch.	true
+fidelity	light	main kal office jaunga aur phir meeting ke baad ghar aa jaunga theek hai	Main kal office jaunga, aur phir meeting ke baad ghar aa jaunga. Theek hai?	true
+fidelity	light	main kal office jaunga aur phir meeting ke baad ghar aa jaunga theek hai	I will go to the office tomorrow and come home after the meeting.	false
+fidelity	light	मैं कल ऑफिस जाऊँगा और मीटिंग के बाद घर आऊँगा	मैं कल ऑफिस जाऊँगा, और मीटिंग के बाद घर आऊँगा।	true
+fidelity	light	I don't think we can't do it	I don't think we can't do it.	true
+fidelity	light	I don't think we can't do it	I do not think we cannot do it.	false
+fidelity	light	I don't think we can't do it	I don’t think we can’t do it.	true
+fidelity	light	first buy milk second call the bank third send the report to Sam	- First, buy milk.\n- Second, call the bank.\n- Third, send the report to Sam.	true
+fidelity	light	first buy milk second call the bank third send the report to Sam	1. First, buy milk\n2. Second, call the bank\n3. Third, send the report to Sam	true
+fidelity	light	ok	OK.	true
+fidelity	light	hi	Hello there, how are you?	false
+fidelity	standard	um yeah	Yeah.	true
+fidelity	light	um yeah	Yeah.	true
+fidelity	standard	um uh like	Like.	true
+fidelity	weird	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together	I went to the market and cooked dinner for my family.	false
+fidelity	weird	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together	So yesterday I went to the market and bought some apples and bananas. Then I came home and cooked dinner for the whole family, and we all sat down together.	true
+# word_tokens: lowercase, punctuation stripped, apostrophes kept inside words (no number-word merge)
+tokens	Hello, world!	hello|world
+tokens	  	
+tokens	Don't stop	don't|stop
+tokens	It’s fine	it's|fine
+tokens	'quoted' text	quoted|text
+tokens	rock 'n' roll	rock|n|roll
+tokens	5% off, 3.14 pi	5|off|3|14|pi
+tokens	twenty-five	twenty|five
+tokens	- bullet one\n- bullet two	bullet|one|bullet|two
+tokens	snake_case ok	snake|case|ok
+tokens	Main kal office jaunga, theek hai?	main|kal|office|jaunga|theek|hai
+tokens	मैं कल ऑफिस जाऊँगा।	मैं|कल|ऑफिस|जाऊँगा
+tokens	ÉCOLE École	école|école
+tokens	a  b\tc\nd	a|b|c|d
+# word_recall to 3 decimals: number words equal digits, digit runs join, currency/percent words are covered by a symbol
+recall		anything	1.000
+recall	hello world	Hello, world.	1.000
+recall	red green blue yellow	red green	0.500
+recall	red green blue yellow	red green blue yellow purple orange	1.000
+recall	the the the cat	the cat	0.500
+recall	twenty five apples	25 apples	1.000
+recall	a b c	x y z	0.000
+recall	I went to the market and bought apples	I went to the market	0.625
+recall	red green blue	red green	0.667
+recall	five dollars	$5	1.000
+recall	five dollars	5	0.500
+# spoken commands (new line, new paragraph, comma, period, colon, question mark) are not words the cleanup has to keep
+fidelity	light	hello new line there my friend	Hello,\nthere my friend.	true
+fidelity	light	dear john comma I hope you are well period new paragraph thanks for the update	Dear John,\nI hope you are well.\n\nThanks for the update.	true
+fidelity	light	dear john comma I hope you are well period new paragraph thanks for the update	Dear John.	false
+fidelity	standard	what time is it question mark	What time is it?	true
+fidelity	light	send it to sam colon the report is wrong	Send it to Sam: wrong.	false
+recall	hello new line world	Hello,\nworld	1.000

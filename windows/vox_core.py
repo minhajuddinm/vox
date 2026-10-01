@@ -9,6 +9,7 @@ import re
 import sys
 import threading
 import time
+import unicodedata
 import wave
 from collections import namedtuple
 from urllib.parse import urlparse
@@ -304,8 +305,159 @@ def apply_spoken_commands(text):
     return text.strip(" ")
 
 
-def looks_valid(raw, cleaned):
-    return bool(cleaned and cleaned.strip()) and len(cleaned) <= len(raw) * 1.6 + 40
+# ------------------------------------------------------------ fidelity guard
+# Rejects a cleanup that lost the speaker's words (a summary, a rewrite, a dropped paragraph). The same rules run on
+# the phone (Fidelity.java); spec/golden.txt (kinds fidelity, tokens, recall) keeps the two equal. Integer arithmetic only.
+
+FILLERS = frozenset({"um", "uh", "er", "erm", "ah", "hmm", "like", "you know", "i mean", "sort of", "kind of"})
+NOISES = frozenset({"um", "uh", "er", "erm", "ah", "hmm"})   # pure noises: may go even in Light strength
+
+_UNITS = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+          "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+          "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+# spoken commands (see the prompt): "new line", "new paragraph" and the punctuation names become breaks and symbols
+_COMMAND_PHRASES = frozenset({"new line", "new paragraph", "question mark"})
+_COMMAND_WORDS = frozenset({"comma", "period", "colon"})
+# words a symbol replaces ("five dollars" -> "$5"): they count as kept when cleaned has the symbol
+_SYMBOL_WORDS = {"dollar": "$", "dollars": "$", "euro": "\u20ac", "euros": "\u20ac", "pound": "\u00a3",
+                 "pounds": "\u00a3", "rupee": "\u20b9", "rupees": "\u20b9", "percent": "%", "degree": "\u00b0",
+                 "degrees": "\u00b0"}
+
+
+def _is_word_char(ch):
+    return unicodedata.category(ch)[0] in "LNM"   # letters, numbers and marks (Devanagari vowel signs)
+
+
+def word_tokens(text):
+    """The words of a text: lowercase, punctuation and bullet markers dropped, apostrophes kept inside words
+    (a curly one counts as a straight one), digits kept. Numbers are not merged here (see word_recall)."""
+    s = (text or "").lower()
+    out, cur = [], []
+    for i, ch in enumerate(s):
+        if _is_word_char(ch):
+            cur.append(ch)
+        elif ch in "'\u2019" and cur and i + 1 < len(s) and _is_word_char(s[i + 1]):
+            cur.append("'")
+        elif cur:
+            out.append("".join(cur))
+            cur = []
+    if cur:
+        out.append("".join(cur))
+    return out
+
+
+def _all_digits(t):
+    return t != "" and all("0" <= ch <= "9" for ch in t)
+
+
+def _merge_numbers(tokens):
+    """Spoken numbers (zero to a hundred) become digits, and runs of digit words or digit groups join into one token,
+    so "twenty five" = "25", "five five five one two" = "55512" = "555-12" and "twenty twenty six" = "2026"."""
+    out, i = [], 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t in _TENS:
+            v = _TENS[t]
+            if i + 1 < len(tokens) and 1 <= _UNITS.get(tokens[i + 1], 0) <= 9:
+                v += _UNITS[tokens[i + 1]]
+                i += 1
+            t = str(v)
+        elif t in _UNITS:
+            t = str(_UNITS[t])
+        elif t == "hundred" and out and out[-1] == "1":
+            out[-1] = "100"
+            i += 1
+            continue
+        if _all_digits(t) and out and _all_digits(out[-1]):
+            out[-1] += t
+        else:
+            out.append(t)
+        i += 1
+    return out
+
+
+def _without_commands(tokens):
+    """Spoken commands are not words to keep: the cleanup turns them into line breaks and punctuation."""
+    out, i = [], 0
+    while i < len(tokens):
+        if i + 1 < len(tokens) and (tokens[i] + " " + tokens[i + 1]) in _COMMAND_PHRASES:
+            i += 2
+        elif tokens[i] in _COMMAND_WORDS:
+            i += 1
+        else:
+            out.append(tokens[i])
+            i += 1
+    return out
+
+
+def _compare_tokens(raw, cleaned):
+    """(tokens of raw, tokens of cleaned) ready to compare."""
+    c_text = cleaned or ""
+    r = [t for t in _without_commands(word_tokens(raw)) if not (t in _SYMBOL_WORDS and _SYMBOL_WORDS[t] in c_text)]
+    return _merge_numbers(r), _merge_numbers(word_tokens(c_text))
+
+
+def _drop_fillers(tokens, standard):
+    """Tokens the cleanup may remove: pure noises always; in Standard also fillers, filler phrases and immediate repeats."""
+    out, i = [], 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t in NOISES:
+            i += 1
+        elif standard and i + 1 < len(tokens) and (t + " " + tokens[i + 1]) in FILLERS:
+            i += 2
+        elif standard and (t in FILLERS or (out and out[-1] == t)):
+            i += 1
+        else:
+            out.append(t)
+            i += 1
+    return out
+
+
+def _matched(r, c):
+    """How many tokens of r are in c, counting each token of c once."""
+    counts = {}
+    for t in c:
+        counts[t] = counts.get(t, 0) + 1
+    n = 0
+    for t in r:
+        if counts.get(t, 0) > 0:
+            counts[t] -= 1
+            n += 1
+    return n
+
+
+def word_recall(raw, cleaned):
+    """The share (0..1) of raw's words still in cleaned, order ignored, repeats counted; 1.0 when raw has no words."""
+    r, c = _compare_tokens(raw, cleaned)
+    return 1.0 if not r else _matched(r, c) / len(r)
+
+
+def fidelity_ok(raw, cleaned, strength="light"):
+    """True when the cleanup kept enough of the spoken words.
+
+    Light (anything but "standard"): only pure noises (um, uh, er...) may be missing; at least 97% of the words must be
+    there and the text must not be shorter than 90% of the words minus one. Standard: fillers, filler phrases and
+    immediate repeats are not expected; 85% of the rest must be there and the text at least 60% as long. Under four
+    words the length rule is skipped."""
+    if not cleaned or not cleaned.strip():
+        return False
+    standard = str(strength or "").strip().lower() == "standard"
+    r, c = _compare_tokens(raw, cleaned)
+    r = _drop_fillers(r, standard)
+    if _matched(r, c) * 100 < (85 if standard else 97) * len(r):
+        return False
+    if len(r) < 4:
+        return True
+    return len(c) * 10 >= 6 * len(r) if standard else len(c) * 10 + 10 >= 9 * len(r)
+
+
+def looks_valid(raw, cleaned, strength="light"):
+    """Guards against the model replying to the transcript (too long) or summarising it (too few of the words)."""
+    if not (cleaned and cleaned.strip()) or len(cleaned) > len(raw) * 1.6 + 40:
+        return False
+    return fidelity_ok(raw, cleaned, strength)
 
 
 SILENCE = {"thank you", "thanks for watching", "thank you for watching", "you", "bye"}
@@ -671,7 +823,7 @@ def process_text(cfg, raw, exe, app_label):
     if needs_cleanup(raw, style, cfg.get("cleanup", True), cfg.get("cleanup_min_words", 3)):
         try:
             c = cleanup(cfg, raw, style, app_label)
-            if looks_valid(raw, c):
+            if looks_valid(raw, c, cfg.get("cleanup_strength") or "standard"):
                 out, cleaned = c, True
             else:
                 error = "the cleanup answer looked wrong"

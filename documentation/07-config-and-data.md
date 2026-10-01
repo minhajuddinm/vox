@@ -33,6 +33,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `input_device` | string | `""` | Microphone name for dictation; empty = Windows default. Not used by meeting notes. |
 | `cleanup` | bool | `true` | Run the AI cleanup. |
 | `cleanup_min_words` | int | `3` | Phrases with fewer words than this skip the AI cleanup (a whole number, clamped to 1 to 20; a value that is not a whole number counts as 3). Not part of the synced profile. |
+| `cleanup_strength` | string | not set | `light` or `standard`: how many of the spoken words the fidelity guard (`fidelity_ok`) requires in the AI cleanup answer; Light keeps every word but pure noises, Standard also lets fillers and repeats go. Read by `process_text`; an unset value counts as `standard` until the Light default and the Settings row arrive (branch p9a, task A3). Not part of the synced profile. |
 | `keep_history` | bool | `true` | Save dictations to `history.jsonl`. |
 | `default_style` | string | `neutral` | `formal`, `casual`, `very_casual`, `neutral`, `raw`. |
 | `dictionary` | list of strings | `[]` | Terms and `wrong => right` lines. |

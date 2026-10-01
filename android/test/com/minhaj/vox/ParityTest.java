@@ -138,6 +138,15 @@ public final class ParityTest {
                 case "retry":   // status (0 = no answer), request timeout, via the relay, whether the same request is sent again
                     eq(ln, kind, f[3], ApiClient.retryable(Integer.parseInt(f[0]), f[1].equals("true"), f[2].equals("true")) ? "true" : "false");
                     break;
+                case "fidelity":   // strength, raw, cleaned, whether the cleanup kept enough of the spoken words
+                    eq(ln, kind, f[3], Fidelity.ok(f[1], f[2], f[0]) ? "true" : "false");
+                    break;
+                case "tokens":   // text, its word tokens joined by |
+                    eq(ln, kind, f[1], String.join("|", Fidelity.wordTokens(f[0])));
+                    break;
+                case "recall":   // raw, cleaned, share of raw's words still in cleaned (3 decimals)
+                    eq(ln, kind, f[2], String.format(java.util.Locale.ROOT, "%.3f", Fidelity.wordRecall(f[0], f[1])));
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);

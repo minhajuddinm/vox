@@ -88,6 +88,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/Prefs.java` | All settings and the history, in SharedPreferences. |
 | `android/src/com/minhaj/vox/Providers.java` | Java twin of `windows/providers.py`: per-role settings, model classification and parsing, messages, reasoning fields. |
 | `android/src/com/minhaj/vox/Terms.java` | Parses the dictionary text into terms and replacements. |
+| `android/src/com/minhaj/vox/Fidelity.java` | The fidelity guard: word tokens, word recall and `ok(raw, cleaned, strength)` (Java twin of `fidelity_ok` in `vox_core.py`). |
 | `android/src/com/minhaj/vox/NotificationActions.java` | Pure choice of the foreground notification buttons (at most three) and its Retry hint line. |
 | `android/src/com/minhaj/vox/InsertGuard.java` | Pure typing guard: never type a restored dictation (empty target package), refuse a switched app, and the toast words. |
 | `android/src/com/minhaj/vox/PinnedUrlConfig.java` | A `SyncConfig` with the relay address fixed for one sync run (the address is read once per run). |
@@ -139,6 +140,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_providers.py` | Per-role settings, key isolation, model discovery, Test button, reasoning retry, the relay as the AI server (routes, headers, no key leaks, error shapes, the Settings page hiding the provider fields). |
 | `tests/test_warmup.py` | Connection warm-up (`vox_core.warm`) and the shared session. |
 | `tests/test_user_context.py` | The "about you" context: cleaning, prompt placement, sent with cleanup. |
+| `tests/test_cleanup_fidelity.py` | The fidelity guard: tokens, recall (numbers, symbols, spoken commands), Light and Standard, long dictations, `looks_valid`, `process_text` fallback. |
 | `tests/test_level.py` | The meter curve and the scrolling level history. |
 | `tests/test_notes.py` | The notes store: add, edit, delete, search with FTS5 and the LIKE fallback, filters. |
 | `tests/test_relay.py` | The relay over real HTTP: auth, sync cursor, conflicts, delete markers, search, profile versions, limits. |
@@ -156,7 +158,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_docs_todo.py` | The path-to-page rules of `documentation/tools/docs_todo.py`. |
 | `tests/test_ui_shared.py` | `tools/sync_ui.py --check` passes on the committed pages and fails when a generated block is edited by hand (on temp copies). |
 | `tests/test_ui_static.py` | Static checks of both HTML pages: every looked-up id exists, no duplicate ids, every bridge call (`api().NAME`, `V.NAME(`) names a real method of `Api` / `MainActivity.Bridge`. |
-| `spec/golden.txt` | Shared expected results (sanitize, looks_valid, replacements, whisper prompt, terms, system prompt, spoken commands, silence, note titles, note search strings, sync merge, profile merge and its field lists). Read by the Python and Java parity tests. |
+| `spec/golden.txt` | Shared expected results (sanitize, looks_valid, fidelity, tokens, recall, replacements, whisper prompt, terms, system prompt, spoken commands, silence, note titles, note search strings, sync merge, profile merge and its field lists). Read by the Python and Java parity tests. |
 | `android/test/com/minhaj/vox/ApiClientTest.java` | Prompt, sanitize, replacements, retry policy, silence phrases. |
 | `android/test/com/minhaj/vox/EndpointTest.java` | Server address rules. |
 | `android/test/com/minhaj/vox/NotificationActionsTest.java` | Notification buttons (never more than three in any state), the Retry hint and the typing guard. |
@@ -176,6 +178,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/ProfileMapTest.java` | Phone settings to profile fields and back: round trips of each shared field, empty About you, the Windows shape, wrong types, addresses, key fields. |
 | `android/test/com/minhaj/vox/PlainJsonTest.java` | The JSON reader and writer: values, escapes, numbers, strict errors, depth limit, exact round trip of timestamps. |
 | `android/test/com/minhaj/vox/ProvidersTest.java` | Per-role settings, key rule, reasoning fields, messages (Java twin of part of `tests/test_providers.py`). |
+| `android/test/com/minhaj/vox/FidelityTest.java` | The fidelity guard beyond the golden rows: property checks, a 1,500-word dictation, `looksValid` (Java twin of `tests/test_cleanup_fidelity.py`). |
 
 ## Agent tooling (`.claude/`)
 
