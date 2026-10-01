@@ -40,7 +40,7 @@ The page is served with a Content-Security-Policy that allows only its own inlin
 | `GET /changes?since=SEQ&limit=N` | notes and delete markers written after `SEQ`, oldest first: `{notes, next, more}`. Clients keep `next` as their cursor. |
 | `PUT /notes/{id}` | upsert one note (body = the note). The id in the path wins. Answer `{note, applied}`; `applied` is false when a newer or identical version is already stored. |
 | `GET /notes/{id}` | one note (404 if unknown or deleted) |
-| `DELETE /notes/{id}` | turns the note into a marker: content, title and tags removed, `deleted: true`, new sequence number |
+| `DELETE /notes/{id}` | turns the note into a marker: content, title and tags removed, `deleted: true`, new sequence number; the answer is `{note, applied}`. The marker is stamped later than the stored `updated_at`, so a note whose time is ahead of the relay's clock is still deleted |
 | `GET /notes?q=&tag=&from=&to=&limit=` | search (words match as word starts, all must match; times are epoch seconds), newest first, deleted notes excluded |
 | `GET /devices` | `{devices: [{name, first_seen, last_seen, requests, login}]}`, newest first (epoch seconds): the devices that sent `X-Vox-Device` on any request. Needs the token like every route (and the owner check when set); same fields as the management page's Devices table (`login` is the Tailscale user the relay saw); no events, no notes. Used by the Devices card in the apps. |
 | `GET /profile` | `{version, data}`; version 0 and empty data before the first save |
@@ -59,7 +59,7 @@ The page is served with a Content-Security-Policy that allows only its own inlin
 
 Any client may send `X-Vox-Device: <name>` on every request so the page can show which devices use the relay. A header is latin-1, so both apps send the name in the Android spelling (every character outside printable ASCII becomes `?`; `sync._ascii_name`, `RelayClient.headerText`): a PC named with a typographic apostrophe is listed as `Sam?s PC`, and the Devices card still marks it as this device. The `/admin` endpoints use the same token as the data endpoints (single user).
 
-Note fields: `id` (32 lowercase hex characters, made by the client), `source`, `title`, `text`, `raw`, `created_at`, `updated_at` (epoch seconds), `secs`, `device`, `tags` (list), `deleted`; the relay adds `seq`.
+Note fields: `id` (32 lowercase hex characters, made by the client), `source`, `title`, `text`, `raw`, `created_at`, `updated_at` (epoch seconds; more than a day ahead of the relay's clock, for example milliseconds, is a 400), `secs`, `device`, `tags` (list), `deleted`; the relay adds `seq`.
 
 ## Rules
 
