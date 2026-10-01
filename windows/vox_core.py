@@ -4,6 +4,7 @@ import difflib
 import io
 import ipaddress
 import json
+import logging
 import os
 import re
 import sys
@@ -19,6 +20,8 @@ import requests
 
 import providers
 import secret
+
+log = logging.getLogger("vox")
 
 BASE = providers.GROQ_BASE
 DEFAULT_STT = providers.DEFAULT_MODELS["stt"]
@@ -149,18 +152,31 @@ def write_history(entries):
 def load_config():
     path = config_path()
     if not os.path.exists(path):
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(DEFAULT_CONFIG, f, indent=2)
+        save_config(DEFAULT_CONFIG)
         return dict(DEFAULT_CONFIG)
-    with open(path, encoding="utf-8") as f:
-        cfg = json.load(f)
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            cfg = json.load(f)
+        if not isinstance(cfg, dict):
+            raise ValueError("config.json is not a JSON object")
+    except (ValueError, OSError) as e:
+        # a bad file must not stop Vox from starting: keep it aside and carry on with the defaults
+        log.warning("config.json could not be read (%s); keeping it as .bad and using the defaults", type(e).__name__)
+        try:
+            os.replace(path, path + ".bad-%d" % time.time())
+        except OSError:
+            log.warning("config.json could not be moved aside")
+        return dict(DEFAULT_CONFIG)
     merged = dict(DEFAULT_CONFIG)
     merged.update(cfg)
     stored = {k: merged.get(k) or "" for k in KEY_FIELDS}
     for k, v in stored.items():
         merged[k] = secret.unprotect(v)
     if secret.available() and any(v and not secret.is_protected(v) for v in stored.values()):
-        save_config(merged)   # a key typed into config.json by hand: protect it from now on
+        try:
+            save_config(merged)   # a key typed into config.json by hand: protect it from now on
+        except OSError:
+            log.warning("config.json could not be rewritten (read-only?); keys stay as typed")
     return merged
 
 
