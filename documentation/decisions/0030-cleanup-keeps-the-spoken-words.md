@@ -5,7 +5,7 @@ Date: 2026-10-01
 
 ## Context
 
-Yuvraj's report (round 3 of the v2 plan, 2026-09-30): the AI cleanup sometimes shortens or summarises what he said, so his own words are lost. The cause is in two places. The prompt asks the model to "rewrite it as the text the speaker intended to type", which invites paraphrase, and `looks_valid` ([0013](0013-raw-fallback-when-cleanup-fails.md)) only rejected an empty answer or one longer than `1.6 x raw + 40` characters, so a short summary of a long dictation was accepted and typed. Nothing compared the answer with what was said. Small chat models (`gpt-oss-20b` was named) tend to compress.
+A user report (round 3 of the v2 plan, 2026-09-30): the AI cleanup sometimes shortens or summarises what was said, so the speaker's own words are lost. The cause is in two places. The prompt asks the model to "rewrite it as the text the speaker intended to type", which invites paraphrase, and `looks_valid` ([0013](0013-raw-fallback-when-cleanup-fails.md)) only rejected an empty answer or one longer than `1.6 x raw + 40` characters, so a short summary of a long dictation was accepted and typed. Nothing compared the answer with what was said. Small chat models (`gpt-oss-20b` was named) tend to compress.
 
 ## Decision
 
@@ -29,5 +29,5 @@ Yuvraj's report (round 3 of the v2 plan, 2026-09-30): the AI cleanup sometimes s
 - **Only fix the prompt.** Cheap, but a model that ignores the prompt once still gets typed. The guard is the safety net, the prompt is the first line.
 - **A similarity score (edit distance or embeddings).** Heavier, not identical between Python and Java, and an embedding needs a network call or a model on the phone. A multiset word count is stable, explainable and the same in both languages.
 - **Reject only when the output is shorter than N% of the input.** A summary can pass; a rewrite that keeps the length but changes the words can pass. Recall of the spoken words catches both.
-- **Cleanup off by default.** Loses capitalisation, punctuation and list structure that he wants; the guard plus the Light default keep those.
+- **Cleanup off by default.** Loses capitalisation, punctuation and list structure that the user wants; the guard plus the Light default keep those.
 - **Ask the model to grade itself.** An extra network call, adds latency and trusts the model that failed.

@@ -5,7 +5,7 @@ Date: 2026-10-01
 
 ## Context
 
-Yuvraj wanted a devices list in Settings on both apps, because the relay is mainly for use over Tailscale. "Devices" could mean the machines on the tailnet, or the devices that have used the relay. The Windows and Android apps also have a rule ([09-security-privacy.md](../09-security-privacy.md)): they contact a relay only when a sync or AI-server switch is on, or when the user presses a button next to the relay address. The relay already counts every client that sends `X-Vox-Device` and shows the table on its management page.
+The requester wanted a devices list in Settings on both apps, because the relay is mainly for use over Tailscale. "Devices" could mean the machines on the tailnet, or the devices that have used the relay. The Windows and Android apps also have a rule ([09-security-privacy.md](../09-security-privacy.md)): they contact a relay only when a sync or AI-server switch is on, or when the user presses a button next to the relay address. The relay already counts every client that sends `X-Vox-Device` and shows the table on its management page.
 
 ## Decision
 
@@ -25,7 +25,7 @@ Yuvraj wanted a devices list in Settings on both apps, because the relay is main
 
 ## Alternatives considered
 
-- **List the tailnet's peers** (`tailscale status`, the Tailscale API): shows devices that never ran Vox, and (inferred, not tried) needs the Tailscale CLI or an API key, which a phone app does not have. Rejected by Yuvraj's choice and by the cost.
+- **List the tailnet's peers** (`tailscale status`, the Tailscale API): shows devices that never ran Vox, and (inferred, not tried) needs the Tailscale CLI or an API key, which a phone app does not have. Rejected by the requester's choice and by the cost.
 - **Ask the relay every time Settings opens:** simpler, but it would contact the relay with no switch on. Rejected for the privacy rule.
 - **Put the list inside the existing `/admin/activity` answer:** it also returns the last 100 requests; the apps do not need them, and the route is the management page's.
 - **Return a bare `[]` on failure from the bridge:** cannot say why. The bridge answers `{ok, error, devices}` instead.

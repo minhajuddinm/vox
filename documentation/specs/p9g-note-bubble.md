@@ -1,6 +1,6 @@
 # Spec P9g: the note bubble that shows a note being recorded
 
-Status: Implemented on branch `feat/p9g-notes` (task G1), **not run on a phone**. Date: 2026-10-01. Agreed with Yuvraj on 2026-10-01 (after wave 1 started): a bubble that shows a note is being recorded and saves it on tap. No decision record: the choice is small and easy to reverse. Behaviour as built: [05-android-app.md](../05-android-app.md), [08-features.md](../08-features.md). The earlier note work it builds on: [p6-android-note-mode.md](p6-android-note-mode.md); the bubble rules it sits next to: [p9d-android-bubble.md](p9d-android-bubble.md).
+Status: Implemented on branch `feat/p9g-notes` (task G1), **not run on a phone**. Date: 2026-10-01. Agreed with the requester on 2026-10-01 (after wave 1 started): a bubble that shows a note is being recorded and saves it on tap. No decision record: the choice is small and easy to reverse. Behaviour as built: [05-android-app.md](../05-android-app.md), [08-features.md](../08-features.md). The earlier note work it builds on: [p6-android-note-mode.md](p6-android-note-mode.md); the bubble rules it sits next to: [p9d-android-bubble.md](p9d-android-bubble.md).
 
 ## Goal
 Before, the note bubble was a persistent opt-in (`note_bubble`, default off): a note started from the Quick Settings tile, the notification or the app showed nothing on screen. Now, whenever a note is being recorded the note bubble appears by itself, red, with the recording time. A tap on it stops and saves the note. When the note is saved the bubble flashes the green check and goes away, unless the persistent switch is on.
@@ -31,7 +31,7 @@ Before, the note bubble was a persistent opt-in (`note_bubble`, default off): a 
 ## Tests
 - `NoteBubbleLogicTest` (all three inputs, the timer from zero to over an hour, negative), `ParityTest` and `tests/test_parity.py` (the 8 `notebubble` rows), `tests/test_ui_static.py` (the service uses the rule, flashes through `flashNote`, the view draws the timer), `javatest.cmd compile` (every Android source compiles against android.jar).
 
-## Device checklist (for Yuvraj, on the phone; none of this has been run)
+## Device checklist (for a tester, on the phone; none of this has been run)
 Setup: the accessibility service is on, Settings has **Voice note bubble** off and **Bubble only while typing** as you like.
 1. Start a note from the **Quick Settings tile**: a red bubble with a running time appears (default spot on the right edge, lower than the mic bubble) in whatever app is open. The time counts up each second.
 2. Tap the bubble: it turns amber while the note is cleaned up, then flashes the green check, then it is gone. The "Note saved" notification arrives and the note is in the Notes list.

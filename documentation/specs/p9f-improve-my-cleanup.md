@@ -3,7 +3,7 @@
 Status: Implemented on branch `feat/p9f-improve` (tasks F1 and F2), merged into `feat/part3`. Date: 2026-10-01. **Never run against a real model, a real history, on a real desktop or on a phone.** Request R4 of the v2 part 3 plan. The privacy rules are fixed in [decision 0033](../decisions/0033-the-improvement-run-sends-transcripts-only-on-an-explicit-button.md). Behaviour as built: [04-windows-app.md](../04-windows-app.md), [06-pipeline.md](../06-pipeline.md), [08-features.md](../08-features.md); settings: [07-config-and-data.md](../07-config-and-data.md); privacy: [09-security-privacy.md](../09-security-privacy.md). It builds on the fidelity work of [p9a](p9a-cleanup-keeps-my-words.md) (the guard, the checks) and the profile sync of [p7d](p7d-profile-sync.md).
 
 ## Goal
-Once in a while a stronger model (Yuvraj named `gpt-oss-120b`) reads some of the person's own dictations, what the speech recognition heard and what Vox typed, and proposes small improvements: words for the dictionary, replacements, a few cleanup rules and notes on where cleanup lost words. The person decides each item. **Nothing is sent, applied or changed by itself.**
+Once in a while a stronger model (the request named `gpt-oss-120b`) reads some of the person's own dictations, what the speech recognition heard and what Vox typed, and proposes small improvements: words for the dictionary, replacements, a few cleanup rules and notes on where cleanup lost words. The person decides each item. **Nothing is sent, applied or changed by itself.**
 
 ## The card (Windows, Settings, between "Voice & audio" and "Privacy", no new heading)
 1. **Look at**: the last 7, 14, 30 or 90 days, or all (`improve_days`). Below it, from local data only: the number of dictations, their characters, a rough token estimate, and how many cleanups lost words or fell back to the raw words (`improve.fidelity_report`).
@@ -36,7 +36,7 @@ Once in a while a stronger model (Yuvraj named `gpt-oss-120b`) reads some of the
 - `improve.fidelity_report` calls `core.word_recall` and `core.looks_valid` directly instead of importing `tools/bench_metrics.py` (which only wraps them; `tools/` is not in the built exe), so the numbers are the benchmark's.
 - Tests: `tests/test_improve.py` (core, fake provider), `tests/test_improve_card.py` (preview and confirm, versions, reminder, the one server call, the bridge: nothing is sent before the confirmed numbers), `tests/test_ui_improve.py` (ids, place on the page, only the confirm button runs it, escaping), `tests/test_prompt.py`, `tests/test_parity.py`, `tests/test_sync_profile.py`; Java `ApiClientTest`, `ParityTest`, `ProfileMapTest`, `ProfileMergeTest`.
 
-## Checklist on the PC (for Yuvraj; none of this has been run against a real server)
+## Checklist on the PC (for a tester; none of this has been run against a real server)
 You need a key for the cleanup server and a few days of history (Settings > Privacy > Keep dictation history on).
 1. Settings: the card **Improve my cleanup** sits between Voice & audio and Privacy. It shows a count, characters and tokens for the last 7 days, and a model box with `openai/gpt-oss-120b`. Turn history off and reopen: it says there is nothing to look at and Run once is off; turn it on again.
 2. Press **Run once**: a confirm step shows "This sends N transcripts (about X characters) to <your server>" and the About you line. Press **Cancel**: nothing is sent (the server's usage page, or `vox.log`, shows no request).

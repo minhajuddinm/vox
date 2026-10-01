@@ -2,7 +2,7 @@
 # Compile EVERY Android source (android/src/**) against the real android.jar, to type-check the code that the
 # unit tests do not reach (DictationService, VoxAccessibilityService, MainActivity, ...). No device, no Gradle,
 # no build-tools: nothing is packaged and nothing is written outside a temporary folder.
-#   Local: J:\Projects\.bin\javatest.cmd compile   (sets JAVA_HOME and ANDROID_JAR, then calls this)
+#   Local: a small wrapper script outside the repo sets JAVA_HOME and ANDROID_JAR, then calls this
 #   Any:   ANDROID_JAR=<sdk>/platforms/android-34/android.jar bash android/compile-check.sh   (JDK on PATH)
 # The real build gets R.java from aapt2, which is not installed here. So this script writes a stub R.java whose
 # fields are exactly the R.<type>.<name> references found in the sources (distinct values, so switch labels such

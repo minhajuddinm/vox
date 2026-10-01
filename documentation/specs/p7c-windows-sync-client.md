@@ -15,4 +15,4 @@ Voice notes recorded on Windows appear on the other devices through the relay, a
 Android side, syncing dictation history, meetings and the profile (About you, dictionary, API keys), audio, an installer-friendly way to start a relay.
 
 ## Done when
-Tests pass (`tests/test_sync.py` runs two devices against a real relay on localhost); Yuvraj can enter the relay address and token, press Test, record a note and see it on the relay's page. Not seen on a screen yet.
+Tests pass (`tests/test_sync.py` runs two devices against a real relay on localhost); a user can enter the relay address and token, press Test, record a note and see it on the relay's page. Not seen on a screen yet.

@@ -5,7 +5,7 @@ Date: 2026-10-01
 
 ## Context
 
-Request R4 of the v2 part 3 plan: a "weekly self-improvement" where a stronger model (Yuvraj named `gpt-oss-120b`) reads stored transcripts and proposes dictionary words, About you changes, cleanup rules and a fidelity report. This is the first feature in Vox that sends **stored** dictation history (not a dictation being made now) to a server, in bulk, and the history is plain text on the PC. Until now what was sent was the dictation just spoken. The plan fixed the rule: nothing is sent without an explicit button press that shows counts and cost, proposals are accepted per item, nothing auto-applies.
+Request R4 of the v2 part 3 plan: a "weekly self-improvement" where a stronger model (the request named `gpt-oss-120b`) reads stored transcripts and proposes dictionary words, About you changes, cleanup rules and a fidelity report. This is the first feature in Vox that sends **stored** dictation history (not a dictation being made now) to a server, in bulk, and the history is plain text on the PC. Until now what was sent was the dictation just spoken. The plan fixed the rule: nothing is sent without an explicit button press that shows counts and cost, proposals are accepted per item, nothing auto-applies.
 
 ## Decision
 

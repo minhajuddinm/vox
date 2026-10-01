@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/minhajuddinm/vox/blob/main/documentation/README.md
+    about: How Vox works, every setting and feature, known issues and the roadmap.
+  - name: Set up the relay
+    url: https://github.com/minhajuddinm/vox/blob/main/relay/README.md
+    about: Install the optional relay on a Raspberry Pi or a PC.
+  - name: Report a security problem privately
+    url: https://github.com/minhajuddinm/vox/security/policy
+    about: Please do not open a public issue for a vulnerability.
