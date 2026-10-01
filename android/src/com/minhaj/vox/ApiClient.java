@@ -232,11 +232,35 @@ public final class ApiClient {
 
     /** True when trying the same request again could succeed (server trouble, rate limit, dropped connection). */
     static boolean isRetryable(IOException e) {
-        if (e instanceof ApiException) {
-            int c = ((ApiException) e).code;
-            return c >= 500 || c == 429 || c == 408;
-        }
-        return true;
+        return isRetryable(e, false);
+    }
+
+    /**
+     * Same, for a request that went (or did not go) through the relay as the AI server: then a request timeout is not
+     * retried and only 502 and 503 are (see {@link #retryable}).
+     */
+    static boolean isRetryable(IOException e, boolean viaRelay) {
+        if (e instanceof ApiException) return retryable(((ApiException) e).code, false, viaRelay);
+        return retryable(0, isReadTimeout(e), viaRelay);
+    }
+
+    /** A wait for the answer that ran out (not a connection that could not be made). */
+    static boolean isReadTimeout(IOException e) {
+        if (!(e instanceof java.net.SocketTimeoutException)) return false;
+        String m = e.getMessage();
+        return m == null || !m.toLowerCase(Locale.ROOT).contains("connect");
+    }
+
+    /**
+     * Whether the same request is sent again; the rule shared with windows/vox_core.py (golden rows "retry"). `status` is
+     * the HTTP status, 0 when there was no answer; `timeout` is true when the wait for the answer ran out.
+     * Directly: a dropped connection, a timeout and server trouble (500 and up; also 429 and 408 here: the Windows app
+     * leaves those to its callers, so the golden rows do not cover them). Through the relay: only a dropped connection,
+     * 502 and 503 - a timeout is not retried, because the relay is still working on the first request.
+     */
+    static boolean retryable(int status, boolean timeout, boolean viaRelay) {
+        if (viaRelay) return !timeout && (status == 0 || status == 502 || status == 503);
+        return status == 0 || status >= 500 || status == 429 || status == 408;
     }
 
     /** Guards against the model replying to the transcript instead of cleaning it. */

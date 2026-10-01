@@ -135,6 +135,9 @@ public final class ParityTest {
                 case "proxyurl":   // relay_url, role, address (blank when no relay address)
                     eq(ln, kind, f[2], Providers.proxyUrl(f[0], f[1]));
                     break;
+                case "retry":   // status (0 = no answer), request timeout, via the relay, whether the same request is sent again
+                    eq(ln, kind, f[3], ApiClient.retryable(Integer.parseInt(f[0]), f[1].equals("true"), f[2].equals("true")) ? "true" : "false");
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);
