@@ -93,7 +93,7 @@ def check_config():
 # ----------------------------------------------------------------- 3. links
 def markdown_files():
     out = glob.glob(os.path.join(DOCS, "**", "*.md"), recursive=True)
-    for name in ("CHANGELOG.md", "AGENTS.md", "README.md"):
+    for name in ("CHANGELOG.md", "AGENTS.md", "README.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md"):
         if os.path.exists(os.path.join(ROOT, name)):
             out.append(os.path.join(ROOT, name))
     return sorted(out)

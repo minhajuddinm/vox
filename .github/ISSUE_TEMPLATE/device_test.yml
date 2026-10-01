@@ -1,0 +1,66 @@
+name: Device test report
+description: Report the result of a device checklist (phone, Windows PC or relay) from documentation/specs.
+labels: ["device-test"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Many features are unit-tested but have not run on a real phone, PC or Raspberry Pi yet. Each spec in documentation/specs/ has a checklist.
+        Report one checklist per issue. Use made-up text when you dictate, and leave out keys, tokens, real host names and personal data.
+  - type: dropdown
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - p9b Measure and speed up (Android speed, Speed card)
+        - p9c Devices list and relay set-up
+        - p9d Android bubble (watchdog, diagnostics)
+        - p9e Keep listening (Windows)
+        - p9f Improve my cleanup (Windows)
+        - p9g Note bubble (Android)
+        - p9g2 Install safety (Android)
+        - p7e Android sync
+        - p6 Android note mode
+        - Other (name it below)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release, or the commit (and branch) the build came from.
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: Phone model and Android version, or Windows version, or the relay machine and OS.
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: Provider and relay
+      description: For example "Groq direct" or "relay on a Pi over tailscale serve, used as the AI server". No addresses or keys.
+  - type: textarea
+    id: results
+    attributes:
+      label: Results, step by step
+      description: Copy the checklist's step numbers and write pass, fail or skipped for each, with a short note.
+      placeholder: |
+        1. pass
+        2. fail: the card did not open, nothing in the log
+        3. skipped: no Android 13 phone
+    validations:
+      required: true
+  - type: textarea
+    id: surprises
+    attributes:
+      label: Anything else you noticed
+  - type: textarea
+    id: logs
+    attributes:
+      label: Diagnostics (optional)
+      description: Bubble diagnostics report, Speed card numbers, or vox.log lines. Read them first and remove anything personal.
+      render: text
