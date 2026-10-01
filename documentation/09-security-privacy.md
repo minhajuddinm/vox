@@ -6,14 +6,19 @@ What leaves the device, what is stored, what protects it, and what is still weak
 
 | Data | Goes to | When | Notes |
 |---|---|---|---|
-| Recorded audio (WAV) | The server (Groq or the user's own) | Every dictation and meeting | Never processed on the device |
-| Transcript text | The server (chat model) | Cleanup, meeting notes and questions | |
+| Recorded audio (WAV) | The speech server (Groq or the user's own) | Every dictation and meeting | Never processed on the device. On Windows a long recording is sent in pieces while the user is still speaking (`stream_stt`, default on); Android sends one piece |
+| Transcript text | The cleanup server (chat model) | Cleanup, meeting notes and questions | Skipped when cleanup is off, the style is Raw, or the text is under `cleanup_min_words` |
+| Dictionary and people | The speech server (Whisper `prompt`, at most 600 characters) and the cleanup server (system prompt) | Every dictation | `vox_core.transcribe`, `ApiClient.transcribe` |
+| Language setting; on Windows the last 150 characters of the previous piece of a long recording | The speech server | Every dictation | `streaming.CONTEXT_CHARS` |
+| "About you" text (`user_context`) | The cleanup server only | Every cleaned dictation | Never the speech server |
+| Voice notes, profile (see "Sync from the apps") | The user's relay | Only with `relay_sync` on | Full text, raw transcript, tags, device name; profile fields; provider settings and keys only with `relay_sync_keys` |
+| Speech and cleanup calls (Windows) | The user's relay, which forwards them | Only with `relay_proxy` on | Audio and cleanup text transit the relay |
 | App name (Windows exe name such as `slack.exe`; Android app label) | The server, inside the cleanup prompt | Every cleaned dictation | Never the window title |
 | Meeting title and attendee names | The server | Meeting notes | From the calendar or typed by the user |
 | API key | The server, as `Authorization: Bearer` | Every request | Sent only to the configured address |
 | Calendar read requests | Google, or the ICS host | Optional, Windows | Read-only scope `calendar.events.readonly` |
 
-There is no analytics, crash reporting or Vox backend.
+There is no analytics, crash reporting or Vox backend. Audio and text go only to servers the user chose: the speech server, the cleanup server and, if switched on, the relay.
 
 ## What is stored, and how
 
@@ -68,11 +73,11 @@ There is no analytics, crash reporting or Vox backend.
 
 ## Voice notes
 
-Notes are stored in `%APPDATA%\Vox\notes.db` (SQLite, not encrypted; a deleted note keeps only an empty marker row). Recording a note sends the audio to the speech server and the text to the cleanup server exactly like a dictation, but without the name of the focused app. Nothing else leaves the device.
+Notes are stored in `%APPDATA%\Vox\notes.db` (SQLite, not encrypted; a deleted note keeps only an empty marker row). Recording a note sends the audio to the speech server and the text to the cleanup server exactly like a dictation, but without the name of the focused app (the note branch passes an empty label). The note is stored on the Android phone in `notes.db` in the app's private database folder (`NotesStore`, not encrypted). Notes leave the device only with `relay_sync` on: then the full text, raw transcript, tags and device name go to the relay (see "Sync from the apps").
 
 ## The relay
 
-`relay/relay.py` listens on `127.0.0.1` only and needs a random bearer token on every request (compared in constant time); the optional `owner` setting also checks the `Tailscale-User-Login` header, which `tailscale serve` sets but a local process could forge, so the token stays required. It is meant to be published to one's own tailnet with `tailscale serve` and never with Funnel. `relay.json` (token, and the AI server keys described below) and `relay.db` (notes, profile) are plain files; anyone who can read them, or who holds the token and can reach the relay, can read every note and the profile, including any API keys a client stores in it. There is no access log. The apps send data to a relay only when sync is switched on (see "Sync from the apps" below); the Windows app also sends its speech and cleanup calls to it when "Use my relay as the AI server" (`relay_proxy`) is on (see "The relay as the AI server" below), and the Android app does not call the proxy routes yet. When the Windows app runs the relay itself (tray item "Run relay on this PC"), the relay is a child process of Vox under the same Windows user, still bound to `127.0.0.1` only, with `relay.json` (the token and the AI server keys) and `relay.db` in `%APPDATA%\VoxRelay`; Vox never runs `tailscale` for the user, it only shows the `tailscale serve --bg PORT` command, and the only network thing it does itself is one connection to `127.0.0.1:PORT` to see if the port is taken. Details: [14-relay.md](14-relay.md).
+`relay/relay.py` listens on `127.0.0.1` only and needs a random bearer token on every request (compared in constant time); the optional `owner` setting also checks the `Tailscale-User-Login` header, which `tailscale serve` sets but a local process could forge, so the token stays required. It is meant to be published to one's own tailnet with `tailscale serve` and never with Funnel. `relay.json` (token, and the AI server keys described below) and `relay.db` (notes, profile) are plain files; anyone who can read them, or who holds the token and can reach the relay, can read every note and the profile, including any API keys a client stores in it. There is no access log. The apps send data to a relay only when sync is switched on (see "Sync from the apps" below); the Windows app also sends its speech and cleanup calls to it when "Use my relay as the AI server" (`relay_proxy`) is on (see "The relay as the AI server" below), and the Android app does not call the proxy routes yet. Nothing in the apps contacts a relay unless one of these switches is on and the relay address and token are filled in. When the Windows app runs the relay itself (tray item "Run relay on this PC"), the relay is a child process of Vox under the same Windows user, still bound to `127.0.0.1` only, with `relay.json` (the token and the AI server keys) and `relay.db` in `%APPDATA%\VoxRelay`; Vox never runs `tailscale` for the user, it only shows the `tailscale serve --bg PORT` command, and the only network thing it does itself is one connection to `127.0.0.1:PORT` to see if the port is taken. Details: [14-relay.md](14-relay.md).
 
 ### The relay's proxy routes
 
