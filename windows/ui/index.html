@@ -274,8 +274,8 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
     <h2>Per app</h2>
     <div class="card list"><table id="app-styles"></table></div>
     <div class="row" style="margin-top:12px">
-      <input type="text" id="new-app" class="grow" list="known-apps" placeholder="App exe (e.g. outlook.exe). Apps you dictated into are suggested.">
-      <datalist id="known-apps"></datalist>
+      <select id="new-app" class="grow"></select>
+      <input type="text" id="new-app-other" class="grow" placeholder="App exe (e.g. outlook.exe)." style="display:none">
       <select id="new-style"></select><button class="btn" id="add-app">Add</button>
     </div>
   </section>
@@ -538,12 +538,24 @@ function renderStyles() {
   $("app-styles").innerHTML = rows.length ? rows.map(a => `<tr><td>${esc(a.replace(/\.exe$/i, ""))} <span class="style-tag">${esc(a)}</span></td>
     <td style="width:200px"><select data-app="${esc(a)}">${STYLES.map(([v, l]) => `<option value="${v}" ${m[a] === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
     <td style="width:40px"><button class="icon-btn" data-rm="${esc(a)}">${ICON_DEL}</button></td></tr>`).join("") : '<tr><td class="empty">No apps yet.</td></tr>';
-  $("known-apps").innerHTML = S.apps.filter(a => !m[a]).map(a => `<option value="${esc(a)}">`).join("");
+  const availableApps = S.apps.filter(a => !m[a]);
+  $("new-app").innerHTML = availableApps.map(a => `<option value="${esc(a)}">${esc(a.replace(/\.exe$/i, ""))}</option>`).join("") + `<option value="">-- Select app --</option><option value="__other__">Other...</option>`;
+
+  // Preserve "Other..." state if text box was visible and has content
+  const wasOther = $("new-app-other").style.display !== "none";
+  if (wasOther && $("new-app-other").value) {
+    $("new-app").value = "__other__";
+  } else {
+    $("new-app").value = "";
+    $("new-app-other").value = "";
+    $("new-app-other").style.display = "none";
+  }
 }
 $("default-style").onchange = (e) => save({ default_style: e.target.value });
 $("app-styles").onchange = (e) => { const a = e.target.dataset.app; if (!a) return; save({ app_styles: { ...S.config.app_styles, [a]: e.target.value } }); };
 $("app-styles").onclick = async (e) => { const b = e.target.closest("[data-rm]"); if (!b) return; const m = { ...S.config.app_styles }; delete m[b.dataset.rm]; await save({ app_styles: m }, "Removed"); renderStyles(); };
-$("add-app").onclick = async () => { let a = $("new-app").value.trim().toLowerCase(); if (!a) return; if (!a.endsWith(".exe")) a += ".exe"; $("new-app").value = ""; await save({ app_styles: { ...S.config.app_styles, [a]: $("new-style").value } }); renderStyles(); };
+$("new-app").onchange = (e) => { const isOther = e.target.value === "__other__"; $("new-app-other").style.display = isOther ? "block" : "none"; if (!isOther) $("new-app-other").value = ""; };
+$("add-app").onclick = async () => { let a = $("new-app").value === "__other__" ? $("new-app-other").value : $("new-app").value; a = a.trim().toLowerCase(); if (!a) return; if (!a.endsWith(".exe")) a += ".exe"; $("new-app").value = ""; $("new-app-other").value = ""; $("new-app-other").style.display = "none"; await save({ app_styles: { ...S.config.app_styles, [a]: $("new-style").value } }); renderStyles(); };
 
 // ---------- settings
 function renderSettings() {
