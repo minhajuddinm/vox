@@ -659,16 +659,19 @@ public class VoxAccessibilityService extends AccessibilityService
 
         CharSequence curCs = node.getText();
         String cur = curCs == null ? "" : curCs.toString();
-        if (Build.VERSION.SDK_INT >= 26) {
-            // Empty fields often report their placeholder ("Message", "Search") as their text.
-            CharSequence hint = node.getHintText();
-            if (node.isShowingHintText()
-                    || (hint != null && cur.trim().equalsIgnoreCase(hint.toString().trim()))) {
-                cur = "";
-            }
-        }
+        CharSequence hint = Build.VERSION.SDK_INT >= 26 ? node.getHintText() : null;
+        boolean flagged = Build.VERSION.SDK_INT >= 26 && node.isShowingHintText();
+        // Empty fields often report their placeholder ("Message" in WhatsApp and Telegram) as their text: start from nothing.
+        boolean placeholder = HintGuard.isPlaceholder(cur, hint, flagged, node.getContentDescription());
         int s = node.getTextSelectionStart();
         int e = node.getTextSelectionEnd();
+        if (placeholder || (!cur.isEmpty() && cur.length() <= HintGuard.MAX_LEN && s <= 0)) {
+            // Logged without the text itself: lets the Settings diagnostics show what a field reported if it still goes wrong.
+            diag(OverlayDiag.INSERT_PROBE, (placeholder ? "placeholder dropped" : "short text, caret at start")
+                    + " pkg=" + node.getPackageName() + " class=" + node.getClassName() + " len=" + cur.length()
+                    + " flag=" + flagged + " hint=" + (hint == null ? "none" : "yes") + " sel=" + s + ".." + e);
+        }
+        if (placeholder) { cur = ""; s = e = 0; }
         if (s < 0 || e < 0 || s > cur.length() || e > cur.length()) { s = cur.length(); e = s; }
         if (s > e) { int t = s; s = e; e = t; }
 

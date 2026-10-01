@@ -101,6 +101,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/BubbleLogic.java` | Pure bubble rules: `clamp` keeps a saved position on the current screen, `shouldShow` is the visibility rule (only-typing, Always show, focused field, screen on, service ready), `action` is the watchdog's decision (none, add, remove, repair) and `WATCHDOG_MS` is its 30 s period. |
 | `android/src/com/minhaj/vox/NoteBubbleLogic.java` | Pure note bubble rules: `visible` (the persistent switch, a note recording, a note being saved) and `timer` (the recording time as `m:ss` or `h:mm:ss`). |
 | `android/src/com/minhaj/vox/InsertGuard.java` | Pure typing guard: never type a restored dictation (empty target package), refuse a switched app, and the toast words. |
+| `android/src/com/minhaj/vox/HintGuard.java` | Pure placeholder check: is the "text" an empty field reports only its hint ("Message" in WhatsApp and Telegram)? Typing then starts from an empty field. |
 | `android/src/com/minhaj/vox/PinnedUrlConfig.java` | A `SyncConfig` with the relay address fixed for one sync run (the address is read once per run). |
 | `android/src/com/minhaj/vox/Endpoint.java` | Server address rules (which hosts may use plain http). |
 | `android/src/com/minhaj/vox/Pcm.java` | Silence gate for raw 16-bit audio. |
@@ -186,6 +187,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/ApiClientTest.java` | Prompt (role, About you first, strength, structure, examples), sanitize, replacements, retry policy, silence phrases. |
 | `android/test/com/minhaj/vox/EndpointTest.java` | Server address rules. |
 | `android/test/com/minhaj/vox/NotificationActionsTest.java` | Notification buttons (never more than three in any state), the Retry hint and the typing guard. |
+| `android/test/com/minhaj/vox/HintGuardTest.java` | Plain-Java checks for `HintGuard`: placeholders are recognised, real text is never mistaken for one. |
 | `android/test/com/minhaj/vox/PcmTest.java` | Silence gate. |
 | `android/test/com/minhaj/vox/TimingTest.java` | The Java timing core: stages, skipped cleanup, clock, summary rules, per-model medians, `speedView` from history rows. |
 | `android/test/com/minhaj/vox/SegmenterTest.java` | `Segmenter` beyond the golden rows: nothing lost, the same pieces for any block size, reuse after `rest()`. |
