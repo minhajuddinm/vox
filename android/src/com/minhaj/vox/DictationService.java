@@ -49,6 +49,8 @@ public class DictationService extends Service {
      */
     public static final String ACTION_STOP_RECORDING = "com.minhaj.vox.STOP_RECORDING";
     private static final String ACTION_RETRY = "com.minhaj.vox.RETRY";
+    /** Throws away every unsent recording (the notification's "Clear" button). */
+    private static final String ACTION_CLEAR = "com.minhaj.vox.CLEAR_UNSENT";
     private static final int SEND_ATTEMPTS = 3;
 
     /**
@@ -89,12 +91,6 @@ public class DictationService extends Service {
 
     public static void setNoteListener(NoteListener l) { noteListener = l; }
 
-    /** Where one recording goes and which app it was made in. Copied for each job, so a later recording cannot change it. */
-    private static final class Job {
-        final String pkg, label, dest;
-        Job(String pkg, String label, String dest) { this.pkg = pkg; this.label = label; this.dest = dest; }
-    }
-
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private volatile int state = IDLE;
@@ -107,9 +103,13 @@ public class DictationService extends Service {
     private String targetLabel;
     /** Where the job in progress sends its result (DEST_DICTATION or DEST_NOTE). Each job takes a copy (see Job). */
     private volatile String targetDest = DEST_DICTATION;
-    private volatile boolean hasPending;
-    /** The recording kept on disk for Retry, with the pkg/label/dest it was made with. Set when the file is written. */
-    private volatile Job pendingJob;
+    /**
+     * The unsent recordings kept on disk for Retry, each with its own file (vox_pending_<id>_<dest>.wav) and the
+     * pkg/label/dest it was made with. An entry is added when its file is written and leaves only when it is sent,
+     * discarded by the user (Clear, or a long-press cancel of that very recording) or dropped by the cap or age rule.
+     */
+    private final PendingQueue pending = new PendingQueue();
+    private long lastEntryId;
 
     @Override public IBinder onBind(Intent i) { return null; }
 
@@ -121,6 +121,7 @@ public class DictationService extends Service {
         NotificationChannel ch = new NotificationChannel(CH, "Vox dictation", NotificationManager.IMPORTANCE_LOW);
         ch.setShowBadge(false);
         nm.createNotificationChannel(ch);
+        restorePending();
     }
 
     @Override
@@ -138,6 +139,10 @@ public class DictationService extends Service {
         }
         if (intent != null && ACTION_RETRY.equals(intent.getAction())) {
             retryLast();
+            return START_NOT_STICKY;
+        }
+        if (intent != null && ACTION_CLEAR.equals(intent.getAction())) {
+            clearUnsent();
             return START_NOT_STICKY;
         }
         Notification n = buildNotification();
@@ -183,8 +188,10 @@ public class DictationService extends Service {
         Intent stop = new Intent(this, DictationService.class).setAction(ACTION_STOP);
         PendingIntent stopPi = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_IMMUTABLE);
         boolean noting = isNoteRecording();
-        Job kept = pendingJob;
-        String unsent = kept != null && DEST_NOTE.equals(kept.dest) ? "Last voice note not sent" : "Last dictation not sent";
+        boolean hasPending = pending.size() > 0;
+        PendingQueue.Entry kept = pending.next();
+        String unsent = pending.summary() != null ? pending.summary()
+                : kept != null && DEST_NOTE.equals(kept.dest) ? "Last voice note not sent" : "Last dictation not sent";
         Notification.Builder b = new Notification.Builder(this, CH)
                 .setSmallIcon(R.drawable.ic_stat_mic)
                 .setContentTitle(noting ? "Recording a voice note" : hasPending ? unsent : "Vox is ready")
@@ -198,9 +205,12 @@ public class DictationService extends Service {
             b.addAction(new Notification.Action.Builder(null, "Stop", stopRecPi).build());
         }
         if (hasPending) {
+            Intent clear = new Intent(this, DictationService.class).setAction(ACTION_CLEAR);
+            PendingIntent clearPi = PendingIntent.getService(this, 4, clear, PendingIntent.FLAG_IMMUTABLE);
             Intent retry = new Intent(this, DictationService.class).setAction(ACTION_RETRY);
             PendingIntent retryPi = PendingIntent.getService(this, 2, retry, PendingIntent.FLAG_IMMUTABLE);
             b.addAction(new Notification.Action.Builder(null, "Retry", retryPi).build());
+            b.addAction(new Notification.Action.Builder(null, "Clear", clearPi).build());
         }
         b.addAction(new Notification.Action.Builder(null, "Turn off", stopPi).build());
         return b.build();
@@ -218,8 +228,8 @@ public class DictationService extends Service {
         jobId++;
         instance = null;
         worker.shutdownNow();
-        pendingFile().delete();
-        hasPending = false;
+        // The unsent recordings stay on disk: restorePending() finds them at the next start (Clear discards them).
+        // Only a recording still in progress (never queued) is lost here.
         setState(IDLE);
         requestTileUpdate();
         super.onDestroy();
@@ -287,6 +297,7 @@ public class DictationService extends Service {
         final ByteArrayOutputStream data = new ByteArrayOutputStream();
         pcm = data;
         final int job = ++jobId;
+        pending.beginRecording();   // nothing queued belongs to this recording yet: a cancel now must not touch an older unsent one
         recording = true;
         setState(RECORDING);
         recThread = new Thread(() -> {
@@ -355,57 +366,114 @@ public class DictationService extends Service {
                 finish(job);
                 return;
             }
+            PendingQueue.Entry entry = newEntry(pkg, label, dest);
             try {
-                writeWav(pendingFile(), audio);
+                writeWav(fileOf(entry), audio);
             } catch (IOException e) {
+                fileOf(entry).delete();   // a half-written file
                 postError("Could not save the recording: " + e.getMessage());
                 finish(job);
                 return;
             }
-            pendingJob = new Job(pkg, label, dest);
-            setPending(true);
-            send(job, pkg, label, dest);
+            synchronized (DictationService.this) {   // with cancel(): either it saw this entry, or this sees the cancel
+                if (!isCurrent(job)) { fileOf(entry).delete(); return; }   // cancelled while the file was being written: this recording is the one being cancelled
+                pending.beginFresh(entry.id);
+                enqueue(entry);
+            }
+            send(job, entry);
         });
     }
 
     /**
-     * Sends the last recording that failed to go through. Started from the notification's Retry button. It goes to
-     * where that recording was made for (the job kept with the file), not to wherever the latest recording pointed:
-     * a short or silent recording started in between must not send an old voice note into a text field.
+     * Sends the oldest recording that failed to go through (one per tap; with several kept, the notification says how
+     * many and each tap sends the next one). Started from the notification's Retry button. It goes to where that
+     * recording was made for (the entry kept with the file), not to wherever the latest recording pointed: a short or
+     * silent recording started in between must not send an old voice note into a text field.
      */
     public synchronized void retryLast() {
-        final Job kept = pendingJob;
-        if (state != IDLE || !hasPending || kept == null || !pendingFile().exists()) return;
+        if (state != IDLE) return;
+        PendingQueue.Entry kept = pending.next();
+        while (kept != null && !fileOf(kept).exists()) {   // the file is gone (cleared cache): forget the entry
+            pending.remove(kept.id);
+            kept = pending.next();
+        }
+        if (kept == null) { refreshNotification(); return; }
+        final PendingQueue.Entry entry = kept;
         final int job = ++jobId;
-        targetPkg = kept.pkg;       // the state shown on screen (isNoteJob) follows the job being sent
-        targetLabel = kept.label;
-        targetDest = kept.dest;
+        pending.beginRetry(entry.id);
+        targetPkg = entry.pkg;       // the state shown on screen (isNoteJob) follows the job being sent
+        targetLabel = entry.label;
+        targetDest = entry.dest;
         setState(PROCESSING);
-        worker.execute(() -> send(job, kept.pkg, kept.label, kept.dest));
+        worker.execute(() -> send(job, entry));
     }
 
-    /** Discards the current recording. */
+    /**
+     * Discards the recording in progress (long-press on the bubble). Only that recording's own file goes: a fresh
+     * recording that is being sent is removed, but an unsent recording kept from before is never touched (a cancel
+     * during a Retry only stops that send).
+     */
     public synchronized void cancel() {
         jobId++;
         recording = false;
-        pendingFile().delete();
-        setPending(false);
+        long id = pending.onCancel();   // the rule lives in PendingQueue: only a fresh, queued recording is discarded
+        if (id != 0) discard(id);
         setState(IDLE);
+    }
+
+    /** The notification's "Clear" button: the user explicitly throws away every unsent recording. Not while a send is running. */
+    private synchronized void clearUnsent() {
+        if (state == PROCESSING) return;
+        for (PendingQueue.Entry e : pending.clear()) fileOf(e).delete();
+        refreshNotification();
     }
 
     private boolean isCurrent(int job) { return job == jobId; }
 
     /** Goes back to idle, but only for the job that is still current. */
     private synchronized void finish(int job) {
-        if (job == jobId) setState(IDLE);
+        if (job == jobId) { pending.endJob(); setState(IDLE); }
     }
 
-    private File pendingFile() { return new File(getCacheDir(), "vox_pending.wav"); }
+    private File fileOf(PendingQueue.Entry e) { return new File(getCacheDir(), PendingQueue.fileName(e)); }
 
-    private void setPending(boolean on) {
-        if (hasPending == on) return;
-        hasPending = on;
+    /** A new entry whose id is the time now, made unique so two recordings never share a file. */
+    private synchronized PendingQueue.Entry newEntry(String pkg, String label, String dest) {
+        long id = Math.max(System.currentTimeMillis(), lastEntryId + 1);
+        lastEntryId = id;
+        return new PendingQueue.Entry(id, pkg, label, dest);
+    }
+
+    /** Keeps an entry for Retry. The cap drops the oldest one (file too) and says so. */
+    private void enqueue(PendingQueue.Entry e) {
+        boolean dropped = false;
+        for (PendingQueue.Entry d : pending.add(e)) { fileOf(d).delete(); dropped = true; }
+        if (dropped) main.post(() -> Toast.makeText(this, "Oldest unsent recording dropped", Toast.LENGTH_LONG).show());
         refreshNotification();
+    }
+
+    /** Removes one entry and its file: it was sent, or the user discarded it. */
+    private void discard(long id) {
+        PendingQueue.Entry e = pending.get(id);
+        if (e != null) fileOf(e).delete();
+        pending.remove(id);
+        refreshNotification();
+    }
+
+    /** At service start: delete unsent recordings older than 7 days and keep the rest (files written before a restart are retried). */
+    private void restorePending() {
+        File[] files = getCacheDir().listFiles();
+        if (files == null) return;
+        for (File f : files) {
+            String name = f.getName();
+            if (name.equals("vox_pending.wav")) { f.delete(); continue; }   // the old single-slot file of earlier versions: its app and destination are unknown
+            PendingQueue.Entry e = PendingQueue.parseFileName(name);
+            if (e != null) {
+                lastEntryId = Math.max(lastEntryId, e.id);
+                for (PendingQueue.Entry d : pending.add(e)) fileOf(d).delete();
+            }
+        }
+        for (PendingQueue.Entry old : pending.purgeOlder(System.currentTimeMillis())) fileOf(old).delete();
     }
 
     /**
@@ -413,10 +481,11 @@ public class DictationService extends Service {
      * {@code dest} is the destination this recording was made for (a copy taken when it stopped): DEST_DICTATION types
      * the text through the accessibility listener, DEST_NOTE stores it as a voice note and types nothing.
      */
-    private void send(int job, String pkg, String label, String dest) {
+    private void send(int job, PendingQueue.Entry entry) {
+        final String pkg = entry.pkg, label = entry.label, dest = entry.dest;
         final boolean note = DEST_NOTE.equals(dest);
         Prefs p = new Prefs(this);
-        File wav = pendingFile();
+        File wav = fileOf(entry);
         try {
             String[] stt = p.role(Providers.STT), llm = p.role(Providers.LLM);
             ApiClient g = new ApiClient(stt[1], stt[0]);
@@ -434,8 +503,7 @@ public class DictationService extends Service {
             if (!isCurrent(job)) return;
             double seconds = Math.max(0, wav.length() - 44) / (SAMPLE_RATE * 2.0);
             if (raw.isEmpty() || ApiClient.isSilenceHallucination(raw)) {
-                wav.delete();
-                setPending(false);
+                discard(entry.id);
                 if (note) postError("Vox did not hear any words, so no note was saved");
                 return;
             }
@@ -461,22 +529,21 @@ public class DictationService extends Service {
             out = ApiClient.applyReplacements(out, p.replacements());
             if (!isCurrent(job)) return;
             if (note) {
-                saveNote(job, wav, raw, out, seconds, p);   // a note is not typed and is not added to the dictation history
+                saveNote(job, entry, raw, out, seconds, p);   // a note is not typed and is not added to the dictation history
                 return;
             }
             p.addHistory(label, raw, out, seconds);
-            wav.delete();
-            setPending(false);
+            discard(entry.id);
             final String result = out;
             main.post(() -> { if (isCurrent(job) && listener != null) listener.onResult(result, pkg); });
         } catch (ApiClient.ApiException e) {
             if (!isCurrent(job)) return;
             if (e.code == 401) postError("The server rejected the API key. Fix it, then tap Retry in the notification.");
             else if (e.code == 429) postError("Rate limit reached. Tap Retry in the notification.");
-            else postError(e.getMessage() + ". Your recording is saved: tap Retry in the notification.");
+            else postError(e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
         } catch (IOException e) {
             if (!isCurrent(job)) return;
-            postError("Network error: " + e.getMessage() + ". Your recording is saved: tap Retry in the notification.");
+            postError("Network error: " + e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
         } finally {
             finish(job);
         }
@@ -488,10 +555,9 @@ public class DictationService extends Service {
      * ("Note saved: title"), tells the listeners, and never types anything. The recording is deleted only once the
      * note is stored, so a full disk or a damaged database keeps it for Retry.
      */
-    private void saveNote(int job, File wav, String raw, String text, double seconds, Prefs p) {
+    private void saveNote(int job, PendingQueue.Entry entry, String raw, String text, double seconds, Prefs p) {
         if (NoteLogic.strip(text).isEmpty()) {   // nothing left to keep (engine.py saves only when there is text)
-            wav.delete();
-            setPending(false);
+            discard(entry.id);
             postError("Vox did not hear any words, so no note was saved");
             return;
         }
@@ -510,8 +576,7 @@ public class DictationService extends Service {
             Note saved = NotesStore.get(this).get(id);
             if (saved != null && !saved.title.isEmpty()) title = saved.title;
         } catch (RuntimeException ignored) { }
-        wav.delete();
-        setPending(false);
+        discard(entry.id);
         NoteEvents.fireSaved();   // the relay sync listens here
         final String noteId = id, noteTitle = title;
         main.post(() -> {

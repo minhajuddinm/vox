@@ -20,3 +20,4 @@ android/src/com/minhaj/vox/SyncResult.java
 android/src/com/minhaj/vox/ProfileMap.java
 android/src/com/minhaj/vox/SyncEngine.java
 android/src/com/minhaj/vox/RelayClient.java
+android/src/com/minhaj/vox/PendingQueue.java
