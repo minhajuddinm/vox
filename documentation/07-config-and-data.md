@@ -34,6 +34,8 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `cleanup` | bool | `true` | Run the AI cleanup. |
 | `cleanup_min_words` | int | `3` | Phrases with fewer words than this skip the AI cleanup (a whole number, clamped to 1 to 20; a value that is not a whole number counts as 3). Not part of the synced profile. |
 | `cleanup_strength` | string | `light` | `light` or `standard` (Settings, "Cleanup strength"): how many of the spoken words the fidelity guard (`fidelity_ok`) requires in the AI cleanup answer, and which strength rule the prompt carries; Light keeps every word but pure noises, Standard also lets fillers and repeats go. Read through `clean_strength`, so an unset or unknown value is `light`. Not part of the synced profile. |
+| `listen_target` | string | `note` | Keep listening (double-press Ctrl+Win), set in the tray menu "Keep listening: Note / Type": `note` saves one cleaned note when the session ends, `type` cleans and types each piece into the app the session started in. Anything else means `note`. Not synced. |
+| `note_hotkey` | string | `ctrl+alt+n` | A second shortcut for voice notes: Ctrl, Alt or Win (Shift may join) plus one letter, digit or F1-F12, written like `ctrl+alt+n`. Press once to start a keep-listening session with the target Note, press again to stop and save. Empty turns it off. Ignored (and logged) when it holds the dictation shortcut, for example Ctrl + Alt. Not synced. |
 | `keep_history` | bool | `true` | Save dictations to `history.jsonl`. |
 | `default_style` | string | `neutral` | `formal`, `casual`, `very_casual`, `neutral`, `raw`. |
 | `dictionary` | list of strings | `[]` | Terms and `wrong => right` lines. |

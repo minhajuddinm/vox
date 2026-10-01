@@ -6,7 +6,7 @@ A free, open-source replacement for paid voice-typing tools. The user speaks; Vo
 
 | | Windows | Android |
 |---|---|---|
-| Trigger | Hold a shortcut (default Ctrl+Win); double-tap for hands-free | Tap the floating mic bubble; tap again to send |
+| Trigger | Hold a shortcut (default Ctrl+Win); double-tap to keep listening | Tap the floating mic bubble; tap again to send |
 | Output | Pasted with Ctrl+V into the focused app | Inserted into the focused text field through the accessibility service |
 | Extra | Meeting notes (mic + PC audio), calendar link, history, stats, voice notes, "About you" context, optional sync through your own relay | History, dictionary, per-app styles, "About you" context |
 | Language | Python 3.13 | Java (no Gradle, no Kotlin), HTML for the screens |

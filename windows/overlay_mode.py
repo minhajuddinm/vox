@@ -11,3 +11,9 @@ def overlay_mode(state, flash_kind, flash_until, now, meeting_active):
     if flash_kind and now < flash_until:
         return flash_kind
     return "meet" if meeting_active else None
+
+
+def pill_clock(seconds):
+    """Elapsed time as the pill shows it: "5:07", or "1:02:05" from one hour."""
+    s = int(seconds)
+    return f"{s // 3600}:{s // 60 % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"

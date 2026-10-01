@@ -16,7 +16,8 @@ Stages (all milliseconds, never negative; a stage whose marks are missing is 0):
 """
 import time
 
-MARKS = ("key_down", "rec_start", "key_up", "stt_start", "stt_done", "llm_start", "llm_done", "inserted")
+MARKS = ("key_down", "rec_start", "key_up", "stt_start", "stt_done", "llm_start", "llm_done", "inserted",
+         "seg_end", "seg_text")   # the last two time one piece of a keep-listening session (Windows only): not a stage
 STAGES = ("start", "rec", "stt", "llm", "insert", "total")
 # "biggest" picks among the stages the app can work on. rec is the person speaking and total is the sum of the rest.
 BIGGEST_CANDIDATES = ("start", "stt", "llm", "insert")

@@ -51,7 +51,7 @@ Windows **Settings** → **Privacy & security** → **Microphone**:
 | What | How |
 |---|---|
 | Dictate | Click into any text box, **hold Ctrl + Win**, speak, **release** |
-| Hands-free (long dictation) | **Double-tap Ctrl + Win**, speak, press **Ctrl + Win** once to finish. **Esc** cancels |
+| Keep listening (long notes, or typing as you pause) | **Double-tap Ctrl + Win** and speak. It saves a note by default (Type needs the app you start in). **Double-tap** again, say the stop phrase or press **Esc** to end it and save |
 | Paste the last dictation again | **Ctrl + V**, if **Settings → Keep dictation on the clipboard** is on. If you switch to a different program before the text is pasted, Vox does not paste it: it copies it and says "Copied; the window changed", so press **Ctrl + V** where you want it |
 | Open the Vox window | Double-click the tray icon, or search **Vox** in the Start menu |
 
