@@ -40,8 +40,8 @@ The engine and window modes set DPI awareness, install `sys.excepthook` / `threa
 - `paste` calls `paste.paste_text(text, target, keep_clipboard)` (`windows/paste.py`; `target` is the exe name remembered when recording started):
   1. waits (up to 2 s) until Shift, Ctrl, Alt and Win are all up, so Ctrl+V is not combined with Win;
   2. compares the focused window's exe name (`GetForegroundWindow` and `QueryFullProcessImageNameW`, never the title) with `target`, ignoring case. If it differs, the text is left on the clipboard, **no Ctrl+V is sent**, and the engine shows "Copied; the window changed". If the target was never captured, the window cannot be named, or the lookup fails (logged as a warning), the paste goes ahead rather than losing the text;
-  3. otherwise copies the text, sends Ctrl+V and waits 0.4 s;
-  4. restores the old clipboard text only when `keep_clipboard` is false (the default) **and** the clipboard still holds the dictated text, so something the user copied in the meantime is never overwritten. If the old clipboard could not be read it is not restored (the text stays).
+  3. otherwise copies the text, sends Ctrl+V and waits 1.0 s (`PASTE_WAIT`; slow targets such as Electron apps under load, RDP or VMs read the clipboard late and would paste the old text if it were restored sooner);
+  4. restores the old clipboard text only when `keep_clipboard` is false (the default) **and** the clipboard still holds the dictated text, so something the user copied in the meantime is never overwritten. If the old clipboard could not be read, or reads as empty or non-text (`pyperclip` returns an empty string when the clipboard holds an image or files), it is not restored (the text stays, and the image or files are not wiped). Trade-off: the dictation can stay on the clipboard for about a second.
 
   `Engine.paste` returns True (pasted) or False (only copied) and does not flash itself; `_process` flashes once, after the paste and the history step, green for a paste and red for a copy ([Result signal on the pill](#result-signal-on-the-pill)).
 - History: one JSON line appended to `history.jsonl` unless `keep_history` is false.
