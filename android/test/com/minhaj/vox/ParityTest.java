@@ -46,6 +46,37 @@ public final class ParityTest {
         return v.equals("~") ? null : v;
     }
 
+    /** The `last_seen;name` items of a devices row as PlainJson would give them: "~" leaves last_seen out, a number is a Double, other text stays text. */
+    private static List<Map<String, Object>> relayDevices(String field) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (String item : items(field, "|")) {
+            int i = item.indexOf(';');
+            Map<String, Object> d = new LinkedHashMap<>();
+            d.put("name", item.substring(i + 1));
+            String seen = item.substring(0, i);
+            if (!seen.equals("~")) {
+                Object v = seen;
+                try {
+                    v = Double.valueOf(seen);
+                } catch (NumberFormatException text) {
+                    // stays text
+                }
+                d.put("last_seen", v);
+            }
+            out.add(d);
+        }
+        return out;
+    }
+
+    private static String devicesText(List<DevicesView.Row> rows) {
+        StringBuilder sb = new StringBuilder();
+        for (DevicesView.Row r : rows) {
+            if (sb.length() > 0) sb.append('|');
+            sb.append(r.state).append(';').append(r.thisDevice ? "true" : "false").append(';').append(r.ago).append(';').append(r.name);
+        }
+        return sb.toString();
+    }
+
     private static void eq(int line, String kind, String expected, String actual) {
         checks++;
         if (!expected.equals(actual)) {
@@ -137,6 +168,9 @@ public final class ParityTest {
                     break;
                 case "retry":   // status (0 = no answer), request timeout, via the relay, whether the same request is sent again
                     eq(ln, kind, f[3], ApiClient.retryable(Integer.parseInt(f[0]), f[1].equals("true"), f[2].equals("true")) ? "true" : "false");
+                    break;
+                case "devices":   // now, this device's name, the relay's devices, the rows the card shows
+                    eq(ln, kind, f[3], devicesText(DevicesView.rows(relayDevices(f[2]), Double.parseDouble(f[0]), f[1])));
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);

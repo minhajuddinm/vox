@@ -214,6 +214,11 @@ class Api:
             log.warning("relay test failed: %s", e)
             return {"ok": False, "message": "The test could not run."}
 
+    def get_devices(self):
+        """{"ok", "error", "devices": [{"name", "this", "state", "ago"}]} for the Devices card: the devices that have used
+        the relay in the saved settings. A failure gives an empty list and the reason (sync.devices_for_ui)."""
+        return sync.devices_for_ui(core.load_config())
+
     def meeting_status(self):
         return self._engine("/meeting/status")
 

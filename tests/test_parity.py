@@ -55,6 +55,26 @@ def merged_value(base, local, remote):
     return sync.merge3(side(base), side(local), side(remote)).get("k", "~")
 
 
+def relay_devices(field):
+    """The `last_seen;name` items of a devices row as the relay's JSON would give them: "~" leaves last_seen out, a
+    number is a number, any other text stays text (a relay that sends something odd)."""
+    out = []
+    for item in items(field):
+        seen, name = item.split(";", 1)
+        d = {"name": name}
+        if seen != "~":
+            try:
+                d["last_seen"] = float(seen)
+            except ValueError:
+                d["last_seen"] = seen
+        out.append(d)
+    return out
+
+
+def devices_text(rows):
+    return "|".join(f"{r['state']};{'true' if r['this'] else 'false'};{r['ago']};{r['name']}" for r in rows)
+
+
 @pytest.mark.parametrize("kind,f", cases())
 def test_golden(kind, f, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))   # the notes rows use a real (temporary) notes.db
@@ -104,5 +124,7 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert providers.proxy_url(f[0], f[1]) == f[2]
     elif kind == "retry":   # status (0 = no answer), request timeout, via the relay, whether the same request is sent again
         assert core.retryable(int(f[0]), f[1] == "true", f[2] == "true") == (f[3] == "true")
+    elif kind == "devices":   # now, this device's name, the relay's devices, the rows the card shows
+        assert devices_text(sync.devices_view(relay_devices(f[2]), float(f[0]), f[1])) == f[3]
     else:
         pytest.fail(f"unknown case kind {kind}")
