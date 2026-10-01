@@ -182,7 +182,7 @@ public class DictationService extends Service {
         }
     }
     /** True while a recording that failed to go through is kept for Retry (Home shows it as the last dictation outcome). */
-    boolean hasUnsent() { return hasPending; }
+    boolean hasUnsent() { return pending.size() > 0; }
 
     private Notification buildNotification() {
         Intent open = new Intent(this, MainActivity.class);
