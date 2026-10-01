@@ -123,19 +123,26 @@ def history_path():
 
 
 def add_history(entry):
-    with open(history_path(), "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    with open(history_path(), "a+b") as f:
+        f.seek(0, os.SEEK_END)
+        if f.tell():
+            f.seek(-1, os.SEEK_END)
+            if f.read(1) != b"\n":   # a cut-off last line: start a new line so two entries do not glue together
+                f.write(b"\n")
+        f.write((json.dumps(entry, ensure_ascii=False) + "\n").encode("utf-8"))
 
 
 def read_history():
     out = []
     try:
-        with open(history_path(), encoding="utf-8") as f:
+        with open(history_path(), encoding="utf-8", errors="replace") as f:
             for line in f:
                 try:
-                    out.append(json.loads(line))
+                    entry = json.loads(line)
                 except ValueError:
-                    pass
+                    continue
+                if isinstance(entry, dict):
+                    out.append(entry)
     except FileNotFoundError:
         pass
     return out
@@ -147,6 +154,22 @@ def write_history(entries):
         for e in entries:
             f.write(json.dumps(e, ensure_ascii=False) + "\n")
     os.replace(tmp, history_path())
+
+
+def _fix_types(cfg):
+    """A value of the wrong type (null, a list where a dict belongs, ...) must not crash the app: use the default."""
+    for k, default in DEFAULT_CONFIG.items():
+        v = cfg.get(k)
+        if isinstance(default, list):
+            if not isinstance(v, list):
+                cfg[k] = list(default)
+            elif k in ("dictionary", "people", "hotkey"):
+                cfg[k] = [x for x in v if isinstance(x, str)]
+        elif isinstance(default, dict):
+            if not isinstance(v, dict):
+                cfg[k] = dict(default)
+        elif isinstance(default, str) and v is None:
+            cfg[k] = ""
 
 
 def load_config():
@@ -169,6 +192,7 @@ def load_config():
         return dict(DEFAULT_CONFIG)
     merged = dict(DEFAULT_CONFIG)
     merged.update(cfg)
+    _fix_types(merged)
     stored = {k: merged.get(k) or "" for k in KEY_FIELDS}
     for k, v in stored.items():
         merged[k] = secret.unprotect(v)
