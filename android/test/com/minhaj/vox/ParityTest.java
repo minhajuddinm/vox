@@ -129,6 +129,9 @@ public final class ParityTest {
                 case "devname":   // a typed, non-blank name: the model argument is never used
                     eq(ln, kind, f[1], NoteLogic.deviceName(f[0], "model"));
                     break;
+                case "permanent":   // a refusal that will come back every time (4xx except 401, 403, 429)
+                    eq(ln, kind, f[1], new RelayApi.RelayError(Integer.parseInt(f[0]), "x").permanent() ? "true" : "false");
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);
