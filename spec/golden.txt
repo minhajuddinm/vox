@@ -613,7 +613,7 @@ fallback	3 apples. then pears	3 apples. Then pears
 fallback	mera naam yuvraj hai. main pune se hoon	Mera naam yuvraj hai. Main pune se hoon
 fallback	नमस्ते दोस्त. ok	नमस्ते दोस्त. Ok
 fallback		
-# fuzzydict: dictionary terms (| between terms) applied to the final text (vox_core.fuzzy_dictionary / Terms.fuzzy). A term that is one word of five or more letters fixes the same word in any case and a spelling one letter off (same first letter, not the word with a letter added at the end, not a common English word, not when two terms are equally close). Other words and multi-word spellings are untouched.
+# fuzzydict: dictionary terms (| between terms) applied to the final text (vox_core.fuzzy_dictionary / Terms.fuzzy). A term that is one word of five or more letters fixes the same word in any case. Only a term of seven or more letters also fixes a spelling one letter off (same first letter, not the word with a letter added at the end, not a common English word, not when two terms are equally close): shorter names are too close to ordinary words (Alice and alike, Raven and raved). Other words and multi-word spellings are untouched.
 fuzzydict	Kubernetes|Ada	we deploy on Kubernetis today	we deploy on Kubernetes today
 fuzzydict	Kubernetes	kubernetes is fine	Kubernetes is fine
 fuzzydict	Kubernetes	KUBERNETES, again.	Kubernetes, again.
@@ -621,7 +621,8 @@ fuzzydict	Kubernetes	Kubernetis, again.	Kubernetes, again.
 fuzzydict	Kubernetes	a kubernetis-based setup	a Kubernetes-based setup
 fuzzydict	Kubernetes	the Kubernetis's logs	the Kubernetes's logs
 fuzzydict	Kubernetes	Kubernetes	Kubernetes
-fuzzydict	Yuvraj	Yuvraaj said hello	Yuvraj said hello
+fuzzydict	Yuvraj	Yuvraaj said hello	Yuvraaj said hello
+fuzzydict	Yuvraj	yuvraj said hello	Yuvraj said hello
 fuzzydict	Yuvraj	u v raj said hello	u v raj said hello
 fuzzydict	Yuvraj	Yuvrajj said hello	Yuvrajj said hello
 fuzzydict	Yuvraj	Yuvraj ka naam	Yuvraj ka naam
@@ -636,16 +637,25 @@ fuzzydict	Slack	a slick finish	a slick finish
 fuzzydict	Stripe	strive for more	strive for more
 fuzzydict	Apple	ample time left	ample time left
 fuzzydict	Linus	run it on Linux	run it on Linux
-fuzzydict	Docker	my dockr file	my Docker file
+fuzzydict	Docker	my dockr file	my dockr file
+fuzzydict	Docker	my docker file	my Docker file
 fuzzydict	Pravin	Pravins phone	Pravins phone
+fuzzydict	Mohammed	Mohamed said hi	Mohammed said hi
+fuzzydict	Alice	they look alike to me	they look alike to me
+fuzzydict	Alice	they look alice to me	they look Alice to me
+fuzzydict	Jones	he tells jokes	he tells jokes
+fuzzydict	Laura	lauda	lauda
+fuzzydict	Raven	I have raven hair, he raved	I have Raven hair, he raved
 fuzzydict	Pravin	Pravina called	Pravina called
 fuzzydict	Rohan|Rohit	Rohat called	Rohat called
 fuzzydict	Rohan|Rohit	rohan called	Rohan called
 fuzzydict	Mount Everest	mount everest is high	mount everest is high
 fuzzydict	Kubernetes	Kubernetis2 stays	Kubernetis2 stays
 fuzzydict	Kubernetes	Kubernetis_x stays	Kubernetis_x stays
-fuzzydict	Müller	herr muller is here	herr Müller is here
-fuzzydict	Kubernetes|Docker	kubernetis and dockr and docker	Kubernetes and Docker and Docker
+fuzzydict	Schröder	herr schroder is here	herr Schröder is here
+fuzzydict	Müller	herr müller is here	herr Müller is here
+fuzzydict	Müller	herr muller is here	herr muller is here
+fuzzydict	Kubernetes|Docker	kubernetis and dockr and docker	Kubernetes and dockr and Docker
 fuzzydict	Kubernetes	Kubernets	Kubernetes
 fuzzydict	Kubernetes	line one\nkubernetis\ttwo	line one\nKubernetes\ttwo
 fuzzydict	Ada|Zed	adaa and zedd	adaa and zedd

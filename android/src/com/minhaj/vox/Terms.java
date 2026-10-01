@@ -54,6 +54,9 @@ final class Terms {
     /** Shortest term the fuzzy pass works on (and the shortest word it changes). */
     static final int FUZZY_MIN_LEN = 5;
 
+    /** Shortest term that also fixes a spelling one letter off (shorter names sit next to real words: Alice, alike). */
+    static final int FUZZY_NEAR_MIN_LEN = 7;
+
     /** Ordinary English words the fuzzy pass never touches (the same list as COMMON_WORDS in windows/vox_core.py). */
     private static final String COMMON =
         "about above after again agree alone along already always among another answer anyone anything around " +
@@ -98,8 +101,9 @@ final class Terms {
     /**
      * Puts the dictionary's spelling on words that are the same word in another case or one letter off. Same rules as
      * fuzzy_dictionary in windows/vox_core.py: only terms that are one word of five letters or more take part; a word of
-     * that length is changed when it equals a term ignoring case, or is one edit from exactly one term with the same
-     * first letter; never an ordinary English word or one with a digit or underscore. spec/golden.txt (fuzzydict) keeps the two in step.
+     * that length is changed when it equals a term ignoring case, or, for a term of seven letters or more only, is one
+     * edit from exactly one such term with the same first letter; never an ordinary English word or one with a digit or
+     * underscore. spec/golden.txt (fuzzydict) keeps the two in step.
      */
     static String fuzzy(String text, List<String> terms) {
         Map<String, String> byLower = new LinkedHashMap<>();
@@ -121,7 +125,8 @@ final class Terms {
         if (exact != null) return exact;
         Set<String> near = new HashSet<>();
         for (Map.Entry<String, String> e : byLower.entrySet()) {
-            if (e.getKey().charAt(0) == lw.charAt(0) && oneEdit(lw, e.getKey())) near.add(e.getValue());
+            String k = e.getKey();
+            if (k.length() >= FUZZY_NEAR_MIN_LEN && k.charAt(0) == lw.charAt(0) && oneEdit(lw, k)) near.add(e.getValue());
         }
         return near.size() == 1 ? near.iterator().next() : w;
     }

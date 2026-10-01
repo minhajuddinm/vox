@@ -226,6 +226,7 @@ def apply_replacements(text, repl):
 
 
 FUZZY_MIN_LEN = 5   # shortest term the fuzzy pass works on (and shortest word it changes)
+FUZZY_NEAR_MIN_LEN = 7   # shortest term that also fixes a spelling one letter off (shorter names sit next to real words: Alice, alike)
 COMMON_WORDS = frozenset("""
 about above after again agree alone along already always among another answer anyone anything around
 asked asking based basic beach because become before began begin being below better between black
@@ -282,8 +283,10 @@ def fuzzy_dictionary(text, terms):
     """Puts the dictionary's spelling on words that are the same word in another case or one letter off.
 
     Only terms that are one word of FUZZY_MIN_LEN letters or more take part (spelled exactly as in the dictionary).
-    A word of that length is changed when it equals a term ignoring case, or is one edit from exactly one term that
-    starts with the same letter; never when it is an ordinary English word (COMMON_WORDS) or has a digit or underscore.
+    A word of that length is changed when it equals a term ignoring case, or, for a term of FUZZY_NEAR_MIN_LEN letters
+    or more only, is one edit from exactly one such term that starts with the same letter (a short name one edit from
+    an ordinary word, like Alice and alike, would corrupt real text); never when it is an ordinary English word
+    (COMMON_WORDS) or has a digit or underscore.
     Spoken multi-word spellings (u v raj) and words of other languages are left alone. Applying it twice changes nothing.
     """
     by_lower = {}
@@ -301,7 +304,7 @@ def fuzzy_dictionary(text, terms):
             return w
         if lw in by_lower:
             return by_lower[lw]
-        near = {t for k, t in by_lower.items() if k[0] == lw[0] and _one_edit(lw, k)}
+        near = {t for k, t in by_lower.items() if len(k) >= FUZZY_NEAR_MIN_LEN and k[0] == lw[0] and _one_edit(lw, k)}
         return near.pop() if len(near) == 1 else w
 
     return re.sub(r"\w+", fix, text)
