@@ -148,6 +148,7 @@ public class MainActivity extends Activity {
                 cfg.put("cleanup_min_words", ApiClient.cleanMinWords(prefs.cleanupMinWords()));
                 cfg.put("keep_history", prefs.keepHistory());
                 cfg.put("only_typing", prefs.onlyWhenTyping());
+                cfg.put("always_show_bubble", prefs.alwaysShowBubble());
                 cfg.put("note_bubble", prefs.noteBubble());
                 cfg.put("note_notification", prefs.noteNotification());
                 cfg.put("default_style", prefs.defaultStyle());
@@ -199,6 +200,7 @@ public class MainActivity extends Activity {
                 if (c.has("cleanup_min_words")) e.putString("cleanup_min_words", String.valueOf(ApiClient.cleanMinWords(c.getString("cleanup_min_words"))));
                 if (c.has("keep_history")) e.putBoolean("keep_history", c.getBoolean("keep_history"));
                 if (c.has("only_typing")) e.putBoolean("only_typing", c.getBoolean("only_typing"));
+                if (c.has("always_show_bubble")) e.putBoolean("always_show_bubble", c.getBoolean("always_show_bubble"));
                 if (c.has("note_bubble")) e.putBoolean("note_bubble", c.getBoolean("note_bubble"));
                 if (c.has("note_notification")) e.putBoolean("note_notification", c.getBoolean("note_notification"));
                 if (c.has("default_style")) e.putString("default_style", c.getString("default_style"));

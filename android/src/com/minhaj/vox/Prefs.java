@@ -94,6 +94,8 @@ public final class Prefs {
     /** The setting "skip AI cleanup for phrases shorter than N words" as stored; read it with ApiClient.cleanMinWords. */
     public String cleanupMinWords() { return sp.getString("cleanup_min_words", "3"); }
     public boolean onlyWhenTyping() { return sp.getBoolean("only_typing", true); }
+    /** "Always show the bubble": the mic bubble stays on screen and ignores "only_typing". Per device, not synced. */
+    public boolean alwaysShowBubble() { return sp.getBoolean("always_show_bubble", false); }
     public int bubbleX() { return sp.getInt("bubble_x", -1); }
     public int bubbleY() { return sp.getInt("bubble_y", -1); }
     /** Show the second, always-visible bubble that starts and stops a voice note (off by default). */

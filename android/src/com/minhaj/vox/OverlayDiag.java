@@ -37,6 +37,8 @@ final class OverlayDiag {
     static final String OVERLAY_ADD = "overlay_add";
     static final String OVERLAY_REMOVE = "overlay_remove";
     static final String OVERLAY_FAILED = "overlay_failed";
+    /** The watchdog found a bubble it thought was on screen with its window gone, and added it again. */
+    static final String WATCHDOG_REPAIR = "overlay_repaired";
     static final String ONLY_TYPING_HIDE = "only_typing_hide";
     static final String ONLY_TYPING_SHOW = "only_typing_show";
     static final String SCREEN_ON = "screen_on";
@@ -79,6 +81,7 @@ final class OverlayDiag {
             case OVERLAY_ADD: return "Bubble added";
             case OVERLAY_REMOVE: return "Bubble removed";
             case OVERLAY_FAILED: return "Bubble could not be added";
+            case WATCHDOG_REPAIR: return "Bubble put back by the watchdog";
             case ONLY_TYPING_HIDE: return "Bubble hidden by only-typing";
             case ONLY_TYPING_SHOW: return "Bubble shown by only-typing";
             case SCREEN_ON: return "Screen on";
@@ -192,14 +195,26 @@ final class OverlayDiag {
 
     /** Why the mic bubble is wanted or not (the only-typing rule of VoxAccessibilityService.refreshVisibility). */
     static String micReason(boolean busy, boolean onlyTyping, boolean fieldFocused) {
+        return micReason(busy, onlyTyping, fieldFocused, false, true);
+    }
+
+    /** The same with the "Always show the bubble" setting and whether the screen is on (BubbleLogic.shouldShow decides the rest). */
+    static String micReason(boolean busy, boolean onlyTyping, boolean fieldFocused, boolean alwaysShow, boolean screenOn) {
         if (busy) return "recording or working";
+        if (!screenOn) return "screen is off";
+        if (alwaysShow) return "always show is on";
         if (!onlyTyping) return "only-typing is off";
         return fieldFocused ? "text field focused" : "no text field focused";
     }
 
     /** The event for the mic bubble being shown ({@code show}) or hidden: only-typing's own pair when that rule decided, else a plain add or remove. */
     static String micKind(boolean show, boolean busy, boolean onlyTyping, boolean fieldFocused) {
-        if (!busy && onlyTyping) return show ? ONLY_TYPING_SHOW : ONLY_TYPING_HIDE;
+        return micKind(show, busy, onlyTyping, fieldFocused, false, true);
+    }
+
+    /** The same when "Always show the bubble" or a dark screen may have decided instead of the only-typing rule. */
+    static String micKind(boolean show, boolean busy, boolean onlyTyping, boolean fieldFocused, boolean alwaysShow, boolean screenOn) {
+        if (!busy && onlyTyping && !alwaysShow && screenOn) return show ? ONLY_TYPING_SHOW : ONLY_TYPING_HIDE;
         return show ? OVERLAY_ADD : OVERLAY_REMOVE;
     }
 

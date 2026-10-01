@@ -242,16 +242,18 @@ nav button.on .pill { background:var(--accent-soft); }
   <div class="card list">
     <div class="item"><div class="grow"><div class="t">Dictation service</div><div class="d">Keeps the mic ready for the bubble</div></div><label class="switch"><input type="checkbox" id="service"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Bubble only while typing</div><div class="d">Hide the bubble when no text box is selected</div></div><label class="switch"><input type="checkbox" id="only-typing"><span></span></label></div>
+    <div class="item"><div class="grow"><div class="t">Always show the bubble</div><div class="d">Keep the mic bubble on screen whether or not a text box is selected. Overrides the setting above. Tapping it with no text box selected copies the text to the clipboard</div></div><label class="switch"><input type="checkbox" id="always-show"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Voice note bubble</div><div class="d">A bubble that stays on screen, drawn by the accessibility service. Tap it to start or finish a note. Needs no extra permission</div></div><label class="switch"><input type="checkbox" id="note-bubble"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Record note notification</div><div class="d">An ongoing notification with a Record note button. Needs no extra permission</div></div><label class="switch"><input type="checkbox" id="note-notification"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Quick Settings tile</div><div class="d">Add the Voice note tile from the system tile editor: swipe down twice, tap the pencil, drag Voice note in</div></div></div>
-    <div class="item" id="battery"><div class="grow"><div class="t">Battery: Unrestricted</div><div class="d">Stops Android from closing Vox. Tap, find Vox, allow.</div></div><span style="color:var(--muted)">›</span></div>
+    <div class="item" id="battery"><div class="grow"><div class="t" id="battery-t">Battery: Unrestricted</div><div class="d">Stops Android from closing Vox. Tap, find Vox, allow.</div></div><span style="color:var(--muted)">›</span></div>
   </div>
   <div class="card" id="diag-card" style="margin-top:10px">
     <div class="t" style="font-weight:600">Bubble diagnostics</div>
     <div class="d" style="color:var(--muted);font-size:13px">If the bubble keeps disappearing, this shows why. It stays on this phone; copy it only if you want to share it</div>
     <div class="status" id="diag-service" style="margin-top:8px"></div>
     <div class="status" id="diag-battery"></div>
+    <div id="diag-battery-prompt" hidden style="margin-top:8px"><div class="note" style="margin:0 0 6px">Android may close Vox in the background, and then the bubble disappears. Choose Vox in the list and set it to <b>Not optimised</b> (the wording differs by phone: Unrestricted, Don't optimise or Allow).</div><button class="btn full" id="diag-battery-fix">Open battery settings</button></div>
     <div id="diag-events" style="margin-top:8px;font-size:12px;line-height:1.5;word-break:break-word"></div>
     <div class="row" style="margin-top:10px;gap:8px"><button class="btn ghost" id="diag-refresh" style="flex:1">Refresh</button><button class="btn" id="diag-copy" style="flex:1">Copy report</button></div>
   </div>
@@ -350,7 +352,7 @@ function previewNotes() {
   };
 }
 const V = window.Vox || {   // browser preview fallback
-  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, relay_proxy: false, device_name: "", note_bubble: false, note_notification: false }, status: { notes: 0, unsent: false }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
+  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, always_show_bubble: false, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, relay_proxy: false, device_name: "", note_bubble: false, note_notification: false }, status: { notes: 0, unsent: false }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
   ...previewNotes(),
   save(){}, requestMic(){}, openAccessibility(){}, openAppInfo(){}, openBattery(){}, setService(){}, testKey(k, u, cb){ setTimeout(() => window[cb]("ok"), 300); }, listModels(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ models: [], error: "Preview only" })), 200); }, testRole(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ ok: true, message: "Preview only" })), 200); }, endpointProblem: () => "", suggestCorrections: (a, b) => JSON.stringify(a !== b ? [["vox", "Vox"]] : []), copy(){}, deleteHistory(){}, clearHistory(){}, openUrl(){}, toast(){}, apps: () => "[]", appLabel: (p) => p
 };
@@ -643,6 +645,7 @@ function renderSettings() {
   const c = S.config;
   renderProvider();
   $("cleanup").checked = c.cleanup !== false; $("only-typing").checked = c.only_typing !== false;
+  $("always-show").checked = !!c.always_show_bubble;
   $("cleanup-min").value = c.cleanup_min_words || 3;
   $("keep-history").checked = c.keep_history !== false;
   $("note-bubble").checked = !!c.note_bubble; $("note-notification").checked = !!c.note_notification;
@@ -661,6 +664,8 @@ function renderDiag() {
   if (!d.service) { sv.className = "status bad"; sv.textContent = "Could not read the diagnostics"; bt.textContent = ""; ev.textContent = ""; return; }
   sv.className = "status " + (d.connected ? "ok" : "bad"); sv.textContent = "Service: " + d.service;
   bt.className = "status " + (d.battery_ok ? "ok" : "bad"); bt.textContent = "Battery: " + d.battery;
+  $("diag-battery-prompt").hidden = !!d.battery_ok;   // the prompt only shows while Android may still stop Vox
+  $("battery-t").textContent = d.battery_ok ? "Battery: Unrestricted" : "Battery: may be restricted";
   const lines = d.events || [];
   ev.innerHTML = lines.length ? lines.map(l => `<div>${esc(l)}</div>`).join("") : `<div class="d" style="color:var(--muted)">No events recorded yet</div>`;
 }
@@ -774,6 +779,7 @@ for (const [id, field] of [["stt-key", "stt_api_key"], ["llm-key", "llm_api_key"
 $("cleanup").onchange = (e) => save({ cleanup: e.target.checked }, "Saved");
 $("cleanup-min").onchange = (e) => { const v = parseInt(e.target.value, 10), n = isNaN(v) ? 3 : Math.max(1, Math.min(20, v)); e.target.value = n; save({ cleanup_min_words: n }, "Saved"); };
 $("only-typing").onchange = (e) => save({ only_typing: e.target.checked }, "Saved");
+$("always-show").onchange = (e) => save({ always_show_bubble: e.target.checked }, "Saved");
 $("note-bubble").onchange = (e) => save({ note_bubble: e.target.checked }, "Saved");
 $("note-notification").onchange = (e) => save({ note_notification: e.target.checked }, "Saved");
 $("open-about").onclick = () => go("dict");
@@ -781,6 +787,7 @@ $("keep-history").onchange = (e) => save({ keep_history: e.target.checked }, "Sa
 $("language").onchange = (e) => save({ language: e.target.value }, "Saved");
 $("service").onchange = (e) => V.setService(e.target.checked);
 $("battery").onclick = () => V.openBattery();
+$("diag-battery-fix").onclick = () => V.openBattery();
 $("diag-refresh").onclick = () => { renderDiag(); toast("Refreshed"); };
 $("diag-copy").onclick = () => { renderDiag(); if (DIAG && DIAG.report) { V.copy(DIAG.report); toast("Copied"); } };
 $("stt").onchange = (e) => save({ stt_model: e.target.value.trim() }, "Saved");

@@ -15,6 +15,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -34,6 +35,11 @@ import java.io.File;
  * Owns the floating bubbles (accessibility overlays, so no "draw over apps" permission is needed): the mic bubble,
  * which tracks the focused text field and inserts the final text into it, and the optional voice note bubble, which
  * is always on screen while "note_bubble" is on and starts or stops a note.
+ *
+ * Keeping the bubble there: {@link BubbleLogic} holds the rules (visibility, position clamp, what to do about a bubble
+ * whose window is gone). They are applied on every window change, on screen on, unlock, rotation and when the service
+ * connects, and by a watchdog every 30 seconds while the service is alive. A saved position is clamped to the current
+ * screen. "Always show the bubble" (always_show_bubble) ignores only_typing.
  */
 public class VoxAccessibilityService extends AccessibilityService
         implements DictationService.Listener, DictationService.NoteListener {
@@ -48,27 +54,57 @@ public class VoxAccessibilityService extends AccessibilityService
 
     private AccessibilityNodeInfo editNode;
     private String editPkg;
-    /** Logs screen on/off, unlock and app changes for the bubble diagnostics card (see OverlayDiag). */
+    /** Screen on/off, unlock and app changes: logged for the bubble diagnostics card (see OverlayDiag) and used to put the bubble back. */
     private BroadcastReceiver diagReceiver;
+    /** True from onServiceConnected to onUnbind: no bubble is added outside that time. */
+    private boolean serviceReady;
+    private boolean screenOn = true;
+    /** Looks at the bubbles every BubbleLogic.WATCHDOG_MS while the service is alive. */
+    private final Runnable watchdog = new Runnable() {
+        @Override
+        public void run() {
+            if (!serviceReady) return;
+            try {
+                screenOn = isScreenOn();   // in case a broadcast was missed
+                refreshVisibility(false, "watchdog");
+            } catch (Exception e) {
+                Log.w("vox", "bubble watchdog: " + e.getClass().getSimpleName());
+            }
+            main.postDelayed(this, BubbleLogic.WATCHDOG_MS);
+        }
+    };
 
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
         instance = this;
         diag(OverlayDiag.SERVICE_CONNECTED, "");
+        serviceReady = true;
+        screenOn = isScreenOn();
         registerDiagReceiver();
         DictationService.setListener(this);
         DictationService.setNoteListener(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         createBubbles();
-        refreshVisibility();
+        refreshVisibility(true, "service connected");
+        main.removeCallbacks(watchdog);
+        main.postDelayed(watchdog, BubbleLogic.WATCHDOG_MS);
         NoteEntry.applySettings(this);   // puts the "Record note" notification back after a reboot
+    }
+
+    private boolean isScreenOn() {
+        try {
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            return pm == null || pm.isInteractive();
+        } catch (Exception e) {
+            return true;
+        }
     }
 
     @Override
     public boolean onUnbind(Intent intent) {
         diag(OverlayDiag.SERVICE_UNBOUND, "");
-        unregisterDiagReceiver();
+        stopWatching();
         removeBubbles("service unbound");
         instance = null;
         DictationService.setListener(null);
@@ -79,7 +115,7 @@ public class VoxAccessibilityService extends AccessibilityService
     @Override
     public void onDestroy() {
         diag(OverlayDiag.SERVICE_DESTROYED, "");
-        unregisterDiagReceiver();
+        stopWatching();
         removeBubbles("service destroyed");
         instance = null;
         DictationService.setListener(null);
@@ -98,6 +134,17 @@ public class VoxAccessibilityService extends AccessibilityService
         DisplayMetrics dm = getResources().getDisplayMetrics();
         diag(OverlayDiag.CONFIG_CHANGE, (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE ? "landscape " : "portrait ")
                 + dm.widthPixels + "x" + dm.heightPixels);
+        // the saved position may lie outside the new screen: clamp it, then put the bubbles back
+        if (dictation != null) dictation.reposition();
+        if (noteBubble != null) noteBubble.reposition();
+        refreshVisibility(true, "screen change");
+    }
+
+    /** Ends the watchdog and the receiver; the caller removes the bubbles. */
+    private void stopWatching() {
+        serviceReady = false;
+        main.removeCallbacks(watchdog);
+        unregisterDiagReceiver();
     }
 
     // ------------------------------------------------------------- diagnostics
@@ -118,11 +165,27 @@ public class VoxAccessibilityService extends AccessibilityService
                 String a = i == null ? null : i.getAction();
                 if (a == null) return;
                 switch (a) {
-                    case Intent.ACTION_SCREEN_ON: diag(OverlayDiag.SCREEN_ON, ""); break;
-                    case Intent.ACTION_SCREEN_OFF: diag(OverlayDiag.SCREEN_OFF, ""); break;
-                    case Intent.ACTION_USER_PRESENT: diag(OverlayDiag.USER_PRESENT, ""); break;
+                    case Intent.ACTION_SCREEN_ON:
+                        screenOn = true;
+                        diag(OverlayDiag.SCREEN_ON, "");
+                        if (dictation != null) dictation.reposition();
+                        if (noteBubble != null) noteBubble.reposition();
+                        refreshVisibility(true, "screen on");
+                        break;
+                    case Intent.ACTION_SCREEN_OFF:
+                        screenOn = false;
+                        diag(OverlayDiag.SCREEN_OFF, "");
+                        refreshVisibility(false, "screen off");
+                        break;
+                    case Intent.ACTION_USER_PRESENT:
+                        diag(OverlayDiag.USER_PRESENT, "");
+                        refreshVisibility(true, "unlock");
+                        break;
                     // no package name on purpose: the log must not list what is installed
-                    default: diag(OverlayDiag.PACKAGE_CHANGE, ""); break;
+                    default:
+                        diag(OverlayDiag.PACKAGE_CHANGE, "");
+                        refreshVisibility(false, "app change");
+                        break;
                 }
             }
         };
@@ -144,7 +207,7 @@ public class VoxAccessibilityService extends AccessibilityService
                 registerReceiver(diagReceiver, pkg);
             }
         } catch (Exception e) {
-            diagReceiver = null;   // diagnostics only: the bubble works without it
+            diagReceiver = null;   // the bubble still works: the window events and the watchdog cover for it
         }
     }
 
@@ -202,17 +265,29 @@ public class VoxAccessibilityService extends AccessibilityService
     }
 
     public void refreshVisibility() {
-        if (dictation == null) return;
+        refreshVisibility(false, "");
+    }
+
+    /** Puts both bubbles right: added when wanted and missing, put back when their window is gone, removed when not wanted. */
+    private void refreshVisibility(boolean rebuild, String why) {
+        if (dictation == null || noteBubble == null) return;
         DictationService svc = DictationService.instance;
         // A note being recorded or sent is the note bubble's business: it must not bring the mic bubble up.
         boolean busy = svc != null && svc.getState() != DictationService.IDLE && !svc.isNoteJob();
         Prefs p = new Prefs(this);
-        boolean onlyTyping = p.onlyWhenTyping(), field = editNode != null;
-        boolean wantMic = busy || !onlyTyping || field;
-        dictation.setVisible(wantMic, OverlayDiag.micKind(wantMic, busy, onlyTyping, field), OverlayDiag.micReason(busy, onlyTyping, field));
-        boolean wantNote = p.noteBubble();   // independent of the focused field and of only_typing
-        noteBubble.setVisible(wantNote, wantNote ? OverlayDiag.OVERLAY_ADD : OverlayDiag.OVERLAY_REMOVE,
-                wantNote ? "voice note bubble is on" : "voice note bubble is off");
+        boolean onlyTyping = p.onlyWhenTyping(), always = p.alwaysShowBubble(), field = editNode != null;
+        boolean wantMic = busy || BubbleLogic.shouldShow(onlyTyping, always, field, screenOn, serviceReady);
+        dictation.apply(wantMic, OverlayDiag.micKind(wantMic, busy, onlyTyping, field, always, screenOn),
+                OverlayDiag.micReason(busy, onlyTyping, field, always, screenOn), rebuild, why);
+        boolean noteOn = p.noteBubble();   // independent of the focused field and of only_typing
+        boolean wantNote = noteOn && serviceReady && screenOn;
+        noteBubble.apply(wantNote, wantNote ? OverlayDiag.OVERLAY_ADD : OverlayDiag.OVERLAY_REMOVE,
+                !noteOn ? "voice note bubble is off" : !screenOn ? "screen is off" : "voice note bubble is on", rebuild, why);
+    }
+
+    /** The size of the screen in the current orientation. */
+    private DisplayMetrics screen() {
+        return getResources().getDisplayMetrics();
     }
 
     // ------------------------------------------------------------- bubble
@@ -223,6 +298,8 @@ public class VoxAccessibilityService extends AccessibilityService
         final WindowManager.LayoutParams lp;
         final boolean note;
         boolean shown;
+        /** When the overlay was last added: a view is not attached to its window until its first frame, so a fresh one is not "gone". */
+        long addedAt;
 
         Floating(boolean note) {
             this.note = note;
@@ -235,27 +312,72 @@ public class VoxAccessibilityService extends AccessibilityService
                             | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                     PixelFormat.TRANSLUCENT);
             lp.gravity = Gravity.TOP | Gravity.START;
-            Prefs p = new Prefs(VoxAccessibilityService.this);
-            int x = note ? p.noteBubbleX() : p.bubbleX();
-            int y = note ? p.noteBubbleY() : p.bubbleY();
-            // default spots: the right edge, the note bubble lower down so the two do not sit on top of each other
-            lp.x = x >= 0 ? x : dm.widthPixels - size;
-            lp.y = y >= 0 ? y : (int) (dm.heightPixels * (note ? 0.55 : 0.35));
+            place();
 
             final int slop = ViewConfiguration.get(VoxAccessibilityService.this).getScaledTouchSlop();
             final int longPress = ViewConfiguration.getLongPressTimeout() + 150;
             view.setOnTouchListener(new BubbleTouch(this, slop, longPress));
         }
 
+        /**
+         * Takes the saved position (or the default spot) and keeps it on the current screen. The clamped value is not
+         * written back, so turning the phone back restores where the user left the bubble.
+         */
+        void place() {
+            DisplayMetrics dm = screen();
+            Prefs p = new Prefs(VoxAccessibilityService.this);
+            int x = note ? p.noteBubbleX() : p.bubbleX();
+            int y = note ? p.noteBubbleY() : p.bubbleY();
+            // default spots: the right edge, the note bubble lower down so the two do not sit on top of each other
+            if (x < 0) x = dm.widthPixels - lp.width;
+            if (y < 0) y = (int) (dm.heightPixels * (note ? 0.55 : 0.35));
+            int[] xy = BubbleLogic.clamp(x, y, dm.widthPixels, dm.heightPixels, lp.width, lp.height);
+            lp.x = xy[0];
+            lp.y = xy[1];
+        }
+
+        /** The screen changed: move the bubble to where it belongs on the new one. */
+        void reposition() {
+            place();
+            if (!shown) return;
+            try { wm.updateViewLayout(view, lp); } catch (Exception ignored) { }
+        }
+
         private String what(String reason) {
             return (note ? "note bubble, " : "mic bubble, ") + reason;
+        }
+
+        /**
+         * Does what BubbleLogic.action says about this bubble. {@code kind} and {@code reason} go to the diagnostics
+         * log; {@code rebuild} takes a wanted, shown bubble off and puts it back (after an unlock, a rotation, the
+         * screen coming on) and {@code why} names the event that asked.
+         */
+        void apply(boolean want, String kind, String reason, boolean rebuild, String why) {
+            boolean fresh = SystemClock.elapsedRealtime() - addedAt < 2000;
+            boolean attached = view.isAttachedToWindow() || fresh;
+            String act = BubbleLogic.action(want, shown, attached);
+            if (act.equals(BubbleLogic.NONE) && want && rebuild) act = BubbleLogic.REPAIR;
+            if (act.equals(BubbleLogic.NONE)) return;
+            if (act.equals(BubbleLogic.REMOVE)) {
+                setVisible(false, kind, reason);
+            } else if (act.equals(BubbleLogic.ADD)) {
+                setVisible(true, kind, reason);
+            } else {   // REPAIR: the window is gone, or the event says to start fresh
+                boolean gone = !attached;
+                try { wm.removeView(view); } catch (Exception ignored) { }
+                shown = false;
+                String by = why == null || why.isEmpty() ? "" : why;
+                setVisible(true, gone ? OverlayDiag.WATCHDOG_REPAIR : kind,
+                        gone ? "window was gone" + (by.isEmpty() ? "" : ", found after " + by)
+                                : reason + (by.isEmpty() ? "" : ", refreshed after " + by));
+            }
         }
 
         /** Adds or removes the overlay when that changes what is on screen; {@code kind} and {@code reason} go to the diagnostics log. */
         void setVisible(boolean want, String kind, String reason) {
             if (want == shown) return;
             try {
-                if (want) wm.addView(view, lp); else wm.removeView(view);
+                if (want) { place(); wm.addView(view, lp); addedAt = SystemClock.elapsedRealtime(); } else wm.removeView(view);
                 shown = want;
                 diag(kind, what(reason));
             } catch (Exception e) {
@@ -336,10 +458,12 @@ public class VoxAccessibilityService extends AccessibilityService
     }
 
     private void snapToEdge(Floating f) {
-        DisplayMetrics dm = getResources().getDisplayMetrics();
+        DisplayMetrics dm = screen();
         int w = f.lp.width;
-        f.lp.x = (f.lp.x + w / 2 < dm.widthPixels / 2) ? 0 : dm.widthPixels - w;
-        f.lp.y = Math.max(0, Math.min(f.lp.y, dm.heightPixels - f.lp.height));
+        int x = (f.lp.x + w / 2 < dm.widthPixels / 2) ? 0 : dm.widthPixels - w;
+        int[] xy = BubbleLogic.clamp(x, f.lp.y, dm.widthPixels, dm.heightPixels, w, f.lp.height);
+        f.lp.x = xy[0];
+        f.lp.y = xy[1];
         if (f.shown) wm.updateViewLayout(f.view, f.lp);
         f.savePosition();
     }

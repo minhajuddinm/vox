@@ -156,6 +156,18 @@ public final class OverlayDiagTest {
         eq("show while busy is a plain add", OverlayDiag.OVERLAY_ADD, OverlayDiag.micKind(true, true, true, false));
         eq("show with only-typing off is a plain add", OverlayDiag.OVERLAY_ADD, OverlayDiag.micKind(true, false, false, false));
 
+        // D2: always show, screen off and the watchdog
+        eq("busy beats the screen", "recording or working", OverlayDiag.micReason(true, true, false, false, false));
+        eq("screen off reason", "screen is off", OverlayDiag.micReason(false, true, true, true, false));
+        eq("always show reason", "always show is on", OverlayDiag.micReason(false, true, false, true, true));
+        eq("always show beats only-typing in the words", "always show is on", OverlayDiag.micReason(false, false, false, true, true));
+        eq("five-argument reason falls back to the old words", "no text field focused", OverlayDiag.micReason(false, true, false, false, true));
+        eq("always show hides nothing by only-typing", OverlayDiag.OVERLAY_ADD, OverlayDiag.micKind(true, false, true, false, true, true));
+        eq("screen off is a plain remove", OverlayDiag.OVERLAY_REMOVE, OverlayDiag.micKind(false, false, true, true, false, false));
+        eq("only-typing still has its own pair", OverlayDiag.ONLY_TYPING_HIDE, OverlayDiag.micKind(false, false, true, false, false, true));
+        eq("watchdog label", "12:03:45 Bubble put back by the watchdog: mic bubble, window was gone",
+                new OverlayDiag.Event(t(0), OverlayDiag.WATCHDOG_REPAIR, "mic bubble, window was gone", 1).text(UTC));
+
         // the service line on the card
         eq("service connected", "Connected: the bubble can be drawn", OverlayDiag.serviceLine(true, true));
         eq("service connected, setting unknown", "Connected: the bubble can be drawn", OverlayDiag.serviceLine(false, true));
