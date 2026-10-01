@@ -326,3 +326,16 @@ def test_my_notes_autosave_saves_to_the_meeting_it_was_typed_in():
     body = WINDOWS_PAGE.split("async function openMeeting(", 1)[1].split("\n}", 1)[0]
     assert "flushNotes()" in body and body.index("flushNotes()") < body.index("meeting_detail")
     assert "flushNotes()" in WINDOWS_PAGE.split("function renderMeeting(", 1)[1].split("\n}", 1)[0]
+
+
+def test_windows_page_edits_dictionary_and_people_through_the_one_item_bridge_calls():
+    # a whole list from a stale S.config wiped words synced from another device
+    assert not re.search(r"save\(\s*\{\s*(dictionary|people)\s*:", WINDOWS_PAGE)
+    assert "setDict(" not in WINDOWS_PAGE
+    for name in ("dict_add_term", "dict_remove_term", "dict_add_repl", "dict_remove_repl", "people_add", "people_remove"):
+        assert f"api().{name}(" in WINDOWS_PAGE
+
+
+def test_windows_page_refreshes_before_showing_dictionary_styles_and_settings():
+    handler = WINDOWS_PAGE.split('document.querySelectorAll("nav button").forEach(b => b.onclick', 1)[1].split("\n});", 1)[0]
+    assert re.search(r'\["dictionary",\s*"styles",\s*"settings"\]\.includes\(b\.dataset\.page\)\)\s*await refresh\(\)', handler)

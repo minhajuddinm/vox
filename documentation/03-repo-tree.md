@@ -192,6 +192,8 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_gcal.py` | Google tokens are protected on disk, a plain legacy file is migrated, an unreadable one asks to connect again. |
 | `tests/test_calendar_status.py` | A declined invite is dropped, an unanswered one only reminds, only an accepted one auto-starts (`calendar_action`). |
 | `tests/test_meeting_store.py` | A failed export still lists the meeting and removes the raw audio; a cut-off meeting is recovered (`recover_unfinished`). |
+| `tests/test_ui_app_bridge.py` | Dictionary and People edits change one item in the file's current list, not a stale page list. |
+| `tests/test_hostile_note_id.py` | A note id from the relay that is not 32 hex characters is ignored, in `apply_remote` and in a sync. |
 | `tests/test_engine_notes.py` | The engine's voice-note mode (skipped where the Windows runtime packages are missing). |
 | `tests/test_engine_flash.py` | The pill's "sent" and "error" signal: `Engine.flash` timing, expiry, what cancels it, no flash without a pill, and which events raise which one (skipped where the Windows runtime packages are missing). |
 | `tests/test_overlay_mode.py` | Every branch of `overlay_mode` (flash over the meeting timer, flash only while idle). |

@@ -79,6 +79,64 @@ class Api:
         core.save_config(merged)
         return True
 
+    def _edit_list(self, key, change):
+        """Changes one item of a list setting in the file as it is now (the sync thread may have added words from
+        another device since the page was drawn) and returns the new list for the page."""
+        cfg = core.load_config()
+        items = [x for x in (cfg.get(key) or []) if isinstance(x, str)]
+        items = change(items)
+        cfg[key] = items
+        core.save_config(cfg)
+        return items
+
+    @staticmethod
+    def _repl_of(line):
+        parts = [s.strip() for s in line.split("=>")]
+        return parts[:2] if "=>" in line else None
+
+    def dict_add_term(self, term):
+        t = str(term or "").strip()
+        return self._edit_list("dictionary", lambda d: d if not t or any(x.strip() == t for x in d) else d + [t])
+
+    def dict_remove_term(self, term):
+        t = str(term or "").strip()
+
+        def drop(d):
+            for i, x in enumerate(d):
+                if "=>" not in x and x.strip() == t:
+                    return d[:i] + d[i + 1:]
+            return d
+        return self._edit_list("dictionary", drop)
+
+    def dict_add_repl(self, wrong, right):
+        w, r = str(wrong or "").strip(), str(right or "").strip()
+        line = f"{w} => {r}"
+        return self._edit_list("dictionary", lambda d: d if not w or not r or any(self._repl_of(x) == [w, r] for x in d) else d + [line])
+
+    def dict_remove_repl(self, wrong, right):
+        pair = [str(wrong or "").strip(), str(right or "").strip()]
+
+        def drop(d):
+            for i, x in enumerate(d):
+                if self._repl_of(x) == pair:
+                    return d[:i] + d[i + 1:]
+            return d
+        return self._edit_list("dictionary", drop)
+
+    def people_add(self, name):
+        n = str(name or "").strip()
+        return self._edit_list("people", lambda p: p if not n or n in p else p + [n])
+
+    def people_remove(self, name):
+        n = str(name or "").strip()
+
+        def drop(p):
+            for i, x in enumerate(p):
+                if x.strip() == n:
+                    return p[:i] + p[i + 1:]
+            return p
+        return self._edit_list("people", drop)
+
     def _form_cfg(self, form):
         """Saved settings with the (not yet saved) values of the provider form laid over them."""
         cfg = core.load_config()
