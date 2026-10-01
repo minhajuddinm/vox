@@ -197,6 +197,11 @@ final class SyncWorker {
         }
 
         @Override
+        public String relayUrl() {
+            return prefs.relayUrl();
+        }
+
+        @Override
         public Map<String, Object> readProfile() {
             return ProfileMap.toProfile(prefs.profileStored());
         }

@@ -26,7 +26,7 @@ There is no analytics, crash reporting or Vox backend.
 | Meeting notes and transcripts | `%APPDATA%\Vox\meetings`, `Documents\Vox Notes` | Plain text |
 | Google tokens | `google_token.json` | Plain JSON with default file permissions |
 | Control token | `engine.json` | Random per run, deleted on quit; readable by the same Windows user |
-| Failed dictation audio (Android) | `cache/vox_pending.wav` | Until sent, cancelled or the service stops |
+| Failed dictation audio (Android) | `cache/vox_pending_<id>_<dest>.wav` (up to 5) | Until sent, cleared in the notification, cancelled (that recording only), dropped as the oldest, or 7 days old; kept across a service stop |
 | Failed dictation audio (Windows) | Memory only (`Engine.pending`) | Lost when Vox quits |
 
 ## Network rules
@@ -107,4 +107,4 @@ With **Sync voice notes with my relay** on, the full text of every voice note (t
 
 ### Profile sync and API keys
 
-While sync is on, the "About you" text, dictionary, people, default style, cleanup switch and language go to the relay. Provider settings and **API keys go to the relay only if the user turns on "Also share my provider settings and API keys"** (`relay_sync_keys`, off by default); turning it off removes them from the relay on the next sync. The relay stores the profile as plain JSON in `relay.db` and returns it to anyone with the token (its management page hides key values, its API does not), so while the switch is on the relay and its token are as sensitive as the keys themselves. Keys received from the relay are saved on this PC DPAPI-protected like any other key (on the phone they go to the app-private preferences like a key typed there). A device that has not switched keys on ignores keys on the relay.
+While sync is on, the "About you" text, dictionary, people, default style, cleanup switch and language go to the relay. Provider settings and **API keys go to the relay only if the user turns on "Also share my provider settings and API keys"** (`relay_sync_keys`, off by default); turning it off on a device that had it on removes them from the relay once, on the next sync (a device that never sent keys leaves other devices' keys alone). The relay stores the profile as plain JSON in `relay.db` and returns it to anyone with the token (its management page hides key values, its API does not), so while the switch is on the relay and its token are as sensitive as the keys themselves. Keys received from the relay are saved on this PC DPAPI-protected like any other key (on the phone they go to the app-private preferences like a key typed there). A device that has not switched keys on ignores keys on the relay.
