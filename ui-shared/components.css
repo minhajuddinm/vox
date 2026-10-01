@@ -29,3 +29,11 @@
 .drow .da { flex: none; color: var(--muted); font-size: 13px; }
 .badge { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; vertical-align: 1px; }
 .dempty { color: var(--muted); padding: 6px 0; }
+.rsteps summary { cursor: pointer; font-weight: 600; }
+.rs-body { padding-top: 10px; }
+.rs-intro, .rs-note { color: var(--muted); margin: 0 0 10px; }
+.rs-list { margin: 12px 0; padding-left: 22px; }
+.rs-list li { margin: 0 0 16px; padding-left: 4px; }
+.rs-t { margin-bottom: 6px; }
+.rs-cmd { margin: 6px 0; padding: 9px 11px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: 12.5px/1.55 ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+.rs-copy { margin-top: 2px; }

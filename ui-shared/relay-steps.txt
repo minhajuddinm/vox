@@ -1,0 +1,22 @@
+# The text of the "How to set up the relay" card. tools/sync_ui.py turns it into a generated block in both pages
+# (windows/ui/index.html, android/assets/index.html); relay/README.md shows the same commands, and
+# tests/test_ui_relay_help.py fails when a command here is missing there. Edit this file, then run: python tools/sync_ui.py
+# Lines: intro: (one paragraph), step: (a numbered step), cmd: (a command that belongs to the step above),
+# note: (a closing line without a number). Lines starting with # and blank lines are ignored.
+intro: The relay is a small program that keeps your notes and settings in one place for your phone and PCs. Run it on something that is always on, such as a Raspberry Pi. Tailscale must be installed and signed in on it and on this device, with HTTPS turned on for your tailnet (Tailscale admin console, DNS page).
+step: On the Pi, put relay.py (from the relay folder of Vox) where the service will run it.
+cmd: sudo mkdir -p /opt/vox-relay
+cmd: sudo cp relay.py /opt/vox-relay/
+step: Try it once by hand. It prints where it listens. Stop it with Ctrl+C.
+cmd: python3 /opt/vox-relay/relay.py --data-dir /tmp/vox-relay-test --show-token
+step: Install it as a service, so it starts at boot and restarts if it stops (vox-relay.service is next to relay.py).
+cmd: sudo cp vox-relay.service /etc/systemd/system/
+cmd: sudo systemctl daemon-reload
+cmd: sudo systemctl enable --now vox-relay
+step: Read the token. Keep it private: anyone with the token and a way to reach the relay can read your notes.
+cmd: sudo cat /var/lib/vox-relay/relay.json
+step: Publish it to your tailnet. This is what adds HTTPS. Never use tailscale funnel, which puts it on the open internet. The second command shows the address.
+cmd: sudo tailscale serve --bg 8765
+cmd: tailscale serve status
+step: Enter that address (like https://yuvipi.your-tailnet.ts.net) and the token in the fields above, then press Test connection. It tells you whether the relay is reachable, whether the token works, and the name this device shows under.
+note: No Raspberry Pi? A Windows PC can run it: in the Vox tray menu tick Run relay on this PC, then run tailscale serve --bg 8765 in a terminal. It only works while that PC is on and Vox is running.

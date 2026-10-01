@@ -40,6 +40,8 @@ You need: Python 3.9 or newer (`python3 --version`; Raspberry Pi OS Bookworm has
    `serve status` shows the address, something like `https://yuvipi.your-tailnet.ts.net/`.
 6. **Open that address** in a browser on your phone or PC (Tailscale must be running there), enter the token, and you are in.
 
+The Vox apps show these same steps under Settings, **How to set up the relay** (each command has a Copy button). After entering the address and token there, press **Test connection**: it tells you whether the relay is reachable, whether the token works, the relay's version and the name the device shows under. **Devices on my relay** below it then lists the device.
+
 Optional: lock it to your own Tailscale login so a shared or tagged device cannot use it even with the token:
 ```
 sudo systemctl edit vox-relay      # add:  [Service]  then  ExecStart=  and the same ExecStart line with  --owner you@example.com
