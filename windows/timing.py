@@ -128,3 +128,47 @@ def summarize(entries, n=50):
     out["biggest"] = biggest({name: out[name]["median"] for name in STAGES})
     out["count"] = len(used)
     return out
+
+
+def by_model(entries, n=50):
+    """Medians per pair of models over the newest `n` entries (oldest first, like `summarize`).
+
+    Returns [{"stt_model", "llm_model", "count", "stt", "llm", "total"}, ...], the most used pair first (a tie by voice
+    model name, then cleanup model name). The numbers are medians; a stage that is 0 (cleanup skipped, not measured) is
+    left out as in `summarize`. A missing model name is "". Entries without a "stages" dict are ignored."""
+    groups = {}
+    for e in list(entries)[-n:] if n > 0 else []:
+        if _stages_of(e) is None:
+            continue
+        key = (str(e.get("stt_model") or ""), str(e.get("llm_model") or ""))
+        groups.setdefault(key, []).append(e)
+    rows = []
+    for (stt_model, llm_model), group in groups.items():
+        s = summarize(group, n=len(group))
+        rows.append({"stt_model": stt_model, "llm_model": llm_model, "count": s["count"],
+                     "stt": s["stt"]["median"], "llm": s["llm"]["median"], "total": s["total"]["median"]})
+    rows.sort(key=lambda r: (-r["count"], r["stt_model"], r["llm_model"]))
+    return rows
+
+
+def speed_view(history, n=50, last=10):
+    """Everything the Speed card shows, from the history (oldest first, as `vox_core.read_history` returns it).
+
+    Only entries with a "timing" dict (see `Timing.entry`) count; older ones, and entries made while history was
+    off, have none. Returns {"count", "biggest", "stages": {stage: {"median", "p90"}}, "models": by_model(...),
+    "last": the newest `last` timed dictations, newest first, each {"t", "app", "words", "stt_model", "llm_model",
+    "relay", "stages"}}. The Android app builds the same shape (Timing.speedView)."""
+    timed = []
+    for h in history or []:
+        t = h.get("timing") if isinstance(h, dict) else None
+        if isinstance(t, dict) and _stages_of(t) is not None:
+            timed.append((h, t))
+    entries = [t for _, t in timed]
+    s = summarize(entries, n)
+    recent = []
+    for h, t in reversed(timed[-last:] if last > 0 else []):
+        recent.append({"t": h.get("t", 0), "app": h.get("app", ""), "words": h.get("words", 0),
+                       "stt_model": t.get("stt_model", ""), "llm_model": t.get("llm_model", ""),
+                       "relay": bool(t.get("relay", False)), "stages": dict(t["stages"])})
+    return {"count": s["count"], "biggest": s["biggest"], "stages": {name: s[name] for name in STAGES},
+            "models": by_model(entries, n), "last": recent}

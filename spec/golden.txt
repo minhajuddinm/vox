@@ -284,3 +284,9 @@ timing_summary		50	count=0 biggest= start=0/0 rec=0/0 stt=0/0 llm=0/0 insert=0/0
 timing_summary	start=50,rec=3000,stt=300,llm=900,insert=20,total=1270;start=70,rec=2500,stt=500,llm=1100,insert=40,total=1640	50	count=2 biggest=llm start=60/70 rec=2750/3000 stt=400/500 llm=1000/1100 insert=30/40 total=1455/1640
 timing_summary	stt=400;stt=500;stt=600;stt=700;stt=800;stt=9000	50	count=6 biggest=stt start=0/0 rec=0/0 stt=650/9000 llm=0/0 insert=0/0 total=0/0
 timing_summary	stt=1;stt=2	1	count=1 biggest=stt start=0/0 rec=0/0 stt=2/2 llm=0/0 insert=0/0 total=0/0
+# timing_models: entries (voice@cleanup@stages maps separated by ;) and n => one "voice+cleanup n=count stt=median llm=median total=median" per model pair, most used first (a tie by voice then cleanup name), joined by ;. The newest n entries are used; a 0 stage did not run and is left out.
+timing_models	w@a@stt=500,llm=300,total=900;w@b@stt=700,llm=900,total=1700;w@a@stt=600,llm=500,total=1200;w@a@stt=800,llm=0,total=800	50	w+a n=3 stt=600 llm=400 total=900;w+b n=1 stt=700 llm=900 total=1700
+timing_models	old@old@stt=1;old@old@stt=1;old@old@stt=1;old@old@stt=1;new@new@stt=5	1	new+new n=1 stt=5 llm=0 total=0
+timing_models	b@x@stt=1;a@x@stt=1;a@x@stt=3	50	a+x n=2 stt=2 llm=0 total=0;b+x n=1 stt=1 llm=0 total=0
+timing_models		50	
+timing_models	whisper-large-v3-turbo@openai/gpt-oss-20b@stt=400,llm=600,total=1100;whisper-large-v3-turbo@openai/gpt-oss-20b@stt=500,llm=800,total=1400	50	whisper-large-v3-turbo+openai/gpt-oss-20b n=2 stt=450 llm=700 total=1250

@@ -149,3 +149,53 @@ def test_summarize_empty():
 def test_summarize_tolerates_bad_entries():
     s = timing.summarize([None, {}, {"stages": "x"}, entry(stt=300)])
     assert s["count"] == 1 and s["stt"]["median"] == 300
+
+
+# ---------------------------------------------------------------- per model and the Speed card's data
+
+def mentry(stt_model, llm_model, **stages):
+    e = entry(**stages)
+    e["stt_model"], e["llm_model"] = stt_model, llm_model
+    return e
+
+
+def test_by_model_groups_by_voice_and_cleanup_model_most_used_first():
+    entries = [mentry("w", "a", stt=500, llm=300, total=900), mentry("w", "b", stt=700, llm=900, total=1700),
+               mentry("w", "a", stt=600, llm=500, total=1200), mentry("w", "a", stt=800, llm=0, total=800)]
+    rows = timing.by_model(entries)
+    assert [(r["stt_model"], r["llm_model"], r["count"]) for r in rows] == [("w", "a", 3), ("w", "b", 1)]
+    assert rows[0]["stt"] == 600 and rows[0]["llm"] == 400 and rows[0]["total"] == 900   # the skipped cleanup is not a 0 ms
+
+
+def test_by_model_uses_the_newest_n_and_ignores_entries_without_stages():
+    entries = [mentry("old", "old", stt=1)] * 4 + [None, {"stt_model": "x"}, mentry("new", "new", stt=5)]
+    rows = timing.by_model(entries, n=2)
+    assert [(r["stt_model"], r["count"]) for r in rows] == [("new", 1)]
+
+
+def test_by_model_ties_are_ordered_by_name_and_a_missing_model_is_empty():
+    rows = timing.by_model([mentry("b", "x", stt=1), mentry("a", "x", stt=1), {"stages": {"stt": 2}}])
+    assert [r["stt_model"] for r in rows] == ["", "a", "b"]
+
+
+def history_row(t, words=5, **kw):
+    e = mentry(kw.pop("stt_model", "w"), kw.pop("llm_model", "l"), **kw)
+    return {"t": t, "app": "notepad.exe", "raw": "x", "text": "y", "words": words, "timing": e}
+
+
+def test_speed_view_shape_and_last_ten_newest_first():
+    hist = [{"t": 1.0, "raw": "old entry without timing"}]
+    hist += [history_row(100.0 + i, stt=500 + i, llm=300, total=900) for i in range(12)]
+    v = timing.speed_view(hist, n=50, last=10)
+    assert v["count"] == 12 and v["biggest"] == "stt"
+    assert v["stages"]["stt"]["median"] == 505 and set(v["stages"]) == set(timing.STAGES)
+    assert [r["t"] for r in v["last"]] == [111.0 - i for i in range(10)]
+    assert v["last"][0]["stages"]["stt"] == 511 and v["last"][0]["stt_model"] == "w" and v["last"][0]["app"] == "notepad.exe"
+    assert v["models"][0]["count"] == 12
+
+
+def test_speed_view_of_no_history_is_empty_not_an_error():
+    v = timing.speed_view([])
+    assert v == {"count": 0, "biggest": "", "stages": v["stages"], "models": [], "last": []}
+    assert all(v["stages"][s] == {"median": 0, "p90": 0} for s in timing.STAGES)
+    assert timing.speed_view([{"raw": "a"}, None, {"timing": "x"}])["count"] == 0

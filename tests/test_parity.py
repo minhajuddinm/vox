@@ -86,6 +86,19 @@ def timing_summary(entries, n):
     return timing.summarize([{"stages": kv(e)} for e in entries.split(";") if e], int(n))
 
 
+def models_text(rows):
+    return ";".join("%s+%s n=%d stt=%d llm=%d total=%d" % (r["stt_model"], r["llm_model"], r["count"], r["stt"], r["llm"], r["total"])
+                    for r in rows)
+
+
+def timing_models(entries, n):
+    out = []
+    for e in entries.split(";") if entries else []:
+        stt_model, llm_model, stages = e.split("@", 2)
+        out.append({"stages": kv(stages), "stt_model": stt_model, "llm_model": llm_model})
+    return timing.by_model(out, int(n))
+
+
 @pytest.mark.parametrize("kind,f", cases())
 def test_golden(kind, f, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))   # the notes rows use a real (temporary) notes.db
@@ -147,5 +160,7 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert stages_text(timing_stages(f[0])) == f[1]
     elif kind == "timing_summary":   # entries (stages maps separated by ;), n => count, biggest and median/p90 per stage
         assert summary_text(timing_summary(f[0], f[1])) == f[2]
+    elif kind == "timing_models":   # entries (voice@cleanup@stages, separated by ;), n => one line per model pair
+        assert models_text(timing_models(f[0], f[1])) == f[2]
     else:
         pytest.fail(f"unknown case kind {kind}")
