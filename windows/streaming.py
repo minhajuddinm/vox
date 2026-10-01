@@ -15,13 +15,14 @@ MIN_TAIL_SECONDS = 0.3     # a last piece shorter than this is not sent
 CONTEXT_CHARS = 150        # how much of the previous text goes into the next request
 
 
-def piece_text(cfg, pcm, context, transcribe=None):
+def piece_text(cfg, pcm, context, transcribe=None, drop_hallucination=True):
     """The text of one piece of audio, with the end of the text before it as context; "" for a piece of pure silence
-    or a silence hallucination. Used by StreamingStt and by the keep-listening session."""
+    or a silence hallucination (unless drop_hallucination is off: after real speech a lone "Thank you." is real text).
+    Used by StreamingStt and by the keep-listening session."""
     if core.is_silent(pcm):
         return ""   # a piece of pure silence has nothing to say
     text = (transcribe or core.transcribe)(cfg, core.pcm_to_wav(pcm), context[-CONTEXT_CHARS:])
-    return "" if not text or core.is_silence_hallucination(text) else text
+    return "" if not text or (drop_hallucination and core.is_silence_hallucination(text)) else text
 
 
 class StreamingStt:
@@ -80,6 +81,6 @@ class StreamingStt:
 
     def _send(self, pcm):
         self.pieces += 1
-        text = piece_text(self.cfg, pcm, " ".join(self.texts), self._transcribe)
+        text = piece_text(self.cfg, pcm, " ".join(self.texts), self._transcribe, drop_hallucination=not self.texts)
         if text:
             self.texts.append(text)

@@ -122,6 +122,14 @@ public final class StreamingSttTest {
         eq("silent piece skipped, hallucination dropped", "real words", sh.finish(10000));
         eq("two sends", 2, hf.contexts.size());
 
+        // a closing "Thank you." after real words is real text; with nothing real before it, it is dropped
+        Fake ty = new Fake(0, null, "real words", "Thank you.");
+        StreamingStt sty = run(ty, cat(tone(13), silence(1), tone(3)), 3200);
+        eq("closing thank you kept", "real words Thank you.", sty.finish(10000));
+        Fake ty2 = new Fake(0, null, "Thank you.", "Bye");
+        StreamingStt sty2 = run(ty2, cat(tone(13), silence(1), tone(3)), 3200);
+        eq("nothing real before: both dropped", "", sty2.finish(10000));
+
         // a last piece shorter than 0.3 s is not sent
         Fake tf = new Fake(0, null);
         StreamingStt st = run(tf, cat(tone(13), silence(0.7), tone(0.2)), 3200);

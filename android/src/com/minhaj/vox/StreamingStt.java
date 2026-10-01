@@ -121,7 +121,8 @@ final class StreamingStt {
         pieces++;
         if (Pcm.isSilent(pcm)) return;   // a piece of pure silence has nothing to say
         String text = transcriber.transcribe(pcm, context());
-        if (text != null && !text.isEmpty() && !ApiClient.isSilenceHallucination(text)) texts.add(text);
+        // a silence hallucination ("Thank you.") is only possible before any real text; after speech it is the speaker's
+        if (text != null && !text.isEmpty() && (!texts.isEmpty() || !ApiClient.isSilenceHallucination(text))) texts.add(text);
     }
 
     private String context() {
