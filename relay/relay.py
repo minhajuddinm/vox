@@ -33,6 +33,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 RELAY_VERSION = "0.2"
+MAX_CLOCK_AHEAD = 86400    # seconds a note time may be ahead of the relay clock
 MAX_BODY = 1_000_000        # bytes accepted in one request
 MAX_TEXT = 100_000          # characters kept per text field
 MAX_TAGS = 20
@@ -94,6 +95,10 @@ class BodyTooLarge(Exception):
     pass
 
 
+class LengthRequired(BadRequest):
+    """Chunked upload: answered 411 (the other framing problems are a plain 400)."""
+
+
 def _text(value, limit=MAX_TEXT):
     return ("" if value is None else str(value))[:limit]
 
@@ -105,6 +110,16 @@ def _number(value, name):
         raise BadRequest(f"{name} must be a number")
     if not math.isfinite(f):
         raise BadRequest(f"{name} must be a number")
+    return f
+
+
+def _time_field(value, name):
+    """A note time in seconds. More than a day ahead of the relay is refused (that is a clock in milliseconds or a
+    broken one: such a note would win over every later edit and delete)."""
+    now = time.time()
+    f = _number(now if value is None else value, name)
+    if f > now + MAX_CLOCK_AHEAD:
+        raise BadRequest(f"{name} is too far in the future (seconds since 1970, not milliseconds)")
     return f
 
 
@@ -126,8 +141,8 @@ def clean_note(raw, note_id=None):
         "title": "" if deleted else _text(raw.get("title"), 300),
         "text": "" if deleted else _text(raw.get("text")),
         "raw": "" if deleted else _text(raw.get("raw")),
-        "created_at": _number(raw.get("created_at", time.time()), "created_at"),
-        "updated_at": _number(raw.get("updated_at", time.time()), "updated_at"),
+        "created_at": _time_field(raw.get("created_at"), "created_at"),
+        "updated_at": _time_field(raw.get("updated_at"), "updated_at"),
         "secs": max(0.0, _number(raw.get("secs", 0), "secs")),
         "device": _text(raw.get("device"), 60),
         "tags": [] if deleted else tags,
@@ -184,20 +199,24 @@ class RelayStore:
         """Stores a note unless a newer version is already here. Returns (stored_note, applied)."""
         note = clean_note(raw, note_id)
         with self._lock, contextlib.closing(self._connect()) as con, con:
-            cur = con.execute("SELECT * FROM notes WHERE id = ?", (note["id"],)).fetchone()
-            if cur is not None:
-                old = self._row(cur)
-                if old["updated_at"] > note["updated_at"] or all(old[k] == note[k] for k in NOTE_FIELDS):
-                    return old, False   # an older or identical write: keep what we have, no new sequence number
-            con.execute("INSERT OR REPLACE INTO notes (id, source, title, text, raw, created_at, updated_at, secs, device, tags, deleted) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (note["id"], note["source"], note["title"], note["text"], note["raw"], note["created_at"],
-                         note["updated_at"], note["secs"], note["device"], json.dumps(note["tags"]), int(note["deleted"])))
-            if self._has_fts(con):
-                con.execute("DELETE FROM notes_fts WHERE id = ?", (note["id"],))
-                if not note["deleted"]:
-                    con.execute("INSERT INTO notes_fts (id, title, text) VALUES (?, ?, ?)", (note["id"], note["title"], note["text"]))
-            stored = self._row(con.execute("SELECT * FROM notes WHERE id = ?", (note["id"],)).fetchone())
+            return self._store_note(con, note)
+
+    def _store_note(self, con, note):
+        """The body of `upsert_note` on an open connection (the caller holds the lock and the transaction)."""
+        cur = con.execute("SELECT * FROM notes WHERE id = ?", (note["id"],)).fetchone()
+        if cur is not None:
+            old = self._row(cur)
+            if old["updated_at"] > note["updated_at"] or all(old[k] == note[k] for k in NOTE_FIELDS):
+                return old, False   # an older or identical write: keep what we have, no new sequence number
+        con.execute("INSERT OR REPLACE INTO notes (id, source, title, text, raw, created_at, updated_at, secs, device, tags, deleted) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (note["id"], note["source"], note["title"], note["text"], note["raw"], note["created_at"],
+                     note["updated_at"], note["secs"], note["device"], json.dumps(note["tags"]), int(note["deleted"])))
+        if self._has_fts(con):
+            con.execute("DELETE FROM notes_fts WHERE id = ?", (note["id"],))
+            if not note["deleted"]:
+                con.execute("INSERT INTO notes_fts (id, title, text) VALUES (?, ?, ?)", (note["id"], note["title"], note["text"]))
+        stored = self._row(con.execute("SELECT * FROM notes WHERE id = ?", (note["id"],)).fetchone())
         return stored, True
 
     def get_note(self, nid):
@@ -206,13 +225,15 @@ class RelayStore:
         return self._row(r) if r else None
 
     def delete_note(self, nid, updated_at=None):
-        """Turns a note into a delete marker (content removed). Returns the marker, or None if unknown."""
-        with contextlib.closing(self._connect()) as con:
+        """Turns a note into a delete marker (content removed). Returns (marker, applied), or None if unknown."""
+        with self._lock, contextlib.closing(self._connect()) as con, con:    # read and write in one step: no one slips in between
             r = con.execute("SELECT * FROM notes WHERE id = ?", (nid,)).fetchone()
-        if r is None:
-            return None
-        marker = dict(self._row(r), deleted=True, updated_at=max(float(updated_at or 0), time.time()))
-        return self.upsert_note(marker)[0]
+            if r is None:
+                return None
+            old = self._row(r)
+            # later than the stored time too, or a note stamped ahead of this clock (a fast phone) would "win" over its own delete
+            stamp = max(float(updated_at or 0), time.time(), old["updated_at"] + 0.001)
+            return self._store_note(con, clean_note(dict(old, deleted=True, updated_at=stamp)))
 
     def changes(self, since=0, limit=200):
         """Notes and delete markers written after sequence number `since`, oldest first."""
@@ -688,10 +709,11 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def _json_body(self):
-        try:
-            n = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            raise BadRequest("bad Content-Length")
+        n, problem = self._body_length()     # strict: "-1", "+5" or a repeated Content-Length must not reach read()
+        if problem:
+            self.close_connection = True     # the end of the body is unknown, so this connection cannot be reused
+            raise (LengthRequired if problem[0] == 411 else BadRequest)(problem[1])
+        n = n or 0
         if n > MAX_BODY:
             self._drain(n)
             raise BodyTooLarge()
@@ -785,7 +807,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, {"note": note, "applied": applied})
                 if method == "DELETE":
                     marker = store.delete_note(nid)
-                    return self._send(200, {"note": marker}) if marker else self._send(404, {"error": "no such note"})
+                    if not marker:
+                        return self._send(404, {"error": "no such note"})
+                    return self._send(200, {"note": marker[0], "applied": marker[1]})
             if parts == ["profile"]:
                 if method == "GET":
                     return self._send(200, store.get_profile())
@@ -798,6 +822,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404 if method in ("GET", "PUT", "DELETE") else 405, {"error": "unknown request"})
         except BodyTooLarge:
             return self._send(413, {"error": "request too large"})
+        except LengthRequired as e:
+            return self._send(411, {"error": str(e)})
         except (BadRequest, ValueError, KeyError) as e:
             return self._send(400, {"error": str(e) or "bad request"})
         except Exception:
