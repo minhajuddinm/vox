@@ -147,6 +147,7 @@ public class DictationService extends Service {
             startForeground(1, n);
         }
         instance = this;
+        requestTileUpdate();   // an active tile is only bound on request: let it read the new state
         try {
             // Started through TrampolineActivity (a bubble tap, the "Record note" notification, the tile): record
             // right away, with no fixed delay. What lets the microphone work is the while-in-use grant this
@@ -220,6 +221,7 @@ public class DictationService extends Service {
         pendingFile().delete();
         hasPending = false;
         setState(IDLE);
+        requestTileUpdate();
         super.onDestroy();
     }
 
@@ -529,7 +531,7 @@ public class DictationService extends Service {
         main.post(() -> { if (listener != null) listener.onState(s); });
     }
 
-    /** Asks the system to call NoteTileService.onStartListening again, so the tile follows the recording (API 24+). */
+    /** Asks the system to call NoteTileService.onStartListening again (API 24+). Works because the tile declares ACTIVE_TILE in the manifest. */
     private void requestTileUpdate() {
         try {
             android.service.quicksettings.TileService.requestListeningState(this, new ComponentName(this, NoteTileService.class));
