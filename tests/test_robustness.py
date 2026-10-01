@@ -118,3 +118,53 @@ def test_odd_trailing_byte_is_ignored():
 
 def test_uses_array_of_shorts():
     assert array.array("h").itemsize == 2   # the silence gate assumes 16-bit samples
+
+
+# ------------------------------------------------- no retry of a timeout through the relay
+def test_through_the_relay_a_request_timeout_is_not_sent_again(monkeypatch):
+    calls = script_posts(monkeypatch, [requests.ReadTimeout("slow"), 200])
+    with pytest.raises(requests.ReadTimeout):
+        core.post_with_retry("http://x/v1", via_relay=True)
+    assert len(calls) == 1
+
+
+def test_without_the_relay_a_timeout_is_still_retried(monkeypatch):
+    calls = script_posts(monkeypatch, [requests.ReadTimeout("slow"), 200])
+    assert core.post_with_retry("http://x/v1").status_code == 200
+    assert len(calls) == 2
+
+
+def test_through_the_relay_a_connection_error_and_502_503_are_retried(monkeypatch):
+    calls = script_posts(monkeypatch, [requests.ConnectionError("reset"), 502, 503, 200])
+    assert core.post_with_retry("http://x/v1", retries=3, via_relay=True).status_code == 200
+    assert len(calls) == 4
+
+
+def test_through_the_relay_a_connect_timeout_is_a_connection_error_and_is_retried(monkeypatch):
+    calls = script_posts(monkeypatch, [requests.ConnectTimeout("no route"), 200])
+    assert core.post_with_retry("http://x/v1", via_relay=True).status_code == 200
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("status", [500, 504, 429, 408])
+def test_through_the_relay_other_failures_are_returned_at_once(monkeypatch, status):
+    calls = script_posts(monkeypatch, [status, 200])
+    assert core.post_with_retry("http://x/v1", via_relay=True).status_code == status
+    assert len(calls) == 1
+
+
+def test_the_callers_tell_post_with_retry_whether_the_relay_is_the_server(monkeypatch):
+    seen = []
+    class Answer:
+        status_code = 200
+
+        def json(self):
+            return {"text": "x", "segments": [], "choices": [{"message": {"content": "y"}}]}
+    monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: seen.append(kw.get("via_relay")) or Answer())
+    cfg = dict(core.DEFAULT_CONFIG, relay_proxy=True, relay_url="http://127.0.0.1:1", relay_token="t" * 12)
+    core.transcribe(cfg, b"wav")
+    core.transcribe_segments(cfg, b"wav")
+    core.cleanup(cfg, "raw words here", "neutral", "")
+    plain = dict(core.DEFAULT_CONFIG, api_key="k")
+    core.transcribe(plain, b"wav")
+    assert seen == [True, True, True, False]

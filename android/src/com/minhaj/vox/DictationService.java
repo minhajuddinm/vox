@@ -496,7 +496,7 @@ public class DictationService extends Service {
                 try {
                     raw = g.transcribe(wav, p.sttModel(), p.language(), p.dictionaryTerms());
                 } catch (IOException e) {
-                    if (!ApiClient.isRetryable(e) || attempt == SEND_ATTEMPTS) throw e;
+                    if (!ApiClient.isRetryable(e, p.usesRelay()) || attempt == SEND_ATTEMPTS) throw e;
                     try { Thread.sleep(800L * attempt); } catch (InterruptedException ie) { return; }
                 }
             }

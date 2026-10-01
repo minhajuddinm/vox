@@ -9,7 +9,7 @@
 # and stops with a non-zero exit at the first failure.
 #
 # --integration also runs RelayIntegrationTest, which starts the real relay (relay/relay.py) and syncs through
-# it. Without the flag that test is skipped. It needs Python 3.9 or newer (python3, python or VOX_PYTHON; the
+# it, and ProxyUploadIntegrationTest (ApiClient's speech upload through the relay's proxy to a stub server). Without the flag that test is skipped. It needs Python 3.9 or newer (python3, python or VOX_PYTHON; the
 # test starts and stops the relay itself, on a free port, with a temp data folder). Nothing is downloaded: the
 # sync client reads JSON with the pure PlainJson class, so the test needs no org.json jar.
 set -eu
@@ -78,7 +78,7 @@ for f in "${tests[@]}"; do
   cls=${cls//\//.}
   case "$cls" in
     *.ParityTest) run_test "$OUT$SEP$ANDROID_JAR" "$cls" spec/golden.txt ;;
-    *.RelayIntegrationTest)
+    *.RelayIntegrationTest|*.ProxyUploadIntegrationTest)
       if [ "$INTEGRATION" = 1 ]; then
         run_test "$OUT$SEP$ANDROID_JAR" "$cls"
       else

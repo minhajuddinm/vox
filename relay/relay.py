@@ -22,6 +22,7 @@ import os
 import platform
 import re
 import secrets
+import select
 import signal
 import socket
 import sqlite3
@@ -42,7 +43,12 @@ UPSTREAM_ROLES = ("stt", "llm")
 MAX_DRAIN = 5 * MAX_BODY    # bytes of a refused upload that are read and dropped so the client can still read our answer
 DRAIN_IDLE = 1.0            # seconds a refused upload may go quiet while being dropped before we answer anyway
 PROXY_SLOTS = 4             # upstream requests in flight at once; the next one is answered 429 at once
-PROXY_TIMEOUT = {"stt": 180, "llm": 60, "models": 15}   # seconds for a whole upstream exchange, by kind of call
+# Seconds for a whole upstream exchange, by kind of call. They must cover the longest wait of any client that uses the
+# call: stt 180 = the meeting recorder's pieces (windows/vox_core.py transcribe_segments; dictation waits 60 s);
+# llm 240 = meeting notes (windows/meeting.py; dictation cleanup waits 60 s); models 15 = the model lists (15 s).
+# A client that gives up earlier does not keep its slot for the rest of this time: see CLIENT_POLL.
+PROXY_TIMEOUT = {"stt": 180, "llm": 240, "models": 15}
+CLIENT_POLL = 0.25          # seconds between looks at the client's connection while an upstream answer is awaited
 MAX_PROXY_BODY = {"stt": 25_000_000, "llm": 1_000_000, "models": 0}   # bytes a client may send, by kind of call
 MAX_PROXY_REPLY = 8_000_000   # bytes of an upstream answer that are passed on; more is a 502
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
@@ -448,6 +454,24 @@ PROXY_ROUTES = {
 ROLE_NAMES = {"stt": "speech to text", "llm": "text cleanup"}
 
 
+class ClientGone(Exception):
+    """The client that asked hung up while its upstream exchange was running; the exchange was abandoned."""
+
+
+def client_gone(sock):
+    """True when the peer of `sock` has closed its end (or reset the connection). Call it only after the whole request
+    has been read: from then on a well-behaved client sends nothing, so a readable socket is an end of file. (A client
+    that half-closes its sending side right after the request counts as gone too; http clients such as requests,
+    HttpURLConnection and browsers keep the connection fully open while they wait for the answer.)"""
+    try:
+        readable, _, _ = select.select([sock], [], [], 0)
+        if not readable:
+            return False
+        return sock.recv(1, socket.MSG_PEEK) == b""
+    except (OSError, ValueError):
+        return True
+
+
 class UpstreamError(Exception):
     """An upstream server could not be used. `message` is fixed text that is safe to show to the client."""
 
@@ -510,7 +534,7 @@ def _open_socket(host, port, deadline):
     raise err
 
 
-def forward_upstream(base_url, api_key, suffix, method, body, content_type, accept, timeout):
+def forward_upstream(base_url, api_key, suffix, method, body, content_type, accept, timeout, gone=None, on_abandon=None):
     """One request to an upstream server. Returns (status, content type, retry-after or None, body bytes).
 
     The address is `base_url` plus `suffix`, nothing else. The only headers sent are the ones built here (the client's
@@ -519,6 +543,12 @@ def forward_upstream(base_url, api_key, suffix, method, body, content_type, acce
     shuts the socket down when the time is up, because http.client has loops of its own (any number of "100 Continue"
     answers, header bytes that trickle in, trailer lines without end) in which every single read is quick. The answer
     is capped at MAX_PROXY_REPLY bytes, a redirect is not followed, and the key is hidden if the server echoes it.
+    `gone` is an optional function that says whether the client has hung up; it is asked every CLIENT_POLL seconds and,
+    when it says yes, the exchange is shut down and ClientGone is raised, so an abandoned request does not hold on to
+    its slot (and the upstream's attention) for the rest of the timeout. `on_abandon` is called (from the watching
+    thread) at that moment, because on some systems (Windows) shutting a socket down does not wake a read that is
+    blocked on it in another thread: the caller can give up what the exchange holds (the proxy slot) without waiting
+    for that read to end. On Linux the shutdown does wake it, and the exchange ends at once.
     Raises UpstreamError for anything that goes wrong; its text never holds the address or the key."""
     u = urlparse(base_url)
     https = u.scheme == "https"
@@ -536,10 +566,31 @@ def forward_upstream(base_url, api_key, suffix, method, body, content_type, acce
     # http.client calls this (an instance attribute, set here) to open the TCP connection; https still wraps it its own way
     conn._create_connection = lambda address, *_ignored: _open_socket(address[0], address[1], deadline)
     expired = threading.Event()
+    abandoned = threading.Event()
     watchdog = None
+    watcher_stop = threading.Event()
+    box = []     # the upstream socket, once there is one (the watcher may need it from another thread)
+
+    def watch():
+        while not watcher_stop.wait(CLIENT_POLL):
+            if gone():
+                abandoned.set()
+                if box:
+                    try:
+                        socket.socket.shutdown(box[0], socket.SHUT_RDWR)
+                    except (OSError, ValueError):
+                        pass
+                if on_abandon is not None:
+                    on_abandon()
+                return
+    if gone is not None:
+        threading.Thread(target=watch, daemon=True).start()
     try:
         conn.connect()
         sock = conn.sock     # kept now: http.client lets go of it when the server says it will close the connection
+        box.append(sock)
+        if abandoned.is_set():
+            raise ClientGone()
 
         def time_up():
             expired.set()
@@ -584,10 +635,17 @@ def forward_upstream(base_url, api_key, suffix, method, body, content_type, acce
         return (status, _plain_header(resp.getheader("Content-Type")) or "application/json",
                 _plain_header(resp.getheader("Retry-After"), 64), _scrub(b"".join(chunks), api_key))
     except UpstreamError:
+        if abandoned.is_set():
+            raise ClientGone() from None
+        raise
+    except ClientGone:
         raise
     except (OSError, http.client.HTTPException, ValueError):
+        if abandoned.is_set():
+            raise ClientGone() from None
         raise UpstreamError("upstream unreachable") from None
     finally:
+        watcher_stop.set()
         if watchdog is not None:
             watchdog.cancel()
         conn.close()
@@ -770,6 +828,11 @@ class Handler(BaseHTTPRequestHandler):
         if route is None:
             return self._refuse(404, {"error": "unknown request"}, n or 0)
         if problem:
+            # The body of a chunked or badly framed request cannot be skipped (its end is unknown), so what comes in is read
+            # and dropped for a moment before the answer, as `_drain` does, and the connection ends: otherwise the client
+            # gets a reset instead of the 411 that says what to change.
+            self._drain(MAX_DRAIN if self.headers.get("Transfer-Encoding") is not None else 0)
+            self.close_connection = True
             return self._send(problem[0], {"error": problem[1]})
         if method == "POST" and n is None:
             return self._send(411, {"error": "Content-Length is required"})
@@ -790,14 +853,25 @@ class Handler(BaseHTTPRequestHandler):
             return self._refuse(413, {"error": "request too large"}, n)
         if not srv.proxy_slots.acquire(blocking=False):
             return self._refuse(429, {"error": "busy"}, n)
+        once = threading.Lock()     # the slot is given back by whoever comes first: the exchange, or the watcher of a
+                                    # client that left (its upstream read may take a while to notice, see forward_upstream)
+
+        def release():
+            if once.acquire(False):
+                srv.proxy_slots.release()
         try:
-            reply = self._exchange(n, base, key, suffix, kind, method)
+            reply = self._exchange(n, base, key, suffix, kind, method, release)
         finally:
-            srv.proxy_slots.release()
+            release()
+        if reply is None:       # the client left: nobody to answer
+            self._status = 499
+            self.close_connection = True
+            return
         self._send(*reply)
 
-    def _exchange(self, n, base, key, suffix, kind, method):
-        """Reads the request body and makes the upstream call. Returns the arguments for `_send`. Holds a proxy slot."""
+    def _exchange(self, n, base, key, suffix, kind, method, on_abandon=None):
+        """Reads the request body and makes the upstream call. Returns the arguments for `_send`, or None when the client
+        hung up while it waited (the upstream exchange is then dropped at once). Holds a proxy slot."""
         body = b""
         if n:
             try:
@@ -809,7 +883,10 @@ class Handler(BaseHTTPRequestHandler):
         content_type = _plain_header(self.headers.get("Content-Type")) if method == "POST" else None
         try:
             status, ctype, retry_after, data = forward_upstream(base, key, suffix, method, body, content_type,
-                                                                _plain_header(self.headers.get("Accept")), PROXY_TIMEOUT[kind])
+                                                                _plain_header(self.headers.get("Accept")), PROXY_TIMEOUT[kind],
+                                                                gone=lambda: client_gone(self.connection), on_abandon=on_abandon)
+        except ClientGone:
+            return None
         except UpstreamError as e:
             return 502, {"error": {"message": e.message}}
         headers = {"Content-Security-Policy": "default-src 'none'; sandbox"}    # an answer is data, never a page on the relay's origin

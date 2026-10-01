@@ -37,8 +37,8 @@ Timeouts: Windows 60 s (dictation), 180 s (meeting speech), 240 s (meeting notes
 
 | Platform | What is retried | How |
 |---|---|---|
-| Windows | Every request through `post_with_retry`: connection errors, timeouts and HTTP 500, 502, 503, 504 | 3 attempts, waits 0.7 s then 1.4 s. HTTP 429 and 4xx are **not** retried here |
-| Android | Only the speech request: network errors, 5xx, 429, 408 (`ApiClient.isRetryable`) | 3 attempts, waits 0.8 s then 1.6 s. Cleanup is tried once |
+| Windows | Every request through `post_with_retry`: connection errors, timeouts and HTTP 500, 502, 503, 504. With the relay as the AI server (`via_relay`): only connection errors, 502 and 503, **not** a timeout (`vox_core.retryable`) | 3 attempts, waits 0.7 s then 1.4 s. HTTP 429 and 4xx are **not** retried here |
+| Android | Only the speech request: network errors, 5xx, 429, 408 (`ApiClient.isRetryable`); with the relay as the AI server only network errors, 502 and 503, not a timeout (`ApiClient.retryable`; golden rows `retry` pin the shared part) | 3 attempts, waits 0.8 s then 1.6 s. Cleanup is tried once |
 | Both | A dictation whose speech request still fails is kept for a manual retry | Windows tray "Retry last dictation"; Android notification "Retry" ([decisions/0009-keep-failed-recordings-and-retry.md](decisions/0009-keep-failed-recordings-and-retry.md)) |
 
 Meetings keep their own 429 handling (`Meeting._stt`: wait 6 s x attempt, up to 4 attempts).

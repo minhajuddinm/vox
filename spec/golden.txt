@@ -207,3 +207,23 @@ proxyurl	https://r.example.ts.net/	llm	https://r.example.ts.net/proxy/llm
 proxyurl	  https://r.example.ts.net///  	llm	https://r.example.ts.net/proxy/llm
 proxyurl	http://100.64.1.2:8765	stt	http://100.64.1.2:8765/proxy/stt
 proxyurl		llm	
+retry	0	true	false	true
+retry	0	true	true	false
+retry	0	false	false	true
+retry	0	false	true	true
+retry	502	false	true	true
+retry	503	false	true	true
+retry	500	false	true	false
+retry	504	false	true	false
+retry	429	false	true	false
+retry	408	false	true	false
+retry	411	false	true	false
+retry	401	false	true	false
+retry	413	false	true	false
+retry	400	false	true	false
+retry	500	false	false	true
+retry	502	false	false	true
+retry	503	false	false	true
+retry	504	false	false	true
+retry	401	false	false	false
+retry	400	false	false	false

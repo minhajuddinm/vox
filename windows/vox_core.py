@@ -446,9 +446,21 @@ def warm(cfg):
     return t
 
 
-def post_with_retry(url, retries=2, **kw):
+def retryable(status, timeout, via_relay):
+    """Whether the same request is sent again. `status` is the HTTP status, 0 when there was no answer; `timeout` is True
+    when the wait for the answer ran out. Shared with the Android app (ApiClient.retryable, golden rows `retry`).
+    Directly: dropped connections, timeouts and temporary server errors (500, 502, 503, 504) are retried.
+    Through the relay (it is the AI server): only a dropped connection, 502 and 503. A timeout is not retried, because the
+    relay is still working on the first request (or its upstream is slow) and a second one only queues behind it."""
+    if via_relay:
+        return False if timeout else status in (0, 502, 503)
+    return status == 0 or status in RETRY_STATUS
+
+
+def post_with_retry(url, retries=2, via_relay=False, **kw):
     """POST with a quick retry on dropped connections (flaky Wi-Fi, VPNs, antivirus TLS inspection)
-    and on temporary server errors (500, 502, 503, 504). The last response is returned as it is."""
+    and on temporary server errors (see `retryable`; `via_relay` says the relay is the server). The last response is
+    returned as it is."""
     for attempt in range(retries + 1):
         try:
             if "files" in kw:   # file objects must be re-sent from the start
@@ -456,11 +468,12 @@ def post_with_retry(url, retries=2, **kw):
                     if hasattr(spec[1], "seek"):
                         spec[1].seek(0)
             r = _post(url, **kw)
-        except (requests.ConnectionError, requests.Timeout):
-            if attempt == retries:
+        except (requests.ConnectionError, requests.Timeout) as e:
+            timed_out = isinstance(e, requests.Timeout) and not isinstance(e, requests.ConnectTimeout)   # (not "could not connect")
+            if attempt == retries or not retryable(0, timed_out, via_relay):
                 raise
         else:
-            if r.status_code not in RETRY_STATUS or attempt == retries:
+            if not retryable(r.status_code, False, via_relay) or attempt == retries:
                 return r
         time.sleep(0.7 * (attempt + 1))
 
@@ -558,6 +571,7 @@ def transcribe(cfg, wav_bytes, context=""):
         data=data,
         files={"file": ("audio.wav", wav_bytes, "audio/wav")},
         timeout=60,
+        via_relay=providers.uses_relay(cfg),
     )
     return check_response(r, providers.uses_relay(cfg)).get("text", "").strip()
 
@@ -579,6 +593,7 @@ def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
         data=data,
         files={"file": ("audio.wav", wav_bytes, "audio/wav")},
         timeout=180,
+        via_relay=providers.uses_relay(cfg),
     )
     res = check_response(r, providers.uses_relay(cfg))
     segs = res.get("segments") or []
@@ -607,12 +622,14 @@ def cleanup(cfg, raw, style, app_label):
     }
     extra = providers.reasoning_params(cfg, base, model)
     body.update(extra)
-    r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=60)
+    r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=60,
+                        via_relay=providers.uses_relay(cfg))
     if extra and r.status_code in (400, 422):   # this server does not know the reasoning fields: retry without them
         providers.remember_rejected(base, model)
         for k in extra:
             body.pop(k, None)
-        r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=60)
+        r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=60,
+                        via_relay=providers.uses_relay(cfg))
     text = check_response(r, providers.uses_relay(cfg))["choices"][0]["message"].get("content", "")
     return sanitize(providers.strip_think(text))
 
