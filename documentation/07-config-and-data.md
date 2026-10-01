@@ -22,8 +22,9 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `user_context` | string | `""` | Free text about the user (work, projects, style, terms) added to every cleanup request; at most 8,000 characters are used. |
 | `relay_sync` | bool | `false` | Sync voice notes with a relay (see [14-relay.md](14-relay.md)). |
 | `relay_url` | string | `""` | Address of the relay (for example `https://yuvipi.your-tailnet.ts.net`). Same rule as the server address: plain http only for private hosts. |
-| `relay_token` | string | `""` | The relay's bearer token. DPAPI-protected like the API keys. |
+| `relay_token` | string | `""` | The relay's bearer token. DPAPI-protected like the API keys. It is also the key of both roles while `relay_proxy` is on. |
 | `relay_sync_keys` | bool | `false` | Also share the provider settings and API keys through the relay (`provider`, `base_url`, `stt_base_url`, `llm_base_url`, `stt_model`, `llm_model`, `llm_reasoning`, `api_key`, `stt_api_key`, `llm_api_key`). Off removes them from the relay on the next sync. |
+| `relay_proxy` | bool | `false` | "Use my relay as the AI server" (Settings, AI provider). On, with `relay_url` and `relay_token` filled in, speech and cleanup calls go to `<relay_url>/proxy/stt` and `<relay_url>/proxy/llm` with the relay token as the key, and the provider address and key settings are not used (they can stay saved). On without a relay filled in, the normal provider settings are used and Settings shows "Turn on the relay first". Never synced; this device only. See [06-pipeline.md](06-pipeline.md) and [14-relay.md](14-relay.md). |
 | `relay_run` | bool | `false` | Run a relay on this PC while Vox is running (the tray item "Run relay on this PC" sets it). The engine starts `Vox.exe --relay` as a child process and stops it when Vox quits. Never synced. See [14-relay.md](14-relay.md). |
 | `relay_port` | int | `8765` | Port the PC's own relay listens on (127.0.0.1 only); the relay's own default. An unusable value means 8765. Publish it with `tailscale serve --bg PORT`. Never synced. |
 | `stream_stt` | bool | `true` | Send long recordings to speech-to-text in pieces while the user is still speaking (recordings shorter than about 13 s are unaffected). |
@@ -48,7 +49,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `keep_audio` | bool | absent (false) | Keep the raw meeting audio after the notes are written. |
 | `notes_folder` | string | absent | Where a copy of each meeting's notes is written (default `Documents\Vox Notes`). |
 
-Settings shown in the Windows window: `api_key`, `base_url`, `hotkey`, `input_device`, `language`, `cleanup`, `cleanup_min_words`, `keep_history`, `keep_clipboard`, `your_name`, `my_email`, `auto_notes`, `provider`, `stt_base_url`, `stt_api_key`, `llm_base_url`, `llm_api_key`, `stt_model`, `llm_model`, `default_style`, `app_styles`, `dictionary`, `people`, `calendar_url`. The others (`notes_model`, `final_stt_model`, `final_pass`, `keep_audio`, `notes_folder`) are only settable by editing the file.
+Settings shown in the Windows window: `relay_proxy`, `api_key`, `base_url`, `hotkey`, `input_device`, `language`, `cleanup`, `cleanup_min_words`, `keep_history`, `keep_clipboard`, `your_name`, `my_email`, `auto_notes`, `provider`, `stt_base_url`, `stt_api_key`, `llm_base_url`, `llm_api_key`, `stt_model`, `llm_model`, `default_style`, `app_styles`, `dictionary`, `people`, `calendar_url`. The others (`notes_model`, `final_stt_model`, `final_pass`, `keep_audio`, `notes_folder`) are only settable by editing the file.
 
 ## Android preferences (SharedPreferences file `vox`, private to the app)
 

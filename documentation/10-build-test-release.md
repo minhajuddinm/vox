@@ -27,7 +27,7 @@ Put the API key in the window's Settings, or in `%APPDATA%\Vox\config.json` (it 
 
 | Suite | Command | Covers |
 |---|---|---|
-| Python | `python -m pytest -q` (from the repo root) | 671 tests collected at the time of writing (`python -m pytest --collect-only -q`): `tests/test_*.py`. On Windows 669 pass and 2 are skipped (the two POSIX file-permission tests in `test_relay_admin.py`, which run in CI on Linux); 173 of the 671 are the shared golden cases in `test_parity.py` |
+| Python | `python -m pytest -q` (from the repo root) | 695 tests collected at the time of writing (`python -m pytest --collect-only -q`): `tests/test_*.py`. On Windows 693 pass and 2 are skipped (the two POSIX file-permission tests in `test_relay_admin.py`, which run in CI on Linux); 173 of the 695 are the shared golden cases in `test_parity.py` |
 | Java | `bash android/run-tests.sh` (needs a JDK and `ANDROID_JAR`; see below) | 15 programs in `android/test/com/minhaj/vox/` (`ApiClientTest` 43 checks, `CorrectionsTest` 16, `EndpointTest` 39, `NoteEventsTest` 10, `NoteLogicTest` 173, `NoteTest` 29, `ParityTest` 173 golden cases, `PcmTest` 12, `PlainJsonTest` 88, `ProfileMapTest` 85, `ProfileMergeTest` 40, `ProvidersTest`, `RelayClientTest` 228, `SyncEngineTest` 312, `RelayIntegrationTest`), no device, no JUnit; `RelayIntegrationTest` runs only with `--integration` (see below), so a normal run runs 14 and skips that one |
 | Parity | part of both suites | `spec/golden.txt` |
 | Docs | `python documentation/tools/check_docs.py` | tree, config keys, links, ADR index |

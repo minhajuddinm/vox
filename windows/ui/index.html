@@ -88,6 +88,7 @@ td.arrow { color: var(--muted); width: 24px; padding: 0; text-align: center; }
 .switch input:checked + span::after { transform: translateX(18px); }
 .status { font-size: 12.5px; font-weight: 600; }
 .status.ok { color: var(--ok); } .status.bad { color: var(--danger); }
+.proxy-on .own-server { display: none !important; }   /* the relay is the AI server: its provider address and keys are not used here */
 .style-tag { font-size: 12px; color: var(--muted); }
 .live { display: flex; align-items: center; gap: 14px; }
 .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: pulse 1.4s infinite; flex: none; }
@@ -283,18 +284,19 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
   <section class="page" id="settings">
     <h1>Settings</h1>
     <p class="sub">Changes apply within a second. No restart needed.</p>
-    <div class="card list">
-      <div class="setting"><div><div class="t">AI provider</div><div class="d">Vox works with Groq's free tier or any OpenAI-compatible server. Pick one to fill in its address.</div></div><select id="provider" style="width:260px"></select></div>
-      <div class="setting"><div><div class="t">Server address</div><div class="d">Plain http is only allowed for this PC, your local network and Tailscale.</div><div class="status" id="url-status"></div></div>
+    <div class="card list" id="provider-card">
+      <div class="setting"><div><div class="t">Use my relay as the AI server</div><div class="d">Speech and text go to your relay, which calls the AI provider with the key stored on it. The provider key then stays on the relay and is not needed here. Fill in the relay address and token under Sync between devices.</div><div class="status" id="proxy-status"></div></div><label class="switch"><input type="checkbox" id="relay-proxy"><span></span></label></div>
+      <div class="setting own-server"><div><div class="t">AI provider</div><div class="d">Vox works with Groq's free tier or any OpenAI-compatible server. Pick one to fill in its address.</div></div><select id="provider" style="width:260px"></select></div>
+      <div class="setting own-server"><div><div class="t">Server address</div><div class="d">Plain http is only allowed for this PC, your local network and Tailscale.</div><div class="status" id="url-status"></div></div>
         <input type="text" id="base-url" style="width:260px" placeholder="https://api.groq.com/openai/v1"></div>
-      <div class="setting"><div><div class="t">API key</div><div class="d">Stored only on this PC. A server of your own may not need one.</div><div class="status" id="key-status"></div></div>
+      <div class="setting own-server"><div><div class="t">API key</div><div class="d">Stored only on this PC. A server of your own may not need one.</div><div class="status" id="key-status"></div></div>
         <input type="password" id="key" style="width:260px"><button class="btn ghost" id="get-key" style="display:none">Get a key</button><button class="btn ghost" id="test-key">Test</button></div>
       <div class="setting"><div><div class="t">Voice model</div><div class="d">Speech to text. Pick from the list or type a model name.</div><div class="status" id="stt-status"></div></div>
         <input type="text" id="stt" list="stt-models" style="width:260px"><datalist id="stt-models"></datalist><button class="btn ghost" id="refresh-models">Refresh</button><button class="btn ghost" id="test-stt">Test</button></div>
       <div class="setting"><div><div class="t">Cleanup model</div><div class="d">Tidies the text. Needs a chat model.</div><div class="status" id="llm-status"></div></div>
         <input type="text" id="llm" list="llm-models" style="width:260px"><datalist id="llm-models"></datalist><button class="btn ghost" id="test-llm">Test</button></div>
-      <div class="setting"><div><div class="t">Different server for voice or cleanup</div><div class="d">For example Whisper on one machine and Ollama on another. Each server gets only its own key.</div></div><label class="switch"><input type="checkbox" id="split"><span></span></label></div>
-      <div id="split-rows" style="display:none">
+      <div class="setting own-server"><div><div class="t">Different server for voice or cleanup</div><div class="d">For example Whisper on one machine and Ollama on another. Each server gets only its own key.</div></div><label class="switch"><input type="checkbox" id="split"><span></span></label></div>
+      <div id="split-rows" class="own-server" style="display:none">
         <div class="setting"><div><div class="t">Voice server</div><div class="d">Address and key for speech to text.</div><div class="status" id="stt-url-status"></div></div><input type="text" id="stt-url" style="width:260px" placeholder="same as above"><input type="password" id="stt-key" style="width:170px" placeholder="key (optional)"></div>
         <div class="setting"><div><div class="t">Cleanup server</div><div class="d">Address and key for the cleanup model.</div><div class="status" id="llm-url-status"></div></div><input type="text" id="llm-url" style="width:260px" placeholder="same as above"><input type="password" id="llm-key" style="width:170px" placeholder="key (optional)"></div>
       </div>
@@ -408,7 +410,7 @@ function fmt(n) { return n >= 10000 ? (n / 1000).toFixed(1) + "k" : n.toLocaleSt
 
 function renderWelcome() {
   const cloud = presetFor(S.config.base_url).key_url;   // a hosted provider that needs a key (not a server of your own)
-  $("welcome").style.display = (S.config.api_key || !cloud) ? "none" : "block";
+  $("welcome").style.display = (S.config.api_key || !cloud || S.config.relay_proxy) ? "none" : "block";   // with the relay as the AI server the key lives on the relay
 }
 $("w-get").onclick = () => api().open_url("https://console.groq.com/keys");
 $("w-save").onclick = async () => {
@@ -587,6 +589,21 @@ const formCfg = () => ({ base_url: $("base-url").value.trim(), api_key: $("key")
   stt_base_url: $("stt-url").value.trim(), stt_api_key: $("stt-key").value.trim(),
   llm_base_url: $("llm-url").value.trim(), llm_api_key: $("llm-key").value.trim(),
   stt_model: $("stt").value.trim(), llm_model: $("llm").value.trim() });
+// The relay is the AI server only when the switch is on AND its address and token are filled in (providers.uses_relay).
+const viaRelay = (c = S.config) => !!(c.relay_proxy && (c.relay_url || "").trim() && (c.relay_token || "").trim());
+// Can the model lists be loaded now? Through the relay once it is filled in, else from the provider (a hosted one needs a key first).
+const serverReady = (c = S.config) => c.relay_proxy ? viaRelay(c) : !!(c.api_key || !presetFor(c.base_url).key_url);
+let proxySeq = 0;
+async function renderProxy() {
+  const on = !!S.config.relay_proxy, s = $("proxy-status"), mine = ++proxySeq;
+  $("relay-proxy").checked = on;
+  $("provider-card").classList.toggle("proxy-on", on);   // hides the provider address and key rows
+  if (!on) { s.className = "status"; s.textContent = ""; return; }
+  const problem = await api().proxy_problem();   // the wording comes from providers.proxy_problem
+  if (mine !== proxySeq) return;   // a newer render started while this one waited: it shows the current state
+  s.className = "status " + (problem ? "bad" : "ok");
+  s.textContent = problem || "Using the relay at " + (S.config.relay_url || "").trim().replace(/\/+$/, "");
+}
 function renderProvider() {
   const c = S.config, p = presetFor(c.base_url);
   $("provider").innerHTML = S.presets.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
@@ -596,8 +613,9 @@ function renderProvider() {
   $("split").checked = split; $("split-rows").style.display = split ? "" : "none";
   $("stt-url").value = c.stt_base_url || ""; $("stt-key").value = c.stt_api_key || "";
   $("llm-url").value = c.llm_base_url || ""; $("llm-key").value = c.llm_api_key || "";
-  $("side-foot").innerHTML = esc(p.name) + "<br>Speech: " + esc(c.stt_model || "default");
-  if (!S.modelsLoaded && (c.api_key || !p.key_url)) { S.modelsLoaded = true; refreshModels(); }
+  $("side-foot").innerHTML = esc(viaRelay() ? "My relay" : p.name) + "<br>Speech: " + esc(c.stt_model || "default");
+  renderProxy();
+  if (!S.modelsLoaded && serverReady()) { S.modelsLoaded = true; refreshModels(); }
 }
 async function refreshModels() {
   for (const role of ["stt", "llm"]) {
@@ -624,6 +642,14 @@ $("provider").onchange = async (e) => {
   await save(part, "Provider: " + p.name);
   $("url-status").textContent = ""; renderProvider(); renderWelcome(); refreshModels();
 };
+$("relay-proxy").onchange = async (e) => {
+  await save({ relay_proxy: e.target.checked }, e.target.checked ? "Using your relay as the AI server" : "Using your own AI server settings");
+  renderWelcome(); reloadModels(); renderProvider();
+};
+function reloadModels() {   // the model lists come from whichever server is in use now
+  if (serverReady()) { S.modelsLoaded = true; return refreshModels(); }
+  for (const role of ["stt", "llm"]) { $(role + "-models").innerHTML = ""; $(role + "-status").textContent = ""; }
+}
 $("get-key").onclick = () => api().open_url(presetFor($("base-url").value).key_url);
 $("base-url").onchange = async () => {
   const v = $("base-url").value.trim(), s = $("url-status");
@@ -666,9 +692,15 @@ $("relay-url").onchange = async () => {
   const v = $("relay-url").value.trim(), s = $("relay-status");
   const problem = v ? await api().endpoint_problem(v) : "";
   if (problem) { s.className = "status bad"; s.textContent = problem; return; }
-  s.textContent = ""; save({ relay_url: v });
+  s.textContent = ""; await save({ relay_url: v });
+  if (S.config.relay_proxy) reloadModels();
+  renderProvider();
 };
-$("relay-token").onchange = () => { save({ relay_token: $("relay-token").value.trim() }); $("relay-status").textContent = ""; };
+$("relay-token").onchange = async () => {
+  await save({ relay_token: $("relay-token").value.trim() }); $("relay-status").textContent = "";
+  if (S.config.relay_proxy) reloadModels();
+  renderProvider();
+};
 $("device-name").onchange = () => save({ device_name: $("device-name").value.trim() });
 $("relay-test").onclick = async () => {
   const s = $("relay-status"); s.className = "status"; s.textContent = "Checking…";
