@@ -247,6 +247,14 @@ nav button.on .pill { background:var(--accent-soft); }
     <div class="item"><div class="grow"><div class="t">Quick Settings tile</div><div class="d">Add the Voice note tile from the system tile editor: swipe down twice, tap the pencil, drag Voice note in</div></div></div>
     <div class="item" id="battery"><div class="grow"><div class="t">Battery: Unrestricted</div><div class="d">Stops Android from closing Vox. Tap, find Vox, allow.</div></div><span style="color:var(--muted)">›</span></div>
   </div>
+  <div class="card" id="diag-card" style="margin-top:10px">
+    <div class="t" style="font-weight:600">Bubble diagnostics</div>
+    <div class="d" style="color:var(--muted);font-size:13px">If the bubble keeps disappearing, this shows why. It stays on this phone; copy it only if you want to share it</div>
+    <div class="status" id="diag-service" style="margin-top:8px"></div>
+    <div class="status" id="diag-battery"></div>
+    <div id="diag-events" style="margin-top:8px;font-size:12px;line-height:1.5;word-break:break-word"></div>
+    <div class="row" style="margin-top:10px;gap:8px"><button class="btn ghost" id="diag-refresh" style="flex:1">Refresh</button><button class="btn" id="diag-copy" style="flex:1">Copy report</button></div>
+  </div>
   <button class="btn full danger" id="clear">Clear history</button>
   <p class="note" style="text-align:center;margin-top:18px" id="about-vox"></p>
 </section>
@@ -640,6 +648,21 @@ function renderSettings() {
   $("note-bubble").checked = !!c.note_bubble; $("note-notification").checked = !!c.note_notification;
   $("language").value = c.language || ""; $("service").checked = S.service;
   $("about-vox").textContent = `Vox ${S.version} · no analytics, no server of its own`;
+  renderDiag();
+}
+// The bubble diagnostics card: what the accessibility service and the battery setting look like now, and the last
+// events the service logged (bubble added or removed and why, screen on or off, unlock, rotation). Local only.
+let DIAG = null;
+function renderDiag() {
+  let d = {};
+  try { d = JSON.parse(V.getDiagnostics()); } catch (e) { d = {}; }
+  DIAG = d;
+  const sv = $("diag-service"), bt = $("diag-battery"), ev = $("diag-events");
+  if (!d.service) { sv.className = "status bad"; sv.textContent = "Could not read the diagnostics"; bt.textContent = ""; ev.textContent = ""; return; }
+  sv.className = "status " + (d.connected ? "ok" : "bad"); sv.textContent = "Service: " + d.service;
+  bt.className = "status " + (d.battery_ok ? "ok" : "bad"); bt.textContent = "Battery: " + d.battery;
+  const lines = d.events || [];
+  ev.innerHTML = lines.length ? lines.map(l => `<div>${esc(l)}</div>`).join("") : `<div class="d" style="color:var(--muted)">No events recorded yet</div>`;
 }
 window.keyResult = (r) => {
   const s = $("key-status");
@@ -758,6 +781,8 @@ $("keep-history").onchange = (e) => save({ keep_history: e.target.checked }, "Sa
 $("language").onchange = (e) => save({ language: e.target.value }, "Saved");
 $("service").onchange = (e) => V.setService(e.target.checked);
 $("battery").onclick = () => V.openBattery();
+$("diag-refresh").onclick = () => { renderDiag(); toast("Refreshed"); };
+$("diag-copy").onclick = () => { renderDiag(); if (DIAG && DIAG.report) { V.copy(DIAG.report); toast("Copied"); } };
 $("stt").onchange = (e) => save({ stt_model: e.target.value.trim() }, "Saved");
 $("llm").onchange = (e) => save({ llm_model: e.target.value.trim() }, "Saved");
 $("clear").onclick = () => { V.clearHistory(); S.history = []; toast("History cleared"); render(); };

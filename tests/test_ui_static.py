@@ -253,3 +253,14 @@ def test_key_sharing_hint_matches_the_sync_rule(name):
     assert "removes this device's keys from the relay once" in text
     assert "turn it off on every device" in text
     assert "Turning it off removes them from the relay" not in text
+
+
+def test_android_page_has_the_bubble_diagnostics_card_in_system_settings():
+    """D1: the card that explains a vanishing bubble (service state, battery state, last events, copy)."""
+    html = read(PAGES["android"])
+    system = re.search(r'<h2[^>]*>System</h2>.*?</section>', html, re.S).group(0)
+    for ident in ("diag-card", "diag-service", "diag-battery", "diag-events", "diag-refresh", "diag-copy"):
+        assert f'id="{ident}"' in system, ident
+    assert "getDiagnostics" in js_interface_methods(read(MAIN_ACTIVITY))
+    assert "V.getDiagnostics()" in html
+    assert "V.copy(" in html and "report" in html   # the Copy button copies the text the bridge built

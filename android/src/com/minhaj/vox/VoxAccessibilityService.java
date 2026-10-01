@@ -2,10 +2,14 @@ package com.minhaj.vox;
 
 import android.accessibilityservice.AccessibilityService;
 import android.content.ClipData;
+import android.content.BroadcastReceiver;
 import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.Bundle;
@@ -13,6 +17,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
@@ -22,6 +27,8 @@ import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Toast;
+
+import java.io.File;
 
 /**
  * Owns the floating bubbles (accessibility overlays, so no "draw over apps" permission is needed): the mic bubble,
@@ -41,11 +48,15 @@ public class VoxAccessibilityService extends AccessibilityService
 
     private AccessibilityNodeInfo editNode;
     private String editPkg;
+    /** Logs screen on/off, unlock and app changes for the bubble diagnostics card (see OverlayDiag). */
+    private BroadcastReceiver diagReceiver;
 
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
         instance = this;
+        diag(OverlayDiag.SERVICE_CONNECTED, "");
+        registerDiagReceiver();
         DictationService.setListener(this);
         DictationService.setNoteListener(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
@@ -56,7 +67,9 @@ public class VoxAccessibilityService extends AccessibilityService
 
     @Override
     public boolean onUnbind(Intent intent) {
-        removeBubbles();
+        diag(OverlayDiag.SERVICE_UNBOUND, "");
+        unregisterDiagReceiver();
+        removeBubbles("service unbound");
         instance = null;
         DictationService.setListener(null);
         DictationService.setNoteListener(null);
@@ -65,14 +78,83 @@ public class VoxAccessibilityService extends AccessibilityService
 
     @Override
     public void onDestroy() {
-        removeBubbles();
+        diag(OverlayDiag.SERVICE_DESTROYED, "");
+        unregisterDiagReceiver();
+        removeBubbles("service destroyed");
         instance = null;
         DictationService.setListener(null);
         DictationService.setNoteListener(null);
         super.onDestroy();
     }
 
-    @Override public void onInterrupt() { }
+    @Override
+    public void onInterrupt() {
+        diag(OverlayDiag.SERVICE_INTERRUPTED, "");
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        diag(OverlayDiag.CONFIG_CHANGE, (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE ? "landscape " : "portrait ")
+                + dm.widthPixels + "x" + dm.heightPixels);
+    }
+
+    // ------------------------------------------------------------- diagnostics
+
+    /** Records one event for the Settings "Bubble diagnostics" card and logcat (tag vox). Never throws. */
+    private void diag(String kind, String detail) {
+        try {
+            OverlayDiag.shared(new File(getFilesDir(), OverlayDiag.FILE_NAME)).record(System.currentTimeMillis(), kind, detail);
+        } catch (Exception ignored) { }
+        Log.i("vox", "bubble: " + kind + (detail.isEmpty() ? "" : " " + detail));
+    }
+
+    private void registerDiagReceiver() {
+        if (diagReceiver != null) return;
+        diagReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context c, Intent i) {
+                String a = i == null ? null : i.getAction();
+                if (a == null) return;
+                switch (a) {
+                    case Intent.ACTION_SCREEN_ON: diag(OverlayDiag.SCREEN_ON, ""); break;
+                    case Intent.ACTION_SCREEN_OFF: diag(OverlayDiag.SCREEN_OFF, ""); break;
+                    case Intent.ACTION_USER_PRESENT: diag(OverlayDiag.USER_PRESENT, ""); break;
+                    // no package name on purpose: the log must not list what is installed
+                    default: diag(OverlayDiag.PACKAGE_CHANGE, ""); break;
+                }
+            }
+        };
+        try {
+            IntentFilter screen = new IntentFilter();
+            screen.addAction(Intent.ACTION_SCREEN_ON);
+            screen.addAction(Intent.ACTION_SCREEN_OFF);
+            screen.addAction(Intent.ACTION_USER_PRESENT);
+            IntentFilter pkg = new IntentFilter();
+            pkg.addAction(Intent.ACTION_PACKAGE_ADDED);
+            pkg.addAction(Intent.ACTION_PACKAGE_REPLACED);
+            pkg.addAction(Intent.ACTION_PACKAGE_REMOVED);
+            pkg.addDataScheme("package");
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(diagReceiver, screen, Context.RECEIVER_NOT_EXPORTED);
+                registerReceiver(diagReceiver, pkg, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(diagReceiver, screen);
+                registerReceiver(diagReceiver, pkg);
+            }
+        } catch (Exception e) {
+            diagReceiver = null;   // diagnostics only: the bubble works without it
+        }
+    }
+
+    private void unregisterDiagReceiver() {
+        BroadcastReceiver r = diagReceiver;
+        diagReceiver = null;
+        if (r != null) {
+            try { unregisterReceiver(r); } catch (Exception ignored) { }
+        }
+    }
 
     // ------------------------------------------------------------- events
 
@@ -125,8 +207,12 @@ public class VoxAccessibilityService extends AccessibilityService
         // A note being recorded or sent is the note bubble's business: it must not bring the mic bubble up.
         boolean busy = svc != null && svc.getState() != DictationService.IDLE && !svc.isNoteJob();
         Prefs p = new Prefs(this);
-        dictation.setVisible(busy || !p.onlyWhenTyping() || editNode != null);
-        noteBubble.setVisible(p.noteBubble());   // independent of the focused field and of only_typing
+        boolean onlyTyping = p.onlyWhenTyping(), field = editNode != null;
+        boolean wantMic = busy || !onlyTyping || field;
+        dictation.setVisible(wantMic, OverlayDiag.micKind(wantMic, busy, onlyTyping, field), OverlayDiag.micReason(busy, onlyTyping, field));
+        boolean wantNote = p.noteBubble();   // independent of the focused field and of only_typing
+        noteBubble.setVisible(wantNote, wantNote ? OverlayDiag.OVERLAY_ADD : OverlayDiag.OVERLAY_REMOVE,
+                wantNote ? "voice note bubble is on" : "voice note bubble is off");
     }
 
     // ------------------------------------------------------------- bubble
@@ -161,18 +247,29 @@ public class VoxAccessibilityService extends AccessibilityService
             view.setOnTouchListener(new BubbleTouch(this, slop, longPress));
         }
 
-        void setVisible(boolean want) {
+        private String what(String reason) {
+            return (note ? "note bubble, " : "mic bubble, ") + reason;
+        }
+
+        /** Adds or removes the overlay when that changes what is on screen; {@code kind} and {@code reason} go to the diagnostics log. */
+        void setVisible(boolean want, String kind, String reason) {
+            if (want == shown) return;
             try {
-                if (want && !shown) { wm.addView(view, lp); shown = true; }
-                else if (!want && shown) { wm.removeView(view); shown = false; }
+                if (want) wm.addView(view, lp); else wm.removeView(view);
+                shown = want;
+                diag(kind, what(reason));
             } catch (Exception e) {
                 shown = false; // the window manager refused (service going away, overlay revoked)
+                String why = " (" + e.getClass().getSimpleName() + ")";
+                if (want) diag(OverlayDiag.OVERLAY_FAILED, what(reason) + why);
+                else diag(OverlayDiag.OVERLAY_REMOVE, what(reason + ", window already gone" + why));
             }
         }
 
-        void remove() {
+        void remove(String reason) {
             if (shown) {
                 try { wm.removeView(view); } catch (Exception ignored) { }
+                diag(OverlayDiag.OVERLAY_REMOVE, what(reason));
             }
             shown = false;
         }
@@ -247,9 +344,9 @@ public class VoxAccessibilityService extends AccessibilityService
         f.savePosition();
     }
 
-    private void removeBubbles() {
-        if (dictation != null) dictation.remove();
-        if (noteBubble != null) noteBubble.remove();
+    private void removeBubbles(String reason) {
+        if (dictation != null) dictation.remove(reason);
+        if (noteBubble != null) noteBubble.remove(reason);
     }
 
     private void onBubbleTap() {
