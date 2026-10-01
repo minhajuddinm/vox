@@ -25,7 +25,7 @@ A note the relay refuses for good (a 4xx other than 401, 403 and 429; golden kin
 
 ## Deviations from the plan
 - `RelayClient` uses `PlainJson`, not `org.json`. The integration test was first wired to download a pinned `org.json` jar; task F2 removed that download, the pin and the classpath entry from `run-tests.sh`, `build.yml` and the docs, because nothing needs the jar.
-- The relay does not answer 400 for text over 100,000 characters (the plan assumed it did). `relay.py` cuts it silently (`_text`, `tests/test_relay.py::test_the_id_in_the_path_wins_and_text_is_capped`), so a longer note reaches other devices shortened while the phone keeps all of it. The real permanent refusals are 400 (bad id, non-numeric times, `tags` not a list, not JSON), 413 (body over 1 MB) and 411.
+- The relay does not answer 400 for text over 100,000 characters (the plan assumed it did). `relay.py` cuts it silently (`_text`, `tests/test_relay.py::test_the_id_in_the_path_wins_and_text_is_capped`), so a longer note reaches other devices shortened while the phone keeps all of it. The real permanent refusals are 400 (bad id, non-numeric times, `tags` not a list, not JSON, bad Content-Length) and 413 (body over 1 MB).
 - `SyncStore` is the five calls the sync makes (`dirtyNotes`, `markSynced`, `applyRemote`, `getMeta`, `setMeta`), not four.
 - The note-saved trigger went in as a `NoteEvents` listener registered by `SyncWorker.start`, not as a call inside `DictationService.send`.
 - `RelayClient.problem` rejects `?` and `#` in the address and a blank or non-ASCII token; `windows/sync.problem` was left alone. A relay's own error text is added in brackets on the phone only.
