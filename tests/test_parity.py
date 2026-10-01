@@ -230,6 +230,8 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert core.apply_spoken_commands(f[0]) == f[1]
     elif kind == "promptctx":
         assert core.system_prompt(f[0], [t for t in f[1].split("|") if t], f[2], f[3]) == f[4]
+    elif kind == "promptstrength":
+        assert core.system_prompt(f[1], [t for t in f[2].split("|") if t], f[3], f[4], f[0]) == f[5]
     elif kind == "context":
         assert core.clean_context(f[0]) == f[1]
     elif kind == "level":
@@ -287,5 +289,17 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert bubble_show(*[v == "true" for v in f[:5]]) == (f[5] == "true")
     elif kind == "bubbleaction":   # wanted, shown, window still attached, expected none|add|remove|repair
         assert bubble_action(*[v == "true" for v in f[:3]]) == f[3]
+    elif kind == "fidelity":   # strength, raw, cleaned, whether the cleanup kept enough of the spoken words
+        assert core.fidelity_ok(f[1], f[2], f[0]) == (f[3] == "true")
+    elif kind == "tokens":   # text, its word tokens joined by |
+        assert "|".join(core.word_tokens(f[0])) == f[1]
+    elif kind == "recall":   # raw, cleaned, share of raw's words still in cleaned (3 decimals)
+        assert "%.3f" % core.word_recall(f[0], f[1]) == f[2]
+    elif kind == "cleanstrength":   # the stored setting, the strength it means
+        assert core.clean_strength(f[0]) == f[1]
+    elif kind == "fallback":   # raw words, the text used when the fidelity guard rejects the cleanup
+        assert core.fallback_text(f[0]) == f[1]
+    elif kind == "fuzzydict":   # terms, text, the text with the dictionary's spellings applied
+        assert core.fuzzy_dictionary(f[1], items(f[0])) == f[2]
     else:
         pytest.fail(f"unknown case kind {kind}")

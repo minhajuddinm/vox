@@ -657,14 +657,15 @@ public class DictationService extends Service {
             }
             String style = p.styleFor(pkg);   // a note has no pkg (see startRecording): the default style, as on Windows
             String out = raw;
-            boolean cleaned = false, cleanupFailed = false;
+            boolean cleaned = false, cleanupFailed = false, rejected = false;
             boolean doClean = ApiClient.needsCleanup(raw, style, p.cleanupEnabled(), p.cleanupMinWords());
             if (doClean) {
                 if (tm != null) tm.mark("llm_start");
                 try {
-                    String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext());
-                    if (ApiClient.looksValid(raw, c)) { out = c; cleaned = true; }
-                    else cleanupFailed = true;
+                    String strength = p.cleanupStrength();   // the prompt and the guard use the same value
+                    String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext(), strength);
+                    if (ApiClient.looksValid(raw, c, strength)) { out = c; cleaned = true; }
+                    else { cleanupFailed = rejected = true; Log.w("vox", "fidelity guard: the cleanup answer lost the spoken words, used the raw words"); }
                 } catch (IOException e) {
                     // Cleanup failure should never lose the dictation. Fall back to the raw transcript.
                     cleanupFailed = true;
@@ -672,18 +673,19 @@ public class DictationService extends Service {
                     if (tm != null) tm.mark("llm_done");
                 }
             }
-            if (!cleaned) out = ApiClient.applySpokenCommands(out);
+            if (!cleaned) out = rejected ? ApiClient.fallbackText(out) : ApiClient.applySpokenCommands(out);
             if (cleanupFailed) {
                 postError(note ? "Cleanup did not work, so Vox saved your words as spoken"
                         : "Cleanup did not work, so Vox typed your words as spoken");
             }
-            out = ApiClient.applyReplacements(out, p.replacements());
+            out = Terms.fuzzy(ApiClient.applyReplacements(out, p.replacements()), p.dictionaryTerms());   // as Windows: replacements, then the dictionary's spellings
             if (!isCurrent(job)) return;
             if (note) {
                 saveNote(job, entry, raw, out, seconds, p);   // a note is not typed and is not added to the dictation history
                 return;
             }
             final String result = out, rawText = raw;
+            final boolean fellBack = rejected;
             final double secs = seconds;
             // The text goes to the screen first; the recording file is removed after (a notification update that
             // would otherwise sit between the text and the screen).
@@ -698,7 +700,7 @@ public class DictationService extends Service {
                 } else {
                     te = null;
                 }
-                new Thread(() -> p.addHistory(label, rawText, result, secs, te), "vox-history").start();
+                new Thread(() -> p.addHistory(label, rawText, result, secs, te, fellBack), "vox-history").start();
             });
             discard(entry.id);
         } catch (ApiClient.ApiException e) {

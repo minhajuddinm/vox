@@ -10,6 +10,12 @@
 | Groq | The default provider of Whisper speech-to-text and chat models. |
 | STT | Speech to text (Whisper). |
 | Cleanup | The chat-model pass that removes fillers, fixes punctuation, and so on. Skipped for the `raw` style, when switched off, and for texts shorter than the `cleanup_min_words` setting (3 words unless changed). |
+| Fidelity guard | The check that the cleanup answer still holds the words that were said (`fidelity_ok`, `Fidelity.ok`); an answer that lost too many is dropped and the raw words are used. See [specs/p9a-cleanup-keeps-my-words.md](specs/p9a-cleanup-keeps-my-words.md) and [decisions/0030-cleanup-keeps-the-spoken-words.md](decisions/0030-cleanup-keeps-the-spoken-words.md). |
+| Cleanup strength | `light` (keep every spoken word except pure noises such as um and uh) or `standard` (also drop fillers, repeats and false starts); the setting `cleanup_strength` (Settings, "Cleanup strength"; `light` unless set) chooses the prompt's rule and how strict the fidelity guard is. |
+| Use raw | The History button that copies the words as spoken (the entry's `raw`) when they differ from the typed text. An entry whose cleanup the fidelity guard rejected says "cleanup rejected, your words as spoken". |
+| Fallback text | What is typed when the fidelity guard rejects a cleanup: the raw words with spoken commands applied and a capital at the start and after each sentence end or line break (`fallback_text`, `ApiClient.fallbackText`), then the dictionary. |
+| Fuzzy dictionary pass | The step after `apply_replacements` that puts a single-word term of 5+ letters right when the text has it in another case or one letter off (`fuzzy_dictionary`, `Terms.fuzzy`); words on the `COMMON_WORDS` stoplist are never changed. |
+| Benchmark | `tools/bench_cleanup.py`: a hand-run developer tool that scores a cleanup model on a 45-row synthetic corpus (latency, word recall, added words, guard pass, term accuracy); local only, not in CI. |
 | Raw transcript | The Whisper text before cleanup. Used as the fallback when cleanup fails. |
 | Style | Tone for cleanup: `formal`, `casual`, `very_casual`, `neutral`, or `raw` (no cleanup). Chosen per app. |
 | App label | The name given to the cleanup model: exe name on Windows, app display name on Android. Never a window title. |

@@ -54,8 +54,9 @@ def test_looks_valid_rejects_empty():
 
 def test_looks_valid_rejects_answer_sized_output():
     raw = "what is the capital of france"
-    assert not core.looks_valid(raw, "x" * (int(len(raw) * 1.6) + 41))
-    assert core.looks_valid(raw, "x" * (int(len(raw) * 1.6) + 40))
+    limit = int(len(raw) * 1.6) + 40   # the longest accepted answer; it keeps the spoken words, so the fidelity guard is satisfied
+    assert not core.looks_valid(raw, raw + " " + "x" * (limit - len(raw)))
+    assert core.looks_valid(raw, raw + " " + "x" * (limit - len(raw) - 1))
 
 
 # ----------------------------------------------------------- whisper_prompt

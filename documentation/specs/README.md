@@ -25,4 +25,6 @@ The roadmap these come from (v2: any provider, lighter, faster, personal context
 | [p9c-devices-and-relay-setup.md](p9c-devices-and-relay-setup.md) | Part 3, branch C: `GET /devices`, the Devices card, a fuller Test connection and the "How to set up the relay" card (both apps) | Implemented (not run on a phone, a Pi or over Tailscale) |
 | [p9d-android-bubble.md](p9d-android-bubble.md) | Android bubble that keeps disappearing: diagnostics, watchdog, clamped position, Always show the bubble, battery prompt | Implemented (not run on a device) |
 
-Later specs (write each just before its work starts): lightweight build, cleanup fidelity and structure (see the roadmap in [../12-known-issues-and-roadmap.md](../12-known-issues-and-roadmap.md)).
+| [p9a-cleanup-keeps-my-words.md](p9a-cleanup-keeps-my-words.md) | Cleanup keeps my words: fidelity guard, prompt rewrite and About you first, strength setting (Light default) and Use raw (all built), fuzzy dictionary and benchmark (all built) | Implemented (A1 to A6; not seen on a device, a real model or in CI) |
+
+Later specs (write each just before its work starts): lightweight build (see the roadmap in [../12-known-issues-and-roadmap.md](../12-known-issues-and-roadmap.md)); p9b to p9f of the v2 part 3 plan (speed and timings, devices list, Android bubble, keep listening, weekly improvement).

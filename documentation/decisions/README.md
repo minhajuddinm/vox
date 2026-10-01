@@ -35,6 +35,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0027](0027-relay-proxy-per-role-whitelisted-write-only-keys.md) | Relay proxy is per role, whitelisted, with write-only keys | Accepted |
 | [0028](0028-shared-ui-parts-are-generated-into-both-pages.md) | Shared UI parts are generated into both pages | Accepted |
 | [0029](0029-paste-checks-the-window-clipboard-default-off.md) | Paste checks the window; the clipboard default is off | Accepted |
+| [0030](0030-cleanup-keeps-the-spoken-words.md) | Cleanup keeps the spoken words: a fidelity guard, a Light default, the raw text always kept | Accepted (guard built; the rest planned) |
 | [0031](0031-timings-stay-on-the-device.md) | Dictation timings stay on the device | Accepted |
 | [0034](0034-devices-list-is-the-relays-own-list-asked-on-a-switch-or-a-press.md) | The devices list is the relay's own list, asked only on a switch or a press | Accepted |
 

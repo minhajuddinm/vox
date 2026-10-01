@@ -10,7 +10,7 @@ Users want to give the cleanup model standing background (who they are, projects
 ## Decision
 
 - One free-text setting (`user_context` on Windows, the `user_context` preference on Android), edited on the Dictionary page under "About you".
-- It goes into the system prompt after the fixed rules and the dictionary terms and before the style and app lines, inside `<about_speaker>` tags, introduced as reference material that is never output and never instructions. The constant parts come first so a provider's automatic prefix caching can reuse them; the variable parts (style, app, transcript) come last.
+- **Moved by p9a task A2 (2026-10-01): the block is now first, right after the role line and before the dictionary and the rules, introduced as "the most important context about the speaker"; the stable-prefix reasoning below still holds (the role and About you are the stable prefix).** It went into the system prompt after the fixed rules and the dictionary terms and before the style and app lines, inside `<about_speaker>` tags, introduced as reference material that is never output and never instructions. The constant parts come first so a provider's automatic prefix caching can reuse them; the variable parts (style, app, transcript) come last.
 - `clean_context` / `cleanContext`: normalise line endings, remove our own `<about_speaker>` tags, trim, cap at 8,000 characters (about 2,000 tokens; Groq's free tier allows about 8,000 tokens a minute). Both platforms are held to the same rules by the `context` and `promptctx` rows of `spec/golden.txt`.
 - The text goes only to the cleanup server; it is not sent to speech-to-text.
 

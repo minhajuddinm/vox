@@ -278,6 +278,9 @@ public final class ParityTest {
                 case "promptctx":
                     eq(ln, kind, f[4], ApiClient.systemPrompt(f[0], items(f[1], "|"), f[2], f[3]));
                     break;
+                case "promptstrength":
+                    eq(ln, kind, f[5], ApiClient.systemPrompt(f[1], items(f[2], "|"), f[3], f[4], f[0]));
+                    break;
                 case "context":
                     eq(ln, kind, f[1], ApiClient.cleanContext(f[0]));
                     break;
@@ -366,6 +369,24 @@ public final class ParityTest {
                     break;
                 case "bubbleaction":   // wanted, shown, window still attached, expected none|add|remove|repair
                     eq(ln, kind, f[3], BubbleLogic.action(f[0].equals("true"), f[1].equals("true"), f[2].equals("true")));
+                    break;
+                case "fidelity":   // strength, raw, cleaned, whether the cleanup kept enough of the spoken words
+                    eq(ln, kind, f[3], Fidelity.ok(f[1], f[2], f[0]) ? "true" : "false");
+                    break;
+                case "tokens":   // text, its word tokens joined by |
+                    eq(ln, kind, f[1], String.join("|", Fidelity.wordTokens(f[0])));
+                    break;
+                case "recall":   // raw, cleaned, share of raw's words still in cleaned (3 decimals)
+                    eq(ln, kind, f[2], String.format(java.util.Locale.ROOT, "%.3f", Fidelity.wordRecall(f[0], f[1])));
+                    break;
+                case "cleanstrength":   // the stored setting, the strength it means
+                    eq(ln, kind, f[1], Fidelity.cleanStrength(f[0]));
+                    break;
+                case "fallback":   // raw words, the text used when the fidelity guard rejects the cleanup
+                    eq(ln, kind, f[1], ApiClient.fallbackText(f[0]));
+                    break;
+                case "fuzzydict":   // terms, text, the text with the dictionary's spellings applied
+                    eq(ln, kind, f[2], Terms.fuzzy(f[1], items(f[0], "|")));
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);

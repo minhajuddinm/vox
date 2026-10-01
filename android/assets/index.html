@@ -239,6 +239,7 @@ nav button.on .pill { background:var(--accent-soft); }
       <select class="inline" id="language"><option value="">Auto</option><option value="en">English</option><option value="ur">Urdu</option><option value="hi">Hindi</option><option value="ar">Arabic</option><option value="fr">French</option><option value="es">Spanish</option></select></div>
     <div class="item"><div class="grow"><div class="t">AI cleanup</div><div class="d">Removes fillers, fixes punctuation, applies corrections</div></div><label class="switch"><input type="checkbox" id="cleanup"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases are typed as spoken, which is faster. 1 cleans up everything (1 to 20)</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" inputmode="numeric" style="width:76px"></div>
+    <div class="item"><div class="grow"><div class="t">Cleanup strength</div><div class="d">Light keeps every word you said and only fixes punctuation, capitals, spelling and paragraphs. Standard also removes fillers and false starts. If the cleanup lost words, Vox types them as spoken</div></div><select class="inline" id="cleanup-strength"><option value="light">Light</option><option value="standard">Standard</option></select></div>
   </div>
 
   <h2>Privacy</h2>
@@ -556,8 +557,8 @@ function renderHistory() {
   items.slice(0, 200).forEach(e => {
     const d = new Date(e.t * 1000), ds = d.toDateString();
     if (ds !== day) { if (day) html += "</div>"; day = ds; html += `<div class="day">${ds === today ? "Today" : ds === yest ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</div><div class="card list">`; }
-    html += `<div class="entry"><div class="txt">${esc(e.text || e.clean)}</div><div data-fixbox="${e.t}"></div><div class="meta"><span class="grow">${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${e.app ? " · " + esc(e.app) : ""}</span>
-      <button class="ib" data-fix="${e.t}" title="Fix a word Vox got wrong">${ICON_EDIT}</button><button class="ib" data-copy="${e.t}">${ICON_COPY}</button><button class="ib" data-del="${e.t}">${ICON_DEL}</button></div></div>`;
+    html += `<div class="entry"><div class="txt">${esc(e.text || e.clean)}</div><div data-fixbox="${e.t}"></div><div class="meta"><span class="grow">${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${e.app ? " · " + esc(e.app) : ""}${e.fidelity_fallback ? " · cleanup rejected, your words as spoken" : ""}</span>
+      ${e.raw && e.raw !== e.text ? `<button class="ib" style="font:inherit;font-size:12px;padding:6px 8px" title="Copy the words as spoken, before any cleanup" data-raw="${e.t}">Use raw</button>` : ""}<button class="ib" data-fix="${e.t}" title="Fix a word Vox got wrong">${ICON_EDIT}</button><button class="ib" data-copy="${e.t}">${ICON_COPY}</button><button class="ib" data-del="${e.t}">${ICON_DEL}</button></div></div>`;
   });
   $("history").innerHTML = html + "</div>";
 }
@@ -595,8 +596,9 @@ $("history").onclick = (ev) => {
   const f = ev.target.closest("[data-fix]"), l = ev.target.closest("[data-learn]");
   if (f) return openFix(f.dataset.fix);
   if (l) return learnFix(l.dataset.learn);
-  const c = ev.target.closest("[data-copy]"), d = ev.target.closest("[data-del]");
+  const c = ev.target.closest("[data-copy]"), d = ev.target.closest("[data-del]"), r = ev.target.closest("[data-raw]");
   if (c) { const e = S.history.find(x => String(x.t) === c.dataset.copy); V.copy(e.text || e.clean); toast("Copied"); }
+  if (r) { const e = S.history.find(x => String(x.t) === r.dataset.raw); V.copy(e.raw); toast("Copied the words as spoken"); }
   if (d) { V.deleteHistory(Number(d.dataset.del)); S.history = S.history.filter(x => String(x.t) !== d.dataset.del); renderHome(); }
 };
 
@@ -752,6 +754,7 @@ function renderSettings() {
   $("cleanup").checked = c.cleanup !== false; $("only-typing").checked = c.only_typing !== false;
   $("always-show").checked = !!c.always_show_bubble;
   $("cleanup-min").value = c.cleanup_min_words || 3;
+  $("cleanup-strength").value = c.cleanup_strength === "standard" ? "standard" : "light";
   $("keep-history").checked = c.keep_history !== false;
   $("note-bubble").checked = !!c.note_bubble; $("note-notification").checked = !!c.note_notification;
   $("language").value = c.language || ""; $("service").checked = S.service;
@@ -889,6 +892,7 @@ $("note-bubble").onchange = (e) => save({ note_bubble: e.target.checked }, "Save
 $("note-notification").onchange = (e) => save({ note_notification: e.target.checked }, "Saved");
 $("open-about").onclick = () => go("dict");
 $("keep-history").onchange = (e) => save({ keep_history: e.target.checked }, "Saved");
+$("cleanup-strength").onchange = (e) => save({ cleanup_strength: e.target.value }, "Saved");
 $("language").onchange = (e) => save({ language: e.target.value }, "Saved");
 $("service").onchange = (e) => V.setService(e.target.checked);
 $("battery").onclick = () => V.openBattery();

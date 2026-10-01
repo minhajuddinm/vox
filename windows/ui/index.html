@@ -365,6 +365,7 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="setting"><div><div class="t">Send long recordings while I speak</div><div class="d">For long dictations, the finished parts are sent to your voice server in pieces while you are still talking, so less is left to wait for when you stop. Short recordings are not affected. Uses a few more requests.</div></div><label class="switch"><input type="checkbox" id="stream-stt"><span></span></label></div>
       <div class="setting"><div><div class="t">AI cleanup</div><div class="d">Removes fillers, applies self-corrections, fixes punctuation and formats lists.</div></div><label class="switch"><input type="checkbox" id="cleanup"><span></span></label></div>
       <div class="setting"><div><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases are pasted as spoken, which is faster. Enter 1 to clean up everything (1 to 20).</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" style="width:76px"></div>
+      <div class="setting"><div><div class="t">Cleanup strength</div><div class="d">Light keeps every word you said and only fixes punctuation, capitals, spelling and paragraphs. Standard also removes fillers (um, you know) and false starts. If the cleanup lost words, Vox types your words as spoken instead.</div></div><select id="cleanup-strength"><option value="light">Light</option><option value="standard">Standard</option></select></div>
     </div>
 
     <h2>Privacy</h2>
@@ -648,8 +649,8 @@ function renderHistory() {
       html += `<div class="day">${ds === today ? "Today" : ds === yest ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}</div><div class="card list">`;
     }
     html += `<div class="entry"><div class="time">${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</div>
-      <div><div class="txt">${esc(e.text)}</div><div class="fix" data-fixbox="${e.t}"></div><div class="app">${esc((e.app || "").replace(/\.exe$/i, ""))} · ${e.words} words</div></div>
-      <div class="acts"><button class="icon-btn" title="Fix a word Vox got wrong" data-fix="${e.t}">${ICON_EDIT}</button><button class="icon-btn" title="Copy" data-copy="${e.t}">${ICON_COPY}</button><button class="icon-btn" title="Delete" data-del="${e.t}">${ICON_DEL}</button></div></div>`;
+      <div><div class="txt">${esc(e.text)}</div><div class="fix" data-fixbox="${e.t}"></div><div class="app">${esc((e.app || "").replace(/\.exe$/i, ""))} · ${e.words} words${e.fidelity_fallback ? " · cleanup rejected, your words as spoken" : ""}</div></div>
+      <div class="acts">${e.raw && e.raw !== e.text ? `<button class="btn ghost" style="padding:2px 10px;font-size:12px" title="Copy the words as spoken, before any cleanup" data-raw="${e.t}">Use raw</button>` : ""}<button class="icon-btn" title="Fix a word Vox got wrong" data-fix="${e.t}">${ICON_EDIT}</button><button class="icon-btn" title="Copy" data-copy="${e.t}">${ICON_COPY}</button><button class="icon-btn" title="Delete" data-del="${e.t}">${ICON_DEL}</button></div></div>`;
   }
   $("history").innerHTML = html + "</div>";
 }
@@ -686,8 +687,9 @@ $("history").onclick = async (ev) => {
   const f = ev.target.closest("[data-fix]"), l = ev.target.closest("[data-learn]");
   if (f) return openFix(f.dataset.fix);
   if (l) return learnFix(l.dataset.learn);
-  const c = ev.target.closest("[data-copy]"), d = ev.target.closest("[data-del]");
+  const c = ev.target.closest("[data-copy]"), d = ev.target.closest("[data-del]"), r = ev.target.closest("[data-raw]");
   if (c) { const e = S.history.find(x => String(x.t) === c.dataset.copy); await api().copy(e.text); toast("Copied"); }
+  if (r) { const e = S.history.find(x => String(x.t) === r.dataset.raw); await api().copy(e.raw); toast("Copied the words as spoken"); }
   if (d) { await api().delete_history(Number(d.dataset.del)); S.history = S.history.filter(x => String(x.t) !== d.dataset.del); renderHistory(); }
 };
 
@@ -763,6 +765,7 @@ function renderSettings() {
   $("language").value = c.language || "";
   $("cleanup").checked = c.cleanup !== false;
   $("cleanup-min").value = c.cleanup_min_words || 3;
+  $("cleanup-strength").value = c.cleanup_strength === "standard" ? "standard" : "light";
   $("autostart").checked = S.autostart;
   $("stt").value = c.stt_model || ""; $("llm").value = c.llm_model || "";
   $("data-dir").textContent = S.data_dir;
@@ -883,6 +886,7 @@ $("language").onchange = (e) => save({ language: e.target.value });
 $("mic").onchange = (e) => save({ input_device: e.target.value }, e.target.value ? "Microphone changed" : "Using the Windows default microphone");
 $("cleanup").onchange = (e) => save({ cleanup: e.target.checked });
 $("cleanup-min").onchange = (e) => { const v = parseInt(e.target.value, 10), n = isNaN(v) ? 3 : Math.max(1, Math.min(20, v)); e.target.value = n; save({ cleanup_min_words: n }); };
+$("cleanup-strength").onchange = (e) => save({ cleanup_strength: e.target.value });
 $("stream-stt").onchange = (e) => save({ stream_stt: e.target.checked });
 $("autostart").onchange = async (e) => { S.autostart = await api().set_autostart(e.target.checked); e.target.checked = S.autostart; toast(S.autostart ? "Vox will start with Windows" : "Autostart off"); };
 $("stt").onchange = (e) => save({ stt_model: e.target.value.trim() });

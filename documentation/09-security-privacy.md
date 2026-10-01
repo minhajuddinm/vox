@@ -16,6 +16,7 @@ What leaves the device, what is stored, what protects it, and what is still weak
 | App name (Windows exe name such as `slack.exe`; Android app label) | The server, inside the cleanup prompt | Every cleaned dictation | Never the window title |
 | Meeting title, attendee names, organizer, and the user's own name (`your_name`, default "You") | The cleanup server; the speech server gets the first 12 attendee names as a Whisper hint | Meeting notes, live questions, speaker guesses | From the calendar or typed by the user. Attendee names are the display name, else the email's part before the `@` (not the address). The organizer is the display name, else (Google events) the raw email address; it is left out when the organizer is the user (Google). `Meeting._context`, `_context_prompt`, `_label` |
 | API key | The server, as `Authorization: Bearer` | Every request | Sent only to the configured address |
+| 45 made-up transcripts and their About you text | The cleanup server the user picks | Only when the user runs `tools/bench_cleanup.py` by hand | Developer tool, never part of the app or CI; no real dictation or history is read; the key goes only to the server it is set for and is never printed or saved |
 | Calendar read requests | Google, or the ICS host | Optional, Windows | Read-only scope `calendar.events.readonly` |
 
 There is no analytics, crash reporting or Vox backend. Audio and text go only to servers the user chose: the speech server, the cleanup server and, if switched on, the relay.

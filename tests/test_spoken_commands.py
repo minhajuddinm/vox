@@ -68,7 +68,7 @@ def test_network_failure_in_cleanup_is_reported_too(monkeypatch):
 def test_runaway_cleanup_answer_is_rejected_and_reported(monkeypatch):
     script(monkeypatch, "one two three", ok("x" * 500))
     r = core.process_detailed(CFG, AUDIO, "notepad.exe", "Notepad")
-    assert r.text == "one two three" and r.cleanup_error
+    assert r.text == "One two three" and r.cleanup_error and r.fidelity_fallback   # the guard's fallback starts with a capital
 
 
 def test_nothing_said_gives_an_empty_result(monkeypatch):

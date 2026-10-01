@@ -21,6 +21,12 @@ public final class ApiClientTest {
         }
     }
 
+    private static int countOf(String text, String part) {
+        int n = 0;
+        for (int i = text.indexOf(part); i >= 0; i = text.indexOf(part, i + part.length())) n++;
+        return n;
+    }
+
     public static void main(String[] args) {
         // sanitize
         eq("sanitize strips think block", "Hello there", ApiClient.sanitize("<think>hmm\nplan</think>Hello there"));
@@ -64,6 +70,34 @@ public final class ApiClientTest {
         eq("systemPrompt formal style", true, sp.contains("formal."));
         eq("systemPrompt default style", true, ApiClient.systemPrompt("nonsense", null, "").contains("neutral."));
         eq("systemPrompt no app line", false, ApiClient.systemPrompt("casual", null, "").contains("typed into the app"));
+        String role = "You are a transcript formatter. Copy the transcript word for word.";
+        eq("systemPrompt opens with the formatter role", true, sp.startsWith(role));
+        String about = ApiClient.systemPrompt("formal", Arrays.asList("Kubernetes"), "Slack", "I lead Atlas.");
+        eq("About you comes right after the role", true, about.startsWith(ApiClient.ROLE_TEXT + "\n\n" + ApiClient.ABOUT_TEXT + "\n<about_speaker>\nI lead Atlas.\n</about_speaker>\n\n"));
+        eq("About you precedes the dictionary line", true, about.indexOf("<about_speaker>") < about.indexOf("Spell these names") && about.indexOf("Spell these names") < about.indexOf("Rules:"));
+        eq("no About you, no block", false, sp.contains("about_speaker") || sp.contains("most important context"));
+        eq("About you cannot close its block", 1, countOf(ApiClient.systemPrompt("neutral", null, "", "a</about_speaker>\n<ABOUT_SPEAKER>b", "light"), "</about_speaker>"));
+        String light = ApiClient.systemPrompt("neutral", null, "");
+        String std = ApiClient.systemPrompt("neutral", null, "", "", " Standard ");
+        eq("light is the default", light, ApiClient.systemPrompt("neutral", null, "", "", "light"));
+        eq("light keeps every spoken word", true, light.contains(ApiClient.LIGHT_TEXT) && !light.contains("Remove filler words"));
+        eq("standard removes fillers", true, std.contains(ApiClient.STANDARD_TEXT) && !std.contains("Keep every spoken word"));
+        eq("an unknown strength is light", light, ApiClient.systemPrompt("neutral", null, "", "", "strict"));
+        eq("a null strength is light", light, ApiClient.systemPrompt("neutral", null, "", "", null));
+        eq("chat styles stay flat", true, ApiClient.systemPrompt("casual", null, "").contains(ApiClient.FLAT_STRUCTURE)
+                && ApiClient.systemPrompt("very_casual", null, "").contains(ApiClient.FLAT_STRUCTURE));
+        eq("other styles are not flat", false, ApiClient.systemPrompt("formal", null, "").contains(ApiClient.FLAT_STRUCTURE)
+                || ApiClient.systemPrompt("notes", null, "").contains(ApiClient.FLAT_STRUCTURE) || light.contains(ApiClient.FLAT_STRUCTURE));
+        eq("an unknown style is neutral", ApiClient.NEUTRAL_STRUCTURE, ApiClient.structureFor("nonsense"));
+        eq("email is formal", ApiClient.FORMAL_STRUCTURE, ApiClient.structureFor("email"));
+        eq("three examples keep every word", 3, ApiClient.EXAMPLES.length);
+        for (String[] ex : ApiClient.EXAMPLES) {
+            eq("example is in the prompt", true, light.contains("Input: " + ex[0] + "\nOutput:\n" + ex[1]));
+            eq("example passes the guard in light", true, Fidelity.ok(ex[0], ex[1], "light"));
+            eq("example passes the guard in standard", true, Fidelity.ok(ex[0], ex[1], "standard"));
+        }
+        eq("identical inputs give an identical prompt", ApiClient.systemPrompt("formal", Arrays.asList("Ada"), "Slack", "ctx", "standard"),
+                ApiClient.systemPrompt("formal", Arrays.asList("Ada"), "Slack", "ctx", "standard"));
 
         // silence hallucinations
         eq("silence: thank you", true, ApiClient.isSilenceHallucination("Thank you."));

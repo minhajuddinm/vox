@@ -93,6 +93,8 @@ public final class Prefs {
     public boolean cleanupEnabled() { return sp.getBoolean("cleanup", true); }
     /** The setting "skip AI cleanup for phrases shorter than N words" as stored; read it with ApiClient.cleanMinWords. */
     public String cleanupMinWords() { return sp.getString("cleanup_min_words", "3"); }
+    /** The setting "Cleanup strength": "light" (the default: keep every spoken word) or "standard" (fillers and false starts may go). */
+    public String cleanupStrength() { return Fidelity.cleanStrength(sp.getString("cleanup_strength", "")); }
     public boolean onlyWhenTyping() { return sp.getBoolean("only_typing", true); }
     /** "Always show the bubble": the mic bubble stays on screen and ignores "only_typing". Per device, not synced. */
     public boolean alwaysShowBubble() { return sp.getBoolean("always_show_bubble", false); }
@@ -178,14 +180,15 @@ public final class Prefs {
     // ---- history ----
 
     public void addHistory(String app, String raw, String clean, double secs) {
-        addHistory(app, raw, clean, secs, null);
+        addHistory(app, raw, clean, secs, null, false);
     }
 
     /** The history is read, changed and written back as one string: one writer at a time (the service writes from a thread). */
     private static final Object HISTORY_LOCK = new Object();
 
     /** @param timing where the time of this dictation went (the Speed card), or null when it was not timed (a retry) */
-    public void addHistory(String app, String raw, String clean, double secs, Timing.Entry timing) {
+    /** @param fidelityFallback true when the cleanup answer lost the spoken words and the raw words were used (shown in the history) */
+    public void addHistory(String app, String raw, String clean, double secs, Timing.Entry timing, boolean fidelityFallback) {
         if (!keepHistory()) return;
         synchronized (HISTORY_LOCK) {
         try {
@@ -198,6 +201,7 @@ public final class Prefs {
             o.put("words", clean.trim().isEmpty() ? 0 : clean.trim().split("\\s+").length);
             o.put("secs", Math.round(secs * 10) / 10.0);
             if (timing != null) o.put("timing", timingJson(timing));
+            if (fidelityFallback) o.put("fidelity_fallback", true);
             JSONArray next = new JSONArray();
             next.put(o);
             for (int i = 0; i < arr.length() && i < 499; i++) next.put(arr.get(i));

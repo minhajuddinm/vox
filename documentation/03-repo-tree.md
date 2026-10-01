@@ -17,7 +17,7 @@ documentation/          THIS folder: developer and agent documentation
 spec/                   golden.txt, expected results shared by Python and Java tests
 relay/                 Optional relay server (Python, runs on Linux, Raspberry Pi, macOS, Windows)
 tests/                  pytest tests for the Windows Python code
-tools/                  repo scripts (generate the shared UI parts into both pages)
+tools/                  repo scripts (generate the shared UI parts into both pages; the cleanup benchmark and its corpus)
 ui-shared/              palette, component CSS and helper JS shared by both pages (generated into them)
 windows/                Windows app (Python) and its installer scripts
   ui/                   the main window's screens (one HTML file)
@@ -88,13 +88,14 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/ApiClient.java` | HTTP calls to the server plus the pure cleanup helpers (prompt, sanitize, replacements, spoken commands, silence filter, retry policy). |
 | `android/src/com/minhaj/vox/Prefs.java` | All settings and the history, in SharedPreferences. |
 | `android/src/com/minhaj/vox/Providers.java` | Java twin of `windows/providers.py`: per-role settings, model classification and parsing, messages, reasoning fields. |
-| `android/src/com/minhaj/vox/Terms.java` | Parses the dictionary text into terms and replacements. |
+| `android/src/com/minhaj/vox/Terms.java` | Parses the dictionary text into terms and replacements, and applies the terms' spellings to the final text (`fuzzy`). |
 | `android/src/com/minhaj/vox/Timing.java` | Pure Java twin of `windows/timing.py` (marks, stages, median, p90, biggest stage, "1.4 s" text, summary, `byModel`, `speedView` for the Speed card, `historyMap` the keys of a history row's timing); pinned by the `timing_*` rows of `spec/golden.txt`. |
 | `android/src/com/minhaj/vox/Segmenter.java` | Pure Java twin of `Segmenter` in `windows/vox_core.py`: cuts a recording that is still going on into pieces at pauses (12 s minimum, 28 s maximum, 0.6 s pause); the `segcuts` golden rows prove it cuts where Windows does, whatever the block size. |
 | `android/src/com/minhaj/vox/StreamingStt.java` | Pure Java twin of `windows/streaming.py`: a worker thread cuts the audio with `Segmenter` and sends each piece to speech to text (with the end of the text before it as context) while the user is still talking; `finish` returns the text, or null when the caller should send the whole recording. The server call is a `Transcriber` callback, so it is tested with a fake. |
 | `android/src/com/minhaj/vox/Latency.java` | Pure latency rules: 5 s connect timeout, speech and cleanup read timeouts that grow with the audio and the words, which failures count as "never reached the server" (the fast retry), the cleanup `max_tokens` bound (floor of 256, headroom for thinking models, the cut-off check), and when to warm the connection again. |
 | `android/src/com/minhaj/vox/UploadFormat.java` | Pure rule for the audio container of an upload (WAV under 4 s, m4a from 4 s), its type and file name, and when an encoded file is used. |
 | `android/src/com/minhaj/vox/AudioUpload.java` | Makes the uploaded file: encodes the 16 kHz PCM as AAC in an m4a file (`MediaCodec` and `MediaMuxer`, 64 kbit/s) when `UploadFormat` says so, and falls back to the WAV on any encoder failure. Android classes, so it is only compile-checked here. |
+| `android/src/com/minhaj/vox/Fidelity.java` | The fidelity guard: word tokens, word recall and `ok(raw, cleaned, strength)` (Java twin of `fidelity_ok` in `vox_core.py`). |
 | `android/src/com/minhaj/vox/NotificationActions.java` | Pure choice of the foreground notification buttons (at most three) and its Retry hint line. |
 | `android/src/com/minhaj/vox/OverlayDiag.java` | Pure bubble diagnostics: a ring buffer of the last 50 events that can make the bubble appear or vanish, its one-line event text, the service and battery lines and the copyable report, kept in memory and in a small private file (`files/overlay_diag.log`). |
 | `android/src/com/minhaj/vox/BubbleLogic.java` | Pure bubble rules: `clamp` keeps a saved position on the current screen, `shouldShow` is the visibility rule (only-typing, Always show, focused field, screen on, service ready), `action` is the watchdog's decision (none, add, remove, repair) and `WATCHDOG_MS` is its 30 s period. |
@@ -150,6 +151,10 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_providers.py` | Per-role settings, key isolation, model discovery, Test button, reasoning retry, the relay as the AI server (routes, headers, no key leaks, error shapes, the Settings page hiding the provider fields). |
 | `tests/test_warmup.py` | Connection warm-up (`vox_core.warm`) and the shared session. |
 | `tests/test_user_context.py` | The "about you" context: cleaning, prompt placement, sent with cleanup. |
+| `tests/test_prompt.py` | The cleanup prompt: role line first, About you right after it, strength and structure rules, examples that pass the guard, the same bytes for the same inputs, the strength `cleanup` sends. |
+| `tests/test_fuzzy_dictionary.py` | The fuzzy dictionary pass: pipeline wiring, replacement lines win, idempotent over every golden row, speed, Python and Java share one stoplist. |
+| `tests/test_bench_cleanup.py` | The cleanup benchmark with a fake provider (no network): each metric, the corpus (size, fields, kinds, no keys), the run loop, the table, and `main` (the key never in the output, never sent to another provider's server, the relay bypassed when a provider is chosen). |
+| `tests/test_cleanup_fidelity.py` | The fidelity guard: tokens, recall (numbers, symbols, spoken commands), Light and Standard, long dictations, `looks_valid`, `process_text` fallback. |
 | `tests/test_level.py` | The meter curve and the scrolling level history. |
 | `tests/test_notes.py` | The notes store: add, edit, delete, search with FTS5 and the LIKE fallback, filters. |
 | `tests/test_relay.py` | The relay over real HTTP: auth, sync cursor, conflicts, delete markers, search, profile versions, limits. |
@@ -175,8 +180,8 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_docs_todo.py` | The path-to-page rules of `documentation/tools/docs_todo.py`. |
 | `tests/test_ui_shared.py` | `tools/sync_ui.py --check` passes on the committed pages and fails when a generated block is edited by hand (on temp copies). |
 | `tests/test_ui_static.py` | Static checks of both HTML pages: every looked-up id exists, no duplicate ids, every bridge call (`api().NAME`, `V.NAME(`) names a real method of `Api` / `MainActivity.Bridge`. |
-| `spec/golden.txt` | Shared expected results (sanitize, looks_valid, replacements, whisper prompt, terms, system prompt, spoken commands, silence, note titles, note search strings, sync merge, profile merge and its field lists, the Devices card's rows). Read by the Python and Java parity tests. |
-| `android/test/com/minhaj/vox/ApiClientTest.java` | Prompt, sanitize, replacements, retry policy, silence phrases. |
+| `spec/golden.txt` | Shared expected results (sanitize, looks_valid, fidelity, tokens, recall, replacements, whisper prompt, terms, system prompt, spoken commands, silence, note titles, note search strings, sync merge, profile merge and its field lists, the Devices card's rows). Read by the Python and Java parity tests. |
+| `android/test/com/minhaj/vox/ApiClientTest.java` | Prompt (role, About you first, strength, structure, examples), sanitize, replacements, retry policy, silence phrases. |
 | `android/test/com/minhaj/vox/EndpointTest.java` | Server address rules. |
 | `android/test/com/minhaj/vox/NotificationActionsTest.java` | Notification buttons (never more than three in any state), the Retry hint and the typing guard. |
 | `android/test/com/minhaj/vox/PcmTest.java` | Silence gate. |
@@ -202,6 +207,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/ProfileMapTest.java` | Phone settings to profile fields and back: round trips of each shared field, empty About you, the Windows shape, wrong types, addresses, key fields. |
 | `android/test/com/minhaj/vox/PlainJsonTest.java` | The JSON reader and writer: values, escapes, numbers, strict errors, depth limit, exact round trip of timestamps. |
 | `android/test/com/minhaj/vox/ProvidersTest.java` | Per-role settings, key rule, reasoning fields, messages (Java twin of part of `tests/test_providers.py`). |
+| `android/test/com/minhaj/vox/FidelityTest.java` | The fidelity guard beyond the golden rows: property checks, a 1,500-word dictation, `looksValid` (Java twin of `tests/test_cleanup_fidelity.py`). |
 
 ## Agent tooling (`.claude/`)
 
@@ -276,6 +282,7 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/decisions/0027-relay-proxy-per-role-whitelisted-write-only-keys.md` | ADR: the relay proxy is per role, whitelisted, with write-only keys. |
 | `documentation/decisions/0028-shared-ui-parts-are-generated-into-both-pages.md` | ADR: the palette, component CSS and helpers both pages share are generated into them from `ui-shared/`. |
 | `documentation/decisions/0029-paste-checks-the-window-clipboard-default-off.md` | ADR: paste only into the window the dictation started in; `keep_clipboard` defaults to off. |
+| `documentation/decisions/0030-cleanup-keeps-the-spoken-words.md` | ADR: the cleanup contract (keep the spoken words), the fidelity guard, the Light default and the raw text always kept. |
 | `documentation/decisions/0031-timings-stay-on-the-device.md` | ADR: dictation timings are a field of the history entry, kept on the device, never sent or synced. |
 | `documentation/decisions/0034-devices-list-is-the-relays-own-list-asked-on-a-switch-or-a-press.md` | ADR: the devices list is the relay's own (`GET /devices`), asked only on a switch or a press; a 401 or 403 counts as reachable. |
 | `documentation/specs/README.md` | Index of design specs (written before the code they describe). |
@@ -293,6 +300,7 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p6-android-note-mode.md` | Spec for P6: Android note mode (faster start, note bubble, notification, tile), with the device checklist. |
 | `documentation/specs/p7e-android-sync.md` | Spec for P7e: Android relay sync and profile merge, with the device checklist and known limits. |
 | `documentation/specs/p8c-quick-wins.md` | Spec for P8c: the quick wins (Java test runner and compile check, `ApiClient` rename, `cleanup_min_words`, the relay run from the Windows app), with what was and was not verified. |
+| `documentation/specs/p9a-cleanup-keeps-my-words.md` | Spec for P9a: cleanup keeps my words (the fidelity guard, prompt, strength setting, fuzzy dictionary and benchmark are built), with what was and was not verified. |
 | `documentation/specs/p9c-devices-and-relay-setup.md` | Spec for P9c (part 3, branch C): the relay's device list, the Devices card, Test connection details and the relay set-up card, with the device checklist and what was not verified. |
 | `documentation/specs/p9d-android-bubble.md` | Spec for P9d: the Android bubble that keeps disappearing (diagnostics, watchdog, clamp, Always show the bubble, battery prompt), with the device checklist. |
 | `documentation/specs/p8b-design-refresh.md` | Spec for P8b: shared UI parts, regrouped settings and Status card, result flash, safer paste, privacy rewrite, with what was not verified. |
@@ -301,6 +309,10 @@ windows/                Windows app (Python) and its installer scripts
 | `ui-shared/components.css` | The CSS declarations that are identical in both pages for `.card .btn .chips .chip .switch .status .srow .hint .day .entry`; each page keeps its own sizes and spacing next to it. |
 | `ui-shared/relay-steps.txt` | The one source of the "How to set up the relay" card (intro, numbered steps, the commands of each step, closing notes); `tools/sync_ui.py` writes it into both pages and `relay/README.md` must show the same commands. |
 | `ui-shared/common.js` | Pure helpers: `STYLES`, `ABOUT_MAX`, `$`, `esc`, `toast`, `dictRepls`, `dictLines`, `aboutCount`, `agoText`, `combineTests`, `statusRows`, `statusHtml` (the Home status card), `devicesHtml`, `relayCheckRows` (the rows under Test connection). Bridges stay in each page. |
+| `tools/bench_cleanup.py` | The cleanup benchmark: runs the app's real cleanup call over the corpus for one or several models and prints a table; saves the results under `%APPDATA%\Vox\bench\`. Run by hand, never in CI. |
+| `tools/bench_metrics.py` | The benchmark's pure metrics (`recall`, `added_rate`, `length_ratio`, `term_hits`, `structure_only`, `percentile`, `score`, `summarize`); they read words the way the fidelity guard does. |
+| `tools/bench/corpus.jsonl` | 45 synthetic transcripts (chat, long, filler-heavy, enumerations, Hinglish, numbers, commands, names from a made-up About you) with style, dictionary terms and the terms the answer must spell exactly. No real person's data. |
+| `tools/sync_ui.py` | Writes the `ui-shared` blocks into `windows/ui/index.html` and `android/assets/index.html` between the `ui-shared:css` and `ui-shared:js` marker comments; `--check` verifies. |
 | `tools/sync_ui.py` | Writes the `ui-shared` blocks into `windows/ui/index.html` and `android/assets/index.html` between the `ui-shared:css`, `ui-shared:js` and `ui-shared:steps` marker comments (the last one is HTML made from `ui-shared/relay-steps.txt`); `--check` verifies. |
 | `documentation/tools/check_docs.py` | The documentation checker (tree, config keys, links, ADR index). |
 | `documentation/tools/docs_todo.py` | Prints which pages to update for the code that changed (checklist only, edits nothing). |
