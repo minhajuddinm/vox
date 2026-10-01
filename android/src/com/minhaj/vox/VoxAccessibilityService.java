@@ -368,6 +368,12 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
     }
 
     private void insertText(String text, String targetPkg) {
+        // A restored dictation (its app is unknown: pkg "") is never typed, whatever the focused field reports.
+        if (InsertGuard.check(targetPkg, null) == InsertGuard.NO_TARGET) {
+            copyToClipboard(text);
+            toast(InsertGuard.message(InsertGuard.NO_TARGET));
+            return;
+        }
         AccessibilityNodeInfo node = null;
         try { node = findFocus(AccessibilityNodeInfo.FOCUS_INPUT); } catch (Exception ignored) { }
         if (node == null || !node.isEditable()) {
@@ -383,11 +389,11 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
             toast("Vox does not type into password fields");
             return;
         }
-        CharSequence nodePkg = node.getPackageName();
-        if (targetPkg != null && nodePkg != null && !targetPkg.contentEquals(nodePkg)) {
+        int verdict = InsertGuard.check(targetPkg, node.getPackageName());
+        if (verdict != InsertGuard.TYPE) {
             // The user switched apps while Vox was working: do not type into the wrong one.
             copyToClipboard(text);
-            toast("You switched apps. Dictation copied to clipboard.");
+            toast(InsertGuard.message(verdict));
             return;
         }
 
