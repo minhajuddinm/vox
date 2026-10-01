@@ -316,3 +316,80 @@ def test_a_first_sync_against_blank_phone_defaults_keeps_the_pcs_settings(dev, s
     assert c["user_context"] == "I am Y" and c["dictionary"] == ["Vox"]
     data = srv.store.get_profile()["data"]
     assert data["user_context"] == "I am Y" and data["dictionary"] == ["Vox"]
+
+
+# ------------------------------------------------------------------ an unreadable config.json is not the user's settings
+def _unreadable(monkeypatch):
+    """Every open of config.json fails (another process holds it); returns the undo for it."""
+    import os
+    path = os.path.abspath(core.config_path())
+    real_open = open
+
+    def fake(file, *a, **kw):
+        if os.path.abspath(str(file)) == path:
+            raise PermissionError(13, "sharing violation")
+        return real_open(file, *a, **kw)
+
+    ctx = monkeypatch.context()
+    m = ctx.__enter__()
+    m.setattr("builtins.open", fake)
+    m.setattr(core, "_OPEN_PAUSE", 0)
+    return lambda: ctx.__exit__(None, None, None), path
+
+
+def test_config_is_fallback_only_after_a_load_that_fell_back(dev, monkeypatch):
+    dev("A")
+    set_cfg(user_context="mine")
+    assert core.config_is_fallback() is False
+    undo, _ = _unreadable(monkeypatch)
+    core.load_config()
+    assert core.config_is_fallback() is True
+    undo()
+    assert core.load_config()["user_context"] == "mine"
+    assert core.config_is_fallback() is False
+
+
+def test_a_profile_sync_with_a_fallback_config_pushes_and_writes_nothing(dev, srv, monkeypatch):
+    a = dev("A")
+    set_cfg(user_context="I lead Atlas.", dictionary=["Atlas"], people=["Ada"])
+    assert sync.sync_once(a)["profile"] == "sent"
+    b = dev("B")
+    sync.sync_once(b)                                            # B takes A's settings, then edits one
+    set_cfg(dictionary=["Atlas", "Northwind"])
+    sync.sync_once(b)                                            # the relay is now at version 2
+    a = dev("A")
+    meta_before = (notes.get_meta("profile_version", ""), notes.get_meta("profile_snapshot", ""))
+    undo, path = _unreadable(monkeypatch)
+    out = sync.sync_once(a)
+    undo()
+    assert out["profile"] == sync.PROFILE_SKIPPED and "unreadable" in sync.PROFILE_SKIPPED
+    prof = srv.store.get_profile()
+    assert prof["version"] == 2 and prof["data"]["user_context"] == "I lead Atlas."   # nothing pushed, nothing wiped
+    assert prof["data"]["dictionary"] == ["Atlas", "Northwind"]
+    assert (notes.get_meta("profile_version", ""), notes.get_meta("profile_snapshot", "")) == meta_before
+    import glob
+    assert not glob.glob(path + ".bad-*")
+    c = cfg_now()                                                # the file was never touched: still A's own settings
+    assert c["user_context"] == "I lead Atlas." and c["dictionary"] == ["Atlas"]
+
+
+def test_the_profile_sync_works_again_once_the_config_has_been_read(dev, srv, monkeypatch):
+    a = dev("A")
+    set_cfg(user_context="I lead Atlas.")
+    undo, _ = _unreadable(monkeypatch)
+    assert sync.sync_once(a)["profile"] == sync.PROFILE_SKIPPED
+    undo()
+    assert srv.store.get_profile()["version"] == 0
+    assert sync.sync_once(a)["profile"] == "sent"
+    assert srv.store.get_profile()["data"]["user_context"] == "I lead Atlas."
+
+
+def test_a_new_relay_address_is_not_recorded_while_the_config_is_unreadable(dev, srv, monkeypatch):
+    a = dev("A")
+    set_cfg(relay_sync_keys=True)
+    undo, _ = _unreadable(monkeypatch)
+    sync.sync_once(a)
+    undo()
+    assert notes.get_meta("relay_origin", "") == ""              # follow_relay would have lost the keys flag; tried again later
+    sync.sync_once(a)
+    assert notes.get_meta("relay_origin", "") != "" and notes.get_meta("profile_keys_sent", "") == "1"

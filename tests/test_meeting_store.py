@@ -96,6 +96,50 @@ def test_an_interrupted_meeting_is_recovered_and_its_audio_removed(meeting_mod):
     assert open(os.path.join(d, "meta.json"), encoding="utf-8").read() == before
 
 
+def _speech_raw(d, seconds, name="you.raw"):
+    with open(os.path.join(d, name), "wb") as f:
+        f.write(b"\x01\x00" * int(16000 * seconds))
+
+
+def test_an_offline_meeting_with_an_empty_transcript_keeps_its_audio(meeting_mod):
+    """Final review, Windows high 2: speech the live transcription never got (network down) exists only as audio."""
+    mt = meeting_mod
+    mid = "20261001-150000"
+    d = os.path.join(mt.meetings_dir(), mid)
+    os.makedirs(d)
+    with open(os.path.join(d, "transcript.json"), "w", encoding="utf-8") as f:
+        json.dump({"id": mid, "started": 1.0, "entries": []}, f)
+    _speech_raw(d, 60)
+    mt.recover_unfinished({})
+    assert os.path.getsize(os.path.join(d, "you.raw")) == 60 * 32000
+    meta = [x for x in mt.list_meetings() if x["id"] == mid][0]
+    assert meta["unfinished"] is True and meta["incomplete"] is True
+    assert "audio" in mt.read_notes(mid).lower()
+
+
+def test_a_transcript_that_covers_only_part_of_the_audio_keeps_the_audio(meeting_mod):
+    mt = meeting_mod
+    d = _interrupted(mt, "20261001-151000")     # one entry, "hello"
+    _speech_raw(d, 120)                         # two minutes of speech, one word transcribed
+    mt.recover_unfinished({})
+    assert os.path.exists(os.path.join(d, "you.raw"))
+    assert [x for x in mt.list_meetings() if x["id"] == "20261001-151000"][0]["incomplete"] is True
+
+
+def test_a_transcript_that_covers_the_audio_lets_the_audio_go(meeting_mod):
+    mt = meeting_mod
+    mid = "20261001-152000"
+    d = os.path.join(mt.meetings_dir(), mid)
+    os.makedirs(d)
+    words = " ".join(["word"] * 200)            # about 3 words a second for a minute of speech
+    with open(os.path.join(d, "transcript.json"), "w", encoding="utf-8") as f:
+        json.dump({"id": mid, "started": 1.0, "entries": [{"t": 1, "who": "You", "text": words}]}, f)
+    _speech_raw(d, 60)
+    mt.recover_unfinished({})
+    assert not os.path.exists(os.path.join(d, "you.raw"))
+    assert not [x for x in mt.list_meetings() if x["id"] == mid][0].get("incomplete")
+
+
 def test_recovery_keeps_the_audio_when_keep_audio_is_on_and_skips_the_running_meeting(meeting_mod):
     mt = meeting_mod
     d = _interrupted(mt, "20261001-120000")

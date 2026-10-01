@@ -581,6 +581,7 @@ public class DictationService extends Service {
      * a saved choice that is not connected says so once (a toast), then not again until another choice is saved.
      */
     private void preferMic(AudioRecord rec, String micKey) {
+        micKey = MicChoice.usable(micKey);   // a saved Bluetooth choice is the default now, with no notice
         if (micKey.isEmpty()) { micWarnedFor = null; return; }
         MicChoice.Candidate c = MicChoice.pick(micKey, micCandidates(this));
         if (c != null) {

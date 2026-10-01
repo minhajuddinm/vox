@@ -198,13 +198,13 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_timing.py` | The timing core: stage maths with missing marks and a backwards clock, median and p90, biggest stage, text format, summaries (skipped cleanup not counted as 0 ms), per-model medians and the Speed card's `speed_view`. |
 | `tests/test_timing_pipeline.py` | Where the Windows marks are set: the per-thread `core.timing_scope` (stt and llm marks, a failed cleanup still closes its mark, one thread only), `core.timing_info`, and the window's `get_speed`. |
 | `tests/test_ui_speed.py` | The Speed card: the shared renderer `speedHtml` / `fmtMs` run with node (biggest stage marked, dash for a stage that did not run, names escaped, empty state), and the card's ids and bridge call on both pages. |
-| `tests/test_config_load.py` | `load_config` with a BOM, a cut-off file, a non-object and a read-only file. |
+| `tests/test_config_load.py` | `load_config` with a BOM, a cut-off file, a non-object and a read-only file; a failure to open the file is retried and never moves it aside or lets defaults be saved over it. |
 | `tests/test_unreadable_answers.py` | An answer the server got wrong (empty `choices`, null `text`) does not throw a dictation away. |
 | `tests/test_engine_safety.py` | `_process` keeps the recording on an unexpected error, a failing paste or note save; a failing hotkey handler or tray icon does not raise (skipped without the Windows packages). |
 | `tests/test_calendar_privacy.py` | The secret iCal address stays out of the log, `calendar.json` and `config.json`; clearing it removes the cache. |
 | `tests/test_gcal.py` | Google tokens are protected on disk, a plain legacy file is migrated, an unreadable one asks to connect again. |
 | `tests/test_calendar_status.py` | A declined invite is dropped, an unanswered one only reminds, only an accepted one auto-starts (`calendar_action`); invite text is one clean line and bounded; `meeting.export_name`. |
-| `tests/test_meeting_store.py` | A failed export still lists the meeting and removes the raw audio; a cut-off meeting is recovered (`recover_unfinished`); a bad meeting id deletes and writes nothing; no audio is dropped between blocks (`_frames`). |
+| `tests/test_meeting_store.py` | A failed export still lists the meeting and removes the raw audio; a cut-off meeting is recovered (`recover_unfinished`) and keeps its audio when the transcript is empty or partial; a bad meeting id deletes and writes nothing; no audio is dropped between blocks (`_frames`). |
 | `tests/test_ui_app_bridge.py` | Dictionary and People edits change one item in the file's current list, not a stale page list; the meeting bridge refuses a bad id. |
 | `tests/test_hostile_note_id.py` | A note id from the relay that is not 32 hex characters is ignored, in `apply_remote` and in a sync. |
 | `tests/test_engine_notes.py` | The engine's voice-note mode (skipped where the Windows runtime packages are missing). |
@@ -343,7 +343,7 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p2b-stream-long-dictations.md` | Spec for P2b: send long recordings in pieces while speaking. |
 | `documentation/decisions/0036-fuzzy-dictionary-guesses-only-for-long-terms.md` | ADR: the one-letter dictionary guess only for terms of 7+ letters; a short name keeps the case fix. |
 | `documentation/decisions/0035-sideload-warnings-are-explained-not-engineered-away.md` | ADR: explain the Play Protect and Restricted setting warnings in the app; no `isAccessibilityTool`, targetSdk stays 34, minimum permissions. |
-| `documentation/specs/p9h-android-mic-choice.md` | Spec for the Android Microphone setting: what was built, the Bluetooth limits and the device checklist (not run on a phone). |
+| `documentation/specs/p9h-android-mic-choice.md` | Spec for the Android Microphone setting: what was built, why Bluetooth is not offered yet and the device checklist (not run on a phone). |
 | `documentation/specs/p9g2-install-safety.md` | Spec for part 3 branch G task G2: the Install help card, the permission clean-up, why targetSdk stays 34, what a sideloaded APK cannot avoid, the unverified list. |
 | `documentation/specs/p9e-keep-listening.md` | Spec for part 3 branch E: keep listening (Note and Type targets, stop phrase, note shortcut, crash-safe buffer and recovery), the checklist that needs no phone, what was not verified, Android out of scope. |
 | `documentation/specs/p9f-improve-my-cleanup.md` | Spec for part 3 branch F: the Improve my cleanup card, what one run sends, the proposal, apply and revert, `my_cleanup_rules` in the prompt and the profile sync, the checklist, known limits. |
