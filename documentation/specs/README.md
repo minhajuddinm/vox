@@ -23,6 +23,7 @@ The roadmap these come from (v2: any provider, lighter, faster, personal context
 | [p8b-design-refresh.md](p8b-design-refresh.md) | Design and privacy refresh: shared UI parts, regrouped settings and Status card, result flash on the pill and bubble, safer paste, privacy text | Implemented (not seen on a screen, phone or packaged build) |
 | [p9b-measure-and-speed-up.md](p9b-measure-and-speed-up.md) | Timings of every dictation and the Speed card on both apps; faster Android (warm connections, pieces while recording, m4a upload, bounded cleanup, shorter timeouts) | Implemented (not run on a phone, a real server or the built exe) |
 | [p9c-devices-and-relay-setup.md](p9c-devices-and-relay-setup.md) | Part 3, branch C: `GET /devices`, the Devices card, a fuller Test connection and the "How to set up the relay" card (both apps) | Implemented (not run on a phone, a Pi or over Tailscale) |
+| [p9g-note-bubble.md](p9g-note-bubble.md) | Part 3, branch G: the note bubble appears by itself while a note records or saves, shows the time and saves on a tap (Android) | Implemented (not run on a device) |
 | [p9d-android-bubble.md](p9d-android-bubble.md) | Android bubble that keeps disappearing: diagnostics, watchdog, clamped position, Always show the bubble, battery prompt | Implemented (not run on a device) |
 
 Later specs (write each just before its work starts): lightweight build, cleanup fidelity and structure (see the roadmap in [../12-known-issues-and-roadmap.md](../12-known-issues-and-roadmap.md)).
