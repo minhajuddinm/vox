@@ -16,7 +16,7 @@ Documentation: added the `documentation/` folder, `AGENTS.md` and this changelog
 
 ### Changed
 - **Android start is faster:** the dictation service starts recording as soon as it is in the foreground; the fixed 400 ms and 350 ms waits are gone. A cold bubble tap in a password field now refuses, like a warm tap. The speed gain has not been measured on a phone (`adb logcat -s vox` shows `tap->recording ms=N`).
-- For contributors: the Java class `GroqClient` is now `ApiClient` (no behaviour change); the Java tests run through one script, `android/run-tests.sh`, in CI and on a laptop with a local JDK; `android/compile-check.sh` type-checks every Android source against `android.jar` without the Android build tools.
+- For contributors: the Java class `GroqClient` is now `ApiClient` (no behaviour change); the Java tests run through one script, `android/run-tests.sh`, in CI and on a laptop with a local JDK; `android/compile-check.sh` type-checks every Android source against `android.jar` without the Android build tools. CI fix: the two relay-proxy tests that use `requests` skip in the stdlib-only `relay` job, and the meeting-notes relay-hint test runs without `numpy` (stand-in module), so the `relay` and `tests` jobs pass.
 
 ### Fixed
 - **Windows sync:** one voice note that the relay refuses for good (for example a bad id) no longer stops every other note, the pull and the profile sync; it is skipped, counted and reported as "N note(s) could not be sent". Network failures and 401, 403, 429 and 5xx still stop the run. A "received" profile result is no longer lost when the write is retried.

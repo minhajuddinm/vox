@@ -1,5 +1,7 @@
 """Tests for windows/providers.py: per-role settings, model discovery, Test button, reasoning retry."""
 import os
+import sys
+import types
 from html.parser import HTMLParser
 
 import pytest
@@ -428,11 +430,22 @@ def test_a_404_through_the_relay_blames_the_relay_setup_not_the_server(monkeypat
 
 
 def test_the_meeting_notes_call_through_the_relay_carries_the_hint(monkeypatch):
-    import meeting
-    monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: Resp({"error": "unauthorised"}, status=401))
-    with pytest.raises(core.ApiError) as ei:
-        meeting._llm(RELAY, "system", "user")
-    assert RELAY_HINT in str(ei.value)
+    # meeting.py imports numpy at module level but _llm never uses it. CI's tests job has no numpy, so stub it for this import only.
+    stubbed = False
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        monkeypatch.setitem(sys.modules, "numpy", types.ModuleType("numpy"))
+        stubbed = True
+    try:
+        import meeting
+        monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: Resp({"error": "unauthorised"}, status=401))
+        with pytest.raises(core.ApiError) as ei:
+            meeting._llm(RELAY, "system", "user")
+        assert RELAY_HINT in str(ei.value)
+    finally:
+        if stubbed:
+            sys.modules.pop("meeting", None)   # never leave a stub-bound meeting module for other tests
 
 
 def test_proxy_problem_also_reports_an_unusable_relay_address():
