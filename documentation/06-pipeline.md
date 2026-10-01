@@ -41,7 +41,7 @@ Timeouts: Windows 60 s (dictation), 180 s (meeting speech), 240 s (meeting notes
 | Android | Only the speech request: network errors, 5xx, 429, 408 (`ApiClient.isRetryable`); with the relay as the AI server only network errors, 502 and 503, not a timeout (`ApiClient.retryable`; golden rows `retry` pin the shared part) | 3 attempts, waits 0.8 s then 1.6 s. Cleanup is tried once |
 | Both | A dictation whose speech request still fails is kept for a manual retry | Windows tray "Retry last dictation"; Android notification "Retry" ([decisions/0009-keep-failed-recordings-and-retry.md](decisions/0009-keep-failed-recordings-and-retry.md)) |
 
-Meetings keep their own 429 handling (`Meeting._stt`: wait 6 s x attempt, up to 4 attempts).
+Meetings keep their own 429 handling (`Meeting._stt`: wait 6 s x attempt, up to 4 attempts). The same loop retries network errors, but follows the shared rule (`core.retryable`): with the relay as the AI server a read timeout is not sent again (the relay is still working on it); connect errors, connect timeouts and 502/503 still are.
 
 ## Cleanup prompt
 

@@ -29,6 +29,7 @@ Documentation: added the `documentation/` folder, `AGENTS.md` and this changelog
 ### Fixed
 - **Windows sync:** one voice note that the relay refuses for good (for example a bad id) no longer stops every other note, the pull and the profile sync; it is skipped, counted and reported as "N note(s) could not be sent". Network failures and 401, 403, 429 and 5xx still stop the run. A "received" profile result is no longer lost when the write is retried.
 - **Android:** the Settings footer line (version and where audio goes) was written into the About-you box and never shown, because two elements shared one id. It now shows under Clear history, and the About-you box keeps only what you typed.
+- **Final review fixes:** the Windows meeting recorder no longer sends a speech piece again after a read timeout when the relay is the AI server; on Android a stale Retry button sends nothing, a failed Retry moves that recording behind the others and parks it after three tries (the notification says how many are stuck); keys that this device put on the relay are still taken off when switched off after an upgrade or an address rewrite; the relay README states the right cleanup limit (240 s) and that the apps use the proxy routes.
 
 ## Improvement series (PR 1, merged 2026-09-29 as `cb3f679`; not yet released as a tag)
 
