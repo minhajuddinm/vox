@@ -46,6 +46,8 @@ final class OverlayDiag {
     static final String USER_PRESENT = "user_present";
     static final String CONFIG_CHANGE = "config_change";
     static final String PACKAGE_CHANGE = "package_change";
+    /** Typing found a field whose text looked like a placeholder or a short text with the caret at the start (no text is stored). */
+    static final String INSERT_PROBE = "insert_probe";
 
     /** One recorded event. {@code count} is above 1 when the same event happened again straight away (time is the last one). */
     static final class Event {
