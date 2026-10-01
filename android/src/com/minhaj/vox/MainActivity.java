@@ -105,6 +105,13 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onDestroy() {
+        if (web != null) { web.removeJavascriptInterface("Vox"); web.destroy(); }
+        main.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
+
+    @Override
     protected void onPause() {
         SyncWorker.setProfileListener(null);
         super.onPause();
@@ -175,7 +182,10 @@ public class MainActivity extends Activity {
                 o.put("service", DictationService.instance != null);
                 o.put("history", prefs.history());
                 JSONObject status = new JSONObject();   // what the Home status card cannot work out from the settings and history
-                status.put("notes", NotesStore.get(MainActivity.this).count());
+                int noteCount = 0;
+                try { noteCount = NotesStore.get(MainActivity.this).count(); }
+                catch (RuntimeException ignored) { }   // a damaged notes database must not blank the whole app (SQLiteException)
+                status.put("notes", noteCount);
                 DictationService svc = DictationService.instance;
                 status.put("unsent", svc != null && svc.hasUnsent());
                 o.put("status", status);
