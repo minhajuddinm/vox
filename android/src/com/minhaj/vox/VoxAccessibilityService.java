@@ -354,15 +354,17 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
     @Override
     public void onResult(String text, String targetPkg) {
         boolean typed = insertText(text, targetPkg);
-        if (bubble != null) bubble.flash(typed ? BubbleView.SENT : BubbleView.ERROR);   // ERROR: it only reached the clipboard
+        // Only dictations end here (a note is saved, not typed), so this is the mic bubble.
+        if (dictation != null) dictation.view.flash(typed ? BubbleView.SENT : BubbleView.ERROR);   // ERROR: it only reached the clipboard
     }
 
     @Override
     public void onError(String message) {
         toast(message);
         // A warning that still ends in a result (cleanup fell back to the raw words) is followed by onResult,
-        // whose flash replaces this one.
-        if (bubble != null) bubble.flash(BubbleView.ERROR);
+        // whose flash replaces this one. A failed voice note flashes the note bubble, the one that shows that job.
+        Floating f = noteJob() ? noteBubble : dictation;
+        if (f != null) f.view.flash(BubbleView.ERROR);
     }
 
     // ------------------------------------------------------------ insertion
