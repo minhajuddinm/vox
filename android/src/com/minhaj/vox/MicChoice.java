@@ -10,10 +10,13 @@ import java.util.Set;
  * connected one the recorder prefers. The device is remembered by a key made of its type and product name, never by
  * its numeric id (Android hands out a new id every time a device connects). An empty key means the phone's default.
  * The type numbers are those of android.media.AudioDeviceInfo (they never change), so this class needs no Android jar.
+ *
+ * Bluetooth microphones (SCO 7, LE headset 26, hearing aid 23) are NOT offered: AudioRecord.setPreferredDevice only routes
+ * the stream, it does not open the Bluetooth voice link (that needs AudioManager.setCommunicationDevice or startBluetoothSco),
+ * so such a recording can be silent. A saved Bluetooth choice is treated as the phone's default (see {@link #usable}).
  */
 public final class MicChoice {
-    public static final int BUILTIN_MIC = 15, WIRED_HEADSET = 3, USB_DEVICE = 11, USB_HEADSET = 22,
-            BLUETOOTH_SCO = 7, BLE_HEADSET = 26, HEARING_AID = 23;
+    public static final int BUILTIN_MIC = 15, WIRED_HEADSET = 3, USB_DEVICE = 11, USB_HEADSET = 22;
 
     /** The one-line notice when the saved microphone is not connected. */
     public static final String NOT_CONNECTED = "Chosen microphone not connected, using the phone's";
@@ -38,8 +41,18 @@ public final class MicChoice {
 
     /** True for the types that are microphones the page offers (the output-only types are not). */
     public static boolean isMic(int type) {
-        return type == BUILTIN_MIC || type == WIRED_HEADSET || type == USB_DEVICE || type == USB_HEADSET
-                || type == BLUETOOTH_SCO || type == BLE_HEADSET || type == HEARING_AID;
+        return type == BUILTIN_MIC || type == WIRED_HEADSET || type == USB_DEVICE || type == USB_HEADSET;
+    }
+
+    /** The saved key, or "" (the phone's default) when it names a type that is not offered (a Bluetooth choice saved by an earlier version). */
+    public static String usable(String savedKey) {
+        int bar = savedKey == null ? -1 : savedKey.indexOf('|');
+        if (bar < 1) return savedKey == null ? "" : savedKey;
+        try {
+            return isMic(Integer.parseInt(savedKey.substring(0, bar))) ? savedKey : "";
+        } catch (NumberFormatException e) {
+            return savedKey;
+        }
     }
 
     /** The saved form of a choice: the type, a bar and the trimmed product name. */
@@ -52,8 +65,6 @@ public final class MicChoice {
             case BUILTIN_MIC: return "built-in";
             case WIRED_HEADSET: return "wired";
             case USB_DEVICE: case USB_HEADSET: return "USB";
-            case BLUETOOTH_SCO: case BLE_HEADSET: return "Bluetooth";
-            case HEARING_AID: return "hearing aid";
             default: return "other";
         }
     }

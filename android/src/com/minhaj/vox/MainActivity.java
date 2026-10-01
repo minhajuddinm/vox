@@ -206,7 +206,7 @@ public class MainActivity extends Activity {
             try {
                 JSONObject o = new JSONObject();
                 JSONArray list = new JSONArray();
-                String cur = prefs.micDevice();
+                String cur = MicChoice.usable(prefs.micDevice());   // an old Bluetooth choice shows as the default
                 boolean seen = cur.isEmpty();
                 for (MicChoice.Option op : MicChoice.options(DictationService.micCandidates(MainActivity.this))) {
                     list.put(new JSONObject().put("key", op.key).put("label", op.label));
