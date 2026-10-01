@@ -82,7 +82,7 @@ Settings shown in the Windows window: `relay_proxy`, `api_key`, `base_url`, `hot
 | `note_bubble` | bool | `false` | Show the second, always-visible bubble that starts and stops a voice note (drawn by the accessibility service, independent of the focused field and of `only_typing`). |
 | `note_bubble_x`, `note_bubble_y` | int | -1 (default spot: right edge, 55% down) | Saved position of the note bubble. |
 | `note_notification` | bool | `false` | Keep an ongoing "Record note" notification in the shade. `Bridge.state` reports `note_bubble` and `note_notification`; `Bridge.save` accepts them. |
-| `history` | string (JSON array) | `[]` | Up to 500 entries, newest first. |
+| `history` | string (JSON array) | `[]` | Up to 500 entries, newest first. Each is `{t, app, raw, text, words, secs}` and, for a dictation that was timed, `timing` (below). |
 
 ## Relay settings (`relay.json` in the relay's data folder: Windows `%APPDATA%\VoxRelay`, macOS `~/Library/Application Support/VoxRelay`, otherwise `~/.local/share/vox-relay`)
 
@@ -102,7 +102,7 @@ The relay's data lives next to it in `relay.db` (SQLite: tables `notes` with a `
 | File | Written by | Contents |
 |---|---|---|
 | `config.json` | window, engine (migration) | Settings above. |
-| `history.jsonl` | engine | One JSON object per line: `t` (Unix seconds), `app` (exe name), `raw`, `text`, `words`, `secs`. Grows without limit; the window shows the newest 300. |
+| `history.jsonl` | engine | One JSON object per line: `t` (Unix seconds), `app` (exe name), `raw`, `text`, `words`, `secs` and, for a dictation that was timed, `timing`: `{stages: {start, rec, stt, llm, insert, total}` in whole milliseconds (`llm` is 0 when cleanup was skipped, `total` is key-up to inserted), `stt_model`, `llm_model`, `provider` (host name of the cleanup server, `relay` through the relay), `relay}`. The Android history entry has the same `timing` object. Older entries have none. The timings stay on the device (the Speed card reads them; they are not synced and not sent anywhere). Grows without limit; the window shows the newest 300. |
 | `notes.db` (+ `notes.db-wal`, `notes.db-shm`) | engine, window | SQLite, table `notes`: `id` (32 hex chars), `source` (`voice note`), `title`, `text`, `raw`, `created_at` and `updated_at` (Unix seconds), `secs`, `device`, `tags` (JSON list), `deleted` (0 or 1; a deleted note keeps only the marker row). Sync columns: `dirty` (1 = changed here and not yet accepted by the relay; notes from before sync count as changed) and `seq` (the relay's sequence number, 0 if unknown). Table `sync_meta` (`key`, `value`) holds `relay_cursor`, `profile_version` and `profile_snapshot` (the shared settings as of the last profile sync), `relay_origin` (the relay address this state belongs to: when the address changes the cursor and profile state are reset and every note and delete marker is sent again) and `profile_keys_sent` (`1` once this device has put keys on the relay). Table `notes_fts` (FTS5: `id`, `title`, `text`) exists when SQLite has FTS5. Not encrypted. |
 | `vox.log`, `vox.log.1`, `vox.log.2` | engine | Rotating log (1 MB each). |
 | `window.log` (+ backups) | window | Same for the window process. |

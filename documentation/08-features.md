@@ -18,6 +18,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | Insert into the focused field via accessibility | - | yes | orig | `VoxAccessibilityService.insertText` | - |
 | Language lock (Whisper language code) | yes | yes | orig | `language` setting | - |
 | History with search, copy, delete, clear; Home status card (provider, models, last Test, sync, notes, last dictation) | yes | yes | orig | `core.history_*`, window; `Prefs.history` | - |
+| Speed card on Home: where the time of a dictation goes (waiting for the mic, speech to text, cleanup, typing it in, total after you stop), medians and slowest 1 in 10 over the last 50, the biggest stage marked, per voice and cleanup model, last 10 dictations; kept on the device only | yes | yes | v2 part 3 | `timing.py` / `Timing.java`, `Engine._process`, `DictationService.send`, `ui_app.get_speed` / `Bridge.getSpeed`, `speedHtml` in `ui-shared/common.js` | py `test_timing`, `test_timing_pipeline`, `test_ui_speed`, `test_engine_flash`; java `TimingTest`; golden `timing_*` |
 | Start with Windows | yes | - | orig | `ui_app.set_autostart` | - |
 
 ## Added by PR 1
