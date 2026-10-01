@@ -297,6 +297,8 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/decisions/0029-paste-checks-the-window-clipboard-default-off.md` | ADR: paste only into the window the dictation started in; `keep_clipboard` defaults to off. |
 | `documentation/decisions/0030-cleanup-keeps-the-spoken-words.md` | ADR: the cleanup contract (keep the spoken words), the fidelity guard, the Light default and the raw text always kept. |
 | `documentation/decisions/0031-timings-stay-on-the-device.md` | ADR: dictation timings are a field of the history entry, kept on the device, never sent or synced. |
+| `documentation/decisions/0032-keep-listening-pieces-two-targets-crash-safe-buffer.md` | ADR: keep listening is not an assistant; pieces cut at pauses, Note and Type targets, a strict same-window rule, a crash-safe audio file, Esc saves, Android out of scope. |
+| `documentation/decisions/0033-the-improvement-run-sends-transcripts-only-on-an-explicit-button.md` | ADR: "Improve my cleanup" sends stored transcripts only after an explicit confirm and Send, applies nothing by itself, never applies About you changes, every change is a revertable version. |
 | `documentation/decisions/0034-devices-list-is-the-relays-own-list-asked-on-a-switch-or-a-press.md` | ADR: the devices list is the relay's own (`GET /devices`), asked only on a switch or a press; a 401 or 403 counts as reachable. |
 | `documentation/specs/README.md` | Index of design specs (written before the code they describe). |
 | `documentation/specs/p1-providers-and-models.md` | Spec for sub-project P1: any provider, per-role server, model list, Test button. |
@@ -312,6 +314,8 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p2b-stream-long-dictations.md` | Spec for P2b: send long recordings in pieces while speaking. |
 | `documentation/decisions/0035-sideload-warnings-are-explained-not-engineered-away.md` | ADR: explain the Play Protect and Restricted setting warnings in the app; no `isAccessibilityTool`, targetSdk stays 34, minimum permissions. |
 | `documentation/specs/p9g2-install-safety.md` | Spec for part 3 branch G task G2: the Install help card, the permission clean-up, why targetSdk stays 34, what a sideloaded APK cannot avoid, the unverified list. |
+| `documentation/specs/p9e-keep-listening.md` | Spec for part 3 branch E: keep listening (Note and Type targets, stop phrase, note shortcut, crash-safe buffer and recovery), the checklist that needs no phone, what was not verified, Android out of scope. |
+| `documentation/specs/p9f-improve-my-cleanup.md` | Spec for part 3 branch F: the Improve my cleanup card, what one run sends, the proposal, apply and revert, `my_cleanup_rules` in the prompt and the profile sync, the checklist, known limits. |
 | `documentation/specs/p9g-note-bubble.md` | Spec for part 3 branch G: the note bubble that appears while a note records or saves, with the device checklist. |
 | `documentation/specs/p6-android-note-mode.md` | Spec for P6: Android note mode (faster start, note bubble, notification, tile), with the device checklist. |
 | `documentation/specs/p7e-android-sync.md` | Spec for P7e: Android relay sync and profile merge, with the device checklist and known limits. |

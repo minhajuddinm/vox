@@ -168,7 +168,7 @@ Not shared on either side: per-app styles, the hotkey, the microphone, the relay
 
 ## Not present on Android
 
-Meeting notes, calendar, hotkeys, overlay pill, DPAPI-style key protection (the key is in app-private SharedPreferences; see [09-security-privacy.md](09-security-privacy.md)), file logs (the only `android.util.Log` call is the debug line `tap->recording ms=` described under `DictationService`; problems appear as toasts).
+Meeting notes, calendar, hotkeys, keep listening (the double-press mode, Windows only: out of scope for part 3, see [specs/p9e-keep-listening.md](specs/p9e-keep-listening.md); Android has note mode and the note bubble instead), the "Improve my cleanup" card, overlay pill, DPAPI-style key protection (the key is in app-private SharedPreferences; see [09-security-privacy.md](09-security-privacy.md)), file logs (the only `android.util.Log` call is the debug line `tap->recording ms=` described under `DictationService`; problems appear as toasts).
 
 ## AI provider settings
 
@@ -183,6 +183,10 @@ Settings starts with an **AI provider** card: preset list (`Providers.PRESETS`, 
 ## About you
 
 The Dictionary page starts with an **About you** card bound to the `user_context` preference (`Prefs.userContext`, `Bridge.state`/`save`). `DictationService.send` passes it to `ApiClient.cleanup`, which adds it to the prompt.
+
+## Learned cleanup rules (receive only)
+
+`Prefs.myCleanupRules()` holds `my_cleanup_rules`, which arrives with the profile sync (`ProfileMap`, `ProfileMerge.SHARED_FIELDS`, `Prefs.profileStored`) and is never edited on the phone (no screen for it). `DictationService` passes it to `ApiClient.cleanup`, which calls `systemPrompt(..., rules)`; `ApiClient.cleanRules` and `RULES_TEXT` are the twins of `clean_rules` and `RULES_TEXT` in `windows/vox_core.py` (golden kinds `rules` and `promptrules`, see [06-pipeline.md](06-pipeline.md)). Android has no "Improve my cleanup" card. Not run on a phone.
 
 ## Recording meter
 

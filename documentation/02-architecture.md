@@ -121,6 +121,7 @@ The same functions exist in both languages:
 | Correction suggestions | `suggest_corrections` | `Corrections.suggest` |
 | Per-role settings, model classification | `providers.role_settings`, `providers.classify` | `Providers.roleSettings`, `Providers.classify` |
 | About-you cleaning and the prompt with context | `clean_context`, `system_prompt` | `ApiClient.cleanContext`, `systemPrompt` |
+| The learned cleanup rules (`my_cleanup_rules`) made safe and put into the prompt after the strength rule | `clean_rules`, `system_prompt(..., rules)` | `ApiClient.cleanRules`, `systemPrompt(..., rules)` (golden kinds `rules`, `promptrules`) |
 | Meter level | `level_from_rms` | `Pcm.levelFromRms` |
 | Voice-note title (first 7 words) and search string (`"word"*` tokens) | `notes.auto_title`, `notes.fts_query` | `NoteLogic.autoTitle`, `NoteLogic.ftsQuery` |
 | Which version wins a note sync (strictly newer; a tie keeps the local one; a delete of an unknown note is ignored) | `notes.apply_remote` | `NoteLogic.remoteWins` |

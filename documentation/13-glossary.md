@@ -22,7 +22,13 @@
 | Term | A word or name in the dictionary that helps spelling (a plain dictionary line, or the right side of a replacement). |
 | Replacement | A `wrong => right` dictionary line applied to the final text. |
 | People | Extra dictionary terms for names. |
-| Keep listening | Windows session started by double-tapping the shortcut (or the note hotkey): Note or Type target; a double press, the stop phrase or Esc ends it and saves. |
+| Keep listening | Windows session started by double-tapping the shortcut (or the note shortcut or the tray): audio cut at pauses into pieces and turned into text while you speak; target Note (one cleaned note at the end) or Type (each piece typed into the app it started in); a double press, the stop phrase, Esc, the tray, the note shortcut or the 60 minute limit ends it and saves. Android has none. |
+| Listening target | `listen_target`: `note` or `type`, what keep listening does with the text. |
+| Note shortcut | `note_hotkey` (default Ctrl+Alt+N): a second shortcut that starts and stops a keep-listening session with the target Note. |
+| Piece | One utterance of a keep-listening session (3 to 20 s) or of a long dictation; each is one speech-to-text request. |
+| Listening buffer | The raw audio of a running keep-listening session on disk (`%APPDATA%\Vox\listen`), kept after a failure so "Recover listening session" can make a note of it. |
+| Improve my cleanup | The Settings card that sends a confirmed set of saved dictations to a stronger model and shows proposals (dictionary words, replacements, rules) to accept per item. |
+| Learned rules (`my_cleanup_rules`) | Up to 2,000 characters of short cleanup rules, one per line, added by Improve my cleanup; part of the cleanup prompt and the synced profile. |
 | Silence gate | The check that skips upload when the loudest sample is below 655 (of 32768). |
 | Silence hallucination | Whisper inventing "thank you", "bye" and similar on silence. Filtered out. |
 | Pending recording | A dictation that failed to send and is kept for retry. |

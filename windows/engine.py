@@ -37,7 +37,7 @@ log = logging.getLogger("vox")
 MIN_SECONDS = 0.4
 MAX_SECONDS = 360
 TAP_SECONDS = 0.3       # a press shorter than this is a tap
-DOUBLE_TAP_GAP = 0.5    # second tap within this starts hands-free mode
+DOUBLE_TAP_GAP = 0.5    # second tap within this starts keep listening
 # How long the pill shows a green check / a red ! (see Engine.flash). Keep equal to BubbleView.SENT_MS / ERROR_MS
 # in android/src/com/minhaj/vox/BubbleView.java (tests/test_flash_constants.py checks it).
 FLASH_SECONDS = {"sent": 0.7, "error": 1.8}
