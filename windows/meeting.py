@@ -46,6 +46,13 @@ def meetings_dir():
     return d
 
 
+def export_name(title):
+    """A title as a safe file name: no control characters and none of the characters Windows refuses in a name, one line,
+    at most 60 characters, no spaces or dots at the ends; "Meeting" when nothing is left."""
+    s = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', " ", title or "")
+    return " ".join(s.split())[:60].strip(" .") or "Meeting"
+
+
 def notes_export_dir(cfg):
     d = cfg.get("notes_folder") or os.path.join(os.path.expanduser("~"), "Documents", "Vox Notes")
     os.makedirs(d, exist_ok=True)
@@ -611,8 +618,7 @@ class Meeting:
             meta_path = os.path.join(self.folder(), "meta.json")
             _write_json(meta_path, meta)   # first: the meeting is listed even when the copy in Documents fails
             try:
-                safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "", title)[:60].strip() or "Meeting"
-                export = os.path.join(notes_export_dir(cfg), f"{when:%Y-%m-%d %H%M} {safe}.md")
+                export = os.path.join(notes_export_dir(cfg), f"{when:%Y-%m-%d %H%M} {export_name(title)}.md")
                 with open(export, "w", encoding="utf-8") as f:
                     f.write(full)
                 meta["export"] = export

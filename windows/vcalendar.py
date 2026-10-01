@@ -15,6 +15,7 @@ import vox_core as core
 
 log = logging.getLogger("vox.calendar")
 CACHE_SECONDS = 300
+MAX_ATTENDEES = 30   # calendar text goes into prompts and file names: bounded and on one line (see core.one_line)
 PARTSTAT = {"ACCEPTED": "accepted", "DECLINED": "declined", "TENTATIVE": "tentative", "NEEDS-ACTION": "needsAction", "": "needsAction"}
 
 
@@ -68,12 +69,12 @@ def parse(ics_text, start, end, my_email=""):
                 continue
             if str(a.params.get("CUTYPE", "")).upper() in ("RESOURCE", "ROOM"):
                 continue
-            n = _name(a)
-            if n and n not in people:
+            n = core.one_line(_name(a), 80)
+            if n and n not in people and len(people) < MAX_ATTENDEES:
                 people.append(n)
         if my_status == "declined":
             continue
-        org = _name(ev.get("ORGANIZER"))
+        org = core.one_line(_name(ev.get("ORGANIZER")), 80)
         desc = str(ev.get("DESCRIPTION", ""))
         loc = str(ev.get("LOCATION", ""))
         link = ""
@@ -82,7 +83,7 @@ def parse(ics_text, start, end, my_email=""):
             link = m.group(0).rstrip(").,>\"'")
         out.append({
             "uid": str(ev.get("UID", "")) + "|" + s.isoformat(),
-            "title": str(ev.get("SUMMARY", "(no title)")),
+            "title": core.one_line(ev.get("SUMMARY", "(no title)"), 120),
             "start": s.timestamp(), "end": (e or s).timestamp(),
             "attendees": people, "organizer": org, "link": link, "my_status": my_status,
         })

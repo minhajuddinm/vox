@@ -78,3 +78,61 @@ def test_the_watcher_starts_only_accepted_meetings(calendar_action):
     assert calendar_action({k: v for k, v in ev.items() if k != "my_status"}, {"auto_notes": True}, now) == "start"
     assert calendar_action(dict(ev, attendees=[]), {"auto_notes": True}, now) is None
     assert calendar_action(dict(ev, start=now + 600), {"auto_notes": True}, now) is None
+
+
+# ---- calendar text is one clean line and bounded (C-M4) --------------------------------------------------------------------
+
+def test_a_google_event_with_200_attendees_and_a_messy_title_is_bounded_and_one_line():
+    people = [{"email": "p%d@x.com" % i, "displayName": "Person %d\twith\nbreaks" % i} for i in range(200)]
+    ev = item(people)
+    ev["summary"] = "Sync\twith\nBob " + "x" * 300
+    ev["organizer"] = {"email": "boss@x.com", "displayName": "Boss\n" + "y" * 300}
+    out = gcal._parse_items([ev])[0]
+    assert len(out["attendees"]) == 30
+    assert all(len(a) <= 80 and all(ord(c) >= 32 for c in a) for a in out["attendees"])
+    assert out["title"].startswith("Sync with Bob x") and len(out["title"]) == 120
+    assert len(out["organizer"]) == 80 and "\n" not in out["organizer"]
+
+
+def test_an_ics_title_with_an_escaped_newline_becomes_one_line_and_attendees_are_capped():
+    pytest.importorskip("icalendar")
+    pytest.importorskip("recurring_ical_events")
+    from datetime import datetime, timezone
+    bs = chr(92)
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//t//EN", "BEGIN:VEVENT", "UID:u1", "DTSTAMP:20261001T000000Z",
+             "DTSTART:20261002T100000Z", "DTEND:20261002T110000Z", "SUMMARY:Line1" + bs + "nLine2",
+             "ORGANIZER;CN=" + "O" * 200 + ":mailto:boss@x.com"]
+    lines += ["ATTENDEE;CN=Person %d:mailto:p%d@x.com" % (i, i) for i in range(200)]
+    lines += ["END:VEVENT", "END:VCALENDAR", ""]
+    out = vcalendar.parse("\r\n".join(lines), datetime(2026, 10, 1, tzinfo=timezone.utc),
+                          datetime(2026, 10, 5, tzinfo=timezone.utc), "")[0]
+    assert out["title"] == "Line1 Line2"
+    assert len(out["attendees"]) == 30 and len(out["organizer"]) == 80
+
+
+@pytest.fixture
+def export_name():
+    import sys
+    import types
+    stubbed = False
+    try:
+        import numpy  # noqa: F401
+    except ImportError:   # CI's tests job has no numpy; meeting.py imports it at module level
+        sys.modules["numpy"] = types.ModuleType("numpy")
+        stubbed = True
+    try:
+        import meeting
+        yield meeting.export_name
+    finally:
+        if stubbed:
+            sys.modules.pop("numpy", None)
+            sys.modules.pop("meeting", None)
+
+
+def test_export_name_is_a_safe_single_line_file_name(export_name):
+    assert export_name("Sync\twith\nBob") == "Sync with Bob"
+    assert all(ord(c) >= 32 for c in export_name("a\x00b\x1fc"))
+    assert not export_name("a" * 59 + ".").endswith(".")
+    assert export_name("../..\\x: y?") == "x y"
+    assert export_name("") == "Meeting" and export_name(" . ") == "Meeting"
+    assert len(export_name("z" * 200)) == 60

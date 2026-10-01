@@ -482,6 +482,12 @@ def whisper_prompt_with_context(terms, context=""):
     return prompt
 
 
+def one_line(text, limit):
+    """Text from outside (a calendar invite) as one line of at most `limit` characters: tabs, line breaks and other control
+    characters become single spaces."""
+    return " ".join("".join(" " if ord(c) < 32 or ord(c) == 127 else c for c in str(text)).split())[:limit]
+
+
 def sanitize(text):
     t = re.sub(r"(?s)<think>.*?</think>", "", text or "")
     t = t.replace("<transcript>", "").replace("</transcript>", "").strip()
