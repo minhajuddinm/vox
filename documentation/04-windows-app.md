@@ -45,6 +45,7 @@ The engine and window modes set DPI awareness, install `sys.excepthook` / `threa
 
   `Engine.paste` returns True (pasted) or False (only copied) and does not flash itself; `_process` flashes once, after the paste and the history step, green for a paste and red for a copy ([Result signal on the pill](#result-signal-on-the-pill)).
 - History: one JSON line appended to `history.jsonl` unless `keep_history` is false.
+- Timing (the Speed card): `Engine.start` makes a `timing.Timing` and marks `key_down` (start of `start`) and `rec_start` (the microphone stream running); `stop` marks `key_up`; `_process` runs the network steps inside `core.timing_scope(tm)` so `process_detailed` marks `stt_start`/`stt_done` and `process_text` marks `llm_start`/`llm_done` (a cleanup that fails still closes its mark); with streaming the engine marks `stt_start`/`stt_done` around `streamer.finish()` (only the last piece is left to send); `inserted` is marked right after the paste. The entry is saved as `timing` in the history line (`Timing.entry` plus `core.timing_info`: voice and cleanup model, host or "relay", whether the relay was used). A Retry, a note and a dictation with history off are not timed. Nothing leaves the PC.
 - Errors: `ApiError` (401 key rejected, 429 rate limit, other) and `requests.RequestException` set `Engine.pending = (pcm, exe)` and notify with "Your recording is kept: tray icon > Retry last dictation." `retry_last` re-runs `_process` on the kept audio. Success clears `pending`. Each of these failures also flashes a red ! on the pill; a saved voice note flashes the green check.
 
 ### Tray menu (pystray)
@@ -107,13 +108,13 @@ The phone does the same with `BubbleView.flash` ([05-android-app.md](05-android-
 
 | Page | Purpose |
 |---|---|
-| Home | **Status** card (provider, voice and cleanup model, last connection Test, sync state, voice notes count, last dictation), first-run "Choose your AI provider" card, searchable history with copy, delete and "Fix a word" |
+| Home | **Status** card (provider, voice and cleanup model, last connection Test, sync state, voice notes count, last dictation), **Speed** card (median and slowest-1-in-10 time of each stage over the last 50 timed dictations, the biggest stage marked, per voice and cleanup model, and the last 10; Refresh button; from `get_speed`), first-run "Choose your AI provider" card, searchable history with copy, delete and "Fix a word" |
 | Notes (beta) | Calendar, start/stop meeting notes, live transcript with a question box, saved meetings with detail view, questions across all meetings |
 | Dictionary | Words, People, Replacements (`wrong => right`) |
 | Styles | Default style and a style per app exe (selected from recent apps or entered manually as "Other...") |
 | Settings | Four sections in this order. **AI providers** (provider, server address, API key + Test, voice model, cleanup model, different server, Use my relay as the AI server). **Voice & audio** (shortcut, microphone, language, send long recordings while I speak, AI cleanup, skip cleanup below N words). **Privacy** (a line on what leaves the PC, keep history, keep clipboard, Sync between devices block, About you link). **System** (start with Windows, your name, calendar email, auto notes, data folder, clear history) |
 
-`Api` methods (called from JavaScript as `pywebview.api.<name>`): `get_state`, `save_config`, `set_hotkey`, `check_key`, `list_models`, `test_role`, `note_toggle`, `note_status`, `sync_status`, `sync_now`, `sync_test`, `notes_list`, `note_edit`, `note_delete`, `endpoint_problem`, `proxy_problem`, `suggest_corrections`, `copy`, `delete_history`, `clear_history`, `open_url`, `open_data_folder`, the `meeting_*` and `meetings*` group, `calendar`, `google_*`, `connect_calendar`, `get_autostart`, `set_autostart`. Live meeting calls go through `Api._engine` to the control server; everything else reads or writes files directly.
+`Api` methods (called from JavaScript as `pywebview.api.<name>`): `get_state`, `save_config`, `set_hotkey`, `check_key`, `list_models`, `test_role`, `note_toggle`, `note_status`, `sync_status`, `sync_now`, `sync_test`, `notes_list`, `note_edit`, `note_delete`, `endpoint_problem`, `proxy_problem`, `suggest_corrections`, `copy`, `get_speed`, `delete_history`, `clear_history`, `open_url`, `open_data_folder`, the `meeting_*` and `meetings*` group, `calendar`, `google_*`, `connect_calendar`, `get_autostart`, `set_autostart`. Live meeting calls go through `Api._engine` to the control server; everything else reads or writes files directly.
 
 Start with Windows is a `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value named `Vox`.
 

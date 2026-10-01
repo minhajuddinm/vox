@@ -37,3 +37,32 @@ function statusRows(st, cfg, sync, test) {
   ];
 }
 const statusHtml = (rows) => rows.map(([a, b, k]) => `<div class="srow"><span class="sl">${esc(a)}</span><span class="sv ${k}">${esc(b)}</span></div>`).join("");
+// Speed card (Home). Milliseconds as text, the same rule as timing.format_ms / Timing.formatMs: one decimal from 1000 ms, halves up.
+function fmtMs(ms) { ms = Math.max(0, Math.round(+ms || 0)); if (ms < 1000) return ms + " ms"; const t = Math.floor((ms + 50) / 100); return Math.floor(t / 10) + "." + (t % 10) + " s"; }
+// v = what the bridge gives (timing.speed_view / Timing.speedView): {count, biggest, stages: {stage: {median, p90}}, models: [...], last: [...]}.
+// Only the stages the app can work on are listed (the time spent speaking is not); the biggest one is marked. appLabel turns a stored app into text.
+const SPEED_STAGES = [["start", "Waiting for the microphone"], ["stt", "Speech to text"], ["llm", "Cleanup"], ["insert", "Typing it in"], ["total", "Total, after you stop"]];
+function speedHtml(v, appLabel) {
+  appLabel = appLabel || ((a) => String(a || "").replace(/\.exe$/i, ""));
+  if (!v || !v.count) return `<div class="srow"><span class="sl">No timed dictations yet. Dictate something and the numbers appear here.</span></div>`;
+  const ms = (x) => x ? fmtMs(x) : "–";
+  let html = `<div class="srow"><span class="sl">Median of your last ${v.count} dictation${v.count === 1 ? "" : "s"}</span><span class="sv dim">slowest 1 in 10</span></div>`;
+  for (const [k, label] of SPEED_STAGES) {
+    const s = (v.stages || {})[k] || { median: 0, p90: 0 };
+    html += `<div class="srow${k === v.biggest ? " big" : ""}"><span class="sl">${esc(label)}${k === v.biggest ? " (the biggest)" : ""}</span><span class="sv">${ms(s.median)} <small>${ms(s.p90)}</small></span></div>`;
+  }
+  if ((v.models || []).length) {
+    html += `<div class="sub-h">By model</div>`;
+    for (const m of v.models) {
+      html += `<div class="srow"><span class="sl">${esc(m.stt_model || "unknown")} + ${esc(m.llm_model || "unknown")}</span><span class="sv">${ms(m.total)} <small>speech ${ms(m.stt)}, cleanup ${ms(m.llm)}, ${m.count} dictation${m.count === 1 ? "" : "s"}</small></span></div>`;
+    }
+  }
+  if ((v.last || []).length) {
+    html += `<div class="sub-h">Last ${v.last.length}</div>`;
+    for (const d of v.last) {
+      const st = d.stages || {}, app = d.app ? " in " + appLabel(d.app) : "";
+      html += `<div class="srow"><span class="sl">${esc(agoText(d.t))}${esc(app)}</span><span class="sv">${ms(st.total)} <small>speech ${ms(st.stt)}, cleanup ${ms(st.llm)}</small></span></div>`;
+    }
+  }
+  return html;
+}

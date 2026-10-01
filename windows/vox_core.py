@@ -11,6 +11,7 @@ import threading
 import time
 import wave
 from collections import namedtuple
+from contextlib import contextmanager
 from urllib.parse import urlparse
 
 import requests
@@ -278,6 +279,15 @@ def whisper_prompt(terms):
             break
         out = f"{out}, {t}" if out else t
     return out + "." if out else ""
+
+
+def whisper_prompt_with_context(terms, context=""):
+    """The speech-to-text prompt: the dictionary terms, then the end of the text before this piece (long recordings sent in
+    pieces). Whisper reads the end of the prompt most, so it is the end that is kept. Java twin: ApiClient.whisperPromptWith."""
+    prompt = whisper_prompt(terms)
+    if context:
+        prompt = (prompt + " " + context.strip())[-600:]
+    return prompt
 
 
 def sanitize(text):
@@ -556,14 +566,51 @@ def key_missing(cfg):
     return providers.key_missing(cfg)
 
 
+# ------------------------------------------------------------------ timing marks
+# The engine sets the marks it owns (key down, recording, key up, inserted). The two network steps mark themselves
+# through a per-thread scope, so process_detailed / process_text keep their signatures. Without a scope (the
+# benchmark, the meeting code, tests) every mark is a no-op.
+_timing_local = threading.local()
+
+
+@contextmanager
+def timing_scope(t):
+    """Marks set by the pipeline on this thread go to `t` (a timing.Timing) inside the with block."""
+    before = getattr(_timing_local, "t", None)
+    _timing_local.t = t
+    try:
+        yield t
+    finally:
+        _timing_local.t = before
+
+
+def _mark(name):
+    t = getattr(_timing_local, "t", None)
+    if t is not None:
+        t.mark(name)
+
+
+def timing_info(cfg):
+    """The models and the route of the next dictation, for its history entry: {stt_model, llm_model, provider, relay}.
+    `provider` is "relay" or the host name of the cleanup server. Never raises: a broken config gives empty names."""
+    out = {"stt_model": "", "llm_model": "", "provider": "", "relay": False}
+    try:
+        cfg = cfg or {}
+        out["relay"] = bool(providers.uses_relay(cfg))
+        out["stt_model"] = providers.role_settings(cfg, "stt")[2]
+        base, _, out["llm_model"] = providers.role_settings(cfg, "llm")
+        out["provider"] = "relay" if out["relay"] else (urlparse(base).hostname or "")
+    except Exception:
+        pass
+    return out
+
+
 def transcribe(cfg, wav_bytes, context=""):
     """Speech to text. `context` is the end of the text before this piece (long recordings sent in pieces)."""
     data = {"model": providers.role_settings(cfg, "stt")[2], "response_format": "json", "temperature": "0"}
     if cfg.get("language"):
         data["language"] = cfg["language"]
-    prompt = whisper_prompt(dictionary_terms(cfg))
-    if context:
-        prompt = (prompt + " " + context.strip())[-600:]   # Whisper reads the end of the prompt most
+    prompt = whisper_prompt_with_context(dictionary_terms(cfg), context)
     if prompt:
         data["prompt"] = prompt
     r = post_with_retry(
@@ -644,7 +691,12 @@ def process_detailed(cfg, pcm_bytes, exe, app_label):
     Result.cleaned says whether the AI cleanup produced the text; Result.cleanup_error holds the reason when
     cleanup was wanted but failed (the raw transcript is used then, so the dictation is never lost).
     """
-    return process_text(cfg, transcribe(cfg, pcm_to_wav(pcm_bytes)), exe, app_label)
+    _mark("stt_start")
+    try:
+        raw = transcribe(cfg, pcm_to_wav(pcm_bytes))
+    finally:
+        _mark("stt_done")
+    return process_text(cfg, raw, exe, app_label)
 
 
 def clean_min_words(value):
@@ -669,6 +721,7 @@ def process_text(cfg, raw, exe, app_label):
     style = style_for(cfg, exe)
     out, cleaned, error = raw, False, ""
     if needs_cleanup(raw, style, cfg.get("cleanup", True), cfg.get("cleanup_min_words", 3)):
+        _mark("llm_start")
         try:
             c = cleanup(cfg, raw, style, app_label)
             if looks_valid(raw, c):
@@ -677,6 +730,8 @@ def process_text(cfg, raw, exe, app_label):
                 error = "the cleanup answer looked wrong"
         except (ApiError, requests.RequestException) as e:
             error = str(e)
+        finally:
+            _mark("llm_done")
     if not cleaned:
         out = apply_spoken_commands(out)
     return Result(raw, apply_replacements(out, replacements(cfg)), cleaned, error)

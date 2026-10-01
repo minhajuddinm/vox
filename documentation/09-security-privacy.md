@@ -6,7 +6,7 @@ What leaves the device, what is stored, what protects it, and what is still weak
 
 | Data | Goes to | When | Notes |
 |---|---|---|---|
-| Recorded audio (WAV) | The speech server (Groq or the user's own) | Every dictation and meeting | Never processed on the device. On Windows a long recording is sent in pieces while the user is still speaking (`stream_stt`, default on); Android sends one piece |
+| Recorded audio (WAV; on Android AAC in m4a for clips of 4 s or more) | The speech server (Groq or the user's own) | Every dictation and meeting | Never processed on the device. On Windows a long recording is sent in pieces while the user is still speaking (`stream_stt`, default on); Android does the same since v2 part 3 branch B (not run on a phone yet) |
 | Transcript text | The cleanup server (chat model) | Cleanup, meeting notes and questions | Skipped when cleanup is off, the style is Raw, or the text is under `cleanup_min_words` |
 | Dictionary and people | The speech server (Whisper `prompt`, at most 600 characters) and the cleanup server (system prompt) | Every dictation | `vox_core.transcribe`, `ApiClient.transcribe` |
 | Language setting; on Windows the last 150 characters of the previous piece of a long recording | The speech server | Every dictation | `streaming.CONTEXT_CHARS` |
@@ -26,7 +26,7 @@ There is no analytics, crash reporting or Vox backend. Audio and text go only to
 |---|---|---|
 | Windows API key | `%APPDATA%\Vox\config.json` | Windows DPAPI (`secret.py`), value `dpapi:<base64>`; only the same Windows user on the same PC can open it |
 | Android API keys and relay token | SharedPreferences `vox` | App-private storage only (no extra encryption); `allowBackup="false"`. The relay token (`relay_token`) is handled like the API key: never logged, sent only to the relay's own address |
-| History | `history.jsonl` (Windows) / SharedPreferences (Android) | Plain text. Switch it off with **Keep dictation history**; then nothing is saved |
+| History | `history.jsonl` (Windows) / SharedPreferences (Android) | Plain text. Switch it off with **Keep dictation history**; then nothing is saved. Each line also carries its `timing` (stage times in milliseconds, model names, provider host or `relay`) for the Speed card; it is never sent or synced ([decision 0031](decisions/0031-timings-stay-on-the-device.md)) |
 | Meeting audio | `meetings\<id>\*.raw` | Deleted after the notes are written unless `keep_audio`; a crash can leave it behind |
 | Meeting notes and transcripts | `%APPDATA%\Vox\meetings`, `Documents\Vox Notes` | Plain text |
 | Google tokens | `google_token.json` | Plain JSON with default file permissions |

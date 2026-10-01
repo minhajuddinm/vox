@@ -171,6 +171,20 @@ public class MainActivity extends Activity {
             }
         }
 
+        /** The Speed card (Home): medians per stage over the last 50 timed dictations, per model, and the last 10. Local data only. */
+        @SuppressWarnings("unchecked")
+        @JavascriptInterface
+        public String getSpeed() {
+            try {
+                List<Object> newestFirst = (List<Object>) PlainJson.parse(prefs.history().toString());
+                List<Object> oldestFirst = new ArrayList<>(newestFirst);   // the history is kept newest first, Timing.speedView wants oldest first
+                Collections.reverse(oldestFirst);
+                return PlainJson.stringify(Timing.speedView(oldestFirst, 50, 10));
+            } catch (Exception e) {
+                return PlainJson.stringify(Timing.speedView(new ArrayList<Object>(), 50, 10));
+            }
+        }
+
         @JavascriptInterface
         public void save(String json) {
             try {

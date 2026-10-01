@@ -36,6 +36,7 @@
 | About you | Free text about the user added to every cleanup request (`user_context`). |
 | Meter level | 0 to 1 loudness value of the voice, the same curve on both platforms (`level_from_rms`, `Pcm.levelFromRms`). |
 | Warm-up | Opening the server connections when recording starts, so the upload does not wait for the TLS handshake (`vox_core.warm`, `ApiClient.warm`). |
+| Timing | The marks of one dictation (`key_down`, `rec_start`, `key_up`, `stt_start`, `stt_done`, `llm_start`, `llm_done`, `inserted`) and the stage times made from them (`start`, `rec`, `stt`, `llm`, `insert`, `total`). Saved as `timing` in the history entry and shown on the Speed card; never leaves the device (`windows/timing.py`, `Timing.java`). |
 | Voice note | A note recorded by voice in note mode and saved to `notes.db` instead of being pasted (`windows/notes.py`). |
 | Relay | The optional self-hosted server (`relay/relay.py`, runs on a Raspberry Pi, Linux, macOS, Windows) that stores voice notes and a profile so devices can share them over Tailscale, with a management web page. |
 | Dirty note | A local voice note changed on this device and not yet accepted by the relay (`dirty = 1` in `notes.db`). |

@@ -13,6 +13,7 @@ import audio_devices
 import meeting
 import notes
 import sync
+import timing
 import vcalendar
 import providers
 import vox_core as core
@@ -133,6 +134,14 @@ class Api:
     def copy(self, text):
         pyperclip.copy(text)
         return True
+
+    def get_speed(self):
+        """The Speed card: medians per stage over the last 50 timed dictations, per model, and the last 10. Local data only."""
+        try:
+            return timing.speed_view(core.read_history())
+        except Exception:
+            log.exception("could not build the speed view")
+            return timing.speed_view([])
 
     def delete_history(self, t):
         core.write_history([h for h in core.read_history() if h.get("t") != t])

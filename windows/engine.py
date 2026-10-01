@@ -23,6 +23,7 @@ import paste as paste_mod
 import relay_host
 import streaming
 import sync
+import timing as timing_mod
 import vox_core as core
 import vcalendar
 from meeting import Meeting
@@ -85,6 +86,7 @@ class Engine:
     overlay = None
     flash_kind = ""
     flash_until = 0.0
+    timing = None   # the timing.Timing of the recording in progress (the Speed card); None when there is none
 
     def __init__(self):
         self.cfg = core.load_config()
@@ -107,6 +109,7 @@ class Engine:
         self.hands_free = False
         self.streaming = None         # StreamingStt for the current recording (long ones are sent in pieces)
         self.note_mode = False        # the current recording is a voice note: saved, not pasted
+        self.timing = None
         self.combo_was_down = False
         self.press_t = 0.0
         self.last_tap_t = 0.0
@@ -285,6 +288,8 @@ class Engine:
 
     # ------------------------------------------------------------ recording
     def start(self):
+        tm = timing_mod.Timing()
+        tm.mark("key_down")
         problem = core.endpoint_error(self.cfg) or (
             "Add your API key in Vox > Settings" if core.key_missing(self.cfg) else "")
         if problem:
@@ -306,6 +311,7 @@ class Engine:
             self.stream = sd.InputStream(samplerate=core.SAMPLE_RATE, channels=1, dtype="int16",
                                          device=device, callback=self._audio)
             self.stream.start()
+            tm.mark("rec_start")
         except Exception as e:
             self.notify(f"Microphone error: {e}")
             self.flash("error")
@@ -313,6 +319,7 @@ class Engine:
                 self.streaming.cancel()
                 self.streaming = None
             return
+        self.timing = tm
         self.recording = True
         self.set_state("rec")
         log.info("recording started (app=%s)", self.target)
@@ -349,6 +356,7 @@ class Engine:
         """Discard the current recording."""
         self.note_mode = False
         if self._end_recording():
+            self.timing = None
             self._drop_streaming()
             self.set_state("idle")
 
@@ -362,6 +370,9 @@ class Engine:
             return
         note, self.note_mode = self.note_mode, False
         streamer, self.streaming = self.streaming, None
+        tm, self.timing = self.timing, None
+        if tm:
+            tm.mark("key_up")
         pcm = b"".join(self.chunks)
         if len(pcm) < core.SAMPLE_RATE * 2 * MIN_SECONDS:
             if streamer:
@@ -377,7 +388,7 @@ class Engine:
             return
         self.busy = True
         self.set_state("busy")
-        threading.Thread(target=self._process, args=(pcm, self.target, note, streamer), daemon=True).start()
+        threading.Thread(target=self._process, args=(pcm, self.target, note, streamer, tm), daemon=True).start()
 
     def toggle_note(self, *_):
         """Starts a voice note, or finishes the one being recorded (tray menu, window). The text is saved as a
@@ -403,16 +414,24 @@ class Engine:
         self.set_state("busy")
         threading.Thread(target=self._process, args=(pcm, exe, note), daemon=True).start()
 
-    def _process(self, pcm, exe, note=False, streamer=None):
+    def _process(self, pcm, exe, note=False, streamer=None, tm=None):
         secs = len(pcm) / (core.SAMPLE_RATE * 2)
         keep = " Your recording is kept: tray icon > Retry last dictation."
         try:
             label = "" if note else exe
-            raw_streamed = streamer.finish() if streamer else None   # None: not cut into pieces, or it failed
-            if raw_streamed is not None:
-                res = core.process_text(self.cfg, raw_streamed, label, label)
-            else:
-                res = core.process_detailed(self.cfg, pcm, label, label)
+            with core.timing_scope(tm):   # the network steps mark stt_start/stt_done and llm_start/llm_done on tm
+                if streamer:
+                    if tm:
+                        tm.mark("stt_start")   # only the last piece is still to be sent
+                    raw_streamed = streamer.finish()   # None: not cut into pieces, or it failed
+                    if tm and raw_streamed is not None:
+                        tm.mark("stt_done")
+                else:
+                    raw_streamed = None
+                if raw_streamed is not None:
+                    res = core.process_text(self.cfg, raw_streamed, label, label)
+                else:
+                    res = core.process_detailed(self.cfg, pcm, label, label)
             raw, text = res.raw, res.text
             outcome = ""   # what the pill shows once the result is in; set only when something was sent or saved
             self.pending = None
@@ -425,12 +444,17 @@ class Engine:
                 outcome = "sent"
             elif text:
                 outcome = "sent" if self.paste(text) else "error"   # the pill reflects the paste only
+                if tm:
+                    tm.mark("inserted")
                 if self.cfg.get("keep_history", True):
                     try:
-                        core.add_history({
+                        entry = {
                             "t": time.time(), "app": exe, "raw": raw, "text": text,
                             "words": len(text.split()), "secs": round(secs, 1),
-                        })
+                        }
+                        if tm:   # where the time went, kept with the dictation (local only, see the Speed card)
+                            entry["timing"] = tm.entry(**core.timing_info(self.cfg))
+                        core.add_history(entry)
                     except Exception:   # the text already landed: log it, never flash error over "sent"
                         log.exception("could not save the history entry")
             if outcome:

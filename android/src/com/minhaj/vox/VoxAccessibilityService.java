@@ -212,6 +212,7 @@ public class VoxAccessibilityService extends AccessibilityService
                         startX = f.lp.x; startY = f.lp.y;
                         dragging = false; longFired = false;
                         main.postDelayed(onLong, longPress);
+                        DictationService.warm(VoxAccessibilityService.this);   // open the server connections now: the tap that follows finds them ready
                         return true;
                     case MotionEvent.ACTION_MOVE:
                         float dx = ev.getRawX() - downX, dy = ev.getRawY() - downY;
