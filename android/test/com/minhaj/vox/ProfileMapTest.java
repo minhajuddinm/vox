@@ -53,7 +53,7 @@ public final class ProfileMapTest {
     /** What Prefs hands over: every setting as this phone stores it (text, cleanup as a boolean). */
     private static Map<String, Object> stored() {
         return map("user_context", "I lead Atlas.\nSecond line.", "dictionary", "# One term per line.\nAtlas\nwrong => right\n",
-                "people", "Ada\nGrace Hopper\n", "default_style", "casual", "cleanup", false, "language", "en",
+                "people", "Ada\nGrace Hopper\n", "default_style", "casual", "cleanup", false, "language", "en", "my_cleanup_rules", "Write Atlas.\nKeep it flat.",
                 "provider", "custom", "base_url", "https://api.example.com/v1", "stt_base_url", "http://100.64.0.7:8000/v1",
                 "llm_base_url", "", "stt_model", "whisper-1", "llm_model", "gpt-4o-mini",
                 "api_key", "gsk_main", "stt_api_key", "", "llm_api_key", "sk-llm");
@@ -76,7 +76,7 @@ public final class ProfileMapTest {
         // toProfile: this phone's settings as relay fields
         Map<String, Object> p = ProfileMap.toProfile(stored());
         eq("fields, in the order of the shared list then the key list, without llm_reasoning",
-                Arrays.asList("user_context", "dictionary", "people", "default_style", "cleanup", "language",
+                Arrays.asList("user_context", "dictionary", "people", "default_style", "cleanup", "language", "my_cleanup_rules",
                         "provider", "base_url", "stt_base_url", "llm_base_url", "stt_model", "llm_model", "api_key", "stt_api_key", "llm_api_key"),
                 new ArrayList<String>(p.keySet()));
         eq("user_context is kept as typed", "I lead Atlas.\nSecond line.", p.get("user_context"));
@@ -85,6 +85,9 @@ public final class ProfileMapTest {
         eq("default_style", "casual", p.get("default_style"));
         eq("cleanup is a boolean", Boolean.FALSE, p.get("cleanup"));
         eq("language", "en", p.get("language"));
+        eq("my_cleanup_rules is kept as it is", "Write Atlas.\nKeep it flat.", p.get("my_cleanup_rules"));
+        eq("the rules arrive from the relay as text", "Rule.\n", ProfileMap.toStored(map("my_cleanup_rules", "Rule.\n")).get("my_cleanup_rules"));
+        eq("rules that are not text are refused", map(), ProfileMap.accept(map("my_cleanup_rules", 5L), shared()));
         eq("base_url", "https://api.example.com/v1", p.get("base_url"));
         eq("an empty key is present and empty", "", p.get("stt_api_key"));
         eq("api_key", "gsk_main", p.get("api_key"));

@@ -20,6 +20,8 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `llm_api_key` | string | `""` | Key for `llm_base_url` (DPAPI-protected). |
 | `llm_reasoning` | string | `auto` | `auto` sends `reasoning_effort` only to gpt-oss models (and stops if the server refuses it); `off` never sends it. |
 | `user_context` | string | `""` | Free text about the user (work, projects, style, terms) added to every cleanup request; at most 8,000 characters are used. |
+| `my_cleanup_rules` | string | `""` | The cleanup rules learned by "Improve my cleanup", one per line; at most 2,000 characters are used, in a tagged block after the strength rule of the cleanup prompt. Part of the synced profile (the phone receives it). |
+| `my_cleanup_rules_versions` | list | `[]` | The last 20 changes `improve.apply` made ({`t`, the rules before it, the dictionary lines it added}) so that `improve.revert` can undo them. This device only; never synced. |
 | `relay_sync` | bool | `false` | Sync voice notes with a relay (see [14-relay.md](14-relay.md)). |
 | `relay_url` | string | `""` | Address of the relay (for example `https://yuvipi.your-tailnet.ts.net`). Same rule as the server address: plain http only for private hosts. |
 | `relay_token` | string | `""` | The relay's bearer token. DPAPI-protected like the API keys. It is also the key of both roles while `relay_proxy` is on. |
@@ -64,6 +66,7 @@ Settings shown in the Windows window: `relay_proxy`, `api_key`, `base_url`, `hot
 | `stt_base_url`, `llm_base_url` | string | blank | Separate server for speech or cleanup; blank means the main `base_url`. Validated by `Endpoint.error`. |
 | `stt_api_key`, `llm_api_key` | string | blank | Key for that role's own server; used only with its own address. |
 | `user_context` | string | blank | Same as the Windows setting: background text added to every cleanup request. |
+| `my_cleanup_rules` | string | blank | Same as the Windows setting, read only: the rules learned on the PC arrive through the profile sync and go into the cleanup prompt (`Prefs.myCleanupRules()`). |
 | `language` | string | `""` | Whisper language code. |
 | `device_name` | string | `""` | This phone's name on the notes it records and on the relay; blank uses the phone model (`Build.MODEL`), and `android-phone` when that is empty too. Trimmed, at most 60 code points (`Prefs.deviceName`, the rule of `NoteLogic.deviceName`). Set in Settings, Sync between devices. |
 | `relay_sync` | bool | `false` | Sync voice notes with a relay (the Settings switch "Sync voice notes with my relay"). Read with `Prefs.relaySync`. |

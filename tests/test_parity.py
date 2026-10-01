@@ -238,6 +238,10 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert core.system_prompt(f[1], [t for t in f[2].split("|") if t], f[3], f[4], f[0]) == f[5]
     elif kind == "context":
         assert core.clean_context(f[0]) == f[1]
+    elif kind == "rules":
+        assert core.clean_rules(f[0]) == f[1]
+    elif kind == "promptrules":   # strength, style, terms, app, About you, my cleanup rules => the cleanup prompt
+        assert core.system_prompt(f[1], items(f[2]), f[3], f[4], f[0], f[5]) == f[6]
     elif kind == "level":
         assert "%.3f" % core.level_from_rms(float(f[0])) == f[1]
     elif kind == "models":

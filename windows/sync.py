@@ -250,7 +250,7 @@ def wire(n):
 
 
 # ------------------------------------------------------------------ the profile
-PROFILE_FIELDS = ("user_context", "dictionary", "people", "default_style", "cleanup", "language")
+PROFILE_FIELDS = ("user_context", "dictionary", "people", "default_style", "cleanup", "language", "my_cleanup_rules")
 PROFILE_KEY_FIELDS = ("provider", "base_url", "stt_base_url", "llm_base_url", "stt_model", "llm_model",
                       "llm_reasoning", "api_key", "stt_api_key", "llm_api_key")   # only with relay_sync_keys
 
