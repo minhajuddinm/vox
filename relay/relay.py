@@ -356,18 +356,45 @@ def default_data_dir():
     return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "vox-relay")
 
 
+class DataDirError(Exception):
+    """The data folder (or relay.json) is not safe to use: the relay refuses to start rather than adopt it."""
+
+
+def _check_private(path, what):
+    """POSIX only (Windows has no such modes; see the known limit in the docs): `path` must belong to the user running
+    the relay and must not be writable by anyone else, otherwise someone else could have planted the token in it or
+    could swap files under us. A folder that is merely readable by others is closed to 0700 (a file to 0600).
+    A symlink is followed on purpose (systemd's DynamicUser makes /var/lib/<name> one): what counts is where it leads."""
+    if os.name != "posix":
+        return
+    st = os.stat(path)
+    if st.st_uid != os.getuid():
+        raise DataDirError(f"{what} {path} belongs to another user. Use a folder of your own (for example --data-dir \"$(mktemp -d)\").")
+    if st.st_mode & 0o022:
+        raise DataDirError(f"{what} {path} can be changed by other users. Run: chmod go-w {path}  (or pick another folder).")
+    if st.st_mode & 0o077:
+        os.chmod(path, 0o700 if os.path.isdir(path) else 0o600)
+
+
 def _write_config(path, cfg):
     tmp = path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # private from the first byte on Linux and macOS
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(tmp)      # whatever is there (a leftover, or a symlink someone planted) is not written through
+    # O_EXCL and O_NOFOLLOW: never open an existing file or follow a link; private from the first byte on Linux and macOS
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
     os.replace(tmp, path)
 
 
 def load_config(data_dir, port=None, owner=None):
-    """Reads relay.json in `data_dir`, creating it (with a new random token) on first use."""
+    """Reads relay.json in `data_dir`, creating it (with a new random token) on first use.
+    Raises DataDirError when the folder or the file is not the running user's own (POSIX)."""
     os.makedirs(data_dir, mode=0o700, exist_ok=True)
+    _check_private(data_dir, "The data folder")
     path = os.path.join(data_dir, "relay.json")
+    if os.path.exists(path):
+        _check_private(path, "The file")
     cfg = {}
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
@@ -1084,7 +1111,11 @@ def main(argv=None):
     ap.add_argument("--owner", default=None, help="only accept this Tailscale login (from `tailscale serve`)")
     ap.add_argument("--show-token", action="store_true", help="print the token clients need, then start")
     args = ap.parse_args(argv)
-    server = make_server(args.data_dir, port=args.port, owner=args.owner)
+    try:
+        server = make_server(args.data_dir, port=args.port, owner=args.owner)
+    except DataDirError as e:
+        print("Not starting:", e, file=sys.stderr, flush=True)
+        return 1
     port = server.server_address[1]
     print(f"Vox relay {RELAY_VERSION} listening on 127.0.0.1:{port}. Publish it to your tailnet with: tailscale serve --bg {port}")
     print(f"Management page: open that address in a browser. Data folder: {args.data_dir}", flush=True)

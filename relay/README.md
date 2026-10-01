@@ -17,7 +17,7 @@ You need: Python 3.9 or newer (`python3 --version`; Raspberry Pi OS Bookworm has
    ```
 2. **Try it once by hand.** It prints where it listens and where the token is.
    ```
-   python3 /opt/vox-relay/relay.py --data-dir /tmp/vox-relay-test --show-token
+   python3 /opt/vox-relay/relay.py --data-dir "$(mktemp -d)" --show-token
    ```
    Stop it with Ctrl+C.
 3. **Install it as a service** so it starts at boot and restarts if it stops.
