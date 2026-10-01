@@ -648,7 +648,7 @@ def list_meetings():
     return out
 
 
-_ID = re.compile(r"\d{8}-\d{6}")   # the folder name of a meeting (see Meeting._start)
+_ID = re.compile(r"[0-9]{8}-[0-9]{6}")   # the folder name of a meeting (see Meeting._start)
 
 
 def recover_unfinished(cfg, skip_id=None):
@@ -691,21 +691,29 @@ def recover_unfinished(cfg, skip_id=None):
             log.exception("could not recover meeting %s", d)
 
 
+def _folder_of(mid):
+    """The folder of a saved meeting. Raises ValueError for anything that is not a meeting id, or whose folder does not
+    sit directly inside the meetings folder: ".." used to reach the whole data folder (config, notes, history)."""
+    if not isinstance(mid, str) or not _ID.fullmatch(mid):
+        raise ValueError("not a meeting id")
+    base = meetings_dir()
+    folder = os.path.join(base, mid)
+    if os.path.dirname(os.path.realpath(folder)) != os.path.realpath(base):
+        raise ValueError("not a meeting folder")
+    return folder
+
+
 def read_notes(mid):
-    p = os.path.join(meetings_dir(), os.path.basename(mid), "notes.md")
-    with open(p, encoding="utf-8") as f:
+    with open(os.path.join(_folder_of(mid), "notes.md"), encoding="utf-8") as f:
         return f.read()
 
 
 def delete_meeting(mid):
     import shutil
-    shutil.rmtree(os.path.join(meetings_dir(), os.path.basename(mid)), ignore_errors=True)
+    shutil.rmtree(_folder_of(mid), ignore_errors=True)
 
 
 # ------------------------------------------------------------ meeting page data
-
-def _folder_of(mid):
-    return os.path.join(meetings_dir(), os.path.basename(mid))
 
 
 def _read_json(path, default):
@@ -797,7 +805,7 @@ def ask(cfg, question):
     for m in list_meetings():
         try:
             text = read_notes(m["id"])
-        except OSError:
+        except (OSError, ValueError):
             continue
         s = _score(m.get("title", ""), words) * 5 + _score(text, words)
         scored.append((s, m.get("started", 0), m, text))

@@ -400,22 +400,34 @@ class Api:
         return meeting.read_notes(mid)
 
     def meeting_delete(self, mid):
-        meeting.delete_meeting(mid)
+        try:
+            meeting.delete_meeting(mid)
+        except ValueError:   # not a meeting id
+            return False
         return True
 
     def meeting_detail(self, mid):
         return meeting.detail(mid, core.load_config())
 
     def meeting_save_notes(self, mid, text):
-        meeting.save_my_notes(mid, text)
+        try:
+            meeting.save_my_notes(mid, text)
+        except ValueError:   # not a meeting id
+            return False
         return True
 
     def meeting_set_done(self, mid, index, done):
-        meeting.set_done(mid, index, done)
+        try:
+            meeting.set_done(mid, index, done)
+        except ValueError:
+            return False
         return True
 
     def meeting_rename(self, mid, title):
-        return meeting.rename(mid, title)
+        try:
+            return meeting.rename(mid, title)
+        except ValueError:
+            return ""
 
     def meetings_ask(self, question):
         try:
@@ -430,7 +442,10 @@ class Api:
         if path and os.path.exists(path):
             os.startfile(path)
         else:
-            os.startfile(os.path.join(meeting.meetings_dir(), os.path.basename(mid), "notes.md"))
+            try:
+                os.startfile(os.path.join(meeting._folder_of(mid), "notes.md"))
+            except ValueError:   # not a meeting id
+                pass
 
     def open_notes_folder(self):
         os.startfile(meeting.notes_export_dir(core.load_config()))

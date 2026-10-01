@@ -111,3 +111,73 @@ def test_a_folder_that_is_not_a_meeting_id_is_left_alone(meeting_mod):
     os.makedirs(d)
     mt.recover_unfinished({})
     assert not os.path.exists(os.path.join(d, "meta.json"))
+
+
+# ---- a meeting id is checked before it becomes a folder (R3-H1 / C-U7) ---------------------------------------------------
+
+BAD_IDS = ["..", ".", "", None, 5, "../x", "20261001-120000/..", "20261001-120000\..", "2026-10-01", "20261001-12000",
+           "20261001-120000 ", "x" * 15]
+
+
+def _store(mt, mid="20261001-120000"):
+    """A saved meeting plus a sentinel file in the data folder (config.json), which a bad id used to reach."""
+    d = os.path.join(mt.meetings_dir(), mid)
+    os.makedirs(d)
+    with open(os.path.join(d, "meta.json"), "w", encoding="utf-8") as f:
+        json.dump({"id": mid, "title": "T", "started": 1.0}, f)
+    with open(os.path.join(d, "notes.md"), "w", encoding="utf-8") as f:
+        f.write("# T\n\nnotes")
+    sentinel = os.path.join(os.path.dirname(mt.meetings_dir()), "config.json")
+    with open(sentinel, "w", encoding="utf-8") as f:
+        f.write("{}")
+    return d, sentinel
+
+
+@pytest.mark.parametrize("bad", BAD_IDS)
+def test_a_bad_meeting_id_deletes_nothing_and_writes_nothing(meeting_mod, bad):
+    mt = meeting_mod
+    d, sentinel = _store(mt)
+    data_dir = os.path.dirname(mt.meetings_dir())
+    for call in (lambda: mt.delete_meeting(bad), lambda: mt.save_my_notes(bad, "x"), lambda: mt.read_notes(bad),
+                 lambda: mt.set_done(bad, 0, True), lambda: mt.rename(bad, "x"), lambda: mt.detail(bad, {})):
+        with pytest.raises(ValueError):
+            call()
+    assert os.path.exists(sentinel) and os.path.exists(os.path.join(d, "meta.json"))
+    assert not os.path.exists(os.path.join(data_dir, "my_notes.md")) and not os.path.exists(os.path.join(data_dir, "meta.json"))
+
+
+def test_a_valid_meeting_id_still_works(meeting_mod):
+    mt = meeting_mod
+    d, sentinel = _store(mt)
+    mt.save_my_notes("20261001-120000", "mine")
+    assert mt.detail("20261001-120000", {})["my_notes"] == "mine"
+    assert mt.rename("20261001-120000", "New") == "New"
+    mt.delete_meeting("20261001-120000")
+    assert not os.path.exists(d) and os.path.exists(sentinel)
+
+
+def test_a_meeting_folder_that_points_outside_the_meetings_folder_is_refused(meeting_mod, tmp_path):
+    mt = meeting_mod
+    d, sentinel = _store(mt)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("x")
+    link = os.path.join(mt.meetings_dir(), "20261002-090000")
+    try:
+        os.symlink(str(outside), link, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("no permission to create a symbolic link here")
+    with pytest.raises(ValueError):
+        mt.delete_meeting("20261002-090000")
+    assert (outside / "keep.txt").exists()
+
+
+def test_ask_skips_a_meeting_whose_id_is_not_valid(meeting_mod, monkeypatch):
+    mt = meeting_mod
+    _store(mt)
+    d2 = os.path.join(mt.meetings_dir(), "weird")
+    os.makedirs(d2)
+    with open(os.path.join(d2, "meta.json"), "w", encoding="utf-8") as f:
+        json.dump({"id": "..", "title": "bad", "started": 2.0}, f)
+    monkeypatch.setattr(mt, "_llm", lambda *a, **k: "answer")
+    assert mt.ask({}, "notes")["sources"][0]["id"] == "20261001-120000"
