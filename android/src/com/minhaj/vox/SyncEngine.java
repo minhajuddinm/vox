@@ -30,6 +30,9 @@ final class SyncEngine {
 
     static final String PROFILE_BUSY = "The profile keeps changing on the relay; it will be tried again later.";
 
+    /** Meta flag: this device has put key fields on the relay's profile, so it may take them off when keys are switched off. */
+    static final String KEYS_SENT = "profile_keys_sent";
+
     private final SyncStore store;
     private final RelayApi api;
     private final SyncConfig cfg;
@@ -38,6 +41,37 @@ final class SyncEngine {
         this.store = store;
         this.api = api;
         this.cfg = cfg;
+    }
+
+    /** The relay address as the sync state is tied to it: no trailing slash, scheme and host in lower case. */
+    static String originOf(String url) {
+        String u = Endpoint.normalize(url);
+        int scheme = u.indexOf("://");
+        if (scheme < 0) return u.toLowerCase(java.util.Locale.ROOT);
+        int slash = u.indexOf('/', scheme + 3);
+        if (slash < 0) return u.toLowerCase(java.util.Locale.ROOT);
+        return u.substring(0, slash).toLowerCase(java.util.Locale.ROOT) + u.substring(slash);
+    }
+
+    /**
+     * The sync state (cursor, profile version and snapshot, which notes the relay has) describes one relay. When the
+     * app is pointed at another address, that state is wrong for the new relay: start from zero and send everything,
+     * notes and delete markers, so the new relay gets all of it. An install with no address saved yet (an update)
+     * keeps its state and just records the address. The address is saved last, so a run that stops half way repeats this.
+     */
+    private void followRelay() {
+        String origin = originOf(cfg.relayUrl());
+        if (origin.isEmpty()) return;
+        String saved = store.getMeta("relay_origin", "");
+        if (origin.equals(saved)) return;
+        if (!saved.isEmpty()) {
+            store.setMeta("relay_cursor", "0");
+            store.setMeta("profile_version", "0");
+            store.setMeta("profile_snapshot", "{}");
+            store.setMeta(KEYS_SENT, "");
+            store.markAllDirty();
+        }
+        store.setMeta("relay_origin", origin);
     }
 
     /** What has happened so far in a run, kept outside the try block so a failure can still report it. */
@@ -58,6 +92,7 @@ final class SyncEngine {
     SyncResult syncOnce() {
         Run run = new Run();
         try {
+            followRelay();
             push(run);
             pull(run);
             run.profile = syncProfile();
@@ -185,19 +220,27 @@ final class SyncEngine {
                 cfg.writeProfile(received);
                 receivedAny = true;
             }
-            boolean staleKeys = false;   // keys were switched off: take them off the relay
-            if (!keysOn) for (String k : ProfileMerge.KEY_FIELDS) if (data.containsKey(k)) staleKeys = true;
+            // Keys are taken off the relay only on this device's own on-to-off switch (it sent keys, now they are off).
+            // A device that never sent keys leaves other devices' keys alone, or two devices would undo each other for ever.
+            boolean relayHasKeys = false;
+            for (String k : ProfileMerge.KEY_FIELDS) if (data.containsKey(k)) relayHasKeys = true;
+            boolean sentKeys = "1".equals(store.getMeta(KEYS_SENT, ""));
+            boolean staleKeys = !keysOn && sentKeys && relayHasKeys;
+            if (!keysOn && sentKeys && !relayHasKeys) store.setMeta(KEYS_SENT, "");   // someone else took them off already
             if (merged.equals(remoteShared) && !staleKeys) {
+                if (keysOn) store.setMeta(KEYS_SENT, "1");
                 remember(version, merged);
                 return receivedAny ? "received" : "";
             }
-            Map<String, Object> doc = new LinkedHashMap<>();   // keep the fields other devices added
+            Map<String, Object> doc = new LinkedHashMap<>();   // keep the fields other devices added, their keys too
             for (Map.Entry<String, Object> e : data.entrySet()) {
-                if (keysOn || !ProfileMerge.KEY_FIELDS.contains(e.getKey())) doc.put(e.getKey(), e.getValue());
+                if (!staleKeys || !ProfileMerge.KEY_FIELDS.contains(e.getKey())) doc.put(e.getKey(), e.getValue());
             }
             doc.putAll(merged);
             try {
                 RelayApi.Profile out = api.putProfile(version, doc);
+                if (keysOn) store.setMeta(KEYS_SENT, "1");
+                else if (staleKeys) store.setMeta(KEYS_SENT, "");
                 remember(out.version, merged);
                 return receivedAny ? "both" : "sent";
             } catch (RelayApi.RelayError e) {

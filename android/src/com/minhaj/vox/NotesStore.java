@@ -350,6 +350,12 @@ final class NotesStore extends SQLiteOpenHelper implements SyncStore {
         return rows(db().rawQuery("SELECT * FROM notes WHERE dirty = 1 ORDER BY updated_at LIMIT " + limit, null));
     }
 
+    /** Every note and delete marker is sent again at the next sync (the relay address changed: the new relay has none of them). */
+    @Override
+    public void markAllDirty() {
+        db().execSQL("UPDATE notes SET dirty = 1");
+    }
+
     /** Only clears the flag when the note was not changed again while it was being sent (its updated_at is still the sent one). */
     @Override
     public void markSynced(String id, double sentUpdatedAt, long seq) {

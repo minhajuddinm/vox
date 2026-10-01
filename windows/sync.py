@@ -50,6 +50,33 @@ def settings(cfg):
     return url, token, device_name(cfg)
 
 
+def origin_of(url):
+    """The relay address as the sync state is tied to it: no trailing slash, scheme and host in lower case."""
+    u = (url or "").strip().rstrip("/")
+    i = u.find("://")
+    if i < 0:
+        return u.lower()
+    j = u.find("/", i + 3)
+    return u.lower() if j < 0 else u[:j].lower() + u[j:]
+
+
+def follow_relay(url):
+    """The sync state (cursor, profile version and snapshot, which notes the relay has) describes one relay. When the
+    address changes, start from zero and send everything again, notes and delete markers. An install with no address
+    saved yet keeps its state and just records it. The address is saved last, so a run that stops half way repeats this."""
+    origin = origin_of(url)
+    saved = notes.get_meta("relay_origin", "")
+    if origin == saved:
+        return
+    if saved:
+        notes.set_meta("relay_cursor", 0)
+        notes.set_meta("profile_version", 0)
+        notes.set_meta("profile_snapshot", "{}")
+        notes.set_meta("profile_keys_sent", "")
+        notes.mark_all_dirty()
+    notes.set_meta("relay_origin", origin)
+
+
 def problem(url, token):
     """Why this relay address or token cannot be used, or ''."""
     err = core.endpoint_error({"base_url": url})
@@ -150,16 +177,28 @@ def sync_profile(url, token, device):
             live.update(received)
             core.save_config(live)
             received_any = True
-        stale_keys = not keys_on and any(k in data for k in PROFILE_KEY_FIELDS)   # keys were switched off: take them off the relay
+        # Keys leave the relay only on this device's own on-to-off switch (it sent keys, now they are off). A device that
+        # never sent keys leaves other devices' keys alone, or two devices would undo each other for ever.
+        relay_has_keys = any(k in data for k in PROFILE_KEY_FIELDS)
+        sent_keys = notes.get_meta("profile_keys_sent", "") == "1"
+        stale_keys = not keys_on and sent_keys and relay_has_keys
+        if not keys_on and sent_keys and not relay_has_keys:
+            notes.set_meta("profile_keys_sent", "")   # someone else took them off already
         if merged == remote_shared and not stale_keys:
+            if keys_on:
+                notes.set_meta("profile_keys_sent", "1")
             notes.set_meta("profile_version", version)
             notes.set_meta("profile_snapshot", json.dumps(merged))
             return "received" if received_any else ""
-        doc = {k: v for k, v in data.items() if k not in PROFILE_KEY_FIELDS or keys_on}   # keep fields other devices added
+        doc = {k: v for k, v in data.items() if k not in PROFILE_KEY_FIELDS or not stale_keys}   # keep fields other devices added, their keys too
         doc.update(merged)
         status, out = _call("PUT", url, "/profile", token, device, headers={"If-Match": str(version)}, allow=(412,), json=doc)
         if status == 412:
             continue   # someone wrote in between: look again
+        if keys_on:
+            notes.set_meta("profile_keys_sent", "1")
+        elif stale_keys:
+            notes.set_meta("profile_keys_sent", "")
         notes.set_meta("profile_version", out["version"])
         notes.set_meta("profile_snapshot", json.dumps(merged))
         return "both" if received_any else "sent"
@@ -176,6 +215,7 @@ def sync_once(cfg):
     if err:
         return {"pushed": 0, "pulled": 0, "error": err}
     pushed = pulled = 0
+    follow_relay(url)
     refused = []   # what the relay said about each note it refuses for good: those notes are skipped, the rest goes on
     try:
         handled = set()   # (id, updated_at) of every version sent or refused in this run, so none is tried twice in a run

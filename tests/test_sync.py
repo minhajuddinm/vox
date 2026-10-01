@@ -1,4 +1,5 @@
 """Windows sync client against a real relay on localhost: two 'devices' are two data folders."""
+import contextlib
 import sqlite3
 import threading
 import time
@@ -252,3 +253,47 @@ def test_a_first_sync_of_many_notes_reads_each_dirty_row_about_once(dev, srv, mo
     res = sync.sync_once(a)
     assert res["pushed"] == total and res["error"] == ""
     assert rows["n"] <= total + 2 * sync.PUSH_BATCH     # not the sum of a growing limit for every batch
+
+
+def test_another_relay_address_means_everything_is_sent_again(dev, srv, tmp_path):
+    a = dev("A")
+    keep = notes.add("keep me", device="A")
+    gone = notes.add("delete me", device="A")
+    sync.sync_once(a)
+    notes.delete(gone["id"])
+    sync.sync_once(a)
+    assert notes.get_meta("relay_origin") == a["relay_url"]
+    # the same relay spelled differently is not another relay
+    spelled = dict(a, relay_url="HTTP://" + a["relay_url"][len("http://"):] + "/")
+    assert sync.origin_of(spelled["relay_url"]) == sync.origin_of(a["relay_url"])
+    assert brief(sync.sync_once(spelled)) == {"pushed": 0, "pulled": 0, "error": ""}
+    assert int(notes.get_meta("relay_cursor")) == srv.store.stats()["seq"]
+    # a new, empty relay (another device already put a note there)
+    other = relay.make_server(str(tmp_path / "relay2"), port=0)
+    threading.Thread(target=other.serve_forever, daemon=True).start()
+    try:
+        b = dict(a, relay_url=f"http://127.0.0.1:{other.server_address[1]}", relay_token=other.token)
+        other.store.upsert_note({"id": "f" * 32, "source": "note", "title": "t", "text": "from elsewhere", "raw": "", "created_at": 1.0, "updated_at": 1.0,
+                              "secs": 0.0, "device": "pc", "tags": [], "deleted": False})
+        res = sync.sync_once(b)
+        assert res["error"] == "" and res["pushed"] == 2
+        assert other.store.get_note(keep["id"])["text"] == "keep me"
+        marker = [n for n in other.store.changes(0)["notes"] if n["id"] == gone["id"]][0]
+        assert marker["deleted"] is True                                 # the delete marker travels too
+        assert notes.get(("f" * 32))["text"] == "from elsewhere"         # the cursor was reset, so this is received
+        assert notes.get_meta("relay_origin") == b["relay_url"]
+        assert int(notes.get_meta("relay_cursor")) == other.store.stats()["seq"]
+        assert brief(sync.sync_once(b)) == {"pushed": 0, "pulled": 0, "error": ""}
+    finally:
+        other.shutdown()
+        other.server_close()
+
+
+def test_an_install_without_a_saved_relay_address_keeps_its_state(dev, srv):
+    a = dev("A")
+    n = notes.add("old", device="A")
+    sync.sync_once(a)
+    with contextlib.closing(notes._connect()) as con, con:
+        con.execute("DELETE FROM sync_meta WHERE key = 'relay_origin'")
+    assert brief(sync.sync_once(a)) == {"pushed": 0, "pulled": 0, "error": ""}
+    assert notes.get(n["id"])["dirty"] is False and notes.get_meta("relay_origin") == a["relay_url"]
