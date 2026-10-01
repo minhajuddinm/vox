@@ -75,6 +75,8 @@ One HTML file, works in a normal browser too (a mock `Vox` object is used when t
 | Styles | Default style and a style per installed app |
 | Settings | API key + test, Server address, AI cleanup, skip cleanup below N words, keep history, bubble only while typing, language, dictation service switch, battery, speech and cleanup model, **Sync between devices** (relay on/off, address, token, Test connection, "also share my provider settings and API keys" (off), this phone's name), clear history (no rows yet for the note bubble and the "Record note" notification) |
 
+Refresh while typing: when the app reports a change (for example a sync), the page always reloads its state at once, but while a text box has the focus it skips the redraw and redraws about 250 ms after the box loses the focus. This keeps typed text, and stops a save from writing a stale list over settings received from another device.
+
 ## Voice note mode
 
 A voice note is recorded like a dictation but goes to the notes store instead of a text field. It can be started from three places and stopped from each of them; all end up in `DictationService` with `dest = note`.

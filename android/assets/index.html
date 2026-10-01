@@ -692,19 +692,21 @@ function render() {
   if (!S) return;
   if (PAGE === "home") renderHome(); else if (PAGE === "notes") enterNotes(); else if (PAGE === "dict") renderDict(); else if (PAGE === "styles") renderStyles(); else { renderSettings(); renderRelay(); }
 }
-// A refresh re-renders the page and would wipe text being typed: while a text box has the focus it waits, and runs
-// a moment after the box loses it (the pause keeps a tap on a button from landing on a page that was just redrawn).
+// A refresh re-renders the page and would wipe text being typed: the state (S) is always reloaded at once, so a save
+// never writes a stale list over settings received from another device, but while a text box has the focus only the
+// redraw waits. It runs a moment after the box loses the focus (the pause keeps a tap on a button from landing on a
+// page that was just redrawn).
 let refreshPending = false;
 const typing = () => { const a = document.activeElement; return !!a && (a.tagName === "TEXTAREA" || (a.tagName === "INPUT" && !/^(checkbox|radio|button|submit|range)$/.test(a.type))); };
-document.addEventListener("focusout", () => setTimeout(() => { if (refreshPending && !typing()) voxRefresh(); }, 250));
+document.addEventListener("focusout", () => setTimeout(() => { if (refreshPending && !typing()) { refreshPending = false; render(); } }, 250));
 window.voxRefresh = () => {
-  if (typing()) { refreshPending = true; return; }
-  refreshPending = false;
   S = JSON.parse(V.state());
   document.documentElement.classList.toggle("dark", !!S.dark);
   const h = new Date().getHours();
   TITLES.home[0] = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
   if (PAGE === "home") $("title").textContent = TITLES.home[0];
+  if (typing()) { refreshPending = true; return; }
+  refreshPending = false;
   render();
 };
 voxRefresh();
