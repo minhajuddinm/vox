@@ -18,7 +18,9 @@ COPIED = "copied"
 
 MODIFIER_WAIT = 2.0          # seconds to wait for the hotkey's keys to come up
 SETTLE = 0.05                # after copying, before Ctrl+V
-PASTE_WAIT = 0.4             # after Ctrl+V: the app reads the clipboard in this time
+PASTE_WAIT = 1.0             # after Ctrl+V, before the restore: slow targets (Electron under load, RDP, VMs) read the
+                             # clipboard late and would paste the OLD text if it were put back sooner. Trade-off: the
+                             # dictation can stay on the clipboard for about a second.
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 _VK_SHIFT, _VK_CONTROL, _VK_MENU, _VK_LWIN, _VK_RWIN = 0x10, 0x11, 0x12, 0x5B, 0x5C
 _MODIFIER_KEYS = (_VK_SHIFT, _VK_CONTROL, _VK_MENU, _VK_LWIN, _VK_RWIN)
@@ -131,7 +133,8 @@ def paste_text(text, target_exe, keep_clipboard, deps=None):
     deps.send_ctrl_v()
     deps.sleep(PASTE_WAIT)
     # The text normally stays on the clipboard only when asked (keep_clipboard). Put the old one back unless it
-    # is unknown or the user has copied something else in the meantime.
-    if not keep_clipboard and old is not None and deps.clip_get() == text:
+    # is unknown or the user has copied something else in the meantime. "Unknown" includes '' : pyperclip returns
+    # '' (not None) when the clipboard holds an image or files, and restoring '' would wipe them.
+    if not keep_clipboard and isinstance(old, str) and old != "" and deps.clip_get() == text:
         deps.clip_set(old)
     return PASTED
