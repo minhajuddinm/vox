@@ -3,6 +3,7 @@ package com.minhaj.vox;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /** Plain-Java checks for NoteEvents, the "a note was saved" hook. Run by CI, exits non-zero on failure. */
@@ -102,6 +103,17 @@ public final class NoteEventsTest {
         int before = calls.get();
         NoteEvents.fireSaved();
         eq("all removed after the threads", before, calls.get());
+
+        // addSavedListenerOnce: the guard flag makes a second registration a no-op (SyncWorker.start relies on it)
+        final AtomicBoolean guard = new AtomicBoolean();
+        final AtomicInteger once = new AtomicInteger();
+        Runnable first = once::incrementAndGet;
+        Runnable second = once::incrementAndGet;
+        eq("first registration", true, NoteEvents.addSavedListenerOnce(guard, first));
+        eq("second registration refused", false, NoteEvents.addSavedListenerOnce(guard, second));
+        NoteEvents.fireSaved();
+        eq("only the first listener runs", 1, once.get());
+        NoteEvents.removeSavedListener(first);
 
         System.out.println("OK: " + checks + " checks passed");
     }
