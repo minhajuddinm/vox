@@ -15,7 +15,7 @@ public final class PendingQueueTest {
 
     private static final long DAY = 24L * 60 * 60 * 1000;
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         // oldest first: next() is the oldest and stays until removed
         PendingQueue q = new PendingQueue();
         eq("empty next", null, q.next());
@@ -168,6 +168,19 @@ public final class PendingQueueTest {
         eq("bad id", null, PendingQueue.parseFileName("vox_pending_x_note.wav"));
         eq("other file", null, PendingQueue.parseFileName("something.wav"));
         eq("null name", null, PendingQueue.parseFileName(null));
+        // migrate: unsent recordings move out of the cache folder (Android may empty it) into the app's own folder
+        java.io.File cacheDir = java.nio.file.Files.createTempDirectory("vox-pq-cache").toFile();
+        java.io.File filesDir = java.nio.file.Files.createTempDirectory("vox-pq-files").toFile();
+        String keptName = PendingQueue.fileName(e(1234, "note"));
+        for (String fn : new String[]{keptName, "vox_pending.wav", "other.txt"}) java.nio.file.Files.write(new java.io.File(cacheDir, fn).toPath(), new byte[]{1, 2, 3});
+        eq("migrate counts the recordings it moved", 2, PendingQueue.migrate(cacheDir, filesDir));
+        eq("migrate moved the recording", true, new java.io.File(filesDir, keptName).exists() && !new java.io.File(cacheDir, keptName).exists());
+        eq("migrate moved the old single slot", true, new java.io.File(filesDir, "vox_pending.wav").exists());
+        eq("migrate leaves other files", true, new java.io.File(cacheDir, "other.txt").exists() && !new java.io.File(filesDir, "other.txt").exists());
+        eq("migrate keeps the content", 3L, new java.io.File(filesDir, keptName).length());
+        eq("migrate with nothing left", 0, PendingQueue.migrate(cacheDir, filesDir));
+        eq("migrate from a missing folder", 0, PendingQueue.migrate(new java.io.File(cacheDir, "nope"), filesDir));
+
         System.out.println("PendingQueueTest ok");
     }
 }
