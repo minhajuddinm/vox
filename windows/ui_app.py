@@ -216,12 +216,18 @@ class Api:
         return self._engine("/sync/now", {})
 
     def sync_test(self, url, token):
-        """{"ok", "message"}: can this relay address and token be used?"""
+        """Test connection: can this relay address and token be used? {"ok", "reachable", "token_ok", "device_name",
+        "relay_version", "notes", "message"} (sync.relay_check); the same fields on a failure."""
         try:
             return sync.test_relay(url, token, sync.device_name(core.load_config()))
         except Exception as e:
             log.warning("relay test failed: %s", e)
-            return {"ok": False, "message": "The test could not run."}
+            return sync.relay_check(0, None, "", "The test could not run.")
+
+    def get_devices(self):
+        """{"ok", "error", "devices": [{"name", "this", "state", "ago"}]} for the Devices card: the devices that have used
+        the relay in the saved settings. A failure gives an empty list and the reason (sync.devices_for_ui)."""
+        return sync.devices_for_ui(core.load_config())
 
     def meeting_status(self):
         return self._engine("/meeting/status")

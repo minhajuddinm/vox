@@ -329,3 +329,67 @@ whisperctx
 whisperctx	Ada|Grace	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
 whisperctx	Ada	aaaaaaaaaaaaaaaaaaaa😀😀bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb	aaaaaaaa😀😀bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 whisperctx	Vox	café 東京	Vox. café 東京
+# devices: now, this device's name, relay devices (last_seen;name, joined by |, "~" = no last_seen, other text = not a number), rows (state;this;ago;name, joined by |)
+devices	1000000	Pixel 7	999900;Pixel 7|999000;Laptop|900000;Old PC|0;Ghost	active;true;2 min ago;Pixel 7|recent;false;17 min ago;Laptop|old;false;28 h ago;Old PC|old;false;never;Ghost
+devices	1000000	Pixel 7		
+devices	1000000	me	1000000;D	active;false;just now;D
+devices	1000000	me	999991;D	active;false;just now;D
+devices	1000000	me	999990;D	active;false;10 s ago;D
+devices	1000000	me	999911;D	active;false;89 s ago;D
+devices	1000000	me	999910;D	active;false;2 min ago;D
+devices	1000000	me	999401;D	active;false;10 min ago;D
+devices	1000000	me	999400;D	recent;false;10 min ago;D
+devices	1000000	me	994601;D	recent;false;90 min ago;D
+devices	1000000	me	994600;D	recent;false;2 h ago;D
+devices	1000000	me	913601;D	recent;false;24 h ago;D
+devices	1000000	me	913600;D	old;false;24 h ago;D
+devices	1000000	me	870401;D	old;false;36 h ago;D
+devices	1000000	me	870400;D	old;false;2 days ago;D
+devices	1000000	me	136000;D	old;false;10 days ago;D
+devices	1000000	me	1000100;D	active;false;just now;D
+devices	1000000.7	me	999990.2;D	active;false;10 s ago;D
+devices	1000000	me	0;D	old;false;never;D
+devices	1000000	me	~;D	old;false;never;D
+devices	1000000	me	x;D	old;false;never;D
+devices	1000000	me	999990;	active;false;10 s ago;Unknown device
+devices	1000000	Pixel 7	999990;Pixel 7|999990;pixel 7	active;true;10 s ago;Pixel 7|active;false;10 s ago;pixel 7
+devices	1000000	  Pixel 7  	999990;Pixel 7	active;true;10 s ago;Pixel 7
+devices	1000000	Pixel 7	999990;Pixel 7 	active;true;10 s ago;Pixel 7
+devices	1000000		999990;Pixel	active;false;10 s ago;Pixel
+devices	1000000	Café	999990;Caf?|999990;Café|999990;Cafe	active;true;10 s ago;Caf?|active;true;10 s ago;Café|active;false;10 s ago;Cafe
+devices	1000000	日本	999990;??|999990;日本|999990;?	active;true;10 s ago;??|active;true;10 s ago;日本|active;false;10 s ago;?
+devices	1000000	A😀	999990;A??|999990;A?	active;true;10 s ago;A??|active;false;10 s ago;A?
+# relaycheck: HTTP status of GET /health (0 = no answer), the answer's fields (k=v joined by ;, v is s:text, n:number or b:true/false; empty = no usable JSON answer), expected ok;reachable;token_ok;relay_version;notes
+# ok = a relay answered and took the token; reachable = a relay answered at all (a 401 or 403 is a relay's; 403 means the token was right); the version is kept only as 1-20 of letters, digits . + _ -
+relaycheck	200	ok=b:true;version=s:0.2;notes=n:5	true;true;true;0.2;5
+relaycheck	200	ok=b:true	true;true;true;;0
+relaycheck	200	ok=b:true;version=s:0.2;notes=n:0	true;true;true;0.2;0
+relaycheck	200	ok=b:true;notes=n:1.5	true;true;true;;1
+relaycheck	200	ok=b:true;notes=n:1.9	true;true;true;;1
+relaycheck	200	ok=b:true;notes=s:5	true;true;true;;0
+relaycheck	200	ok=b:true;notes=b:true	true;true;true;;0
+relaycheck	200	ok=b:true;notes=n:-3	true;true;true;;0
+relaycheck	200	ok=b:true;notes=n:120000	true;true;true;;120000
+relaycheck	200	ok=b:true;notes=n:99999999999	true;true;true;;1000000000
+relaycheck	200	ok=b:true;notes=n:99999999999.0	true;true;true;;1000000000
+relaycheck	200	ok=b:true;version=n:7	true;true;true;;0
+relaycheck	200	ok=b:true;version=s:  0.2  	true;true;true;0.2;0
+relaycheck	200	ok=b:true;version=s:0.2-beta+1	true;true;true;0.2-beta+1;0
+relaycheck	200	ok=b:true;version=s:0.2 beta	true;true;true;;0
+relaycheck	200	ok=b:true;version=s:01234567890123456789	true;true;true;01234567890123456789;0
+relaycheck	200	ok=b:true;version=s:012345678901234567890	true;true;true;;0
+relaycheck	200	ok=b:true;version=s:vé	true;true;true;;0
+relaycheck	200	ok=b:true;version=s:	true;true;true;;0
+relaycheck	201	ok=b:true;version=s:0.2;notes=n:2	true;true;true;0.2;2
+relaycheck	200	ok=b:false;version=s:0.2;notes=n:5	false;false;false;;0
+relaycheck	200	ok=s:true;version=s:0.2	false;false;false;;0
+relaycheck	200	ok=n:1;version=s:0.2	false;false;false;;0
+relaycheck	200	version=s:0.2;notes=n:5	false;false;false;;0
+relaycheck	200		false;false;false;;0
+relaycheck	401		false;true;false;;0
+relaycheck	401	ok=b:true;version=s:0.2;notes=n:5	false;true;false;;0
+relaycheck	403		false;true;true;;0
+relaycheck	0		false;false;false;;0
+relaycheck	404		false;false;false;;0
+relaycheck	429		false;false;false;;0
+relaycheck	500	ok=b:true;version=s:0.2	false;false;false;;0

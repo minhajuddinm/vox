@@ -333,6 +333,7 @@ public final class RelayIntegrationTest {
             Phone b = new Phone("phone-b", relay.url, relay.token);
             testConnection(relay);
             double t = noteTravels(a, b);
+            devicesList(relay);
             t = editTravels(a, b, t);
             t = olderEditLoses(a, b, t);
             t = deleteTravels(a, b, t);
@@ -369,6 +370,26 @@ public final class RelayIntegrationTest {
         RelayClient.Check bad = RelayClient.check(relay.url, "not-the-token", "phone-a");
         eq("check: a wrong token is refused", false, bad.ok);
         eq("check: in plain words", "The relay refused the token.", bad.message);
+        eq("check: the relay's version is reported (the relay sends a short string such as 0.2)", true, good.relayVersion.matches("[0-9]+([.][0-9]+)*"));
+        eq("check: reachable and the token took", "true/true/phone-a", good.reachable + "/" + good.tokenOk + "/" + good.deviceName);
+        eq("check: a wrong token is reachable but not accepted", "true/false/", bad.reachable + "/" + bad.tokenOk + "/" + bad.relayVersion);
+    }
+
+    /** The two phones have used the relay by now: the Devices card lists both, marks the asking one, and a wrong token gets no list. */
+    private static void devicesList(RealRelay relay) {
+        RelayClient.DeviceList l = RelayClient.listDevices(relay.url, relay.token, "phone-b", System.currentTimeMillis() / 1000.0);
+        eq("devices: the real relay answers", true, l.ok);
+        java.util.Set<String> names = new java.util.TreeSet<>();
+        String mine = "";
+        for (DevicesView.Row r : l.rows) {
+            names.add(r.name);
+            if (r.thisDevice) mine += r.name;
+            eq("devices: " + r.name + " was just seen", "active", r.state);
+        }
+        eq("devices: both phones are listed (the harness's own start-up probe is a device too)", "[it-probe, phone-a, phone-b]", names.toString());
+        eq("devices: the asking phone is marked, only it", "phone-b", mine);
+        RelayClient.DeviceList bad = RelayClient.listDevices(relay.url, "not-the-token", "phone-b", System.currentTimeMillis() / 1000.0);
+        eq("devices: a wrong token is refused in plain words", "false/The relay refused the token./0", bad.ok + "/" + bad.error + "/" + bad.rows.size());
     }
 
     /** A adds a note and syncs; B syncs and has the same note, field for field. Returns the note's time. */

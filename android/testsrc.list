@@ -30,3 +30,5 @@ android/src/com/minhaj/vox/Segmenter.java
 android/src/com/minhaj/vox/StreamingStt.java
 android/src/com/minhaj/vox/Latency.java
 android/src/com/minhaj/vox/UploadFormat.java
+android/src/com/minhaj/vox/DevicesView.java
+android/src/com/minhaj/vox/RelayCheck.java

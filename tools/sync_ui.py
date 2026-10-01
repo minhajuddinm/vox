@@ -4,10 +4,12 @@
     python tools/sync_ui.py --check    # exit 1 if a page differs from what the sources generate
 
 Sources: ui-shared/tokens.css (palette; its `@dark { ... }` becomes a prefers-color-scheme media query on Windows and a
-`.dark` class rule on Android), ui-shared/components.css, ui-shared/common.js. Output is inline in each page, so
-packaging does not change. Edit ui-shared/, never the blocks in the pages.
+`.dark` class rule on Android), ui-shared/components.css, ui-shared/common.js, and ui-shared/relay-steps.txt (the text of the
+"How to set up the relay" card, written as HTML between `<!-- ui-shared:steps ... -->` markers). Output is inline in each
+page, so packaging does not change. Edit ui-shared/, never the blocks in the pages.
 """
 import argparse
+import html
 import os
 import re
 import sys
@@ -33,23 +35,81 @@ def tokens_for(target, text):
     return DARK.sub(repl, text)
 
 
+def esc(text):
+    """Text as HTML, for element content and for a double-quoted attribute."""
+    return html.escape(text, quote=True)
+
+
+def parse_steps(text):
+    """ui-shared/relay-steps.txt as {"intro": str, "steps": [{"text", "cmds": [..]}], "notes": [..]}. Exits with the reason
+    (and the line) for a line that is not `intro:`, `step:`, `cmd:` or `note:`, a `cmd:` before the first step, an empty
+    value, or a file with no step."""
+    out = {"intro": "", "steps": [], "notes": []}
+    for n, line in enumerate(text.replace("\r\n", "\n").split("\n"), 1):
+        if not line.strip() or line.startswith("#"):
+            continue
+        key, sep, value = line.partition(":")
+        value = value.strip()
+        if not sep or key not in ("intro", "step", "cmd", "note"):
+            raise SystemExit(f"relay-steps.txt line {n}: unknown line type (use intro:, step:, cmd: or note:)")
+        if not value:
+            raise SystemExit(f"relay-steps.txt line {n}: empty {key}:")
+        if key == "intro":
+            out["intro"] = value
+        elif key == "step":
+            out["steps"].append({"text": value, "cmds": []})
+        elif key == "cmd":
+            if not out["steps"]:
+                raise SystemExit(f"relay-steps.txt line {n}: cmd: before the first step:")
+            out["steps"][-1]["cmds"].append(value)
+        else:
+            out["notes"].append(value)
+    if not out["steps"]:
+        raise SystemExit("relay-steps.txt: no step: line")
+    return out
+
+
+def steps_html(text):
+    """The "How to set up the relay" box for both pages, from the text of relay-steps.txt. A step with commands gets a
+    Copy button whose data-copy holds exactly those commands, one per line."""
+    p = parse_steps(text)
+    items = []
+    for s in p["steps"]:
+        cmds = ""
+        if s["cmds"]:
+            lines = [esc(c) for c in s["cmds"]]
+            cmds = ('<pre class="rs-cmd">' + "\n".join(lines) + "</pre>"
+                    '<button type="button" class="btn ghost rs-copy" data-copy="' + "&#10;".join(lines) + '">'
+                    + ("Copy command" if len(lines) == 1 else "Copy commands") + "</button>")
+        items.append('<li><div class="rs-t">' + esc(s["text"]) + "</div>" + cmds + "</li>")
+    parts = ['<details class="rsteps" id="relay-steps">', "<summary>How to set up the relay</summary>", '<div class="rs-body">']
+    if p["intro"]:
+        parts.append('<p class="rs-intro">' + esc(p["intro"]) + "</p>")
+    parts.append('<ol class="rs-list">' + "".join(items) + "</ol>")
+    parts += ['<p class="rs-note">' + esc(n) + "</p>" for n in p["notes"]]
+    parts += ["</div>", "</details>"]
+    return "\n".join(parts)
+
+
 def blocks(root, target):
     src = lambda name: read_lf(os.path.join(root, "ui-shared", name)).strip("\n")
     css = tokens_for(target, src("tokens.css")) + "\n" + src("components.css")
     return {
         "css": f"/* ui-shared:css begin ({NOTE}) */\n{css}\n/* ui-shared:css end */",
         "js": f"// ui-shared:js begin ({NOTE})\n{src('common.js')}\n// ui-shared:js end",
+        "steps": f"<!-- ui-shared:steps begin ({NOTE}) -->\n{steps_html(src('relay-steps.txt'))}\n<!-- ui-shared:steps end -->",
     }
 
 
 def block_re(kind):
-    comment = (r"/\* ui-shared:css begin.*?ui-shared:css end \*/" if kind == "css"
-               else r"// ui-shared:js begin.*?// ui-shared:js end")
+    comment = {"css": r"/\* ui-shared:css begin.*?ui-shared:css end \*/",
+               "js": r"// ui-shared:js begin.*?// ui-shared:js end",
+               "steps": r"<!-- ui-shared:steps begin.*?<!-- ui-shared:steps end -->"}[kind]
     return re.compile(comment, re.S)
 
 
 def render(root, target, page_text):
-    """page_text with LF endings; returns it with both generated blocks replaced."""
+    """page_text with LF endings; returns it with every generated block replaced."""
     for kind, block in blocks(root, target).items():
         pattern = block_re(kind)
         if len(pattern.findall(page_text)) != 1:

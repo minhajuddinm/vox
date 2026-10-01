@@ -145,7 +145,8 @@ class RelayHost:
             self.proc = proc
         log.info("relay started on port %s (pid %s)", self.port, getattr(proc, "pid", "?"))
         if first_time:
-            self._notify(f"The relay is running on this PC (port {self.port}). To reach it from your other devices, run: {serve_hint(self.port)}")
+            self._notify(f"The relay is running on this PC (port {self.port}). To reach it from your other devices, run: {serve_hint(self.port)} "
+                         "(Vox > Settings > Privacy > How to set up the relay has the steps and the Test connection button.)")
         threading.Thread(target=self._watch, args=(proc,), daemon=True, name="relay-watch").start()
         return True
 

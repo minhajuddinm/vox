@@ -41,6 +41,24 @@
 .srow .sv small { color: var(--muted); font-weight: 400; font-size: .85em; }
 .srow.big .sl, .srow.big .sv { color: var(--accent); font-weight: 650; }
 .sub-h { color: var(--muted); font-size: 12px; text-transform: uppercase; margin: 14px 0 2px; }
+.drow { display: flex; gap: 12px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.drow:last-child { border-bottom: 0; }
+.drow .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted); opacity: .5; }
+.drow.active .dot { background: var(--ok); opacity: 1; }
+.drow.recent .dot { background: var(--accent); opacity: 1; }
+.drow .dn { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 550; }
+.drow.old .dn { color: var(--muted); font-weight: 400; }
+.drow .da { flex: none; color: var(--muted); font-size: 13px; }
+.badge { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; vertical-align: 1px; }
+.dempty { color: var(--muted); padding: 6px 0; }
+.rsteps summary { cursor: pointer; font-weight: 600; }
+.rs-body { padding-top: 10px; }
+.rs-intro, .rs-note { color: var(--muted); margin: 0 0 10px; }
+.rs-list { margin: 12px 0; padding-left: 22px; }
+.rs-list li { margin: 0 0 16px; padding-left: 4px; }
+.rs-t { margin-bottom: 6px; }
+.rs-cmd { margin: 6px 0; padding: 9px 11px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: 12.5px/1.55 ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+.rs-copy { margin-top: 2px; }
 /* ui-shared:css end */
 :root {
   --side: #EFEFEC; --line: #E4E4E0; --danger: #D93025; --bad: var(--danger);
@@ -356,10 +374,30 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="setting"><div><div class="t">Keep dictation on the clipboard</div><div class="d">Off by default: after pasting, your earlier copied text comes back. A copied image or file is not restored. On keeps your text copied so you can paste it again with Ctrl + V.</div></div><label class="switch"><input type="checkbox" id="keep-clip"><span></span></label></div>
       <div class="setting"><div><div class="t">Sync voice notes with my relay</div><div class="d">Keeps your voice notes the same on your phone and PCs through a relay you run yourself (a small server, for example on a Raspberry Pi, reached over Tailscale). While on, the relay receives the full text, raw transcript, tags and device name of each voice note, and your About you text, dictionary, people, default style, cleanup switch and language. Needs its address and token.</div></div><label class="switch"><input type="checkbox" id="relay-sync"><span></span></label></div>
       <div class="setting"><div><div class="t">Relay address</div><div class="d">For example https://yuvipi.your-tailnet.ts.net. Plain http is only allowed for this PC, your local network and Tailscale.</div></div><input type="text" id="relay-url" style="width:280px" placeholder="https://..."></div>
-      <div class="setting"><div><div class="t">Relay token</div><div class="d">Stored only on this PC. Find it in the relay's management page setup or its relay.json.</div><div class="status" id="relay-status"></div></div><input type="password" id="relay-token" style="width:220px"><button class="btn ghost" id="relay-test">Test</button></div>
+      <div class="setting"><div><div class="t">Relay token</div><div class="d">Stored only on this PC. Find it in the relay's management page setup or its relay.json.</div><div class="status" id="relay-status"></div><div id="relay-check"></div></div><input type="password" id="relay-token" style="width:220px"><button class="btn ghost" id="relay-test">Test connection</button></div>
       <div class="setting"><div><div class="t">Also share my provider settings and API keys</div><div class="d">Off by default. When on, the AI provider, models and API keys are copied to your other devices through the relay, so anyone with the relay token can read them. Turning this off here removes this device's keys from the relay once. Any other device that still shares keys will put them back, so turn it off on every device.</div></div><label class="switch"><input type="checkbox" id="relay-keys"><span></span></label></div>
       <div class="setting"><div><div class="t">This device's name</div><div class="d">Sent to the relay and shown on its page and on the notes made here. Blank uses the computer name.</div></div><input type="text" id="device-name" style="width:220px" placeholder="e.g. laptop-uv"></div>
       <div class="setting"><div><div class="t">About you</div><div class="d">Added to every cleanup request, so it goes to your cleanup server. While sync is on it is also copied to your relay. Edit it on the Dictionary page.</div></div><button class="btn ghost" id="open-about">Open</button></div>
+    </div>
+    <div class="card" id="relay-help-card" style="margin-top:10px">
+<!-- ui-shared:steps begin (generated by tools/sync_ui.py from ui-shared/: edit there, not here) -->
+<details class="rsteps" id="relay-steps">
+<summary>How to set up the relay</summary>
+<div class="rs-body">
+<p class="rs-intro">The relay is a small program that keeps your notes and settings in one place for your phone and PCs. Run it on something that is always on, such as a Raspberry Pi. Tailscale must be installed and signed in on it and on this device, with HTTPS turned on for your tailnet (Tailscale admin console, DNS page).</p>
+<ol class="rs-list"><li><div class="rs-t">On the Pi, put relay.py (from the relay folder of Vox) where the service will run it.</div><pre class="rs-cmd">sudo mkdir -p /opt/vox-relay
+sudo cp relay.py /opt/vox-relay/</pre><button type="button" class="btn ghost rs-copy" data-copy="sudo mkdir -p /opt/vox-relay&#10;sudo cp relay.py /opt/vox-relay/">Copy commands</button></li><li><div class="rs-t">Try it once by hand. It prints where it listens. Stop it with Ctrl+C.</div><pre class="rs-cmd">python3 /opt/vox-relay/relay.py --data-dir /tmp/vox-relay-test --show-token</pre><button type="button" class="btn ghost rs-copy" data-copy="python3 /opt/vox-relay/relay.py --data-dir /tmp/vox-relay-test --show-token">Copy command</button></li><li><div class="rs-t">Install it as a service, so it starts at boot and restarts if it stops (vox-relay.service is next to relay.py).</div><pre class="rs-cmd">sudo cp vox-relay.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now vox-relay</pre><button type="button" class="btn ghost rs-copy" data-copy="sudo cp vox-relay.service /etc/systemd/system/&#10;sudo systemctl daemon-reload&#10;sudo systemctl enable --now vox-relay">Copy commands</button></li><li><div class="rs-t">Read the token. Keep it private: anyone with the token and a way to reach the relay can read your notes.</div><pre class="rs-cmd">sudo cat /var/lib/vox-relay/relay.json</pre><button type="button" class="btn ghost rs-copy" data-copy="sudo cat /var/lib/vox-relay/relay.json">Copy command</button></li><li><div class="rs-t">Publish it to your tailnet. This is what adds HTTPS. Never use tailscale funnel, which puts it on the open internet. The second command shows the address.</div><pre class="rs-cmd">sudo tailscale serve --bg 8765
+tailscale serve status</pre><button type="button" class="btn ghost rs-copy" data-copy="sudo tailscale serve --bg 8765&#10;tailscale serve status">Copy commands</button></li><li><div class="rs-t">Enter that address (like https://yuvipi.your-tailnet.ts.net) and the token in the fields above, then press Test connection. It tells you whether the relay is reachable, whether the token works, and the name this device shows under.</div></li></ol>
+<p class="rs-note">No Raspberry Pi? A Windows PC can run it: in the Vox tray menu tick Run relay on this PC, then run tailscale serve --bg 8765 in a terminal. It only works while that PC is on and Vox is running.</p>
+</div>
+</details>
+<!-- ui-shared:steps end -->
+    </div>
+    <div class="card list" id="devices-card" style="margin-top:10px">
+      <div class="setting"><div><div class="t">Devices on my relay</div><div class="d">Phones and PCs that have used your relay, newest first, as the relay itself recorded them. Needs the relay address and token above; the only thing sent from here is this device's name.</div></div><button class="btn ghost" id="devices-refresh">Refresh</button></div>
+      <div id="devices-list" style="padding:4px 18px 12px"></div>
     </div>
 
     <h2>System</h2>
@@ -445,6 +483,25 @@ function speedHtml(v, appLabel) {
   }
   return html;
 }
+// The Devices card's list, from the bridge's answer {ok, error, devices: [{name, this, state, ago}]} (windows/sync.py
+// devices_for_ui; Android: MainActivity.getDevices). A failure shows its reason; nothing but those four fields is drawn.
+function devicesHtml(res) {
+  if (!res || !res.ok) return `<div class="status bad">${esc((res && res.error) || "The device list could not be read.")}</div>`;
+  const rows = res.devices || [];
+  if (!rows.length) return '<div class="dempty">No device has synced yet</div>';
+  return rows.map(d => `<div class="drow ${d.state === "active" || d.state === "recent" ? d.state : "old"}"><span class="dot"></span><span class="dn">${esc(d.name)}${d.this ? '<span class="badge">this device</span>' : ""}</span><span class="da">${esc(d.ago)}</span></div>`).join("");
+}
+// Rows under the relay's Test connection button, from the bridge's answer {ok, reachable, token_ok, device_name,
+// relay_version, notes, message} (windows/sync.py relay_check; Android: RelayClient.check through MainActivity.syncTest).
+// Each row is [label, text, kind], drawn with statusHtml. An answer without the fields (an old one) adds no rows; the
+// answer's message is shown by the page as before.
+function relayCheckRows(r) {
+  if (!r || typeof r.reachable !== "boolean") return [];
+  const rows = [["Relay", r.reachable ? "Reachable" + (r.relay_version ? ", version " + r.relay_version : "") : "Not reachable", r.reachable ? "ok" : "bad"],
+    ["Token", r.token_ok ? "Accepted" : r.reachable ? "Refused" : "Not checked", r.token_ok ? "ok" : r.reachable ? "bad" : "dim"]];
+  if (r.ok && r.device_name) rows.push(["This device", r.device_name, ""]);
+  return rows;
+}
 // ui-shared:js end
 const ICON_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg>';
 const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4"/></svg>';
@@ -510,6 +567,7 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   if (b.dataset.page === "home") refresh();
   if (b.dataset.page === "notes") enterNotes();
   if (b.dataset.page === "voicenotes") { renderVoiceNotes(); pollNote(); renderSync(); }
+  if (b.dataset.page === "settings") loadDevices();
 });
 
 function styleOptions(sel, value) { sel.innerHTML = STYLES.map(([v, l]) => `<option value="${v}">${l}</option>`).join(""); sel.value = value || "neutral"; }
@@ -838,22 +896,43 @@ $("relay-sync").onchange = (e) => { save({ relay_sync: e.target.checked }); if (
 $("relay-url").onchange = async () => {
   const v = $("relay-url").value.trim(), s = $("relay-status");
   const problem = v ? await api().endpoint_problem(v) : "";
+  $("relay-check").innerHTML = "";
   if (problem) { s.className = "status bad"; s.textContent = problem; return; }
   s.textContent = ""; await save({ relay_url: v });
   if (S.config.relay_proxy) reloadModels();
-  renderProvider();
+  renderProvider(); loadDevices();
 };
 $("relay-token").onchange = async () => {
-  await save({ relay_token: $("relay-token").value.trim() }); $("relay-status").textContent = "";
+  await save({ relay_token: $("relay-token").value.trim() }); $("relay-status").textContent = ""; $("relay-check").innerHTML = "";
   if (S.config.relay_proxy) reloadModels();
-  renderProvider();
+  renderProvider(); loadDevices();
 };
 $("device-name").onchange = () => save({ device_name: $("device-name").value.trim() });
+// The copy buttons of "How to set up the relay" (generated from ui-shared/relay-steps.txt) hold their commands in data-copy.
+document.addEventListener("click", async (e) => { const b = e.target.closest(".rs-copy"); if (b) { await api().copy(b.dataset.copy); toast("Copied"); } });
 $("relay-test").onclick = async () => {
-  const s = $("relay-status"); s.className = "status"; s.textContent = "Checking…";
+  const s = $("relay-status"); s.className = "status"; s.textContent = "Checking…"; $("relay-check").innerHTML = "";
   const r = await api().sync_test($("relay-url").value.trim(), $("relay-token").value.trim());
   s.className = "status " + (r.ok ? "ok" : "bad"); s.textContent = r.message;
+  $("relay-check").innerHTML = statusHtml(relayCheckRows(r));
+  if (r.ok) { await save({ relay_url: $("relay-url").value.trim(), relay_token: $("relay-token").value.trim() }, "Saved"); loadDevices(true); }
 };
+// ---------- devices on the relay (Settings): the list the relay recorded, newest first; the rows come ready from the bridge
+let devSeq = 0;
+// Opening Settings or editing the address only looks when sync or the AI-server switch is on (a relay is not contacted
+// otherwise); the Refresh button and a good Test are the person asking, and always look.
+async function loadDevices(asked) {
+  const box = $("devices-list"), c = (S && S.config) || {}, my = ++devSeq;
+  $("devices-refresh").disabled = false;
+  if (!(c.relay_url || "").trim() || !(c.relay_token || "").trim()) { box.innerHTML = '<div class="dempty">Fill in the relay address and token above to see your devices.</div>'; return; }
+  if (asked !== true && !c.relay_sync && !c.relay_proxy) { box.innerHTML = '<div class="dempty">Press Refresh to ask the relay which devices have used it.</div>'; return; }
+  $("devices-refresh").disabled = true; box.innerHTML = '<div class="dempty">Checking…</div>';
+  let res;
+  try { res = await api().get_devices(); } catch (e) { res = { ok: false, error: "The device list could not be read." }; }
+  if (my !== devSeq) return;   // a newer look is on its way
+  $("devices-refresh").disabled = false; box.innerHTML = devicesHtml(res);
+}
+$("devices-refresh").onclick = () => loadDevices(true);
 $("auto-notes").onchange = (e) => save({ auto_notes: e.target.checked });
 $("open-about").onclick = () => document.querySelector('nav button[data-page="dictionary"]').click();
 $("open-data").onclick = () => api().open_data_folder();

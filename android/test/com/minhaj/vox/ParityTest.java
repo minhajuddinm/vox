@@ -148,6 +148,28 @@ public final class ParityTest {
         return out;
     }
 
+    /** The `last_seen;name` items of a devices row as PlainJson would give them: "~" leaves last_seen out, a number is a Double, other text stays text. */
+    private static List<Map<String, Object>> relayDevices(String field) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (String item : items(field, "|")) {
+            int i = item.indexOf(';');
+            Map<String, Object> d = new LinkedHashMap<>();
+            d.put("name", item.substring(i + 1));
+            String seen = item.substring(0, i);
+            if (!seen.equals("~")) {
+                Object v = seen;
+                try {
+                    v = Double.valueOf(seen);
+                } catch (NumberFormatException text) {
+                    // stays text
+                }
+                d.put("last_seen", v);
+            }
+            out.add(d);
+        }
+        return out;
+    }
+
     @SuppressWarnings("unchecked")
     private static String timingView(String rows, int n, int last) {
         Map<String, Object> v = Timing.speedView(historyRows(rows), n, last);
@@ -175,6 +197,33 @@ public final class ParityTest {
                     .append('@').append(Boolean.TRUE.equals(m.get("relay")) ? 1 : 0).append('@').append(s);
         }
         return b + " models=" + models + " last=" + recent;
+    }
+
+    private static String devicesText(List<DevicesView.Row> rows) {
+        StringBuilder sb = new StringBuilder();
+        for (DevicesView.Row r : rows) {
+            if (sb.length() > 0) sb.append('|');
+            sb.append(r.state).append(';').append(r.thisDevice ? "true" : "false").append(';').append(r.ago).append(';').append(r.name);
+        }
+        return sb.toString();
+    }
+
+    /** The `k=v;k=v` fields of a relaycheck row as PlainJson would give them: s:text is a String, n:number a Long (or a Double when written with a point), b:true / b:false a Boolean; empty is no usable answer (null). */
+    private static Map<String, Object> healthAnswer(String field) {
+        if (field.isEmpty()) return null;
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (String item : field.split(";")) {
+            int eq = item.indexOf('='), colon = item.indexOf(':', eq);
+            String key = item.substring(0, eq), text = item.substring(colon + 1);
+            char type = item.charAt(eq + 1);
+            out.put(key, type == 's' ? text : type == 'b' ? (Object) Boolean.valueOf(text.equals("true"))
+                    : text.contains(".") ? (Object) Double.valueOf(text) : (Object) Long.valueOf(text));
+        }
+        return out;
+    }
+
+    private static String relayCheckText(RelayCheck.Result r) {
+        return r.ok + ";" + r.reachable + ";" + r.tokenOk + ";" + r.relayVersion + ";" + r.notes;
     }
 
     private static void eq(int line, String kind, String expected, String actual) {
@@ -298,6 +347,12 @@ public final class ParityTest {
                     break;
                 case "segcuts":   // min_ms|max_ms|pause_ms, runs, block => piece lengths / rest length
                     eq(ln, kind, f[3], segCuts(f[0], f[1], Integer.parseInt(f[2])));
+                    break;
+                case "devices":   // now, this device's name, the relay's devices, the rows the card shows
+                    eq(ln, kind, f[3], devicesText(DevicesView.rows(relayDevices(f[2]), Double.parseDouble(f[0]), f[1])));
+                    break;
+                case "relaycheck":   // HTTP status of /health (0 = no answer), the answer's fields, ok;reachable;token_ok;relay_version;notes
+                    eq(ln, kind, f[2], relayCheckText(RelayCheck.of(Integer.parseInt(f[0]), healthAnswer(f[1]), "dev", "failure")));
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);

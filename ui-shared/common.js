@@ -66,3 +66,22 @@ function speedHtml(v, appLabel) {
   }
   return html;
 }
+// The Devices card's list, from the bridge's answer {ok, error, devices: [{name, this, state, ago}]} (windows/sync.py
+// devices_for_ui; Android: MainActivity.getDevices). A failure shows its reason; nothing but those four fields is drawn.
+function devicesHtml(res) {
+  if (!res || !res.ok) return `<div class="status bad">${esc((res && res.error) || "The device list could not be read.")}</div>`;
+  const rows = res.devices || [];
+  if (!rows.length) return '<div class="dempty">No device has synced yet</div>';
+  return rows.map(d => `<div class="drow ${d.state === "active" || d.state === "recent" ? d.state : "old"}"><span class="dot"></span><span class="dn">${esc(d.name)}${d.this ? '<span class="badge">this device</span>' : ""}</span><span class="da">${esc(d.ago)}</span></div>`).join("");
+}
+// Rows under the relay's Test connection button, from the bridge's answer {ok, reachable, token_ok, device_name,
+// relay_version, notes, message} (windows/sync.py relay_check; Android: RelayClient.check through MainActivity.syncTest).
+// Each row is [label, text, kind], drawn with statusHtml. An answer without the fields (an old one) adds no rows; the
+// answer's message is shown by the page as before.
+function relayCheckRows(r) {
+  if (!r || typeof r.reachable !== "boolean") return [];
+  const rows = [["Relay", r.reachable ? "Reachable" + (r.relay_version ? ", version " + r.relay_version : "") : "Not reachable", r.reachable ? "ok" : "bad"],
+    ["Token", r.token_ok ? "Accepted" : r.reachable ? "Refused" : "Not checked", r.token_ok ? "ok" : r.reachable ? "bad" : "dim"]];
+  if (r.ok && r.device_name) rows.push(["This device", r.device_name, ""]);
+  return rows;
+}

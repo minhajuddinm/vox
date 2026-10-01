@@ -6,7 +6,9 @@ sequence number is the cursor for "what is new".
 """
 import json
 import logging
+import math
 import platform
+import re
 import threading
 import time
 
@@ -19,6 +21,9 @@ log = logging.getLogger("vox.sync")
 TIMEOUT = 15          # seconds per request
 INTERVAL = 90         # seconds between background syncs
 PUSH_BATCH = 100
+NOT_A_RELAY = "That address did not answer like a Vox relay."
+MAX_NOTES = 1_000_000_000   # the most notes the Test connection answer shows (Android twin: RelayCheck.MAX_NOTES)
+VERSION_OK = re.compile(r"[0-9A-Za-z.+_-]{1,20}")   # what a relay version may look like (see relay_check)
 _session = requests.Session()
 
 
@@ -112,25 +117,131 @@ def _call(method, url, path, token, device, headers=None, allow=(), **kw):
     try:
         return r.status_code, r.json()
     except ValueError:
-        raise SyncError("That address did not answer like a Vox relay.")
+        raise SyncError(NOT_A_RELAY)
 
 
 def _request(method, url, path, token, device, **kw):
     return _call(method, url, path, token, device, **kw)[1]
 
 
+def relay_check(status, health, device, failure=""):
+    """What the Test connection button reports, from the HTTP status of GET /health (0: no answer) and its parsed JSON
+    answer (None: none usable): {"ok", "reachable", "token_ok", "device_name", "relay_version", "notes", "message"}.
+    `ok`: a relay answered and took the token. `reachable`: a relay answered at all; a 401 or 403 is a relay's own
+    refusal, so it counts, any other failure does not. `token_ok`: the token was accepted; the relay checks it before
+    the tailnet owner, so a 403 means the token was right. `relay_version` is kept only as 1 to 20 of letters, digits
+    and . + _ - (a relay sends a short string such as "0.2"), `notes` only as a whole number (a fraction is cut, a
+    string, boolean or negative number is 0, more than MAX_NOTES is cut to it); both are only read from an answer that is ok. `device_name` is the name
+    the asking call sent (it is what the relay lists this device as). `failure` is the caller's words for a failure
+    (the message of SyncError). Android twin: RelayCheck.of (golden rows `relaycheck`)."""
+    base = {"ok": False, "reachable": False, "token_ok": False, "device_name": device, "relay_version": "", "notes": 0}
+    if 200 <= status < 300:
+        if not isinstance(health, dict) or health.get("ok") is not True:
+            return dict(base, message=NOT_A_RELAY)
+        notes_n, version = health.get("notes"), health.get("version")
+        notes_n = int(notes_n) if isinstance(notes_n, (int, float)) and not isinstance(notes_n, bool) and math.isfinite(notes_n) else 0
+        notes_n = max(0, min(MAX_NOTES, notes_n))
+        version = version.strip() if isinstance(version, str) else ""
+        return dict(base, ok=True, reachable=True, token_ok=True, notes=notes_n,
+                    relay_version=version if VERSION_OK.fullmatch(version) else "",
+                    message=f"Connected. The relay holds {notes_n} notes.")
+    if status in (401, 403):
+        return dict(base, reachable=True, token_ok=status == 403, message=failure)
+    return dict(base, message=failure or NOT_A_RELAY)
+
+
 def test_relay(url, token, device="Vox"):
-    """{"ok", "message"}: can this address and token reach a relay?"""
+    """relay_check's answer for this address and token: can they reach a relay? Makes no request when they are unusable."""
     err = problem(url, token)
     if err:
-        return {"ok": False, "message": err}
+        return relay_check(0, None, device, err)
     try:
         h = _request("GET", url.strip().rstrip("/"), "/health", token.strip(), device)
     except SyncError as e:
-        return {"ok": False, "message": str(e)}
-    if not isinstance(h, dict) or not h.get("ok"):
-        return {"ok": False, "message": "That address did not answer like a Vox relay."}
-    return {"ok": True, "message": f"Connected. The relay holds {h.get('notes', 0)} notes."}
+        return relay_check(e.status, None, device, str(e))
+    return relay_check(200, h, device)
+
+
+# ------------------------------------------------------------------ the devices list
+ACTIVE_SECS = 600        # seen within 10 minutes: "active"
+RECENT_SECS = 86400      # seen within a day: "recent", older: "old"
+UNKNOWN_DEVICE = "Unknown device"
+
+
+def fetch_devices(cfg):
+    """The devices that have used the relay, newest first, as the relay sends them (GET /devices): a list of
+    {"name", "first_seen", "last_seen", "requests", "login"}. Needs only the saved address and token (not the notes
+    switch). Raises SyncError. The asking call itself carries this device's name, so a first look lists this device too."""
+    url, token = (cfg.get("relay_url") or "").strip().rstrip("/"), (cfg.get("relay_token") or "").strip()
+    err = problem(url, token)
+    if err:
+        raise SyncError(err)
+    try:
+        body = _request("GET", url, "/devices", token, device_name(cfg))
+    except SyncError as e:
+        if e.status == 404:
+            raise SyncError("This relay is too old to list devices. Update relay.py on it.", 404)
+        raise
+    devices = body.get("devices") if isinstance(body, dict) else None
+    if not isinstance(devices, list) or not all(isinstance(d, dict) for d in devices):
+        raise SyncError(NOT_A_RELAY)
+    return devices
+
+
+def _ascii_name(name):
+    """A device name as the Android app puts it in the X-Vox-Device header: every UTF-16 unit outside printable ASCII
+    becomes "?" (Android twin: RelayClient.headerText), so the relay lists that phone under the "?" spelling."""
+    return "".join(c if " " <= c <= "~" else "?" * (2 if ord(c) > 0xFFFF else 1) for c in name)
+
+
+def ago_text(secs):
+    """"just now", "40 s ago", "5 min ago", "3 h ago", "2 days ago" for an age in whole seconds (JS twin: agoText in
+    ui-shared/common.js; rounding is half up, in integers, so Python and Java agree to the digit)."""
+    if secs < 10:
+        return "just now"
+    if secs < 90:
+        return f"{secs} s ago"
+    if secs < 5400:
+        return f"{(2 * secs + 60) // 120} min ago"
+    if secs < 129600:
+        return f"{(2 * secs + 3600) // 7200} h ago"
+    return f"{(2 * secs + 86400) // 172800} days ago"
+
+
+def devices_view(devices, now, my_name):
+    """What the Devices card shows, from the relay's list: one row per device, in the relay's order (newest first):
+    {"name", "this" (this is the device asking: same name as `my_name`, or the spelling Android sends), "state"
+    ("active" seen under 10 minutes ago, "recent" under a day, else "old"), "ago" ("5 min ago", "never" when the relay
+    gave no usable time)}. Entries that are not objects are skipped; a missing name shows as "Unknown device"; a time in
+    the future counts as now. Android twin: DevicesView.rows (golden rows `devices`)."""
+    me = (my_name or "").strip()
+    mine = {me, _ascii_name(me)} if me else set()
+    rows = []
+    for d in devices or []:
+        if not isinstance(d, dict):
+            continue
+        name = d.get("name")
+        name = name.strip() if isinstance(name, str) else ""
+        seen = d.get("last_seen")
+        ok = isinstance(seen, (int, float)) and not isinstance(seen, bool) and math.isfinite(seen) and seen > 0
+        age = max(0, int(now - seen)) if ok else None
+        rows.append({"name": name or UNKNOWN_DEVICE, "this": bool(name) and name in mine,
+                     "state": "old" if age is None or age >= RECENT_SECS else "active" if age < ACTIVE_SECS else "recent",
+                     "ago": "never" if age is None else ago_text(age)})
+    return rows
+
+
+def devices_for_ui(cfg, now=None):
+    """The bridge's answer for the Devices card, same shape in both apps: {"ok", "error", "devices": rows}. A failure
+    gives an empty list and the reason in plain words; nothing is raised."""
+    try:
+        devices = fetch_devices(cfg)
+    except SyncError as e:
+        return {"ok": False, "error": str(e), "devices": []}
+    except Exception as e:
+        log.warning("device list failed: %s", type(e).__name__)
+        return {"ok": False, "error": "The device list could not be read.", "devices": []}
+    return {"ok": True, "error": "", "devices": devices_view(devices, time.time() if now is None else now, device_name(cfg))}
 
 
 def wire(n):
