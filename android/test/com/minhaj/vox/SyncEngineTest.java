@@ -883,6 +883,20 @@ public final class SyncEngineTest {
         eq("relay change: no origin saved yet is not a change", "5", old.store.meta.get("relay_cursor"));
         eq("relay change: note not sent again", 0, old.relay.puts(n.id));
         eq("relay change: origin recorded", "http://relay.test:8787", old.store.meta.get("relay_origin"));
+
+        // the address is read once per run: a config that changes it between reads must not split the run
+        final int[] reads = {0};
+        FakeCfg flipping = new FakeCfg() {
+            @Override public String relayUrl() { reads[0]++; return reads[0] == 1 ? "http://a.test:8787" : "http://b.test:8787"; }
+        };
+        String pinnedUrl = flipping.relayUrl();   // what the worker reads, once
+        Env pin = new Env();
+        pin.store.add("n", 1);
+        SyncResult pr = new SyncEngine(pin.store, pin.relay, new PinnedUrlConfig(flipping, pinnedUrl)).syncOnce();
+        eq("pinned url: ok", "", pr.error);
+        eq("pinned url: the wrapped config is not asked again", 1, reads[0]);
+        eq("pinned url: the run's origin is the first address", "http://a.test:8787", pin.store.meta.get("relay_origin"));
+        eq("pinned url: other settings pass through", false, new PinnedUrlConfig(flipping, "x").syncKeys());
     }
 
     private static Object parse(String s) {
