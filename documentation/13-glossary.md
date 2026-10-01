@@ -10,6 +10,8 @@
 | Groq | The default provider of Whisper speech-to-text and chat models. |
 | STT | Speech to text (Whisper). |
 | Cleanup | The chat-model pass that removes fillers, fixes punctuation, and so on. Skipped for the `raw` style, when switched off, and for texts shorter than the `cleanup_min_words` setting (3 words unless changed). |
+| Fidelity guard | The check that the cleanup answer still holds the words that were said (`fidelity_ok`, `Fidelity.ok`); an answer that lost too many is dropped and the raw words are used. See [specs/p9a-cleanup-keeps-my-words.md](specs/p9a-cleanup-keeps-my-words.md) and [decisions/0030-cleanup-keeps-the-spoken-words.md](decisions/0030-cleanup-keeps-the-spoken-words.md). |
+| Cleanup strength | `light` (keep every spoken word except pure noises such as um and uh) or `standard` (also drop fillers, repeats and false starts); the setting `cleanup_strength` chooses how strict the fidelity guard is. |
 | Raw transcript | The Whisper text before cleanup. Used as the fallback when cleanup fails. |
 | Style | Tone for cleanup: `formal`, `casual`, `very_casual`, `neutral`, or `raw` (no cleanup). Chosen per app. |
 | App label | The name given to the cleanup model: exe name on Windows, app display name on Android. Never a window title. |

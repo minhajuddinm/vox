@@ -36,7 +36,7 @@ The engine and window modes set DPI awareness, install `sys.excepthook` / `threa
 ### Processing and paste (`_process`, `paste`)
 
 - Calls `core.process_detailed(cfg, pcm, exe, exe)` (see [06-pipeline.md](06-pipeline.md)). The app label given to the model is the exe name.
-- If cleanup was wanted but failed, a notification says the words were pasted as spoken.
+- If cleanup was wanted but failed, a notification says the words were pasted as spoken. An answer that lost the spoken words (a summary or rewrite, `looks_valid` / `fidelity_ok` in `process_text`) counts as failed too: the words as spoken are used (spoken commands and dictionary replacements applied) and the notice ends with "the cleanup answer looked wrong". The strength is `cleanup_strength`, treated as `standard` while unset (see [specs/p9a-cleanup-keeps-my-words.md](specs/p9a-cleanup-keeps-my-words.md)).
 - `paste` calls `paste.paste_text(text, target, keep_clipboard)` (`windows/paste.py`; `target` is the exe name remembered when recording started):
   1. waits (up to 2 s) until Shift, Ctrl, Alt and Win are all up, so Ctrl+V is not combined with Win;
   2. compares the focused window's exe name (`GetForegroundWindow` and `QueryFullProcessImageNameW`, never the title) with `target`, ignoring case. If it differs, the text is left on the clipboard, **no Ctrl+V is sent**, and the engine shows "Copied; the window changed". If the target was never captured, the window cannot be named, or the lookup fails (logged as a warning), the paste goes ahead rather than losing the text;

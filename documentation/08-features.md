@@ -53,6 +53,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | "Vox did not hear anything (loudest sound N)" diagnostics | yes | - | `Engine.stop`, `vox_core.peak_level` | py `test_robustness` |
 | Fix a word in History -> suggested dictionary entries | yes | yes | `vox_core.suggest_corrections` / `Corrections` | py `test_suggest_corrections`; java `CorrectionsTest` |
 | Spoken "new line"/"new paragraph" when cleanup did not run | yes | yes | `vox_core.apply_spoken_commands` / `ApiClient.applySpokenCommands` | py `test_spoken_commands`, parity; java parity |
+| Fidelity guard: a cleanup answer that lost the spoken words is rejected and the words as spoken are used (Light: 97% of the words and at most 12 missing; Standard: 85%; until the strength setting has a Settings row both apps run Standard) | yes | yes | `vox_core.fidelity_ok`, `word_recall`, `looks_valid` / `Fidelity.ok`, `Fidelity.wordRecall`, `ApiClient.looksValid` | py `test_cleanup_fidelity`, parity (`fidelity`, `tokens`, `recall`); java `FidelityTest`, `ParityTest` |
 | Tell the user when cleanup failed | yes | yes | `Engine._process` / `DictationService.send` | py `test_spoken_commands` |
 | Ctrl+C quits the engine cleanly; quit waits for meeting notes | yes | - | `Engine.run`, `Engine.quit` | - |
 | Safe concurrent meeting start/stop, locked entries | yes | - | `Meeting.ctl`, `Meeting.lock` | - |
