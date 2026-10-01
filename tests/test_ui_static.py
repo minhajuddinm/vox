@@ -339,3 +339,17 @@ def test_windows_page_edits_dictionary_and_people_through_the_one_item_bridge_ca
 def test_windows_page_refreshes_before_showing_dictionary_styles_and_settings():
     handler = WINDOWS_PAGE.split('document.querySelectorAll("nav button").forEach(b => b.onclick', 1)[1].split("\n});", 1)[0]
     assert re.search(r'\["dictionary",\s*"styles",\s*"settings"\]\.includes\(b\.dataset\.page\)\)\s*await refresh\(\)', handler)
+
+
+def test_android_key_test_shows_the_refused_address_answer():
+    # MainActivity.Bridge.testKey answers "address" for an address the app refuses; the page must say so (not "No internet")
+    assert 'callback + "(\'address\')"' in open(MAIN_ACTIVITY, encoding="utf-8").read()
+    page = read(PAGES["android"])
+    start = page.index("window.keyResult")
+    assert 'r === "address"' in page[start:start + 900]
+
+
+@pytest.mark.parametrize("name", ["windows", "android"])
+def test_pages_hold_no_personal_hostnames(name):
+    text = open(PAGES[name], encoding="utf-8").read().lower()
+    assert "yuvipi" not in text and "laptop-uv" not in text
