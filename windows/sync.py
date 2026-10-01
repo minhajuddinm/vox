@@ -132,6 +132,7 @@ def merge3(base, local, remote):
 def sync_profile(url, token, device):
     """Two-way sync of the shared settings with the relay's profile document. Returns "", "sent", "received" or
     "both"; raises SyncError. The relay refuses a stale write (If-Match), so a race is retried, not lost."""
+    received_any = False   # settings written here in any attempt: a retry sees them as local, so remember them
     for _ in range(3):
         cfg = core.load_config()
         fields = shared_fields(cfg)
@@ -148,11 +149,12 @@ def sync_profile(url, token, device):
             live = core.load_config()
             live.update(received)
             core.save_config(live)
+            received_any = True
         stale_keys = not keys_on and any(k in data for k in PROFILE_KEY_FIELDS)   # keys were switched off: take them off the relay
         if merged == remote_shared and not stale_keys:
             notes.set_meta("profile_version", version)
             notes.set_meta("profile_snapshot", json.dumps(merged))
-            return "received" if received else ""
+            return "received" if received_any else ""
         doc = {k: v for k, v in data.items() if k not in PROFILE_KEY_FIELDS or keys_on}   # keep fields other devices added
         doc.update(merged)
         status, out = _call("PUT", url, "/profile", token, device, headers={"If-Match": str(version)}, allow=(412,), json=doc)
@@ -160,7 +162,7 @@ def sync_profile(url, token, device):
             continue   # someone wrote in between: look again
         notes.set_meta("profile_version", out["version"])
         notes.set_meta("profile_snapshot", json.dumps(merged))
-        return "both" if received else "sent"
+        return "both" if received_any else "sent"
     raise SyncError("The profile keeps changing on the relay; it will be tried again later.")
 
 
@@ -177,8 +179,9 @@ def sync_once(cfg):
     refused = []   # what the relay said about each note it refuses for good: those notes are skipped, the rest goes on
     try:
         handled = set()   # (id, updated_at) of every version sent or refused in this run, so none is tried twice in a run
+        parked = 0        # refused notes: the only handled ones that stay dirty, so the only ones that need room in the batch
         while True:
-            batch = [n for n in notes.dirty_notes(PUSH_BATCH + len(handled)) if (n["id"], n["updated_at"]) not in handled][:PUSH_BATCH]
+            batch = [n for n in notes.dirty_notes(PUSH_BATCH + parked) if (n["id"], n["updated_at"]) not in handled][:PUSH_BATCH]
             if not batch:
                 break
             for n in batch:
@@ -189,6 +192,7 @@ def sync_once(cfg):
                     if not e.permanent:
                         raise   # the relay, the token or the network is the problem, not this note: stop and try again later
                     refused.append(str(e))
+                    parked += 1
                     continue
                 stored = out["note"]
                 if out["applied"]:

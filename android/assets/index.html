@@ -394,7 +394,7 @@ $("history").onclick = (ev) => {
 };
 
 // ---------------- voice notes
-let TAG = "", NOTES = [], vnTimer = null, vnBusy = false, vnWaiting = false, vnArm = null;
+let TAG = "", NOTES = [], vnTimer = null, vnBusy = false, vnWaiting = false, vnArm = {};   // vnArm: one reset timer per note id
 const noteMeta = (n) => [new Date(n.created_at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }), n.secs ? Math.round(n.secs) + " s" : "", n.device || ""].filter(Boolean).join(" · ");
 function renderNotes() {
   let r;
@@ -490,7 +490,7 @@ $("vn-list").onclick = (ev) => {
   else if (b.classList.contains("confirm")) deleteNote(id);
   else {   // a note cannot be brought back, so deleting takes two taps
     b.classList.add("confirm"); b.textContent = "Delete?";
-    clearTimeout(vnArm); vnArm = setTimeout(() => { if (b.isConnected) { b.classList.remove("confirm"); b.innerHTML = ICON_DEL; } }, 3000);
+    clearTimeout(vnArm[id]); vnArm[id] = setTimeout(() => { delete vnArm[id]; if (b.isConnected) { b.classList.remove("confirm"); b.innerHTML = ICON_DEL; } }, 3000);
   }
 };
 
@@ -498,7 +498,7 @@ $("vn-list").onclick = (ev) => {
 function words() { return (S.config.dictionary || []).filter(l => !l.includes("=>")); }
 function repls() { return (S.config.dictionary || []).filter(l => l.includes("=>")).map(l => l.split("=>").map(s => s.trim())); }
 function setDict(w, r) { save({ dictionary: [...w, ...r.map(([a, b]) => `${a} => ${b}`)] }); }
-function chips(list, id) { $(id).innerHTML = list.length ? list.map((t, i) => `<span class="chip">${esc(t)}<button data-i="${i}">×</button></span>`).join("") : '<span class="note" style="margin:0">Nothing yet.</span>'; }
+function chips(list, id) { $(id).innerHTML = list.length ? list.map(t => `<span class="chip">${esc(t)}<button data-v="${esc(t)}">×</button></span>`).join("") : '<span class="note" style="margin:0">Nothing yet.</span>'; }
 const ABOUT_MAX = 8000;
 function aboutCount() {
   const n = $("about").value.length, s = $("about-status");
@@ -512,14 +512,14 @@ function renderDict() {
   renderAbout();
   chips(words(), "words"); chips(S.config.people || [], "people");
   const r = repls();
-  $("repls").innerHTML = r.length ? r.map(([a, b], i) => `<div class="item"><div class="grow">${esc(a)} <span style="color:var(--muted)">→</span> <b>${esc(b)}</b></div><button class="ib" data-r="${i}">${ICON_DEL}</button></div>`).join("") : '<div class="empty">No replacements yet.</div>';
+  $("repls").innerHTML = r.length ? r.map(([a, b]) => `<div class="item"><div class="grow">${esc(a)} <span style="color:var(--muted)">→</span> <b>${esc(b)}</b></div><button class="ib" data-a="${esc(a)}" data-b="${esc(b)}">${ICON_DEL}</button></div>`).join("") : '<div class="empty">No replacements yet.</div>';
 }
 $("w-add").onclick = () => { const v = $("w-in").value.trim(); if (!v) return; const w = words(); if (!w.includes(v)) w.push(v); $("w-in").value = ""; setDict(w, repls()); renderDict(); };
 $("p-add").onclick = () => { const v = $("p-in").value.trim(); if (!v) return; const p = [...(S.config.people || [])]; if (!p.includes(v)) p.push(v); $("p-in").value = ""; save({ people: p }); renderDict(); };
-$("words").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const w = words(); w.splice(+b.dataset.i, 1); setDict(w, repls()); renderDict(); };
-$("people").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const p = [...S.config.people]; p.splice(+b.dataset.i, 1); save({ people: p }); renderDict(); };
+$("words").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const w = words(), k = w.indexOf(b.dataset.v); if (k >= 0) { w.splice(k, 1); setDict(w, repls()); } renderDict(); };
+$("people").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const p = [...(S.config.people || [])], k = p.indexOf(b.dataset.v); if (k >= 0) { p.splice(k, 1); save({ people: p }); } renderDict(); };
 $("r-add").onclick = () => { const a = $("r-wrong").value.trim(), b = $("r-right").value.trim(); if (!a || !b) return; const r = repls(); r.push([a, b]); $("r-wrong").value = $("r-right").value = ""; setDict(words(), r); renderDict(); toast("Added"); };
-$("repls").onclick = (e) => { const b = e.target.closest("[data-r]"); if (!b) return; const r = repls(); r.splice(+b.dataset.r, 1); setDict(words(), r); renderDict(); };
+$("repls").onclick = (e) => { const b = e.target.closest("[data-a]"); if (!b) return; const r = repls(), k = r.findIndex(x => x[0] === b.dataset.a && x[1] === b.dataset.b); if (k >= 0) { r.splice(k, 1); setDict(words(), r); } renderDict(); };
 ["w-in", "p-in"].forEach(id => $(id).onkeydown = (e) => { if (e.key === "Enter") $(id.replace("in", "add")).click(); });
 
 // ---------------- styles
@@ -665,7 +665,7 @@ function renderRelay() {
   $("device-name").placeholder = S.device_default ? "Blank uses " + S.device_default : "e.g. Pixel 7";
 }
 $("relay-sync").onchange = (e) => { save({ relay_sync: e.target.checked }, "Saved"); if (e.target.checked) V.syncNow("syncDone"); };
-$("relay-keys").onchange = (e) => { save({ relay_sync_keys: e.target.checked }, "Saved"); V.syncNow("syncDone"); };
+$("relay-keys").onchange = (e) => { save({ relay_sync_keys: e.target.checked }, "Saved"); if ($("relay-sync").checked) V.syncNow("syncDone"); };
 $("relay-url").onchange = () => {
   const v = $("relay-url").value.trim(), s = $("relay-url-status");
   const problem = v ? V.endpointProblem(v) : "";
@@ -692,12 +692,21 @@ function render() {
   if (!S) return;
   if (PAGE === "home") renderHome(); else if (PAGE === "notes") enterNotes(); else if (PAGE === "dict") renderDict(); else if (PAGE === "styles") renderStyles(); else { renderSettings(); renderRelay(); }
 }
+// A refresh re-renders the page and would wipe text being typed: the state (S) is always reloaded at once, so a save
+// never writes a stale list over settings received from another device, but while a text box has the focus only the
+// redraw waits. It runs a moment after the box loses the focus (the pause keeps a tap on a button from landing on a
+// page that was just redrawn).
+let refreshPending = false;
+const typing = () => { const a = document.activeElement; return !!a && (a.tagName === "TEXTAREA" || (a.tagName === "INPUT" && !/^(checkbox|radio|button|submit|range)$/.test(a.type))); };
+document.addEventListener("focusout", () => setTimeout(() => { if (refreshPending && !typing()) { refreshPending = false; render(); } }, 250));
 window.voxRefresh = () => {
   S = JSON.parse(V.state());
   document.documentElement.classList.toggle("dark", !!S.dark);
   const h = new Date().getHours();
   TITLES.home[0] = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
   if (PAGE === "home") $("title").textContent = TITLES.home[0];
+  if (typing()) { refreshPending = true; return; }
+  refreshPending = false;
   render();
 };
 voxRefresh();

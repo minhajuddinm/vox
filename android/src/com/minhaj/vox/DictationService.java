@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.media.AudioFormat;
@@ -33,7 +34,13 @@ import java.util.concurrent.Executors;
 public class DictationService extends Service {
     public static final int SAMPLE_RATE = 16000;
     private static final int MAX_SECONDS = 360;
-    private static final String CH = "vox_service";
+    /**
+     * The id changed from "vox_service": that channel was created with IMPORTANCE_MIN, so its notification was collapsed
+     * and the Stop button was hard to find, and Android cannot raise the importance of an existing channel. The new
+     * channel is IMPORTANCE_LOW (still silent); onCreate deletes the old one.
+     */
+    private static final String CH = "vox_service_low";
+    private static final String CH_OLD = "vox_service";
     /** Turns the whole service off (the notification's "Turn off" button). */
     public static final String ACTION_STOP = "com.minhaj.vox.STOP";
     /**
@@ -110,7 +117,8 @@ public class DictationService extends Service {
     public void onCreate() {
         super.onCreate();
         NotificationManager nm = getSystemService(NotificationManager.class);
-        NotificationChannel ch = new NotificationChannel(CH, "Vox dictation", NotificationManager.IMPORTANCE_MIN);
+        try { nm.deleteNotificationChannel(CH_OLD); } catch (RuntimeException ignored) { }
+        NotificationChannel ch = new NotificationChannel(CH, "Vox dictation", NotificationManager.IMPORTANCE_LOW);
         ch.setShowBadge(false);
         nm.createNotificationChannel(ch);
     }
@@ -125,7 +133,7 @@ public class DictationService extends Service {
             stopRecording();
             // A stop that reached a service which is not running as the foreground service (a stale button) has
             // nothing to stop and must not leave a background service behind.
-            if (instance == null) stopSelf();
+            if (instance == null) stopSelf(startId);   // with the id: a start queued behind this one must not be killed
             return START_NOT_STICKY;
         }
         if (intent != null && ACTION_RETRY.equals(intent.getAction())) {
@@ -139,15 +147,15 @@ public class DictationService extends Service {
             startForeground(1, n);
         }
         instance = this;
+        requestTileUpdate();   // an active tile is only bound on request: let it read the new state
         try {
             // Started through TrampolineActivity (a bubble tap, the "Record note" notification, the tile): record
             // right away, with no fixed delay. What lets the microphone work is the while-in-use grant this
             // microphone foreground service received at startForeground above, which needs the app to be visible
-            // at that moment; the trampoline is still on screen then. The AudioRecord is created here but only
-            // starts capturing a moment later on the vox-rec thread, after the trampoline has been asked to close,
-            // so the activity does not have to stay open for the recording itself.
+            // at that moment; the trampoline is still on screen then. This code does not depend on the order of
+            // the AudioRecord capture starting (on the vox-rec thread) and the trampoline closing.
             if (intent != null && intent.getBooleanExtra(EXTRA_START, false)) {
-                startRecording(intent.getStringExtra(EXTRA_PKG), intent.getStringExtra(EXTRA_LABEL),
+                handleStart(intent.getStringExtra(EXTRA_PKG), intent.getStringExtra(EXTRA_LABEL),
                         intent.getStringExtra(EXTRA_DEST), intent.getLongExtra(EXTRA_TAP_AT, 0L));
             }
         } finally {
@@ -155,6 +163,18 @@ public class DictationService extends Service {
         }
         SyncWorker.kick(this);   // the notes may have waited for the network: sync now that the app is running (no-op when sync is off)
         return START_NOT_STICKY;
+    }
+
+    /**
+     * A start request that came through the trampoline. When the service is already busy startRecording would return
+     * silently: a note recording is stopped by a second "record note" (the same button), anything else says so.
+     */
+    private void handleStart(String pkg, String label, String dest, long tapAtMs) {
+        switch (NoteLogic.startAction(state, isNoteJob(), DEST_NOTE.equals(dest))) {
+            case NoteLogic.START: startRecording(pkg, label, dest, tapAtMs); break;
+            case NoteLogic.STOP: stopRecording(); break;
+            default: Toast.makeText(this, "Vox is busy", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private Notification buildNotification() {
@@ -201,6 +221,7 @@ public class DictationService extends Service {
         pendingFile().delete();
         hasPending = false;
         setState(IDLE);
+        requestTileUpdate();
         super.onDestroy();
     }
 
@@ -211,6 +232,8 @@ public class DictationService extends Service {
 
     /** True while a voice note is being recorded (not while it is being sent). */
     public boolean isNoteRecording() { return state == RECORDING && isNoteJob(); }
+
+    static String currentDest() { DictationService s = instance; return s == null || s.state == IDLE ? null : s.targetDest; }   // "note", "dictation" or null (idle)
 
     // ------------------------------------------------------------ recording
 
@@ -438,7 +461,7 @@ public class DictationService extends Service {
             out = ApiClient.applyReplacements(out, p.replacements());
             if (!isCurrent(job)) return;
             if (note) {
-                saveNote(wav, raw, out, seconds, p);   // a note is not typed and is not added to the dictation history
+                saveNote(job, wav, raw, out, seconds, p);   // a note is not typed and is not added to the dictation history
                 return;
             }
             p.addHistory(label, raw, out, seconds);
@@ -465,23 +488,28 @@ public class DictationService extends Service {
      * ("Note saved: title"), tells the listeners, and never types anything. The recording is deleted only once the
      * note is stored, so a full disk or a damaged database keeps it for Retry.
      */
-    private void saveNote(File wav, String raw, String text, double seconds, Prefs p) {
+    private void saveNote(int job, File wav, String raw, String text, double seconds, Prefs p) {
         if (NoteLogic.strip(text).isEmpty()) {   // nothing left to keep (engine.py saves only when there is text)
             wav.delete();
             setPending(false);
             postError("Vox did not hear any words, so no note was saved");
             return;
         }
-        String id, title;
+        if (!isCurrent(job)) return;   // a cancel that came after the last check in send(): nothing is stored
+        String id;
         try {
-            NotesStore store = NotesStore.get(this);
-            id = store.add(text, raw, seconds, Note.SOURCE_NOTE, p.deviceName(), new ArrayList<String>(), "");
-            Note saved = store.get(id);
-            title = saved != null && !saved.title.isEmpty() ? saved.title : NoteLogic.autoTitle(NoteLogic.strip(text));
+            id = NotesStore.get(this).add(text, raw, seconds, Note.SOURCE_NOTE, p.deviceName(), new ArrayList<String>(), "");
         } catch (RuntimeException e) {   // SQLiteException: disk full, database damaged
             postError("Could not save the note: " + e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
             return;
         }
+        // From here the note is saved: reading the title back is cosmetic and must never report a failure (Retry
+        // would store the note a second time).
+        String title = NoteLogic.autoTitle(NoteLogic.strip(text));
+        try {
+            Note saved = NotesStore.get(this).get(id);
+            if (saved != null && !saved.title.isEmpty()) title = saved.title;
+        } catch (RuntimeException ignored) { }
         wav.delete();
         setPending(false);
         NoteEvents.fireSaved();   // the relay sync listens here
@@ -501,7 +529,15 @@ public class DictationService extends Service {
         // The notification has a Stop button only while a note is being recorded: show or hide it. Not after the
         // service has been destroyed (instance is cleared first), or the notification would come back.
         if (instance == this && isNoteJob() && (s == RECORDING || was == RECORDING)) refreshNotification();
+        if (isNoteJob() && (s == RECORDING || was == RECORDING)) requestTileUpdate();
         main.post(() -> { if (listener != null) listener.onState(s); });
+    }
+
+    /** Asks the system to call NoteTileService.onStartListening again (API 24+). Works because the tile declares ACTIVE_TILE in the manifest. */
+    private void requestTileUpdate() {
+        try {
+            android.service.quicksettings.TileService.requestListeningState(this, new ComponentName(this, NoteTileService.class));
+        } catch (RuntimeException ignored) { }   // the tile is not added, or the system refused
     }
 
     private void postLevel(float l) { main.post(() -> { if (listener != null) listener.onLevel(l); }); }

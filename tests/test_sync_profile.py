@@ -164,3 +164,27 @@ def test_a_relay_that_never_settles_is_reported(dev, srv, monkeypatch):
 
     monkeypatch.setattr(sync, "_call", always_stale)
     assert "keeps changing" in sync.sync_once(a)["error"]
+
+
+def test_settings_received_before_a_stale_write_still_count_as_received(dev, srv, monkeypatch):
+    a = dev("A")
+    set_cfg(user_context="mine")
+    sync.sync_once(a)
+    set_cfg(dictionary=["mine-too"])
+    v = srv.store.get_profile()
+    srv.store.put_profile(dict(v["data"], people=["Ada"]), str(v["version"]))   # another device: A will receive this
+    real = sync._call
+    state = {"raced": False}
+
+    def racing(method, url, path, token, device, **kw):
+        if method == "PUT" and path == "/profile" and not state["raced"]:
+            state["raced"] = True
+            v = srv.store.get_profile()
+            srv.store.put_profile(dict(v["data"]), str(v["version"]))          # a save that changes nothing we merge
+        return real(method, url, path, token, device, **kw)
+
+    monkeypatch.setattr(sync, "_call", racing)
+    res = sync.sync_once(a)
+    assert state["raced"] and res["error"] == ""
+    assert res["profile"] == "both"                    # the retry sees "Ada" as local, but it was received on the first try
+    assert cfg_now()["people"] == ["Ada"]

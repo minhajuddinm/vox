@@ -56,6 +56,16 @@ public final class NoteLogicTest {
             eq("not a separator " + Integer.toHexString(glue.charAt(0)), "a" + glue + "b", NoteLogic.autoTitle("a" + glue + "b"));
         }
 
+        // startAction(state, noteJob, wantNote): IDLE=0 RECORDING=1 PROCESSING=2
+        eq("start when idle", NoteLogic.START, NoteLogic.startAction(0, false, true));
+        eq("start dictation when idle", NoteLogic.START, NoteLogic.startAction(0, false, false));
+        eq("stop a note on a second note start", NoteLogic.STOP, NoteLogic.startAction(1, true, true));
+        eq("busy: note recording, dictation asked", NoteLogic.BUSY, NoteLogic.startAction(1, true, false));
+        eq("busy: dictation recording, note asked", NoteLogic.BUSY, NoteLogic.startAction(1, false, true));
+        eq("busy: dictation recording, dictation asked", NoteLogic.BUSY, NoteLogic.startAction(1, false, false));
+        eq("busy while a note is sent", NoteLogic.BUSY, NoteLogic.startAction(2, true, true));
+        eq("busy while a dictation is sent", NoteLogic.BUSY, NoteLogic.startAction(2, false, true));
+
         // ftsQuery: every word a quoted prefix token
         eq("fts of null", "", NoteLogic.ftsQuery(null));
         eq("fts of empty", "", NoteLogic.ftsQuery(""));
