@@ -1,6 +1,6 @@
 # 0030. Cleanup keeps the spoken words: a fidelity guard, a Light default, the raw text always kept
 
-Status: Accepted (the guard, the prompt rewrite, the Light default, the Settings row, "Use raw" and the fuzzy dictionary pass are built; the benchmark is not, see [p9a](../specs/p9a-cleanup-keeps-my-words.md))
+Status: Accepted (the guard, the prompt rewrite, the Light default, the Settings row, "Use raw" and the fuzzy dictionary pass are built; the benchmark is built but has not run on a real model, see [p9a](../specs/p9a-cleanup-keeps-my-words.md))
 Date: 2026-10-01
 
 ## Context
@@ -13,7 +13,7 @@ Yuvraj's report (round 3 of the v2 plan, 2026-09-30): the AI cleanup sometimes s
 2. **A guard enforces it, in code, in both apps.** `fidelity_ok(raw, cleaned, strength)` (`windows/vox_core.py`) and `Fidelity.ok` (`android/src/com/minhaj/vox/Fidelity.java`) compare the two texts as multisets of word tokens and are tied together by the golden kinds `fidelity`, `tokens` and `recall`. `looks_valid` calls it, so a cleanup that lost words is handled like a failed cleanup: the words as spoken are used, with spoken commands applied, a capital letter at the start and after each sentence end or line break (`fallback_text`; a failed call does not get the capitals) and the dictionary replacements, and the history entry is flagged `fidelity_fallback`. The thresholds are in [06-pipeline.md](../06-pipeline.md) and [p9a](../specs/p9a-cleanup-keeps-my-words.md). Integer arithmetic only, so both languages agree.
 3. **Light is the default strength** (setting `cleanup_strength`, `light` or `standard`, per device, not synced). The prompt takes the strength and the code passes the same value to the prompt and to the guard. An unset or unknown value is Light on both apps (`clean_strength` / `Fidelity.cleanStrength`), `DEFAULT_CONFIG` says `light`, and Settings has a "Cleanup strength" row on both pages. People who had a hand-edited `standard` keep it.
 4. **The raw transcript is always kept** next to the cleaned text in the history, with a one-tap "Use raw" (built, task A3: it copies the raw words; it shows when they differ from the text). Cleanup is a convenience layered on text the user can always get back.
-5. **Nothing is measured by feel.** A local benchmark (`tools/bench_cleanup.py`, planned, task A5) scores a provider and model on the same metrics (word recall, added-word rate, length ratio, structure, About-you term accuracy, latency) with the user's own key; no default model changes without its numbers.
+5. **Nothing is measured by feel.** A local benchmark (`tools/bench_cleanup.py`, built in task A5, not yet run on a real model) scores a provider and model on the same metrics (word recall, added-word rate, length ratio, structure, About-you term accuracy, latency) with the user's own key; no default model changes without its numbers.
 
 ## Consequences
 

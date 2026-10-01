@@ -116,6 +116,8 @@ The relay's data lives next to it in `relay.db` (SQLite: tables `notes` with a `
 | `meetings\<id>\` | `meeting` | `transcript.json` `{"id", "started", "entries": [{"t", "who", "text", "name"?}], "qa"}`, `notes.md`, `meta.json` `{"id", "title", "started", "duration", "words", "attendees", "export", "done"}`, optional `my_notes.md`, and `you.raw` / `others.raw` (16 kHz int16 speech pieces; removed after the notes are written unless `keep_audio`). `<id>` is `YYYYMMDD-HHMMSS`. |
 | `Documents\Vox Notes\<date> <title>.md` | `meeting` | Copy of each meeting's notes. |
 
+The cleanup benchmark (`tools/bench_cleanup.py`, run by hand) writes `%APPDATA%\Vox\bench\bench-DATE.json`: the numbers and each cleaned answer for the synthetic corpus, no key, no personal text; delete the folder whenever you like.
+
 Files written by the app while it runs: `history.jsonl` is appended; `config.json`, `history` rewrites and meeting JSON use a temp file and replace (`.tmp` then `os.replace`) where the code does so (`save_config`, `write_history`, meeting `_write_json`).
 
 ## Files on the phone

@@ -17,7 +17,7 @@ documentation/          THIS folder: developer and agent documentation
 spec/                   golden.txt, expected results shared by Python and Java tests
 relay/                 Optional relay server (Python, runs on Linux, Raspberry Pi, macOS, Windows)
 tests/                  pytest tests for the Windows Python code
-tools/                  repo scripts (generate the shared UI parts into both pages)
+tools/                  repo scripts (generate the shared UI parts into both pages; the cleanup benchmark and its corpus)
 ui-shared/              palette, component CSS and helper JS shared by both pages (generated into them)
 windows/                Windows app (Python) and its installer scripts
   ui/                   the main window's screens (one HTML file)
@@ -142,6 +142,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_user_context.py` | The "about you" context: cleaning, prompt placement, sent with cleanup. |
 | `tests/test_prompt.py` | The cleanup prompt: role line first, About you right after it, strength and structure rules, examples that pass the guard, the same bytes for the same inputs, the strength `cleanup` sends. |
 | `tests/test_fuzzy_dictionary.py` | The fuzzy dictionary pass: pipeline wiring, replacement lines win, idempotent over every golden row, speed, Python and Java share one stoplist. |
+| `tests/test_bench_cleanup.py` | The cleanup benchmark with a fake provider (no network): each metric, the corpus (size, fields, kinds, no keys), the run loop, the table, and `main` (the key never in the output, never sent to another provider's server, the relay bypassed when a provider is chosen). |
 | `tests/test_cleanup_fidelity.py` | The fidelity guard: tokens, recall (numbers, symbols, spoken commands), Light and Standard, long dictations, `looks_valid`, `process_text` fallback. |
 | `tests/test_level.py` | The meter curve and the scrolling level history. |
 | `tests/test_notes.py` | The notes store: add, edit, delete, search with FTS5 and the LIKE fallback, filters. |
@@ -271,11 +272,14 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p6-android-note-mode.md` | Spec for P6: Android note mode (faster start, note bubble, notification, tile), with the device checklist. |
 | `documentation/specs/p7e-android-sync.md` | Spec for P7e: Android relay sync and profile merge, with the device checklist and known limits. |
 | `documentation/specs/p8c-quick-wins.md` | Spec for P8c: the quick wins (Java test runner and compile check, `ApiClient` rename, `cleanup_min_words`, the relay run from the Windows app), with what was and was not verified. |
-| `documentation/specs/p9a-cleanup-keeps-my-words.md` | Spec for P9a: cleanup keeps my words (the fidelity guard is built; prompt, strength setting, fuzzy dictionary and benchmark are planned), with what was and was not verified. |
+| `documentation/specs/p9a-cleanup-keeps-my-words.md` | Spec for P9a: cleanup keeps my words (the fidelity guard, prompt, strength setting, fuzzy dictionary and benchmark are built), with what was and was not verified. |
 | `documentation/specs/p8b-design-refresh.md` | Spec for P8b: shared UI parts, regrouped settings and Status card, result flash, safer paste, privacy rewrite, with what was not verified. |
 | `ui-shared/tokens.css` | The palette both pages share (light values and a `@dark` block; Windows gets a `prefers-color-scheme` media query, Android a `.dark` class rule). |
 | `ui-shared/components.css` | The CSS declarations that are identical in both pages for `.card .btn .chips .chip .switch .status .srow .hint .day .entry`; each page keeps its own sizes and spacing next to it. |
 | `ui-shared/common.js` | Pure helpers: `STYLES`, `ABOUT_MAX`, `$`, `esc`, `toast`, `dictRepls`, `dictLines`, `aboutCount`, `agoText`, `combineTests`, `statusRows`, `statusHtml` (the Home status card). Bridges stay in each page. |
+| `tools/bench_cleanup.py` | The cleanup benchmark: runs the app's real cleanup call over the corpus for one or several models and prints a table; saves the results under `%APPDATA%\Vox\bench\`. Run by hand, never in CI. |
+| `tools/bench_metrics.py` | The benchmark's pure metrics (`recall`, `added_rate`, `length_ratio`, `term_hits`, `structure_only`, `percentile`, `score`, `summarize`); they read words the way the fidelity guard does. |
+| `tools/bench/corpus.jsonl` | 45 synthetic transcripts (chat, long, filler-heavy, enumerations, Hinglish, numbers, commands, names from a made-up About you) with style, dictionary terms and the terms the answer must spell exactly. No real person's data. |
 | `tools/sync_ui.py` | Writes the `ui-shared` blocks into `windows/ui/index.html` and `android/assets/index.html` between the `ui-shared:css` and `ui-shared:js` marker comments; `--check` verifies. |
 | `documentation/tools/check_docs.py` | The documentation checker (tree, config keys, links, ADR index). |
 | `documentation/tools/docs_todo.py` | Prints which pages to update for the code that changed (checklist only, edits nothing). |
