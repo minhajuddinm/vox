@@ -24,4 +24,10 @@ interface SyncStore {
     String getMeta(String k, String d);
 
     void setMeta(String k, String v);
+
+    /**
+     * Marks every note and every delete marker as not yet sent (dirty), so the next push sends them all. Used when the
+     * app is pointed at another relay, which has none of them.
+     */
+    void markAllDirty();
 }

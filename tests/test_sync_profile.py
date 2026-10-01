@@ -188,3 +188,43 @@ def test_settings_received_before_a_stale_write_still_count_as_received(dev, srv
     assert state["raced"] and res["error"] == ""
     assert res["profile"] == "both"                    # the retry sees "Ada" as local, but it was received on the first try
     assert cfg_now()["people"] == ["Ada"]
+
+
+def test_a_device_with_keys_off_does_not_undo_the_keys_another_device_put_on_the_relay(dev, srv):
+    a = dev("A")
+    set_cfg(api_key="gsk_pc", user_context="hello", relay_sync_keys=True)
+    sync.sync_once(a)
+    assert srv.store.get_profile()["data"]["api_key"] == "gsk_pc"
+    b = dev("B")                                                         # keys off, like the phone's default
+    for _ in range(4):
+        dev("B")
+        sync.sync_once(b)
+        assert srv.store.get_profile()["data"]["api_key"] == "gsk_pc"
+        assert cfg_now()["api_key"] == ""                                # and B never took it
+        dev("A")
+        assert sync.sync_once(a)["profile"] == ""                        # A is not asked to change anything
+        assert cfg_now()["api_key"] == "gsk_pc"
+    version = srv.store.get_profile()["version"]
+    dev("B")
+    sync.sync_once(b)
+    assert srv.store.get_profile()["version"] == version                 # settled: no more writes
+    set_cfg(user_context="from B")                                       # B's own change keeps the key on the relay
+    sync.sync_once(b)
+    data = srv.store.get_profile()["data"]
+    assert data["user_context"] == "from B" and data["api_key"] == "gsk_pc"
+
+
+def test_the_real_on_to_off_switch_takes_the_keys_off_once(dev, srv):
+    a = dev("A")
+    set_cfg(api_key="gsk_secret", relay_sync_keys=True)
+    sync.sync_once(a)
+    set_cfg(relay_sync_keys=False)
+    sync.sync_once(a)
+    assert "api_key" not in srv.store.get_profile()["data"]
+    version = srv.store.get_profile()["version"]
+    sync.sync_once(a)
+    assert srv.store.get_profile()["version"] == version
+    v = srv.store.get_profile()                                          # another device puts keys back: this one leaves them
+    srv.store.put_profile(dict(v["data"], api_key="gsk_again"), str(v["version"]))
+    sync.sync_once(a)
+    assert srv.store.get_profile()["data"]["api_key"] == "gsk_again"

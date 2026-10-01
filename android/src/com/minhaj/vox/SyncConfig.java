@@ -8,6 +8,9 @@ import java.util.Map;
  * map in memory. Pure Java so the sync stays testable without a device.
  */
 interface SyncConfig {
+    /** The relay address this phone syncs with (Prefs.relayUrl). The engine ties its sync state to it. */
+    String relayUrl();
+
     /** The setting "also share my provider settings and API keys". Read at the start of every profile attempt. */
     boolean syncKeys();
 

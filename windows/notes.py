@@ -205,6 +205,12 @@ def dirty_notes(limit=100):
     return [_row(r) for r in rows]
 
 
+def mark_all_dirty():
+    """Every note and delete marker is sent again at the next sync (the relay address changed: the new relay has none of them)."""
+    with contextlib.closing(_connect()) as con, con:
+        con.execute("UPDATE notes SET dirty = 1")
+
+
 def mark_synced(nid, sent_updated_at, seq):
     """The relay has this version. Only clears the flag when the note was not changed again while it was being sent."""
     with contextlib.closing(_connect()) as con, con:

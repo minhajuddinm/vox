@@ -429,8 +429,8 @@ def test_an_upstream_that_never_answers_times_out_as_a_502(server, stt_stub, mon
     assert time.monotonic() - t0 < 1.8 and free_slots(server)
 
 
-def test_the_timeouts_are_180_60_and_15_seconds():
-    assert relay.PROXY_TIMEOUT == {"stt": 180, "llm": 60, "models": 15}
+def test_the_timeouts_are_180_240_and_15_seconds():
+    assert relay.PROXY_TIMEOUT == {"stt": 180, "llm": 240, "models": 15}
 
 
 def test_a_trickling_upstream_hits_the_total_deadline_not_just_the_per_read_one(server, llm_stub, monkeypatch):
@@ -739,7 +739,7 @@ def test_https_addresses_use_a_certificate_checking_connection(server, monkeypat
     server.set_upstream("llm", "https://llm.example.com/v1", LLM_KEY)
     resp = send_route(server, ROUTES[2])
     assert resp.status == 502
-    assert made == [{"host": "llm.example.com", "port": 443, "timeout": 60, "kw": {}}]   # no custom SSL context: the default verifies
+    assert made == [{"host": "llm.example.com", "port": 443, "timeout": relay.PROXY_TIMEOUT["llm"], "kw": {}}]   # no custom SSL context: the default verifies
     server.set_upstream("llm", "https://[2001:db8::1]:8443/v1", LLM_KEY)
     send_route(server, ROUTES[3])
     assert made[-1] == {"host": "2001:db8::1", "port": 8443, "timeout": 15, "kw": {}}
@@ -1201,3 +1201,153 @@ def test_the_upstream_key_is_in_no_response_no_output_and_no_download(server, st
         assert key.encode() not in everything
     # the same scan must be able to find a key where one is: it is stored in relay.json, and only there
     assert LLM_KEY in open(os.path.join(str(tmp_path), "relay.json"), encoding="utf-8").read()
+
+
+# ================================================================= the Windows app's speech upload through the proxy
+def _relay_cfg(srv):
+    import vox_core
+    cfg = dict(vox_core.DEFAULT_CONFIG)
+    cfg.update(relay_proxy=True, relay_url="http://127.0.0.1:%d" % srv.server_address[1], relay_token=srv.token)
+    return cfg
+
+
+def test_vox_core_transcribe_goes_through_the_real_proxy_with_a_content_length(server, stt_stub):
+    """requests sends Content-Length for an in-memory files= upload; the relay answers 411 to anything chunked."""
+    import vox_core
+    wav = b"RIFF" + bytes(range(256)) * 40
+    assert vox_core.transcribe(_relay_cfg(server), wav) == "from the stub"
+    rec = stt_stub.seen[-1]
+    assert rec["path"] == "/v1/audio/transcriptions"
+    assert "transfer-encoding" not in rec["headers"] and rec["headers"]["content-length"] == str(len(rec["body"]))
+    assert wav in rec["body"]
+    assert vox_core.transcribe_segments(_relay_cfg(server), wav)[0]["text"] == "from the stub"
+
+
+def test_a_streamed_chunked_upload_is_411_through_the_real_proxy_and_never_reaches_the_upstream(server, stt_stub):
+    """The framing the Android app used to send (Transfer-Encoding: chunked): the reason an upload needs a length."""
+    import requests
+    body = multipart()
+    r = requests.post("http://127.0.0.1:%d%s" % (server.server_address[1], STT_PATH),
+                      headers={"Authorization": "Bearer " + server.token, "Content-Type": "multipart/form-data; boundary=" + BOUNDARY.decode()},
+                      data=(body[i:i + 100] for i in range(0, len(body), 100)), timeout=10)
+    assert r.status_code == 411 and "Content-Length" in r.json()["error"]
+    assert stt_stub.seen == [] and free_slots(server)
+
+
+# ================================================================= clients that give up
+def _send_and_hang_up(srv, route, stub, arrived, linger=0.0):
+    """Sends a real proxy request, waits until the stub has it, then closes the client's side without reading."""
+    method, path = route[0], route[1]
+    body = multipart() if route[2] == "stt" else chat()
+    ctype = "multipart/form-data; boundary=" + BOUNDARY.decode() if route[2] == "stt" else "application/json"
+    head = ("POST %s HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n"
+            % (path, srv.token, ctype, len(body))).encode()
+    s = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=10)
+    s.sendall(head + body)
+    assert arrived.acquire(timeout=10)
+    time.sleep(linger)
+    s.close()
+
+
+def _slots_free_within(srv, seconds):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if free_slots(srv):
+            return True
+        time.sleep(0.05)
+    return free_slots(srv)
+
+
+def _blocking_stub(stub):
+    gate, arrived, closed = threading.Event(), threading.Semaphore(0), threading.Semaphore(0)
+
+    def script(h, rec):
+        arrived.release()
+        gate.wait(20)
+        try:     # the relay has closed its side when it gave up: the stub's reply goes nowhere
+            h.reply(200, b'{"text": "late"}')
+        except OSError:
+            pass
+        closed.release()
+    stub.script = script
+    return gate, arrived, closed
+
+
+@pytest.mark.parametrize("route", [ROUTES[0], ROUTES[2]], ids=route_id)
+def test_a_client_that_hangs_up_mid_wait_frees_its_slot_within_about_a_second(server, stubs, route):
+    stub = stubs[0] if route[2] == "stt" else stubs[1]
+    gate, arrived, _closed = _blocking_stub(stub)
+    try:
+        _send_and_hang_up(server, route, stub, arrived)
+        t0 = time.monotonic()
+        assert _slots_free_within(server, 3), "the slot is still held after the client left"
+        assert time.monotonic() - t0 < 1.5
+    finally:
+        gate.set()
+
+
+def test_the_upstream_exchange_is_closed_when_the_client_leaves(server, stt_stub):
+    """The relay's connection to the stub is shut, so the stub sees a closed peer while it is still waiting."""
+    seen_closed = threading.Event()
+
+    def script(h, rec):
+        h.connection.settimeout(0.1)
+        end = time.monotonic() + 8
+        while time.monotonic() < end:
+            try:
+                if h.connection.recv(1) == b"":
+                    seen_closed.set()
+                    return
+            except socket.timeout:
+                continue
+            except OSError:
+                seen_closed.set()
+                return
+    arrived = threading.Semaphore(0)
+    stt_stub.script = lambda h, rec: (arrived.release(), script(h, rec))
+    _send_and_hang_up(server, ROUTES[0], stt_stub, arrived)
+    assert seen_closed.wait(5), "the upstream connection was left open"
+
+
+def test_a_slow_upstream_does_not_fill_the_slots_through_repeated_abandoned_requests(server, stubs):
+    gate, arrived, _closed = _blocking_stub(stubs[0])
+    try:
+        for _ in range(relay.PROXY_SLOTS + 3):      # more abandoned requests than there are slots, one after another
+            _send_and_hang_up(server, ROUTES[0], stubs[0], arrived)
+            assert _slots_free_within(server, 3)
+        stubs[0].script = None
+        assert send_route(server, ROUTES[0]).status == 200     # nobody else got a 429 "busy"
+    finally:
+        gate.set()
+
+
+def test_four_abandoned_requests_at_once_still_leave_room_for_a_fifth(server, stubs):
+    gate, arrived, _closed = _blocking_stub(stubs[1])
+    try:
+        socks = []
+        for _ in range(relay.PROXY_SLOTS):
+            body = chat()
+            head = ("POST %s HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n"
+                    % (LLM_PATH, server.token, len(body))).encode()
+            s = socket.create_connection(("127.0.0.1", server.server_address[1]), timeout=10)
+            s.sendall(head + body)
+            socks.append(s)
+        for _ in socks:
+            assert arrived.acquire(timeout=10)
+        assert not free_slots(server)
+        for s in socks:
+            s.close()
+        assert _slots_free_within(server, 3)
+        stubs[1].script = None
+        assert send_route(server, ROUTES[2]).status == 200
+    finally:
+        gate.set()
+
+
+def test_a_client_that_waits_still_gets_its_answer_from_a_slow_upstream(server, stt_stub):
+    def script(h, rec):
+        time.sleep(1.2)       # longer than the relay's polling interval, a few times over
+        h.reply(200, b'{"text": "slow but fine"}')
+    stt_stub.script = script
+    resp = send_route(server, ROUTES[0])
+    assert resp.status == 200 and resp.json() == {"text": "slow but fine"} and free_slots(server)
