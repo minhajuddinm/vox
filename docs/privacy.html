@@ -21,13 +21,14 @@
 <tr><td>Your dictionary and people (spelling hints), the language setting, and the end of the text of a long recording that came just before</td><td>Your speech server, as a hint for spelling</td></tr>
 <tr><td>Your dictionary and people, the text under <b>About you</b>, the style, and the name of the app you are typing into (on Windows the program's file name, for example <code>slack.exe</code>; on Android the app's name)</td><td>Your cleanup server</td></tr>
 <tr><td>Meeting title and attendee names (Windows meeting notes only)</td><td>Your servers, only for meetings you record</td></tr>
-<tr><td>A request for the model list (your key, no audio), sent when you start dictating so the upload is faster</td><td>Each of your servers (on Windows)</td></tr>
+<tr><td>A request for the model list (your key, no audio), sent when you start dictating so the upload is faster</td><td>Each of your servers, on both Windows and Android</td></tr>
+<tr><td>Meeting transcripts (Windows meeting notes), so the notes can be written. When you ask a question about your meetings, the notes of the most relevant past meetings and your question</td><td>Your cleanup server</td></tr>
 </table>
-<p>If cleanup is switched off, or the style is Raw, or the text is shorter than the minimum word count in Settings, nothing is sent to the cleanup server. Voice notes are saved without an app name: the cleanup server is not told which app you were in.</p>
+<p>If cleanup is switched off, or the style is Raw, or the text is shorter than the minimum word count in Settings, the text of that dictation is not sent to the cleanup server. Voice notes are saved without an app name: the cleanup server is not told which app you were in.</p>
 <p>On Windows, a long recording is sent to the speech server in pieces while you are still speaking (switch <code>stream_stt</code>, on by default). Short recordings are sent as one piece. On Android a recording is sent as one piece after you stop.</p>
 
 <h2>Your relay (optional)</h2>
-<p>A relay is a small program (<code>relay/relay.py</code>) that you run on your own machine, for example a Raspberry Pi on your Tailscale network. Vox only talks to a relay if you turn one of these two switches on and enter its address and token.</p>
+<p>A relay is a small program (<code>relay/relay.py</code>) that you run on your own machine, for example a Raspberry Pi on your Tailscale network. Vox only talks to a relay if you turn one of these switches on, or press <b>Test</b> next to the relay address, and you have entered its address and token. Sync and Test requests carry the name of your device.</p>
 <table>
 <tr><th>Setting</th><th>What goes to your relay</th></tr>
 <tr><td><b>Use my relay as the AI server</b> (<code>relay_proxy</code>, Windows only)</td><td>The audio, and the text to be cleaned up with the extra text listed above, go to your relay instead of directly to the AI servers. The relay forwards them to the AI servers set on the relay's own page. Your provider keys on this PC are not sent to the relay.</td></tr>
