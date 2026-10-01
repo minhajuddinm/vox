@@ -236,10 +236,20 @@ def events():
     r = requests.get(EVENTS_URL, params=params, headers={"Authorization": f"Bearer {_access_token()}"}, timeout=20)
     if r.status_code != 200:
         raise RuntimeError(f"Google Calendar {r.status_code}: {r.text[:150]}")
+    return _parse_items(r.json().get("items", []))
+
+
+def _parse_items(items):
+    """Google event items in the shape of vcalendar.parse(). An event you declined is dropped; `my_status` is your
+    answer ("accepted" when it is your own event or Google gives no answer)."""
     out = []
-    for ev in r.json().get("items", []):
+    for ev in items:
         s, e = _ts(ev.get("start")), _ts(ev.get("end"))
         if s is None or ev.get("status") == "cancelled":
+            continue
+        mine = next((a for a in ev.get("attendees", []) if a.get("self")), None)
+        my_status = "accepted" if mine is None or (ev.get("organizer") or {}).get("self") else mine.get("responseStatus", "accepted")
+        if my_status == "declined":
             continue
         people = []
         for a in ev.get("attendees", []):
@@ -254,7 +264,7 @@ def events():
                 link = link or ep.get("uri", "")
         org = ev.get("organizer", {})
         out.append({"uid": ev.get("id", "") + "|" + str(s), "title": ev.get("summary", "(no title)"),
-                    "start": s, "end": e or s, "attendees": people,
+                    "start": s, "end": e or s, "attendees": people, "my_status": my_status,
                     "organizer": "" if org.get("self") else (org.get("displayName") or org.get("email", "")),
                     "link": link})
     return out

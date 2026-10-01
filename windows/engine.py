@@ -72,6 +72,16 @@ def key_vk(key):
     return getattr(key, "vk", None) or getattr(getattr(key, "value", None), "vk", None)
 
 
+def calendar_action(ev, cfg, now):
+    """What the calendar watcher does for an event: "start" (record automatically), "remind" or None. Only a meeting
+    you accepted (or cannot tell about) starts by itself; an invite you have not answered only reminds."""
+    if not ev.get("attendees") or not (ev["start"] - 60 <= now <= ev["start"] + 180):
+        return None
+    if cfg.get("auto_notes") and ev.get("my_status", "accepted") == "accepted":
+        return "start"
+    return "remind"
+
+
 ICONS = {k: logo.draw(64, k) for k in ("idle", "rec", "busy")}
 ICONS["listen"] = ICONS["rec"]   # keep listening is a recording as far as the tray icon goes
 
@@ -741,10 +751,11 @@ class Engine:
                     continue
                 now = time.time()
                 for ev in vcalendar.fetch(self.cfg).get("events", []):
-                    if not ev["attendees"] or ev["uid"] in reminded or not (ev["start"] - 60 <= now <= ev["start"] + 180):
+                    action = calendar_action(ev, self.cfg, now)
+                    if not action or ev["uid"] in reminded:
                         continue
                     reminded.add(ev["uid"])
-                    if self.cfg.get("auto_notes"):
+                    if action == "start":
                         self.start_meeting(ev["uid"])
                     else:
                         self.notify(f"'{ev['title']}' is starting. Tray icon > Start meeting notes, or open Vox.")

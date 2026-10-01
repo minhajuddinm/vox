@@ -84,7 +84,7 @@ If a meeting is active it is stopped; if a keep-listening session runs it is end
 
 ### Calendar watcher
 
-Every 30 s, if a calendar is connected and no meeting is running, the engine looks for an event with attendees that starts within 60 s before to 180 s after now. It then either starts notes (`auto_notes`) or shows a reminder. Each event is reminded once per run.
+Every 30 s, if a calendar is connected and no meeting is running, the engine looks for an event with attendees that starts within 60 s before to 180 s after now. `engine.calendar_action` decides: it starts notes only when `auto_notes` is on and you accepted the meeting (`my_status` "accepted", which is also the value when it is your own event or the calendar gives no answer); an invite you have not answered or marked tentative only shows a reminder. A meeting you declined is dropped by `gcal._parse_items` and `vcalendar.parse` (your `PARTSTAT` is matched by `my_email`) and never reminds. Each event is reminded once per run.
 
 ## Overlay (`windows/overlay.py`)
 

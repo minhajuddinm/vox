@@ -15,6 +15,7 @@ import vox_core as core
 
 log = logging.getLogger("vox.calendar")
 CACHE_SECONDS = 300
+PARTSTAT = {"ACCEPTED": "accepted", "DECLINED": "declined", "TENTATIVE": "tentative", "NEEDS-ACTION": "needsAction", "": "needsAction"}
 
 
 def cache_path():
@@ -59,14 +60,19 @@ def parse(ics_text, start, end, my_email=""):
         if not isinstance(atts, list):
             atts = [atts]
         people = []
+        my_status = "accepted"   # unchanged behaviour when we cannot tell (no email set, or not on the list)
         for a in atts:
             if my_email and _email(a) == my_email.lower():
+                if _email(ev.get("ORGANIZER")) != my_email.lower():
+                    my_status = PARTSTAT.get(str(a.params.get("PARTSTAT", "")).upper(), "needsAction")
                 continue
             if str(a.params.get("CUTYPE", "")).upper() in ("RESOURCE", "ROOM"):
                 continue
             n = _name(a)
             if n and n not in people:
                 people.append(n)
+        if my_status == "declined":
+            continue
         org = _name(ev.get("ORGANIZER"))
         desc = str(ev.get("DESCRIPTION", ""))
         loc = str(ev.get("LOCATION", ""))
@@ -78,7 +84,7 @@ def parse(ics_text, start, end, my_email=""):
             "uid": str(ev.get("UID", "")) + "|" + s.isoformat(),
             "title": str(ev.get("SUMMARY", "(no title)")),
             "start": s.timestamp(), "end": (e or s).timestamp(),
-            "attendees": people, "organizer": org, "link": link,
+            "attendees": people, "organizer": org, "link": link, "my_status": my_status,
         })
     out.sort(key=lambda x: x["start"])
     return out
