@@ -190,7 +190,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_listen.py` | The running session with the speech calls and the window replaced: Note and Type targets, stop phrase, limit, window change, failed pieces, recovery, latency marks. |
 | `tests/test_engine_listen.py` | The engine side: double press, Esc, tray entries, the `listen_target` setting, microphone errors, recovery. |
 | `tests/test_note_hotkey.py` | The note shortcut: the pure parse and duplicate rule, and the window bridge that saves it. |
-| `tests/test_improve.py` | The pure improvement core with a fake provider: transcript selection and budget, request, tolerant parsing and caps, apply and revert, About you never applied, the fidelity report. |
+| `tests/test_improve.py` | The pure improvement core with a fake provider: transcript selection and budget, request, tolerant parsing and caps, apply and revert (revert keeps rules written later), About you never applied, the fidelity report. |
 | `tests/test_improve_card.py` | The Improve my cleanup card: preview and confirm sentence, versions, reminder rule, the one server call, the window bridge (nothing is sent before the confirmed numbers) and the tray reminder. |
 | `tests/test_ui_improve.py` | The card's ids and place on the Windows page, that only the confirm button runs it, and its two renderers (escaping). |
 | `tests/test_timing.py` | The timing core: stage maths with missing marks and a backwards clock, median and p90, biggest stage, text format, summaries (skipped cleanup not counted as 0 ms), per-model medians and the Speed card's `speed_view`. |
@@ -201,9 +201,9 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_engine_safety.py` | `_process` keeps the recording on an unexpected error, a failing paste or note save; a failing hotkey handler or tray icon does not raise (skipped without the Windows packages). |
 | `tests/test_calendar_privacy.py` | The secret iCal address stays out of the log, `calendar.json` and `config.json`; clearing it removes the cache. |
 | `tests/test_gcal.py` | Google tokens are protected on disk, a plain legacy file is migrated, an unreadable one asks to connect again. |
-| `tests/test_calendar_status.py` | A declined invite is dropped, an unanswered one only reminds, only an accepted one auto-starts (`calendar_action`). |
-| `tests/test_meeting_store.py` | A failed export still lists the meeting and removes the raw audio; a cut-off meeting is recovered (`recover_unfinished`). |
-| `tests/test_ui_app_bridge.py` | Dictionary and People edits change one item in the file's current list, not a stale page list. |
+| `tests/test_calendar_status.py` | A declined invite is dropped, an unanswered one only reminds, only an accepted one auto-starts (`calendar_action`); invite text is one clean line and bounded; `meeting.export_name`. |
+| `tests/test_meeting_store.py` | A failed export still lists the meeting and removes the raw audio; a cut-off meeting is recovered (`recover_unfinished`); a bad meeting id deletes and writes nothing; no audio is dropped between blocks (`_frames`). |
+| `tests/test_ui_app_bridge.py` | Dictionary and People edits change one item in the file's current list, not a stale page list; the meeting bridge refuses a bad id. |
 | `tests/test_hostile_note_id.py` | A note id from the relay that is not 32 hex characters is ignored, in `apply_remote` and in a sync. |
 | `tests/test_engine_notes.py` | The engine's voice-note mode (skipped where the Windows runtime packages are missing). |
 | `tests/test_engine_flash.py` | The pill's "sent" and "error" signal: `Engine.flash` timing, expiry, what cancels it, no flash without a pill, and which events raise which one (skipped where the Windows runtime packages are missing). |
