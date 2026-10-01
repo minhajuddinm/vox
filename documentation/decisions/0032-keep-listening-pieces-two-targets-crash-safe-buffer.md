@@ -5,7 +5,7 @@ Date: 2026-10-01
 
 ## Context
 
-Request R7 of the v2 part 3 plan: the double-press mode of Ctrl+Win, which was a hands-free dictation of at most 360 s sent as one recording, should "keep listening" through long speech, fast, in the background, for long voice notes and a voice "text bot". Asked what the bot should do, Yuvraj answered "wait what ??" and then "no ai chat only listening". The risks named in the plan: a session that outlives the app's focus, the PC sleeping, the microphone taken by another app, the typing target changing between sentences, and lost audio.
+Request R7 of the v2 part 3 plan: the double-press mode of Ctrl+Win, which was a hands-free dictation of at most 360 s sent as one recording, should "keep listening" through long speech, fast, in the background, for long voice notes and a voice "text bot". Asked what the bot should do, the requester answered "wait what ??" and then "no ai chat only listening". The risks named in the plan: a session that outlives the app's focus, the PC sleeping, the microphone taken by another app, the typing target changing between sentences, and lost audio.
 
 ## Decision
 

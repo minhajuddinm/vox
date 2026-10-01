@@ -66,7 +66,7 @@ Documentation: added the `documentation/` folder, `AGENTS.md` and this changelog
 
 ## Improvement series (PR 1, merged 2026-09-29 as `cb3f679`; not yet released as a tag)
 
-17 commits by Yuvraj Singh with Claude Code, from a full review of both apps.
+17 commits by Yuvi-5 with Claude Code, from a full review of both apps.
 
 ### Added
 - **Server address** setting on Windows and Android: use your own OpenAI-compatible Whisper/LLM server instead of Groq. The API key is optional for such servers. Plain `http://` is accepted only for this device, the local network and Tailscale; other servers need `https://`. README has a self-hosting section. (`8788f43`, `20fc90b`, `0ef4331`, `510ac58`)

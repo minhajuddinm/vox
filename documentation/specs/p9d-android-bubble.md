@@ -3,7 +3,7 @@
 Status: Implemented on branch `feat/p9d-bubble` (tasks D1 diagnostics, D2 watchdog, clamp, Always show and battery prompt, D3 docs), **not run on a phone**. Date: 2026-10-01. Request R5 in the part 3 notes: on his older APK the floating bubble keeps disappearing. No decision record: the choices below are small and easy to reverse (the two that someone may question, the battery screen and the screen-off removal, are explained under Deviations). Behaviour as built: [05-android-app.md](../05-android-app.md), [08-features.md](../08-features.md), [11-logs-and-diagnostics.md](../11-logs-and-diagnostics.md).
 
 ## Goal
-Find out why the bubble disappears, put it back by itself when the system drops it, and let him keep it on screen when he wants it.
+Find out why the bubble disappears, put it back by itself when the system drops it, and let the user keep it on screen when they want it.
 
 ## Candidate causes (and what covers each)
 | Cause | Covered by |
@@ -36,7 +36,7 @@ Find out why the bubble disappears, put it back by itself when the system drops 
 ## Tests
 - `BubbleLogicTest` (clamp cases, visibility, watchdog action), `OverlayDiagTest` (reasons and kinds with Always show and a dark screen, the watchdog event text), `ParityTest` and `tests/test_parity.py` (the golden rows), `tests/test_ui_static.py` (the new setting and prompt ids, the bridge methods, the service using the pure rules), `android/compile-check.sh` (all sources compile against android.jar).
 
-## Device checklist (for Yuvraj, on the phone; none of this has been run)
+## Device checklist (for a tester, on the phone; none of this has been run)
 1. Settings, System, Bubble diagnostics: Service says "Connected". If it says "Switched on but not running", switch Vox off and on in Accessibility settings and note it.
 2. Always show off, "Bubble only while typing" on: open a text field, the bubble appears; leave the field, it goes (log: "Bubble hidden by only-typing"). Turn **Always show the bubble** on: the bubble stays on the home screen and in apps without a text field.
 3. Lock the phone, wait 10 s, unlock: the bubble is there (log: Screen off, Bubble removed: screen is off, Screen on, Phone unlocked, Bubble added).
@@ -65,7 +65,7 @@ Find out why the bubble disappears, put it back by itself when the system drops 
 - The Bubble diagnostics card and the Always show switch exist on the Android Settings page and the page calls only bridge methods that exist (`tests/test_ui_static.py`).
 - The pure rules and the event text pass their tests in Java (`BubbleLogicTest`, `OverlayDiagTest`, `ParityTest`) and the same golden rows pass in `tests/test_parity.py`.
 - Every Android source compiles (`android/compile-check.sh`) and the documentation checker passes.
-- Still open, and only he can close it: the ten-step device checklist above on his phone.
+- Still open, and only a test on a real phone can close it: the ten-step device checklist above.
 
 ## Verification done (Windows only, 2026-10-01)
 Each piece was written test first (failing run, then passing run). Final run at the D3 commit: `python -m pytest -q` 913 passed, 2 skipped (915 collected; 262 of them golden cases in `test_parity.py`); `javatest.cmd` 19 Java programs run, all pass (`BubbleLogicTest`, `OverlayDiagTest` and `ParityTest` with 262 golden cases among them; the two integration programs skipped as usual); `javatest.cmd compile` `compile-check: OK (35 files)`; `python tools/sync_ui.py --check` `ui-shared OK`; `python documentation/tools/check_docs.py` OK.

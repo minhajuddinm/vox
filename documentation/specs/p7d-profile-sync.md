@@ -12,4 +12,4 @@ The "About you" text, dictionary and people (and, if the user chooses, the provi
 The Android side, per-app styles (they differ by platform), a UI showing what changed, encryption of the profile on the relay.
 
 ## Done when
-`tests/test_sync_profile.py` passes (two devices through a real relay: travel, edits follow, merge and clash, keys off by default and removal on switch-off, fields from other devices kept, a raced write retried); Yuvraj sees the About you text arrive on a second device. Not seen on a screen yet.
+`tests/test_sync_profile.py` passes (two devices through a real relay: travel, edits follow, merge and clash, keys off by default and removal on switch-off, fields from other devices kept, a raced write retried); a user sees the About you text arrive on a second device. Not seen on a screen yet.

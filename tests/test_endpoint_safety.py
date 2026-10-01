@@ -8,7 +8,7 @@ import vox_core as core
 @pytest.mark.parametrize("host", [
     "localhost", "127.0.0.1", "::1", "[::1]", "10.1.2.3", "172.16.0.5", "172.31.255.255",
     "192.168.1.20", "100.64.0.1", "100.101.102.103", "100.127.255.254",
-    "laptop", "yuvipi", "laptop-uv.tail1234.ts.net", "printer.local", "nas.lan", "169.254.1.1",
+    "laptop", "your-pi", "laptop.your-tailnet.ts.net", "printer.local", "nas.lan", "169.254.1.1",
 ])
 def test_private_hosts(host):
     assert core.is_private_host(host)

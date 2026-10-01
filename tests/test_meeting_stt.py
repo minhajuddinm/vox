@@ -7,7 +7,7 @@ import requests
 
 import vox_core as core
 
-RELAY = {"relay_proxy": True, "relay_url": "https://yuvipi.tail1234.ts.net", "relay_token": "RELAY-TOKEN"}
+RELAY = {"relay_proxy": True, "relay_url": "https://your-pi.your-tailnet.ts.net", "relay_token": "RELAY-TOKEN"}
 
 
 @pytest.fixture

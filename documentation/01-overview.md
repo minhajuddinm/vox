@@ -15,7 +15,7 @@ Both apps talk to an OpenAI-compatible HTTP API for two jobs: speech-to-text (Wh
 
 ## Who made it
 
-Original author: Muhammad Minhajuddin (repository `minhajuddinm/vox`, commits up to `9aa4d28`). An improvement series (17 commits, merged as PR 1) was added afterwards by Yuvraj Singh with Claude Code assistance. See [../CHANGELOG.md](../CHANGELOG.md). The v2 series followed (PRs 4 to 16: providers and model pickers, connection warm-up, About you, live level, voice notes, the relay and its sync, streaming of long recordings, lighter build).
+Original author: Muhammad Minhajuddin (repository `minhajuddinm/vox`, commits up to `9aa4d28`). An improvement series (17 commits, merged as PR 1) was added afterwards by Yuvi-5 (a collaborator) with Claude Code assistance. See [../CHANGELOG.md](../CHANGELOG.md). The v2 series followed (PRs 4 to 16: providers and model pickers, connection warm-up, About you, live level, voice notes, the relay and its sync, streaming of long recordings, lighter build).
 
 ## Design goals (as built)
 

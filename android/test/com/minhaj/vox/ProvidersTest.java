@@ -29,7 +29,7 @@ public final class ProvidersTest {
                 Providers.roleSettings(groq, "main", groq + "/", "", "", "m"), groq, "main", "m"));
 
         // the relay as the AI server
-        String relay = "https://yuvipi.tail1234.ts.net";
+        String relay = "https://your-pi.your-tailnet.ts.net";
         check("proxy on, stt role", same(
                 Providers.roleSettings("", "MAIN-KEY", "", "OWN-KEY", "", "whisper-large-v3-turbo", true, relay, "RELAY-TOKEN", Providers.STT),
                 relay + "/proxy/stt", "RELAY-TOKEN", "whisper-large-v3-turbo"));
