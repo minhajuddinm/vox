@@ -20,7 +20,8 @@ import java.util.WeakHashMap;
  * microphone foreground service start from a visible app, so this stays on screen until DictationService has
  * called startForeground (and started recording, if asked to) and then calls {@link #finishNow()}.
  * Its extras are passed on to the service untouched (see DictationService.EXTRA_*).
- * Every entry point (the bubbles, the "Record note" notification, the quick settings tile) starts it this way.
+ * The bubbles (when the service is not running yet), the "Record note" notification and the quick settings tile start
+ * it this way; when the service is already running the bubbles call DictationService.startRecording directly.
  */
 public class TrampolineActivity extends Activity {
     /** Closes the activity anyway if the service never answers (it was refused or crashed), so the screen is not covered. */

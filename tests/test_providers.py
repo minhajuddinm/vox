@@ -209,9 +209,10 @@ def test_strip_think_removes_a_leading_block_only():
 RELAY = {"relay_proxy": True, "relay_url": "https://yuvipi.tail1234.ts.net", "relay_token": "RELAY-TOKEN"}
 PROVIDER_KEYS = {"api_key": "MAIN-PROVIDER-KEY", "stt_api_key": "STT-PROVIDER-KEY", "llm_api_key": "LLM-PROVIDER-KEY"}
 RELAY_HINT = "check the relay token and the AI server key set on the relay page"
-# the four requests the relay forwards (relay/relay.py PROXY_ROUTES): nothing else may be asked of it
-RELAY_ROUTES = {RELAY["relay_url"] + p for p in ("/proxy/stt/models", "/proxy/stt/audio/transcriptions",
-                                                   "/proxy/llm/models", "/proxy/llm/chat/completions")}
+# the requests the relay forwards, taken from the relay itself (relay/relay.py PROXY_ROUTES): nothing else may be asked of it
+import relay  # noqa: E402
+
+RELAY_ROUTES = {RELAY["relay_url"] + path for (_, path) in relay.PROXY_ROUTES}
 
 
 def test_proxy_on_sends_each_role_to_the_relay_with_the_relay_token():
@@ -416,3 +417,40 @@ def test_settings_page_hides_the_provider_fields_while_the_relay_is_the_ai_serve
     assert {"relay-proxy", "stt", "llm"} <= parsed.outside
     assert ".proxy-on .own-server { display: none !important; }" in page
     assert 'classList.toggle("proxy-on"' in page
+
+
+def test_a_404_through_the_relay_blames_the_relay_setup_not_the_server(monkeypatch):
+    monkeypatch.setattr(core.requests, "post", lambda url, **kw: Resp(status=404))
+    msg = providers.test(RELAY, "stt")["message"]
+    assert "relay" in msg and "cannot do speech-to-text" not in msg
+    assert "relay page" in providers.explain(404, "llm", via_relay=True)
+    assert "cannot do speech-to-text" in providers.explain(404, "stt")   # without the relay the old wording stays
+
+
+def test_the_meeting_notes_call_through_the_relay_carries_the_hint(monkeypatch):
+    import meeting
+    monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: Resp({"error": "unauthorised"}, status=401))
+    with pytest.raises(core.ApiError) as ei:
+        meeting._llm(RELAY, "system", "user")
+    assert RELAY_HINT in str(ei.value)
+
+
+def test_proxy_problem_also_reports_an_unusable_relay_address():
+    plain_public = dict(RELAY, relay_url="http://relay.example.com")
+    assert "http" in providers.proxy_problem(plain_public)
+    assert providers.proxy_problem(dict(RELAY, relay_url="http://100.64.1.2:8765")) == ""
+    assert providers.proxy_problem(dict(plain_public, relay_proxy=False)) == ""
+
+
+def test_the_api_proxy_problem_wrapper_reads_the_saved_config(tmp_path, monkeypatch):
+    ui_app = pytest.importorskip("ui_app")
+    cfg = {}
+    monkeypatch.setattr(core, "load_config", lambda: cfg)
+    api = object.__new__(ui_app.Api)
+    assert api.proxy_problem() == ""
+    cfg.update(RELAY)
+    assert api.proxy_problem() == ""
+    cfg["relay_url"] = "http://relay.example.com"
+    assert "http" in api.proxy_problem()
+    cfg.update(relay_url="", relay_token="")
+    assert api.proxy_problem() == "Turn on the relay first"

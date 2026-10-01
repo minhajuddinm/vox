@@ -10,19 +10,9 @@
 #
 # --integration also runs RelayIntegrationTest, which starts the real relay (relay/relay.py) and syncs through
 # it. Without the flag that test is skipped. It needs Python 3.9 or newer (python3, python or VOX_PYTHON; the
-# test starts and stops the relay itself, on a free port, with a temp data folder) and the pinned org.json jar
-# below, which is downloaded with curl on first use. The jar goes before android.jar on that test's classpath,
-# because android.jar only has stubs of org.json that throw. (RelayIntegrationTest does not call org.json today:
-# RelayClient reads JSON with PlainJson. The jar keeps the real classes ahead of the stubs for a test that does.)
-# VOX_TOOLS_CACHE names a folder (outside the repository) to keep the jar in between runs; without it the jar is
-# fetched again every run.
+# test starts and stops the relay itself, on a free port, with a temp data folder). Nothing is downloaded: the
+# sync client reads JSON with the pure PlainJson class, so the test needs no org.json jar.
 set -eu
-
-# The org.json jar the integration test runs with: pinned by version and by SHA-256 (computed from the file on
-# Maven Central, whose own .sha1 matched). It is checked every time it is used, and a jar that does not match is refused.
-ORG_JSON_VERSION=20240303
-ORG_JSON_SHA256=3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed
-ORG_JSON_URL="https://repo1.maven.org/maven2/org/json/json/$ORG_JSON_VERSION/json-$ORG_JSON_VERSION.jar"
 
 INTEGRATION=0
 for arg in "$@"; do
@@ -41,10 +31,6 @@ else
   case "$ANDROID_JAR" in /*) ;; *) ANDROID_JAR=$PWD/$ANDROID_JAR ;; esac
 fi
 [ -f "$ANDROID_JAR" ] || { echo "ANDROID_JAR not found: $ANDROID_JAR" >&2; exit 2; }
-# The same for the jar cache: a relative folder means relative to where the script was started, not to the repository root.
-if [ -n "${VOX_TOOLS_CACHE:-}" ]; then
-  case "$VOX_TOOLS_CACHE" in /*|?:*) ;; *) VOX_TOOLS_CACHE=$PWD/$VOX_TOOLS_CACHE ;; esac
-fi
 
 cd "$(dirname "$0")/.."   # repository root: paths in testsrc.list and spec/golden.txt are relative to it
 
@@ -55,30 +41,6 @@ case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) SEP=';' ;; esac
 OUT=$(mktemp -d)
 if command -v cygpath >/dev/null 2>&1; then OUT=$(cygpath -m "$OUT"); fi   # the Windows JDK needs a Windows-style path
 trap 'rm -rf "$OUT"' EXIT
-
-sha256_of() {   # sha256_of <file>: its SHA-256 as 64 hex characters
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d ' ' -f 1; else shasum -a 256 "$1" | cut -d ' ' -f 1; fi
-}
-
-# Sets ORG_JSON_JAR to the pinned org.json jar, downloaded if it is not in the cache folder yet. A download that does
-# not match the pinned SHA-256 is deleted, and a jar in the cache that does not match is refused, never used.
-fetch_org_json() {
-  command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || { echo "sha256sum or shasum is needed to check the org.json jar" >&2; exit 2; }
-  local dir=${VOX_TOOLS_CACHE:-$OUT/tools} jar part
-  mkdir -p "$dir"
-  jar=$dir/json-$ORG_JSON_VERSION.jar
-  if [ ! -f "$jar" ]; then
-    part=$jar.part.$$
-    echo "downloading org.json $ORG_JSON_VERSION from repo1.maven.org" >&2
-    curl -fsSL --retry 2 -o "$part" "$ORG_JSON_URL" || { rm -f "$part"; echo "could not download $ORG_JSON_URL" >&2; exit 2; }
-    [ "$(sha256_of "$part")" = "$ORG_JSON_SHA256" ] || { rm -f "$part"; echo "the downloaded org.json jar does not match the pinned SHA-256; refusing it" >&2; exit 2; }
-    mv "$part" "$jar"
-  fi
-  [ "$(sha256_of "$jar")" = "$ORG_JSON_SHA256" ] || { echo "$jar does not match the pinned SHA-256 of org.json $ORG_JSON_VERSION; refusing to use it (delete it to download it again)" >&2; exit 2; }
-  ORG_JSON_JAR=$jar
-  if command -v cygpath >/dev/null 2>&1; then ORG_JSON_JAR=$(cygpath -ma "$jar"); fi   # the Windows JDK needs a Windows-style path
-}
-if [ "$INTEGRATION" = 1 ]; then fetch_org_json; fi
 
 srcs=()
 while IFS= read -r line || [ -n "$line" ]; do
@@ -118,7 +80,7 @@ for f in "${tests[@]}"; do
     *.ParityTest) run_test "$OUT$SEP$ANDROID_JAR" "$cls" spec/golden.txt ;;
     *.RelayIntegrationTest)
       if [ "$INTEGRATION" = 1 ]; then
-        run_test "$OUT$SEP$ORG_JSON_JAR$SEP$ANDROID_JAR" "$cls"   # the real org.json before android.jar's stubs
+        run_test "$OUT$SEP$ANDROID_JAR" "$cls"
       else
         echo "SKIP ${cls##*.}: needs the real relay (bash android/run-tests.sh --integration)"
       fi ;;

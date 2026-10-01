@@ -427,7 +427,10 @@ class Engine:
             log.error("api error: %s", e)
             self.pending = (pcm, exe, note)
             if e.code == 401:
-                self.notify("The server rejected the API key. Check Vox > Settings." + keep)
+                if core.providers.uses_relay(self.cfg):
+                    self.notify(core.providers.explain(401, "llm", via_relay=True) + keep)
+                else:
+                    self.notify("The server rejected the API key. Check Vox > Settings." + keep)
             elif e.code == 429:
                 self.notify("Rate limit reached. Try again shortly." + keep)
             else:

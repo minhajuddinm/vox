@@ -66,6 +66,40 @@ final class Providers {
         return new String[]{base, key, m.isEmpty() ? defaultModel : m};
     }
 
+    static final String PROXY_PROBLEM = "Turn on the relay first";   // shown when the relay is chosen as the AI server but its address or token is missing
+    static final String RELAY_HINT = "check the relay token and the AI server key set on the relay page";   // for a 401 or 403 that came back through the relay
+
+    /** `<relay>/proxy/<role>` (a trailing slash on the relay address is dropped), or "" when there is no relay address. Shared with the PC app through spec/golden.txt. */
+    static String proxyUrl(String relayUrl, String role) {
+        String base = Endpoint.normalize(relayUrl);
+        return base.isEmpty() ? "" : base + "/proxy/" + role;
+    }
+
+    /** True when the relay is the AI server: the switch is on and the relay's address and token are filled in. */
+    static boolean usesRelay(boolean relayProxy, String relayUrl, String relayToken) {
+        return relayProxy && !Endpoint.normalize(relayUrl).isEmpty() && relayToken != null && !relayToken.trim().isEmpty();
+    }
+
+    /** What Settings shows when the switch is on but there is no relay to use, otherwise "". */
+    static String proxyProblem(boolean relayProxy, String relayUrl, String relayToken) {
+        return relayProxy && !usesRelay(true, relayUrl, relayToken) ? PROXY_PROBLEM : "";
+    }
+
+    /**
+     * Like the six-argument form, but with the relay as the AI server: when `relayProxy` is on and the relay's address and
+     * token are filled in, the role goes to `<relay>/proxy/<role>` with the relay token as the key (the provider addresses
+     * and keys are not used: they live on the relay) and the model unchanged. Otherwise the normal settings, so a missing
+     * relay falls back silently (Settings shows `proxyProblem`). The relay token is only ever returned with the relay address.
+     */
+    static String[] roleSettings(String mainBase, String mainKey, String ownBase, String ownKey, String model, String defaultModel,
+                                 boolean relayProxy, String relayUrl, String relayToken, String role) {
+        if (usesRelay(relayProxy, relayUrl, relayToken)) {
+            String m = model == null ? "" : model.trim();
+            return new String[]{proxyUrl(relayUrl, role), relayToken.trim(), m.isEmpty() ? defaultModel : m};
+        }
+        return roleSettings(mainBase, mainKey, ownBase, ownKey, model, defaultModel);
+    }
+
     /** True when the server is outside the private network, so it needs a key. */
     static boolean keyRequired(String base) {
         String host = null;
@@ -164,6 +198,14 @@ final class Providers {
 
     /** A plain reason for an HTTP status. */
     static String explain(int status, String role, String body) {
+        return explain(status, role, body, false);
+    }
+
+    /** `viaRelay`: the request went to the relay, which passes an AI server's 401 and 403 on unchanged, so either side may have refused it. */
+    static String explain(int status, String role, String body, boolean viaRelay) {
+        if ((status == 401 || status == 403) && viaRelay) {
+            return "The relay or the AI server behind it refused the request (" + RELAY_HINT + ").";
+        }
         if (status == 401 || status == 403) return "The server refused the key. Check that it is right and belongs to this server.";
         if (status == 404) {
             return STT.equals(role)

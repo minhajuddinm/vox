@@ -233,3 +233,22 @@ def test_worker_syncs_on_trigger_and_reports_status(dev, srv):
         assert worker.status()["enabled"] is False
     finally:
         worker.stop()
+
+
+def test_a_first_sync_of_many_notes_reads_each_dirty_row_about_once(dev, srv, monkeypatch):
+    a = dev("A")
+    total = sync.PUSH_BATCH * 8
+    for i in range(total):
+        notes.add(f"note {i}")
+    rows = {"n": 0}
+    real = notes.dirty_notes
+
+    def counting(limit=100):
+        out = real(limit)
+        rows["n"] += len(out)
+        return out
+
+    monkeypatch.setattr(notes, "dirty_notes", counting)
+    res = sync.sync_once(a)
+    assert res["pushed"] == total and res["error"] == ""
+    assert rows["n"] <= total + 2 * sync.PUSH_BATCH     # not the sum of a growing limit for every batch

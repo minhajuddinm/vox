@@ -44,8 +44,13 @@ public final class Prefs {
     /** {address, key, model} for a role ("stt" or "llm"); a role with its own address never gets the main key. */
     public String[] role(String role) {
         return Providers.roleSettings(baseUrl(), apiKey(), sp.getString(role + "_base_url", ""), sp.getString(role + "_api_key", ""),
-                sp.getString(role + "_model", ""), Providers.STT.equals(role) ? DEFAULT_STT_MODEL : DEFAULT_LLM_MODEL);
+                sp.getString(role + "_model", ""), Providers.STT.equals(role) ? DEFAULT_STT_MODEL : DEFAULT_LLM_MODEL,
+                relayProxy(), relayUrl(), relayToken(), role);
     }
+    /** The setting "use my relay as the AI server" (`relay_proxy`). Off until the user turns it on; this phone only, never synced. */
+    public boolean relayProxy() { return sp.getBoolean("relay_proxy", false); }
+    /** True when the relay is the AI server right now: the switch is on and the relay's address and token are filled in. */
+    public boolean usesRelay() { return Providers.usesRelay(relayProxy(), relayUrl(), relayToken()); }
     /** True when a role talks to a server outside the private network without a key (a server of your own needs none). */
     public boolean keyMissing() {
         for (String r : new String[]{Providers.STT, Providers.LLM}) {

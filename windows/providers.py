@@ -48,8 +48,20 @@ def uses_relay(cfg):
 
 
 def proxy_problem(cfg):
-    """What the settings page shows when `relay_proxy` is on but there is no relay to use, otherwise ''."""
-    return PROXY_PROBLEM if cfg.get("relay_proxy") and not uses_relay(cfg) else ""
+    """What the settings page shows when `relay_proxy` is on but the relay cannot be used (address or token missing,
+    or an address `endpoint_error` refuses), otherwise ''."""
+    if not cfg.get("relay_proxy"):
+        return ""
+    if not uses_relay(cfg):
+        return PROXY_PROBLEM
+    import vox_core as core
+    return core.endpoint_error(cfg)   # for example plain http to a public host: dictation is blocked, so it is not "using the relay"
+
+
+def proxy_url(relay_url, role):
+    """The address a role is sent to through the relay: `<relay_url>/proxy/<role>`, or '' without a relay address."""
+    base = _norm(relay_url)
+    return f"{base}/proxy/{role}" if base else ""
 
 
 def role_settings(cfg, role):
@@ -61,7 +73,7 @@ def role_settings(cfg, role):
     """
     model = (cfg.get(f"{role}_model") or "").strip() or DEFAULT_MODELS[role]
     if uses_relay(cfg):
-        return f"{_norm(cfg.get('relay_url'))}/proxy/{role}", cfg["relay_token"].strip(), model
+        return proxy_url(cfg.get("relay_url"), role), cfg["relay_token"].strip(), model
     main = _norm(cfg.get("base_url")) or GROQ_BASE
     own = _norm(cfg.get(f"{role}_base_url"))
     own_key = (cfg.get(f"{role}_api_key") or "").strip()
@@ -144,6 +156,9 @@ def explain(status, role, body="", via_relay=False):
             return f"The relay or the AI server behind it refused the request ({RELAY_HINT})."
         return "The server refused the key. Check that it is right and belongs to this server."
     if status == 404:
+        if via_relay:
+            return ("The relay does not know this request. Check the relay address, that the relay has the AI server "
+                    "routes turned on, and that an AI server is set for this role on the relay page.")
         if role == "stt":
             return "This server cannot do speech-to-text (no /audio/transcriptions). Use a different server for voice."
         return "The server has no such endpoint or model. Check the address and the model name."
