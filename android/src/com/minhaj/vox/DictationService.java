@@ -157,6 +157,9 @@ public class DictationService extends Service {
         return START_NOT_STICKY;
     }
 
+    /** True while a recording that failed to go through is kept for Retry (Home shows it as the last dictation outcome). */
+    boolean hasUnsent() { return hasPending; }
+
     private Notification buildNotification() {
         Intent open = new Intent(this, MainActivity.class);
         PendingIntent openPi = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_IMMUTABLE);

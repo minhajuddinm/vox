@@ -12,3 +12,28 @@ function aboutCount() {
   s.className = "status" + (n > ABOUT_MAX ? " bad" : "");
   s.textContent = n ? `${n.toLocaleString()} of ${ABOUT_MAX.toLocaleString()} characters` + (n > ABOUT_MAX ? ". The rest is ignored." : "") : "";
 }
+function agoText(t) { if (!t) return "never"; const s = Math.round(Date.now() / 1000 - t); return s < 10 ? "just now" : s < 90 ? s + " s ago" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 129600 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; }
+// One line for both Test results of the connection test: {ok, message}. A failing role is named first.
+function combineTests(stt, llm) {
+  if (stt.ok && llm.ok) return { ok: true, message: "Voice and cleanup both answered" };
+  return { ok: false, message: [stt.ok ? "" : "Voice: " + stt.message, llm.ok ? "" : "Cleanup: " + llm.message].filter(Boolean).join(" ") };
+}
+// Rows of the Home status card, from local data only: st = state.status, sync = the sync status or null (not asked yet),
+// test = the last connection Test of this session ({ok, message}) or null. Each row is [label, text, kind].
+function statusRows(st, cfg, sync, test) {
+  const [syncText, syncKind] = !cfg.relay_sync ? ["Off", "dim"] : !sync ? ["Checking…", "dim"] : sync.running ? ["Syncing…", ""]
+    : sync.error ? ["Not synced: " + sync.error, "bad"] : ["Synced " + agoText(sync.last_ok), "ok"];
+  const l = st.last, app = l && l.app ? " in " + String(l.app).replace(/\.exe$/i, "") : "";
+  const [lastText, lastKind] = l ? [`${l.words} word${l.words === 1 ? "" : "s"}, ${agoText(l.t)}${app}`, ""]
+    : st.unsent ? ["Not sent. Retry from the notification.", "bad"] : [cfg.keep_history === false ? "History is off" : "None yet", "dim"];
+  return [
+    ["AI provider", st.provider, ""],
+    ["Voice model", st.stt_model, ""],
+    ["Cleanup model", st.llm_model, ""],
+    ["Connection", test ? (test.ok ? "Working. " : "Failed. ") + test.message : "Not tested yet", test ? (test.ok ? "ok" : "bad") : "dim"],
+    ["Sync", syncText, syncKind],
+    ["Voice notes", st.notes === 1 ? "1 note" : st.notes + " notes", ""],
+    ["Last dictation", lastText, lastKind],
+  ];
+}
+const statusHtml = (rows) => rows.map(([a, b, k]) => `<div class="srow"><span class="sl">${esc(a)}</span><span class="sv ${k}">${esc(b)}</span></div>`).join("");

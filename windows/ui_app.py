@@ -28,7 +28,6 @@ HOTKEYS = [
     {"id": "ctrl+alt", "keys": ["ctrl", "alt"], "label": "Ctrl + Alt"},
     {"id": "ctrl+shift", "keys": ["ctrl", "shift"], "label": "Ctrl + Shift"},
 ]
-TYPING_WPM = 40  # average typing speed used for "time saved"
 
 
 def resource(*parts):
@@ -48,12 +47,6 @@ class Api:
     def get_state(self):
         cfg = core.load_config()
         hist = core.read_history()
-        now = time.time()
-        week = [h for h in hist if now - h.get("t", 0) < 7 * 86400]
-        words = sum(h.get("words", 0) for h in hist)
-        secs = sum(h.get("secs", 0) for h in hist)
-        wpm = round(words / (secs / 60)) if secs > 5 else 0
-        saved_min = max(0, words / TYPING_WPM - secs / 60)
         apps = sorted({h.get("app", "").lower() for h in hist if h.get("app")} | set(cfg.get("app_styles", {})))
         hk = next((h["id"] for h in HOTKEYS if h["keys"] == cfg.get("hotkey")), "custom")
         return {
@@ -61,19 +54,20 @@ class Api:
             "hotkeys": HOTKEYS,
             "hotkey_id": hk,
             "history": list(reversed(hist[-300:])),
-            "stats": {
-                "week_words": sum(h.get("words", 0) for h in week),
-                "total_words": words,
-                "count": len(hist),
-                "wpm": wpm,
-                "saved_min": round(saved_min),
-            },
+            "status": providers.status_summary(cfg, hist, self._note_count()),
             "apps": apps,
             "mics": audio_devices.input_names(),
             "presets": providers.PRESETS,
             "autostart": self.get_autostart(),
             "data_dir": core.data_dir(),
         }
+
+    def _note_count(self):
+        try:
+            return notes.count()
+        except Exception as e:
+            log.warning("note count failed: %s", e)
+            return 0
 
     # ------------------------------------------------------------- writing
     def save_config(self, cfg):

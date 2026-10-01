@@ -9,8 +9,11 @@
 .switch input:checked + span { background: var(--accent); }
 .status { font-weight: 600; }
 .status.ok { color: var(--ok); } .status.bad { color: var(--bad); }
-.stat .n { font-variant-numeric: tabular-nums; }
-.stat .l { color: var(--muted); font-size: 12.5px; }
+.srow { display: flex; gap: 14px; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.srow:last-child { border-bottom: 0; }
+.srow .sl { color: var(--muted); flex: none; }
+.srow .sv { text-align: right; min-width: 0; overflow-wrap: anywhere; font-weight: 550; }
+.srow .sv.ok { color: var(--ok); } .srow .sv.bad { color: var(--bad); } .srow .sv.dim { color: var(--muted); font-weight: 400; }
 .hint { background: var(--accent-soft); display: flex; align-items: center; gap: 12px; }
 .day { color: var(--muted); font-size: 12px; text-transform: uppercase; }
 .entry { border-bottom: 1px solid var(--line); }

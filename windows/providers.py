@@ -72,6 +72,26 @@ def role_settings(cfg, role):
     return base, key, model
 
 
+def status_summary(cfg, history, note_count):
+    """What the Home status card shows, from local data only (no network call).
+
+    `history` is oldest first, as `vox_core.read_history` returns it. `last` is the newest saved dictation
+    ({"t", "words", "app"}) or None when there is none (history off, cleared or empty).
+    """
+    base = _norm(cfg.get("base_url")) or GROQ_BASE
+    preset = next((p for p in PRESETS if p["base_url"] and _norm(p["base_url"]) == base), PRESETS[-1])
+    via_relay = uses_relay(cfg)
+    last = history[-1] if history else None
+    return {
+        "provider": "My relay" if via_relay else preset["name"],
+        "via_relay": via_relay,
+        "stt_model": (cfg.get("stt_model") or "").strip() or DEFAULT_MODELS["stt"],
+        "llm_model": (cfg.get("llm_model") or "").strip() or DEFAULT_MODELS["llm"],
+        "notes": int(note_count),
+        "last": {"t": last.get("t", 0), "words": last.get("words", 0), "app": last.get("app", "")} if last else None,
+    }
+
+
 def key_missing(cfg):
     """True when a role talks to a server outside the private network without a key."""
     import vox_core as core

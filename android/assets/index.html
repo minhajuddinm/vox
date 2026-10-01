@@ -25,8 +25,11 @@
 .switch input:checked + span { background: var(--accent); }
 .status { font-weight: 600; }
 .status.ok { color: var(--ok); } .status.bad { color: var(--bad); }
-.stat .n { font-variant-numeric: tabular-nums; }
-.stat .l { color: var(--muted); font-size: 12.5px; }
+.srow { display: flex; gap: 14px; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.srow:last-child { border-bottom: 0; }
+.srow .sl { color: var(--muted); flex: none; }
+.srow .sv { text-align: right; min-width: 0; overflow-wrap: anywhere; font-weight: 550; }
+.srow .sv.ok { color: var(--ok); } .srow .sv.bad { color: var(--bad); } .srow .sv.dim { color: var(--muted); font-weight: 400; }
 .hint { background: var(--accent-soft); display: flex; align-items: center; gap: 12px; }
 .day { color: var(--muted); font-size: 12px; text-transform: uppercase; }
 .entry { border-bottom: 1px solid var(--line); }
@@ -59,8 +62,6 @@ input[type=text], input[type=password], input[type=number], select, textarea { w
 input:focus, select:focus, textarea:focus { border-color:var(--accent); }
 .check { width:26px; height:26px; border-radius:50%; flex:none; display:grid; place-items:center; font-size:14px; font-weight:700; color:#fff; background:var(--line); }
 .check.ok { background:var(--ok); }
-.stats { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-.stat .n { font-size:26px; font-weight:700; }
 .hint { border-radius:16px; padding:14px 16px; }
 .hint svg { flex:none; color:var(--accent); }
 .day { font-weight:650; letter-spacing:.05em; margin:18px 4px 8px; }
@@ -111,11 +112,10 @@ nav button.on .pill { background:var(--accent-soft); }
 <section class="page on" id="home">
   <div id="setup"></div>
   <div id="ready"></div>
-  <div class="stats" style="margin-top:14px">
-    <div class="card stat"><div class="n" id="s-week">0</div><div class="l">Words this week</div></div>
-    <div class="card stat"><div class="n" id="s-total">0</div><div class="l">Total words</div></div>
-    <div class="card stat"><div class="n" id="s-wpm">–</div><div class="l">Words per minute</div></div>
-    <div class="card stat"><div class="n" id="s-saved">0m</div><div class="l">Time saved vs typing</div></div>
+  <h2>Status</h2>
+  <div class="card" id="status-card">
+    <div id="status-rows"></div>
+    <button class="btn ghost full" id="status-test">Test connection</button>
   </div>
   <h2>Try it</h2>
   <textarea id="try" rows="3" placeholder="Tap here, then tap the Vox bubble and speak"></textarea>
@@ -140,7 +140,7 @@ nav button.on .pill { background:var(--accent-soft); }
   <p class="sub" style="margin:0 4px 6px">Vox uses these as spelling hints so names and terms come out right.</p>
   <h2>About you</h2>
   <div class="card">
-    <textarea id="about" rows="6" placeholder="Who you are, what you work on, how you like to write, terms Vox should know. Added to every cleanup request; goes only to your cleanup server."></textarea>
+    <textarea id="about" rows="6" placeholder="Who you are, what you work on, how you like to write, terms Vox should know. Added to every cleanup request, so it goes to your cleanup server. While sync is on it is also copied to your relay."></textarea>
     <div class="status" id="about-status"></div>
   </div>
   <h2>My words</h2>
@@ -168,8 +168,8 @@ nav button.on .pill { background:var(--accent-soft); }
 
 <!-- SETTINGS -->
 <section class="page" id="settings">
-  <h2>AI provider</h2>
-  <div class="card">
+  <h2>AI providers</h2>
+  <div class="card" id="provider-card">
     <label class="note" style="margin:0">Provider</label>
     <select id="provider" style="margin:4px 0 10px"></select>
     <label class="note" style="margin:0">Server address</label>
@@ -179,7 +179,7 @@ nav button.on .pill { background:var(--accent-soft); }
     <input type="password" id="key" placeholder="paste your key" autocomplete="off" style="margin-top:4px">
     <div class="row" style="margin-top:10px;gap:8px"><button class="btn" id="key-save" style="flex:1">Save and test</button><button class="btn ghost" id="key-get">Get a key</button></div>
     <div class="status" id="key-status"></div>
-    <div class="note">Stored only on this phone. A server of your own may need no key. Plain http works only for this phone, your local network and Tailscale.</div>
+    <div class="note">Stored on this phone, not encrypted. A server of your own may need no key. Plain http works only for this phone, your local network and Tailscale.</div>
     <label class="note" style="margin:14px 0 0">Voice model</label>
     <input type="text" id="stt" list="stt-models" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:4px"><datalist id="stt-models"></datalist>
     <div class="row" style="margin-top:8px;gap:8px"><button class="btn ghost" id="test-stt" style="flex:1">Test voice</button><button class="btn ghost" id="refresh-models">Refresh list</button></div>
@@ -188,37 +188,32 @@ nav button.on .pill { background:var(--accent-soft); }
     <input type="text" id="llm" list="llm-models" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:4px"><datalist id="llm-models"></datalist>
     <div class="row" style="margin-top:8px"><button class="btn ghost" id="test-llm" style="flex:1">Test cleanup</button></div>
     <div class="status" id="llm-status"></div>
+    <div class="row" style="margin-top:14px;gap:12px"><div class="grow"><div class="t" style="font-weight:600">Different server for voice or cleanup</div><div class="d" style="color:var(--muted);font-size:13px">For example Whisper on one machine and Ollama on another. Each server gets only its own key</div></div><label class="switch"><input type="checkbox" id="split"><span></span></label></div>
+    <div id="split-rows" style="display:none;margin-top:12px">
+      <label class="note" style="margin:0">Voice server address</label>
+      <input type="text" id="stt-url" placeholder="same as above" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin:4px 0 0">
+      <div class="status" id="stt-url-status"></div>
+      <input type="password" id="stt-key" placeholder="voice server key (optional)" autocomplete="off" style="margin-top:6px">
+      <label class="note" style="margin:12px 0 0">Cleanup server address</label>
+      <input type="text" id="llm-url" placeholder="same as above" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin:4px 0 0">
+      <div class="status" id="llm-url-status"></div>
+      <input type="password" id="llm-key" placeholder="cleanup server key (optional)" autocomplete="off" style="margin-top:6px">
+    </div>
   </div>
+
+  <h2>Voice &amp; audio</h2>
   <div class="card list">
-    <div class="item"><div class="grow"><div class="t">Different server for voice or cleanup</div><div class="d">For example Whisper on one machine and Ollama on another. Each server gets only its own key</div></div><label class="switch"><input type="checkbox" id="split"><span></span></label></div>
-  </div>
-  <div class="card" id="split-rows" style="display:none">
-    <label class="note" style="margin:0">Voice server address</label>
-    <input type="text" id="stt-url" placeholder="same as above" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin:4px 0 0">
-    <div class="status" id="stt-url-status"></div>
-    <input type="password" id="stt-key" placeholder="voice server key (optional)" autocomplete="off" style="margin-top:6px">
-    <label class="note" style="margin:12px 0 0">Cleanup server address</label>
-    <input type="text" id="llm-url" placeholder="same as above" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin:4px 0 0">
-    <div class="status" id="llm-url-status"></div>
-    <input type="password" id="llm-key" placeholder="cleanup server key (optional)" autocomplete="off" style="margin-top:6px">
-  </div>
-  <h2>Dictation</h2>
-  <div class="card list">
-    <div class="item"><div class="grow"><div class="t">AI cleanup</div><div class="d">Removes fillers, fixes punctuation, applies corrections</div></div><label class="switch"><input type="checkbox" id="cleanup"><span></span></label></div>
-    <div class="item"><div class="grow"><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases are typed as spoken, which is faster. 1 cleans up everything (1 to 20)</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" inputmode="numeric" style="width:76px"></div>
-    <div class="item"><div class="grow"><div class="t">Keep dictation history</div><div class="d">Saves what you dictate on this phone. Off saves nothing</div></div><label class="switch"><input type="checkbox" id="keep-history"><span></span></label></div>
-    <div class="item"><div class="grow"><div class="t">Bubble only while typing</div><div class="d">Hide the bubble when no text box is selected</div></div><label class="switch"><input type="checkbox" id="only-typing"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Language</div><div class="d">Auto can switch on short phrases</div></div>
       <select class="inline" id="language"><option value="">Auto</option><option value="en">English</option><option value="ur">Urdu</option><option value="hi">Hindi</option><option value="ar">Arabic</option><option value="fr">French</option><option value="es">Spanish</option></select></div>
+    <div class="item"><div class="grow"><div class="t">AI cleanup</div><div class="d">Removes fillers, fixes punctuation, applies corrections</div></div><label class="switch"><input type="checkbox" id="cleanup"><span></span></label></div>
+    <div class="item"><div class="grow"><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases are typed as spoken, which is faster. 1 cleans up everything (1 to 20)</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" inputmode="numeric" style="width:76px"></div>
   </div>
-  <h2>Background</h2>
+
+  <h2>Privacy</h2>
+  <p class="note" style="margin:0 4px 10px" id="leaves">What leaves this phone: your audio and its transcript go to your voice server, and the cleanup text goes to your cleanup server. Voice notes stay in this phone's note store and send no app name. Vox has no analytics and no server of its own.</p>
   <div class="card list">
-    <div class="item"><div class="grow"><div class="t">Dictation service</div><div class="d">Keeps the mic ready for the bubble</div></div><label class="switch"><input type="checkbox" id="service"><span></span></label></div>
-    <div class="item" id="battery"><div class="grow"><div class="t">Battery: Unrestricted</div><div class="d">Stops Android from closing Vox. Tap, find Vox, allow.</div></div><span style="color:var(--muted)">›</span></div>
-  </div>
-  <h2>Sync between devices</h2>
-  <div class="card list">
-    <div class="item"><div class="grow"><div class="t">Sync voice notes with my relay</div><div class="d">Keeps your voice notes the same on your phone and PCs through a relay you run yourself (a small server, for example on a Raspberry Pi, reached over Tailscale). Needs its address and token</div></div><label class="switch"><input type="checkbox" id="relay-sync"><span></span></label></div>
+    <div class="item"><div class="grow"><div class="t">Keep dictation history</div><div class="d">Saves what you dictate on this phone, not encrypted. Off saves nothing</div></div><label class="switch"><input type="checkbox" id="keep-history"><span></span></label></div>
+    <div class="item"><div class="grow"><div class="t">Sync voice notes with my relay</div><div class="d">Keeps your voice notes the same on your phone and PCs through a relay you run yourself (a small server, for example on a Raspberry Pi, reached over Tailscale). While on, the relay receives the full text, raw transcript, tags and device name of each voice note, and your About you text, dictionary, people, default style, cleanup switch and language. Needs its address and token</div></div><label class="switch"><input type="checkbox" id="relay-sync"><span></span></label></div>
   </div>
   <div class="card" id="relay-rows" style="margin-top:10px">
     <label class="note" style="display:block;margin:0">Relay address</label>
@@ -228,13 +223,24 @@ nav button.on .pill { background:var(--accent-soft); }
     <input type="password" id="relay-token" placeholder="paste the relay token" autocomplete="off" style="margin-top:4px">
     <div class="row" style="margin-top:10px"><button class="btn ghost" id="relay-test" style="flex:1">Test connection</button></div>
     <div class="status" id="relay-status"></div>
-    <div class="note">Stored only on this phone. Plain http works only for this phone, your local network and Tailscale.</div>
+    <div class="note">Stored on this phone, not encrypted. Plain http works only for this phone, your local network and Tailscale.</div>
     <label class="note" style="display:block;margin:14px 0 0">This phone's name</label>
     <input type="text" id="device-name" placeholder="e.g. Pixel 7" autocomplete="off" style="margin-top:4px">
-    <div class="note">Shown on the relay's page and on the notes made here. Blank uses the phone model.</div>
+    <div class="note">Sent to the relay and shown on its page and on the notes made here. Blank uses the phone model.</div>
   </div>
   <div class="card list" style="margin-top:10px">
-    <div class="item"><div class="grow"><div class="t">Also share my provider settings and API keys</div><div class="d">Off by default. When on, the AI provider, models and API keys are copied to your other devices through the relay, so anyone with the relay token can read them. Turning it off removes them from the relay. Your "About you" text, dictionary and people are always shared while sync is on</div></div><label class="switch"><input type="checkbox" id="relay-keys"><span></span></label></div>
+    <div class="item"><div class="grow"><div class="t">Also share my provider settings and API keys</div><div class="d">Off by default. When on, the AI provider, models and API keys are copied to your other devices through the relay, so anyone with the relay token can read them. Turning it off removes them from the relay</div></div><label class="switch"><input type="checkbox" id="relay-keys"><span></span></label></div>
+    <div class="item" id="open-about"><div class="grow"><div class="t">About you</div><div class="d">Added to every cleanup request, so it goes to your cleanup server. While sync is on it is also copied to your relay. Edit it on the Dictionary tab</div></div><span style="color:var(--muted)">›</span></div>
+  </div>
+
+  <h2>System</h2>
+  <div class="card list">
+    <div class="item"><div class="grow"><div class="t">Dictation service</div><div class="d">Keeps the mic ready for the bubble</div></div><label class="switch"><input type="checkbox" id="service"><span></span></label></div>
+    <div class="item"><div class="grow"><div class="t">Bubble only while typing</div><div class="d">Hide the bubble when no text box is selected</div></div><label class="switch"><input type="checkbox" id="only-typing"><span></span></label></div>
+    <div class="item"><div class="grow"><div class="t">Voice note bubble</div><div class="d">A bubble that stays on screen, drawn by the accessibility service. Tap it to start or finish a note. Needs no extra permission</div></div><label class="switch"><input type="checkbox" id="note-bubble"><span></span></label></div>
+    <div class="item"><div class="grow"><div class="t">Record note notification</div><div class="d">An ongoing notification with a Record note button. Needs no extra permission</div></div><label class="switch"><input type="checkbox" id="note-notification"><span></span></label></div>
+    <div class="item"><div class="grow"><div class="t">Quick Settings tile</div><div class="d">Add the Voice note tile from the system tile editor: swipe down twice, tap the pencil, drag Voice note in</div></div></div>
+    <div class="item" id="battery"><div class="grow"><div class="t">Battery: Unrestricted</div><div class="d">Stops Android from closing Vox. Tap, find Vox, allow.</div></div><span style="color:var(--muted)">›</span></div>
   </div>
   <button class="btn full danger" id="clear">Clear history</button>
   <p class="note" style="text-align:center;margin-top:18px" id="about-vox"></p>
@@ -269,6 +275,31 @@ function aboutCount() {
   s.className = "status" + (n > ABOUT_MAX ? " bad" : "");
   s.textContent = n ? `${n.toLocaleString()} of ${ABOUT_MAX.toLocaleString()} characters` + (n > ABOUT_MAX ? ". The rest is ignored." : "") : "";
 }
+function agoText(t) { if (!t) return "never"; const s = Math.round(Date.now() / 1000 - t); return s < 10 ? "just now" : s < 90 ? s + " s ago" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 129600 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; }
+// One line for both Test results of the connection test: {ok, message}. A failing role is named first.
+function combineTests(stt, llm) {
+  if (stt.ok && llm.ok) return { ok: true, message: "Voice and cleanup both answered" };
+  return { ok: false, message: [stt.ok ? "" : "Voice: " + stt.message, llm.ok ? "" : "Cleanup: " + llm.message].filter(Boolean).join(" ") };
+}
+// Rows of the Home status card, from local data only: st = state.status, sync = the sync status or null (not asked yet),
+// test = the last connection Test of this session ({ok, message}) or null. Each row is [label, text, kind].
+function statusRows(st, cfg, sync, test) {
+  const [syncText, syncKind] = !cfg.relay_sync ? ["Off", "dim"] : !sync ? ["Checking…", "dim"] : sync.running ? ["Syncing…", ""]
+    : sync.error ? ["Not synced: " + sync.error, "bad"] : ["Synced " + agoText(sync.last_ok), "ok"];
+  const l = st.last, app = l && l.app ? " in " + String(l.app).replace(/\.exe$/i, "") : "";
+  const [lastText, lastKind] = l ? [`${l.words} word${l.words === 1 ? "" : "s"}, ${agoText(l.t)}${app}`, ""]
+    : st.unsent ? ["Not sent. Retry from the notification.", "bad"] : [cfg.keep_history === false ? "History is off" : "None yet", "dim"];
+  return [
+    ["AI provider", st.provider, ""],
+    ["Voice model", st.stt_model, ""],
+    ["Cleanup model", st.llm_model, ""],
+    ["Connection", test ? (test.ok ? "Working. " : "Failed. ") + test.message : "Not tested yet", test ? (test.ok ? "ok" : "bad") : "dim"],
+    ["Sync", syncText, syncKind],
+    ["Voice notes", st.notes === 1 ? "1 note" : st.notes + " notes", ""],
+    ["Last dictation", lastText, lastKind],
+  ];
+}
+const statusHtml = (rows) => rows.map(([a, b, k]) => `<div class="srow"><span class="sl">${esc(a)}</span><span class="sv ${k}">${esc(b)}</span></div>`).join("");
 // ui-shared:js end
 // Browser preview only: a few voice notes kept in memory, and the bridge methods that work on them.
 function previewNotes() {
@@ -306,7 +337,7 @@ function previewNotes() {
   };
 }
 const V = window.Vox || {   // browser preview fallback
-  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, device_name: "" }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
+  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, device_name: "", note_bubble: false, note_notification: false }, status: { notes: 0, unsent: false }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
   ...previewNotes(),
   save(){}, requestMic(){}, openAccessibility(){}, openAppInfo(){}, openBattery(){}, setService(){}, testKey(k, u, cb){ setTimeout(() => window[cb]("ok"), 300); }, listModels(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ models: [], error: "Preview only" })), 200); }, testRole(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ ok: true, message: "Preview only" })), 200); }, endpointProblem: () => "", suggestCorrections: (a, b) => JSON.stringify(a !== b ? [["vox", "Vox"]] : []), copy(){}, deleteHistory(){}, clearHistory(){}, openUrl(){}, toast(){}, apps: () => "[]", appLabel: (p) => p
 };
@@ -342,17 +373,44 @@ window.voxBack = () => { if ($("sheet").classList.contains("on")) { closeSheet()
 // ---------------- home
 function setupSteps() {
   return [
-    { done: !!S.config.api_key || !needsKey(), t: "Add your API key", d: "Powers speech-to-text and cleanup. Takes 2 minutes.", btn: "Add key", act: () => { go("settings"); setTimeout(() => $("key").focus(), 200); } },
     { done: S.mic, t: "Allow the microphone", d: "So Vox can hear you.", btn: "Allow", act: () => V.requestMic() },
     { done: S.a11y, t: "Turn on the Vox bubble", d: "Settings → Accessibility → Downloaded apps → Vox dictation bubble → On.", btn: "Open", act: () => V.openAccessibility(),
       extra: '<div class="note">Greyed out or "Restricted setting"? Open <a href="#" id="appinfo">App info</a>, tap ⋮ (top right) → <b>Allow restricted settings</b>, then try again.</div>' },
-    { done: S.service, t: "Start the dictation service", d: "Keeps the mic ready. A small notification stays while it runs.", btn: "Start", act: () => V.setService(true) },
+    { done: !!S.config.api_key || !needsKey(), t: "Choose your AI provider", d: "Where speech and cleanup run: Groq, OpenAI, OpenRouter, Together, Mistral or a server of your own. Pick one and paste its key if it needs one.", btn: "Choose", act: () => { go("settings"); setTimeout(() => $("provider").focus(), 200); } },
   ];
 }
+// The Home status card reads local data only. The Test button is the one thing that talks to a server, and only when tapped.
+let LASTTEST = null, HOMETEST = {};
+function statusData() {
+  const c = S.config, p = presetFor(c.base_url), h = S.history || [];
+  const l = h[0];   // newest first
+  return { provider: p.id === "custom" ? "Your own server" : p.name, stt_model: c.stt_model, llm_model: c.llm_model,
+    notes: (S.status || {}).notes || 0, unsent: !!(S.status || {}).unsent,
+    last: l ? { t: l.t, words: l.words || 0, app: l.app ? V.appLabel(l.app) : "" } : null };
+}
+function renderStatus() {
+  let sync = null;
+  if (S.config.relay_sync) { try { sync = JSON.parse(V.syncStatus()); } catch (e) { sync = null; } }
+  $("status-rows").innerHTML = statusHtml(statusRows(statusData(), S.config, sync, LASTTEST));
+}
+function homeTestDone(role, json) {
+  try { HOMETEST[role] = JSON.parse(json); } catch (e) { HOMETEST[role] = { ok: false, message: "No answer" }; }
+  if (!HOMETEST.stt || !HOMETEST.llm) return;
+  LASTTEST = combineTests(HOMETEST.stt, HOMETEST.llm);
+  $("status-test").disabled = false; $("status-test").textContent = "Test connection"; renderStatus();
+}
+window.homeTestStt = (j) => homeTestDone("stt", j);
+window.homeTestLlm = (j) => homeTestDone("llm", j);
+$("status-test").onclick = () => {
+  const c = S.config, saved = JSON.stringify({ base_url: c.base_url, api_key: c.api_key, stt_base_url: c.stt_base_url, stt_api_key: c.stt_api_key,
+    llm_base_url: c.llm_base_url, llm_api_key: c.llm_api_key, stt_model: c.stt_model, llm_model: c.llm_model });   // the saved settings, not the Settings form
+  HOMETEST = {}; $("status-test").disabled = true; $("status-test").textContent = "Testing…";
+  V.testRole("stt", saved, "homeTestStt"); V.testRole("llm", saved, "homeTestLlm");
+};
 function renderHome() {
   const steps = setupSteps(), left = steps.filter(s => !s.done).length;
   if (left) {
-    $("setup").innerHTML = `<h2 style="margin-top:4px">Set up · ${4 - left} of 4 done</h2><div class="card list">` + steps.map((s, i) =>
+    $("setup").innerHTML = `<h2 style="margin-top:4px">Set up · ${3 - left} of 3 done</h2><div class="card list">` + steps.map((s, i) =>
       `<div class="item" style="align-items:flex-start"><div class="check ${s.done ? "ok" : ""}">${s.done ? "✓" : i + 1}</div>
        <div class="grow"><div class="t">${s.t}</div><div class="d">${s.d}</div>${!s.done && s.extra ? s.extra : ""}</div>
        ${s.done ? "" : `<button class="btn" data-step="${i}">${s.btn}</button>`}</div>`).join("") + "</div>";
@@ -364,13 +422,7 @@ function renderHome() {
     $("ready").innerHTML = `<div class="hint"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
       <div><b>Ready.</b> Tap any text box, then tap the bubble, speak, and tap again. Long-press the bubble to cancel.</div></div>`;
   }
-  const h = S.history || [], now = Date.now() / 1000;
-  const words = h.reduce((a, e) => a + (e.words || 0), 0), secs = h.reduce((a, e) => a + (e.secs || 0), 0);
-  const week = h.filter(e => now - e.t < 7 * 86400).reduce((a, e) => a + (e.words || 0), 0);
-  const fmt = (n) => n >= 10000 ? (n / 1000).toFixed(1) + "k" : n.toLocaleString();
-  $("s-week").textContent = fmt(week); $("s-total").textContent = fmt(words);
-  $("s-wpm").textContent = secs > 5 ? Math.round(words / (secs / 60)) : "–";
-  const m = Math.max(0, Math.round(words / 40 - secs / 60)); $("s-saved").textContent = m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+  renderStatus();
   renderHistory();
 }
 function renderHistory() {
@@ -447,7 +499,6 @@ function renderNotes() {
   });
   $("vn-list").innerHTML = html + "</div>";
 }
-const agoText = (t) => { if (!t) return "never"; const s = Math.round(Date.now() / 1000 - t); return s < 10 ? "just now" : s < 90 ? s + " s ago" : s < 5400 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago"; };
 function renderSync() {
   let s;
   try { s = JSON.parse(V.syncStatus()); } catch (e) { return; }
@@ -579,8 +630,9 @@ function renderSettings() {
   $("cleanup").checked = c.cleanup !== false; $("only-typing").checked = c.only_typing !== false;
   $("cleanup-min").value = c.cleanup_min_words || 3;
   $("keep-history").checked = c.keep_history !== false;
+  $("note-bubble").checked = !!c.note_bubble; $("note-notification").checked = !!c.note_notification;
   $("language").value = c.language || ""; $("service").checked = S.service;
-  $("about-vox").textContent = `Vox ${S.version} · audio goes to ${presetFor(c.base_url).id === "custom" ? "your own server" : presetFor(c.base_url).name} · everything else stays on this phone`;
+  $("about-vox").textContent = `Vox ${S.version} · no analytics, no server of its own`;
 }
 window.keyResult = (r) => {
   const s = $("key-status");
@@ -676,6 +728,9 @@ for (const [id, field] of [["stt-key", "stt_api_key"], ["llm-key", "llm_api_key"
 $("cleanup").onchange = (e) => save({ cleanup: e.target.checked }, "Saved");
 $("cleanup-min").onchange = (e) => { const v = parseInt(e.target.value, 10), n = isNaN(v) ? 3 : Math.max(1, Math.min(20, v)); e.target.value = n; save({ cleanup_min_words: n }, "Saved"); };
 $("only-typing").onchange = (e) => save({ only_typing: e.target.checked }, "Saved");
+$("note-bubble").onchange = (e) => save({ note_bubble: e.target.checked }, "Saved");
+$("note-notification").onchange = (e) => save({ note_notification: e.target.checked }, "Saved");
+$("open-about").onclick = () => go("dict");
 $("keep-history").onchange = (e) => save({ keep_history: e.target.checked }, "Saved");
 $("language").onchange = (e) => save({ language: e.target.value }, "Saved");
 $("service").onchange = (e) => V.setService(e.target.checked);

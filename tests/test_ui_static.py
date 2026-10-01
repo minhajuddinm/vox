@@ -184,6 +184,20 @@ def test_android_page_calls_only_javascript_interface_methods():
     assert sorted(calls - js_interface_methods(read(MAIN_ACTIVITY))) == []
 
 
+@pytest.mark.parametrize("page", list(PAGES))
+def test_settings_sections_come_in_the_agreed_order(page):
+    html = read(PAGES[page])
+    section = re.search(r'<section[^>]*id="settings".*?</section>', html, re.S).group(0)
+    assert re.findall(r"<h2[^>]*>(.*?)</h2>", section) == ["AI providers", "Voice &amp; audio", "Privacy", "System"]
+
+
+@pytest.mark.parametrize("page", list(PAGES))
+def test_home_shows_a_status_card_and_no_typing_stats(page):
+    html = read(PAGES[page])
+    assert 'id="status-card"' in html and 'id="status-test"' in html
+    assert 's-saved' not in html and "Time saved" not in html
+
+
 # ---------- the checkers themselves: they must fire on the mistakes they exist for ----------
 
 def test_checker_catches_a_swapped_id():
