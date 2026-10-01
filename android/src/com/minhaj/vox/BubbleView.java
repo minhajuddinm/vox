@@ -5,13 +5,19 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.os.SystemClock;
 import android.view.View;
 
 /**
  * Round mic bubble. Grey when idle, red with a level ring while recording, amber spinner while processing.
  * The voice note bubble (note = true) is the same bubble with a blue idle colour and a note page instead of the mic.
+ * After a dictation ends it flashes a green check (SENT) or a red ! (ERROR) for a moment, then shows idle again.
  */
 public class BubbleView extends View {
+    /** Kinds for {@link #flash}. */
+    public static final int SENT = 1, ERROR = 2;
+    private static final long SENT_MS = 700, ERROR_MS = 1800;   // keep equal to FLASH_SECONDS in windows/engine.py (tests/test_flash_constants.py checks it)
+
     private final boolean note;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -21,6 +27,8 @@ public class BubbleView extends View {
     private float level;
     private float spin;
     private final ValueAnimator spinner;
+    private int flashKind;        // 0 = none, else SENT or ERROR
+    private long flashStart;      // SystemClock.uptimeMillis() when the flash began
     private final float d;
 
     public BubbleView(Context c) {
@@ -48,9 +56,29 @@ public class BubbleView extends View {
     public void setState(int s) {
         state = s;
         level = 0;
+        if (s != DictationService.IDLE) flashKind = 0;   // a new recording or send replaces the flash
         if (s == DictationService.PROCESSING) { if (!spinner.isStarted()) spinner.start(); }
         else spinner.cancel();
         invalidate();
+    }
+
+    /**
+     * Shows a green check (SENT, 0.7 s) or a red ! (ERROR, 1.8 s), then the real state again. It only shows while the
+     * bubble is idle, so it can be called just before the service goes back to idle; a new recording replaces it.
+     */
+    public void flash(int kind) {
+        if (kind != SENT && kind != ERROR) return;
+        flashKind = kind;
+        flashStart = SystemClock.uptimeMillis();
+        invalidate();
+    }
+
+    /** Milliseconds into the flash that is showing, or -1 when none is (never started, over, or the bubble is busy). */
+    private long flashAge() {
+        if (flashKind == 0 || state != DictationService.IDLE) return -1;
+        long age = SystemClock.uptimeMillis() - flashStart;
+        if (age >= (flashKind == SENT ? SENT_MS : ERROR_MS)) { flashKind = 0; return -1; }
+        return Math.max(0, age);
     }
 
     public void setLevel(float l) {
@@ -63,6 +91,13 @@ public class BubbleView extends View {
         float w = getWidth(), h = getHeight();
         float cx = w / 2f, cy = h / 2f;
         float base = Math.min(w, h) / 2f - 5 * d;
+
+        long age = flashAge();
+        if (age >= 0) {
+            drawFlash(c, age, cx, cy, base);
+            postInvalidateOnAnimation();   // next frame; the one after the flash is over draws the idle bubble
+            return;
+        }
 
         int color;
         switch (state) {
@@ -103,5 +138,33 @@ public class BubbleView extends View {
         r.set(cx - s * 0.68f, cy - s * 0.55f, cx + s * 0.68f, cy + s * 0.55f);
         c.drawArc(r, 20, 140, false, glyph);
         c.drawLine(cx, cy + s * 0.55f, cx, cy + s * 0.9f, glyph);
+    }
+
+    /** SENT: a green circle and a check that draws itself. ERROR: a red circle that shakes once, with a "!". */
+    private void drawFlash(Canvas c, long age, float cx, float cy, float base) {
+        boolean sent = flashKind == SENT;
+        fill.setColor(sent ? 0xFF2E9E5B : 0xFFD32F2F);
+        if (!sent) cx += (float) Math.sin(age / 40.0) * 3 * d * Math.max(0f, 1 - age / 400f);
+        c.drawCircle(cx, cy, base * (0.78f + 0.08f * Math.min(1f, age / 150f)), fill);   // grows into place
+
+        float s = base * 0.42f;
+        glyph.setStyle(Paint.Style.STROKE);
+        if (sent) {
+            float x1 = cx - s * 0.7f, y1 = cy + s * 0.05f;   // the check: down to the elbow, then up to the right
+            float x2 = cx - s * 0.2f, y2 = cy + s * 0.55f;
+            float x3 = cx + s * 0.75f, y3 = cy - s * 0.5f;
+            float l1 = (float) Math.hypot(x2 - x1, y2 - y1), l2 = (float) Math.hypot(x3 - x2, y3 - y2);
+            float drawn = Math.min(1f, age / 250f) * (l1 + l2);
+            float t1 = Math.min(1f, drawn / l1);
+            c.drawLine(x1, y1, x1 + (x2 - x1) * t1, y1 + (y2 - y1) * t1, glyph);
+            if (drawn > l1) {
+                float t2 = (drawn - l1) / l2;
+                c.drawLine(x2, y2, x2 + (x3 - x2) * t2, y2 + (y3 - y2) * t2, glyph);
+            }
+        } else {
+            c.drawLine(cx, cy - s * 0.9f, cx, cy + s * 0.2f, glyph);
+            glyph.setStyle(Paint.Style.FILL);
+            c.drawCircle(cx, cy + s * 0.75f, 1.4f * d, glyph);
+        }
     }
 }

@@ -158,6 +158,11 @@ public class MainActivity extends Activity {
                 o.put("a11y", VoxAccessibilityService.instance != null);
                 o.put("service", DictationService.instance != null);
                 o.put("history", prefs.history());
+                JSONObject status = new JSONObject();   // what the Home status card cannot work out from the settings and history
+                status.put("notes", NotesStore.get(MainActivity.this).count());
+                DictationService svc = DictationService.instance;
+                status.put("unsent", svc != null && svc.hasUnsent());
+                o.put("status", status);
                 o.put("dark", isDark());
                 o.put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName);
                 return o.toString();

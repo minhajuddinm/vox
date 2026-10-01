@@ -14,10 +14,10 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | Hands-free mode (double-tap, press to finish, Esc cancels) | yes | - | orig | `Engine` | - |
 | Floating mic bubble (tap to start/stop, drag, long press) | - | yes | orig | `VoxAccessibilityService`, `BubbleView` | - |
 | Recording pill (waveform, dots) | yes | - | orig | `overlay.py` | - |
-| Paste into the focused app; optional clipboard restore | yes | - | orig | `Engine.paste` | - |
+| Paste into the focused app; only when the window is unchanged (else copy and say so); old clipboard restored unless `keep_clipboard`, and never over something newer | yes | - | orig | `paste.paste_text`, `Engine.paste` | py `test_paste` |
 | Insert into the focused field via accessibility | - | yes | orig | `VoxAccessibilityService.insertText` | - |
 | Language lock (Whisper language code) | yes | yes | orig | `language` setting | - |
-| History with search, copy, delete, clear; stats (Windows) | yes | yes | orig | `core.history_*`, window; `Prefs.history` | - |
+| History with search, copy, delete, clear; Home status card (provider, models, last Test, sync, notes, last dictation) | yes | yes | orig | `core.history_*`, window; `Prefs.history` | - |
 | Start with Windows | yes | - | orig | `ui_app.set_autostart` | - |
 
 ## Added by PR 1
@@ -33,6 +33,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | Long recordings are transcribed in pieces while the user speaks (only the last piece is left at release); falls back to the whole recording | yes | no | `Segmenter`, `streaming.StreamingStt`, `process_text`, `Engine._process` | py `test_streaming`, `test_engine_notes` |
 | "About you" context added to every cleanup request (fenced, capped) | yes | yes | `vox_core.clean_context`, `system_prompt` / `ApiClient.cleanContext`, `systemPrompt` | py `test_user_context`, `test_parity` (`context`, `promptctx` rows); java `ParityTest` |
 | Live voice level on the pill and bubble (same curve, real history on Windows) | yes | yes | `vox_core.level_from_rms`, `LevelHistory`, `overlay._draw_recording` / `Pcm.levelFromRms`, `BubbleView.setLevel` | py `test_level`, `test_parity` (`level` rows); java `ParityTest` |
+| The pill and the bubble signal how a dictation ended: a green check for 0.7 s when the text landed (or a note was saved), a red ! for 1.8 s when it did not or something failed; errors keep their notification or toast text | yes | yes | `Engine.flash`, `Engine.active_flash`, `overlay._draw_sent` / `_draw_error` / `BubbleView.flash`, `VoxAccessibilityService.onResult` / `onError` | py `test_engine_flash`; Android compiled only, not seen on a device; Windows pill not seen on a screen |
 | Voice notes: record from the tray or the window, saved (not pasted), searchable with time filter, editable, deletable | yes | no | `notes.py`, `Engine.toggle_note`, `Engine._process`, `Api.notes_list` | py `test_notes`, `test_engine_notes` |
 | Voice note mode on the phone: a persistent note bubble, a "Record note" notification and a quick settings tile start and stop a note that is saved, not typed; a "Note saved" notification follows | no | yes | `DictationService` (note branch of `send`), `NoteEntry`, `NoteTileService`, `VoxAccessibilityService` (note bubble), `NoteEvents` | java `NoteEventsTest` (the save hook); the rest is compile-checked only, not run on a device |
 | Sync voice notes with a relay (offline-first, newer edit wins, deletes travel as markers; a note the relay refuses for good does not block the others) | yes | yes | `sync.py`, `notes.py` (`dirty_notes`, `apply_remote`), `Engine.sync`, Settings block; Android `SyncEngine`, `RelayClient`, `SyncWorker`, `NotesStore` (Android not tried on a phone) | py `test_sync`, `test_engine_notes`; Java `SyncEngineTest`, `RelayClientTest` |

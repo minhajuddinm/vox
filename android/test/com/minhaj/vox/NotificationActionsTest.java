@@ -27,6 +27,14 @@ public final class NotificationActionsTest {
 
         eq("hint one", "Tap Retry to send it again", NotificationActions.retryHint(1));
         eq("hint several", "Retry sends the oldest first", NotificationActions.retryHint(3));
+        eq("hint with none stuck is the same", "Retry sends the oldest first", NotificationActions.retryHint(3, 0));
+        eq("hint some stuck", "Retry sends the oldest first. 1 stuck after 3 tries", NotificationActions.retryHint(3, 1));
+        eq("hint all stuck", "Stuck after 3 tries. Tap Clear to remove them", NotificationActions.retryHint(2, 2));
+        eq("hint the only one stuck", "Stuck after 3 tries. Tap Clear to remove it", NotificationActions.retryHint(1, 1));
+
+        // a Retry that reaches a service which is not the foreground instance (a stale button) sends nothing
+        eq("stale retry", true, NotificationActions.retryIsStale(false));
+        eq("live retry", false, NotificationActions.retryIsStale(true));
 
         // typing guard
         eq("no target known: type", InsertGuard.TYPE, InsertGuard.check(null, "com.app"));

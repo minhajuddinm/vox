@@ -138,6 +138,12 @@ public class DictationService extends Service {
             return START_NOT_STICKY;
         }
         if (intent != null && ACTION_RETRY.equals(intent.getAction())) {
+            // A Retry that reached a service which is not running as the foreground service (a stale button) sends
+            // nothing: a send here would never stop the service.
+            if (NotificationActions.retryIsStale(instance == this)) {
+                stopSelf(startId);
+                return START_NOT_STICKY;
+            }
             retryLast();
             return START_NOT_STICKY;
         }
@@ -184,6 +190,8 @@ public class DictationService extends Service {
             default: Toast.makeText(this, "Vox is busy", Toast.LENGTH_SHORT).show();
         }
     }
+    /** True while a recording that failed to go through is kept for Retry (Home shows it as the last dictation outcome). */
+    boolean hasUnsent() { return pending.size() > 0; }
 
     private Notification buildNotification() {
         Intent open = new Intent(this, MainActivity.class);
@@ -199,7 +207,7 @@ public class DictationService extends Service {
                 .setSmallIcon(R.drawable.ic_stat_mic)
                 .setContentTitle(noting ? "Recording a voice note" : hasPending ? unsent : "Vox is ready")
                 .setContentText(noting ? "Tap Stop when you are done"
-                        : hasPending ? NotificationActions.retryHint(pending.size()) : "Tap the bubble in any text field to dictate")
+                        : hasPending ? NotificationActions.retryHint(pending.size(), pending.stuck()) : "Tap the bubble in any text field to dictate")
                 .setContentIntent(openPi)
                 .setOngoing(true);
         // At most three buttons (Android shows no more): NotificationActions decides which.
@@ -266,6 +274,9 @@ public class DictationService extends Service {
     /** @param tapAtMs SystemClock.elapsedRealtime() of the user's tap, or 0 when unknown (only used for the log) */
     public synchronized void startRecording(String pkg, String label, String dest, final long tapAtMs) {
         if (state != IDLE) return;
+        // Set before the early error returns below: onError picks the bubble from targetDest (noteJob()), so an
+        // error for this request must not flash the previous job's bubble.
+        targetDest = DEST_NOTE.equals(dest) ? DEST_NOTE : DEST_DICTATION;
         Prefs p = new Prefs(this);
         String problem = Endpoint.error(p.role(Providers.STT)[0]);
         if (problem == null) problem = Endpoint.error(p.role(Providers.LLM)[0]);
@@ -394,7 +405,9 @@ public class DictationService extends Service {
 
     /**
      * Sends the oldest recording that failed to go through (one per tap; with several kept, the notification says how
-     * many and each tap sends the next one). Started from the notification's Retry button. It goes to where that
+     * many). A Retry that fails moves its recording to the back, so the next tap tries the next one; after
+     * {@link PendingQueue#MAX_RETRIES} failed retries a recording is parked (the notification says how many are stuck,
+     * Clear removes them). Started from the notification's Retry button. It goes to where that
      * recording was made for (the entry kept with the file), not to wherever the latest recording pointed: a short or
      * silent recording started in between must not send an old voice note into a text field.
      */
@@ -405,7 +418,13 @@ public class DictationService extends Service {
             pending.remove(kept.id);
             kept = pending.next();
         }
-        if (kept == null) { refreshNotification(); return; }
+        if (kept == null) {
+            int stuck = pending.stuck();
+            if (stuck > 0) main.post(() -> Toast.makeText(this, stuck + (stuck == 1 ? " recording is" : " recordings are")
+                    + " stuck after " + PendingQueue.MAX_RETRIES + " tries. Tap Clear to remove.", Toast.LENGTH_LONG).show());
+            refreshNotification();
+            return;
+        }
         final PendingQueue.Entry entry = kept;
         final int job = ++jobId;
         pending.beginRetry(entry.id);
@@ -437,6 +456,11 @@ public class DictationService extends Service {
     }
 
     private boolean isCurrent(int job) { return job == jobId; }
+
+    /** A send of this entry failed: when it was a Retry, the entry goes behind the others (and is parked after the third failure). */
+    private void retryFailed(PendingQueue.Entry entry) {
+        if (pending.onSendFailed(entry.id)) refreshNotification();
+    }
 
     /** Goes back to idle, but only for the job that is still current. */
     private synchronized void finish(int job) {
@@ -557,13 +581,15 @@ public class DictationService extends Service {
             main.post(() -> { if (isCurrent(job) && listener != null) listener.onResult(result, pkg); });
         } catch (ApiClient.ApiException e) {
             if (!isCurrent(job)) return;
+            retryFailed(entry);
             if ((e.code == 401 || e.code == 403) && p.usesRelay()) postError("The relay or the AI server behind it refused the request (" + Providers.RELAY_HINT + "). Then tap Retry in the notification.");
             else if (e.code == 401) postError("The server rejected the API key. Fix it, then tap Retry in the notification.");
             else if (e.code == 429) postError("Rate limit reached. Tap Retry in the notification.");
             else postError(e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
         } catch (IOException e) {
             if (!isCurrent(job)) return;
-            postError("Network error: " + e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
+            retryFailed(entry);
+            postError("Network error:" + e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
         } finally {
             finish(job);
         }
@@ -586,6 +612,7 @@ public class DictationService extends Service {
         try {
             id = NotesStore.get(this).add(text, raw, seconds, Note.SOURCE_NOTE, p.deviceName(), new ArrayList<String>(), "");
         } catch (RuntimeException e) {   // SQLiteException: disk full, database damaged
+            retryFailed(entry);
             postError("Could not save the note: " + e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
             return;
         }

@@ -4,6 +4,7 @@ import threading
 
 import pytest
 
+import notes
 import relay
 import sync
 import vox_core as core
@@ -228,3 +229,55 @@ def test_the_real_on_to_off_switch_takes_the_keys_off_once(dev, srv):
     srv.store.put_profile(dict(v["data"], api_key="gsk_again"), str(v["version"]))
     sync.sync_once(a)
     assert srv.store.get_profile()["data"]["api_key"] == "gsk_again"
+
+
+def _keys_on_the_relay_then_forget_where_they_came_from(srv, a):
+    """Keys on the relay from this device, as an install from before the flag leaves them: no flag, no saved address."""
+    set_cfg(api_key="gsk_secret", relay_sync_keys=True)
+    sync.sync_once(a)
+    assert srv.store.get_profile()["data"]["api_key"] == "gsk_secret"
+    notes.set_meta("profile_keys_sent", "")
+    notes.set_meta("relay_origin", "")
+
+
+def test_an_upgraded_install_that_never_synced_since_treats_the_keys_on_the_relay_as_its_own(dev, srv):
+    a = dev("A")
+    _keys_on_the_relay_then_forget_where_they_came_from(srv, a)
+    sync.follow_relay(a["relay_url"])                                    # the first run after the upgrade, which then stops early
+    assert notes.get_meta("profile_keys_sent") == "1"
+    set_cfg(relay_sync_keys=False)
+    sync.sync_once(a)
+    assert "api_key" not in srv.store.get_profile()["data"]              # switching off still takes them off the relay
+
+
+def test_a_fresh_install_with_keys_off_does_not_claim_the_keys_on_the_relay(dev, srv):
+    a = dev("A")
+    set_cfg(api_key="gsk_pc", relay_sync_keys=True)
+    sync.sync_once(a)
+    b = dev("B")                                                         # keys off, no saved address
+    sync.follow_relay(b["relay_url"])
+    assert notes.get_meta("profile_keys_sent", "") == ""
+    sync.sync_once(b)
+    assert srv.store.get_profile()["data"]["api_key"] == "gsk_pc"
+
+
+def test_keys_switched_off_in_the_same_save_as_a_rewritten_relay_address_still_leave_the_relay(dev, srv):
+    a = dev("A")
+    set_cfg(api_key="gsk_secret", relay_sync_keys=True)
+    sync.sync_once(a)
+    assert notes.get_meta("profile_keys_sent") == "1"
+    notes.set_meta("relay_origin", "http://old-spelling.example:8765")   # the same relay under another address
+    set_cfg(relay_sync_keys=False)
+    sync.sync_once(a)
+    assert "api_key" not in srv.store.get_profile()["data"]
+    assert notes.get_meta("profile_keys_sent", "") == ""                 # and once they are gone the flag goes too
+
+
+def test_a_relay_change_keeps_the_keys_flag_and_resets_the_rest(dev, srv):
+    a = dev("A")
+    set_cfg(api_key="gsk_secret", relay_sync_keys=True)
+    sync.sync_once(a)
+    notes.set_meta("relay_origin", "http://old-spelling.example:8765")
+    sync.follow_relay(a["relay_url"])
+    assert notes.get_meta("profile_keys_sent") == "1"
+    assert notes.get_meta("profile_version") == "0"                      # the rest of the state is still reset

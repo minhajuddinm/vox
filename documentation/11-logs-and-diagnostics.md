@@ -15,8 +15,8 @@ Messages worth knowing:
 | Message | Meaning |
 |---|---|
 | `engine started, hotkey=[...]` | Engine is up and listening for the shortcut |
-| `overlay ready WxH scale=... geometry=...` | The pill window was created (it appears only while recording) |
-| `overlay shown (rec)` | The pill became visible for a recording |
+| `overlay ready WxH scale=... geometry=...` | The pill window was created (it appears only while recording, sending or showing a result signal) |
+| `overlay shown (rec)` | The pill became visible for a recording (the word in brackets is the state drawn: `rec`, `busy`, `meet`, or `sent` / `error` for the short result signal) |
 | `recording started (app=Code.exe)` | Hotkey accepted; the exe that will receive the text |
 | `hands-free mode` | Double-tap detected |
 | `notify: ...` | A tray notification was shown (text included), e.g. "Vox did not hear anything (loudest sound N of 32768)..." |
@@ -40,6 +40,7 @@ The Android app writes no log files. Problems are shown as toasts. The one excep
 | Shortcut does nothing | `vox.log` for `engine started` and `recording started`. No `recording started`: the engine is not running or the key names in `hotkey` are wrong. |
 | "Vox did not hear anything (loudest sound 1 ...)" | The selected microphone delivers silence (muted, dead, or a wireless headset whose mic is off). Pick another in Settings > Microphone. A live microphone in a quiet room usually shows a small but non-trivial value (25 to 30 was seen on one laptop). |
 | Nothing pasted, no error | The target app blocked Ctrl+V, or the engine was busy (`busy` state) |
+| Notification "Copied; the window changed" | The focused program was not the one the dictation started in, so Vox did not paste (it would have gone to the wrong app). The text is on the clipboard: press Ctrl+V where you want it. `vox.log` shows a warning `could not read the focused window` when that check itself failed (the paste then goes ahead). |
 | Notification "The server rejected the API key" | Key wrong or expired; Settings > Test |
 | Notification "Rate limit reached" | Groq free limit; wait, then tray > Retry last dictation |
 | Recording pill missing but dictation works | Vox was started from a session the user cannot see, or the overlay failed (`overlay failed to start` in `vox.log`) |

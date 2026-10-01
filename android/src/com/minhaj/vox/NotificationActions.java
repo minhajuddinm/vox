@@ -34,4 +34,18 @@ public final class NotificationActions {
     public static String retryHint(int unsentCount) {
         return unsentCount > 1 ? "Retry sends the oldest first" : "Tap Retry to send it again";
     }
+
+    /** The same with the number of recordings that are parked after {@link PendingQueue#MAX_RETRIES} failed retries. */
+    public static String retryHint(int unsentCount, int stuckCount) {
+        if (stuckCount <= 0) return retryHint(unsentCount);
+        String tries = "Stuck after " + PendingQueue.MAX_RETRIES + " tries. Tap Clear to remove ";
+        if (stuckCount >= unsentCount) return tries + (unsentCount == 1 ? "it" : "them");
+        return retryHint(unsentCount) + ". " + stuckCount + " stuck after " + PendingQueue.MAX_RETRIES + " tries";
+    }
+
+    /**
+     * A Retry that reached a service which is not running as the foreground service (a stale button) sends nothing and
+     * must not leave a background service behind; the others do the same for Stop and Clear.
+     */
+    public static boolean retryIsStale(boolean isForegroundInstance) { return !isForegroundInstance; }
 }

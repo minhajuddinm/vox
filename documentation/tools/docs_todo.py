@@ -48,6 +48,9 @@ RULES = [
     (".github/workflows/*", "documentation/10-build-test-release.md", "CI jobs and secrets"),
     ("spec/golden.txt", "documentation/06-pipeline.md", "shared golden cases"),
     ("tests/*", "documentation/10-build-test-release.md", "test counts and what is covered"),
+    ("ui-shared/*", "documentation/04-windows-app.md", "shared palette, components and helpers of the window"),
+    ("ui-shared/*", "documentation/05-android-app.md", "shared palette, components and helpers of the screens"),
+    ("tools/sync_ui.py", "documentation/10-build-test-release.md", "run `python tools/sync_ui.py` after editing ui-shared/ (tests check it)"),
     ("android/test/*", "documentation/10-build-test-release.md", "Java test programs"),
     ("docs/privacy.html", "documentation/09-security-privacy.md", "the public privacy promise"),
 ]

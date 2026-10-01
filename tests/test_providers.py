@@ -467,3 +467,29 @@ def test_the_api_proxy_problem_wrapper_reads_the_saved_config(tmp_path, monkeypa
     assert "http" in api.proxy_problem()
     cfg.update(relay_url="", relay_token="")
     assert api.proxy_problem() == "Turn on the relay first"
+# ------------------------------------------------------------ Home status card
+
+def test_status_summary_names_provider_models_notes_and_last_dictation():
+    cfg = {"base_url": "https://api.openai.com/v1", "stt_model": "", "llm_model": "gpt-4o-mini"}
+    hist = [{"t": 100, "words": 4, "app": "a.exe"}, {"t": 300, "words": 12, "app": "notepad.exe"}]
+    s = providers.status_summary(cfg, hist, 7)
+    assert s["provider"] == "OpenAI" and s["via_relay"] is False
+    assert s["stt_model"] == providers.DEFAULT_MODELS["stt"] and s["llm_model"] == "gpt-4o-mini"
+    assert s["notes"] == 7
+    assert s["last"] == {"t": 300, "words": 12, "app": "notepad.exe"}
+
+
+def test_status_summary_empty_history_has_no_last_dictation():
+    assert providers.status_summary({}, [], 0)["last"] is None
+    assert providers.status_summary({}, [], 0)["provider"] == "Groq (free tier)"
+
+
+def test_status_summary_shows_the_relay_only_when_it_is_in_use():
+    cfg = {"relay_proxy": True, "relay_url": "https://r.example", "relay_token": "t"}
+    assert providers.status_summary(cfg, [], 0) ["provider"] == "My relay" and providers.status_summary(cfg, [], 0)["via_relay"]
+    half = {"relay_proxy": True, "relay_url": "", "relay_token": ""}
+    assert providers.status_summary(half, [], 0)["via_relay"] is False
+
+
+def test_status_summary_custom_address_is_other():
+    assert providers.status_summary({"base_url": "http://10.0.0.5:9000/v1"}, [], 0)["provider"] == "Other (OpenAI-compatible)"

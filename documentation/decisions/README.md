@@ -33,6 +33,8 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0025](0025-note-bubble-in-the-accessibility-service.md) | The note bubble lives in the accessibility service; the tile and the notification are other entry points | Accepted |
 | [0026](0026-android-notes-and-sync-are-ports-with-shared-golden-rows.md) | Android notes store and sync are ports of the Windows code, with pure logic shared through golden rows | Accepted |
 | [0027](0027-relay-proxy-per-role-whitelisted-write-only-keys.md) | Relay proxy is per role, whitelisted, with write-only keys | Accepted |
+| [0028](0028-shared-ui-parts-are-generated-into-both-pages.md) | Shared UI parts are generated into both pages | Accepted |
+| [0029](0029-paste-checks-the-window-clipboard-default-off.md) | Paste checks the window; the clipboard default is off | Accepted |
 
 ## Template
 

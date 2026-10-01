@@ -90,6 +90,73 @@ public final class PendingQueueTest {
         eq("clear returns all", 2, o.clear().size());
         eq("clear empties", 0, o.size());
 
+        // a failed Retry moves that entry to the back, so the next Retry tries the next one
+        PendingQueue r = new PendingQueue();
+        r.add(e(1, "note"));
+        r.add(e(2, "dictation"));
+        r.add(e(3, "note"));
+        r.beginRetry(1);
+        eq("failed retry rotates", true, r.onSendFailed(1));
+        eq("next is the next one", 2L, r.next().id);
+        eq("rotation keeps every entry", 3, r.size());
+        eq("one failure counted", 1, r.failures(1));
+        r.endJob();
+        r.beginRetry(2);
+        r.onSendFailed(2);
+        r.endJob();
+        eq("then the third", 3L, r.next().id);
+        r.beginRetry(3);
+        r.onSendFailed(3);
+        r.endJob();
+        eq("round again, back to the first", 1L, r.next().id);
+        // a fresh recording that fails its first send is not a Retry: no rotation, no count
+        r.add(e(4, "note"));
+        r.beginFresh(4);
+        eq("fresh failure does not rotate", false, r.onSendFailed(4));
+        eq("fresh failure not counted", 0, r.failures(4));
+        eq("a failure of some other entry does not rotate", false, r.onSendFailed(999));
+        r.endJob();
+        eq("no job: nothing rotates", false, r.onSendFailed(1));
+        eq("order kept", 1L, r.next().id);
+
+        // three failed retries park the entry: Retry skips it, the text says how many are stuck
+        PendingQueue s = new PendingQueue();
+        s.add(e(1, "note"));
+        eq("none stuck", 0, s.stuck());
+        for (int i = 1; i <= PendingQueue.MAX_RETRIES; i++) {
+            eq("still retryable before try " + i, 1L, s.next() == null ? -1L : s.next().id);
+            s.beginRetry(1);
+            s.onSendFailed(1);
+            s.endJob();
+        }
+        eq("failures capped", PendingQueue.MAX_RETRIES, s.failures(1));
+        eq("parked: nothing to retry", null, s.next());
+        eq("one stuck", 1, s.stuck());
+        eq("parked entry is kept", 1, s.size());
+        eq("summary with all stuck", "1 recording kept, 1 stuck", s.summary());
+        s.add(e(2, "dictation"));
+        eq("a newer entry is retried before the parked one", 2L, s.next().id);
+        eq("summary with some stuck", "2 recordings kept, 1 stuck", s.summary());
+        s.beginRetry(2);
+        eq("a failed retry of the newer entry rotates it behind", true, s.onSendFailed(2));
+        s.endJob();
+        eq("the parked one is not retried", 2L, s.next().id);
+        eq("stuck still one", 1, s.stuck());
+        eq("cleared entries are gone", 2, s.clear().size());
+        eq("stuck after clear", 0, s.stuck());
+
+        // the cap drops the oldest by age, not the one at the front of the retry order
+        PendingQueue d = new PendingQueue();
+        for (int i = 1; i <= PendingQueue.MAX_KEPT; i++) d.add(e(i, "note"));
+        d.beginRetry(1);
+        d.onSendFailed(1);
+        d.endJob();
+        eq("1 went to the back", 2L, d.next().id);
+        List<PendingQueue.Entry> gone = d.add(e(6, "note"));
+        eq("cap drops one", 1, gone.size());
+        eq("it is the oldest by age", 1L, gone.get(0).id);
+        eq("retry order kept", 2L, d.next().id);
+
         // file names
         eq("file name", "vox_pending_123_note.wav", PendingQueue.fileName(e(123, "note")));
         PendingQueue.Entry p = PendingQueue.parseFileName("vox_pending_123_dictation.wav");

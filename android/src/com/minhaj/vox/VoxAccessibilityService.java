@@ -28,7 +28,8 @@ import android.widget.Toast;
  * which tracks the focused text field and inserts the final text into it, and the optional voice note bubble, which
  * is always on screen while "note_bubble" is on and starts or stops a note.
  */
-public class VoxAccessibilityService extends AccessibilityService implements DictationService.Listener {
+public class VoxAccessibilityService extends AccessibilityService
+        implements DictationService.Listener, DictationService.NoteListener {
     public static volatile VoxAccessibilityService instance;
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -46,6 +47,7 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         super.onServiceConnected();
         instance = this;
         DictationService.setListener(this);
+        DictationService.setNoteListener(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         createBubbles();
         refreshVisibility();
@@ -57,6 +59,7 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         removeBubbles();
         instance = null;
         DictationService.setListener(null);
+        DictationService.setNoteListener(null);
         return super.onUnbind(intent);
     }
 
@@ -65,6 +68,7 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         removeBubbles();
         instance = null;
         DictationService.setListener(null);
+        DictationService.setNoteListener(null);
         super.onDestroy();
     }
 
@@ -353,12 +357,24 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
 
     @Override
     public void onResult(String text, String targetPkg) {
-        insertText(text, targetPkg);
+        boolean typed = insertText(text, targetPkg);
+        // Only dictations end here (a note is saved, not typed), so this is the mic bubble.
+        if (dictation != null) dictation.view.flash(typed ? BubbleView.SENT : BubbleView.ERROR);   // ERROR: it only reached the clipboard
+    }
+
+    /** A voice note was saved: the note bubble (not the mic bubble) shows the green check. A failed save arrives as onError. */
+    @Override
+    public void onNoteSaved(String id, String title) {
+        if (noteBubble != null) noteBubble.view.flash(BubbleView.SENT);
     }
 
     @Override
     public void onError(String message) {
         toast(message);
+        // A warning that still ends in a result (cleanup fell back to the raw words) is followed by onResult,
+        // whose flash replaces this one. A failed voice note flashes the note bubble, the one that shows that job.
+        Floating f = noteJob() ? noteBubble : dictation;
+        if (f != null) f.view.flash(BubbleView.ERROR);
     }
 
     // ------------------------------------------------------------ insertion
@@ -367,12 +383,13 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         return n != null && n.isPassword();
     }
 
-    private void insertText(String text, String targetPkg) {
+    /** Types the text into the focused field. False when it did not land there (copied to the clipboard instead, or refused). */
+    private boolean insertText(String text, String targetPkg) {
         // A restored dictation (its app is unknown: pkg "") is never typed, whatever the focused field reports.
         if (InsertGuard.check(targetPkg, null) == InsertGuard.NO_TARGET) {
             copyToClipboard(text);
             toast(InsertGuard.message(InsertGuard.NO_TARGET));
-            return;
+            return false;
         }
         AccessibilityNodeInfo node = null;
         try { node = findFocus(AccessibilityNodeInfo.FOCUS_INPUT); } catch (Exception ignored) { }
@@ -383,18 +400,18 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         if (node == null) {
             copyToClipboard(text);
             toast("No text field found. Copied to clipboard.");
-            return;
+            return false;
         }
         if (isPasswordField(node)) {
             toast("Vox does not type into password fields");
-            return;
+            return false;
         }
         int verdict = InsertGuard.check(targetPkg, node.getPackageName());
         if (verdict != InsertGuard.TYPE) {
             // The user switched apps while Vox was working: do not type into the wrong one.
             copyToClipboard(text);
             toast(InsertGuard.message(verdict));
-            return;
+            return false;
         }
 
         CharSequence curCs = node.getText();
@@ -428,7 +445,7 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
             sel.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, caret);
             sel.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, caret);
             node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, sel);
-            return;
+            return true;
         }
 
         // Fallback: paste through the clipboard, then restore what was there.
@@ -443,6 +460,7 @@ public class VoxAccessibilityService extends AccessibilityService implements Dic
         } else {
             toast("This app blocked typing. Text copied to clipboard.");
         }
+        return pasted;
     }
 
     private void copyToClipboard(String t) {

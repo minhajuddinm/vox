@@ -303,6 +303,7 @@ public final class SyncEngineTest {
         profileKeys();
         keysDoNotFlap();
         relayChange();
+        keysFlagAcrossUpgradeAndAddress();
         neverThrows();
         loopGuards();
         wireFormat();
@@ -833,6 +834,58 @@ public final class SyncEngineTest {
         pc.relay.profileVersion++;
         two.sync();
         eq("flap switch: later keys from another device stay", "gsk_again", pc.relay.profile.get("api_key"));
+    }
+
+    /** Keys the relay got from this device before the flag existed, or under another spelling of the address, still leave when switched off. */
+    private static void keysFlagAcrossUpgradeAndAddress() {
+        // an install from before the flag: keys on, no saved address, no flag; its first run stops before the profile step
+        Env e = new Env();
+        e.cfg.keys = true;
+        e.relay.profile = map("user_context", "", "api_key", "gsk_phone", "base_url", "https://api.groq.com/openai/v1");
+        e.relay.profileVersion = 1;
+        e.relay.always.put("changes", new RelayApi.RelayError(503, "down"));
+        e.sync();
+        eq("upgrade: the address is recorded", "http://relay.test:8787", e.store.meta.get("relay_origin"));
+        eq("upgrade: the keys already on the relay count as ours", "1", e.store.meta.get("profile_keys_sent"));
+        e.relay.always.clear();
+        e.cfg.keys = false;
+        e.sync();
+        eq("upgrade: switched off before the first full sync, the keys leave the relay", false,
+                e.relay.profile.containsKey("api_key") || e.relay.profile.containsKey("base_url"));
+
+        // a fresh install with keys off does not claim keys another device put there
+        Env fresh = new Env();
+        fresh.relay.profile = map("user_context", "hello", "api_key", "gsk_other");
+        fresh.relay.profileVersion = 1;
+        fresh.relay.always.put("changes", new RelayApi.RelayError(503, "down"));
+        fresh.sync();
+        eq("fresh, keys off: no flag", null, fresh.store.meta.get("profile_keys_sent"));
+        fresh.relay.always.clear();
+        fresh.sync();
+        eq("fresh, keys off: the other device's key stays", "gsk_other", fresh.relay.profile.get("api_key"));
+
+        // the address is rewritten (the same relay) in the same save that switches keys off
+        Env same = new Env();
+        same.cfg.keys = true;
+        same.sync();
+        eq("rewrite: keys went up", "gsk_phone", same.relay.profile.get("api_key"));
+        eq("rewrite: flag set", "1", same.store.meta.get("profile_keys_sent"));
+        same.cfg.url = "http://relay.test:8787/";
+        same.store.meta.put("relay_origin", "http://old-spelling.test:8787");
+        same.cfg.keys = false;
+        same.sync();
+        eq("rewrite: the keys leave the relay", false, same.relay.profile.containsKey("api_key"));
+        eq("rewrite: the rest of the state was reset", "http://relay.test:8787", same.store.meta.get("relay_origin"));
+
+        // a relay change keeps the flag (and resets the rest) while keys are on
+        Env on = new Env();
+        on.cfg.keys = true;
+        on.sync();
+        on.store.meta.put("relay_origin", "http://old-spelling.test:8787");
+        on.relay.always.put("changes", new RelayApi.RelayError(503, "down"));
+        on.sync();
+        eq("relay change, keys on, run stopped early: flag kept", "1", on.store.meta.get("profile_keys_sent"));
+        eq("relay change: the profile version was reset", "0", on.store.meta.get("profile_version"));
     }
 
     /** F6 part 2: the sync state belongs to one relay; another address means everything is sent again. */

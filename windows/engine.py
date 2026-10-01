@@ -11,7 +11,6 @@ import time
 
 import numpy as np
 import psutil
-import pyperclip
 import pystray
 import requests
 import sounddevice as sd
@@ -20,6 +19,7 @@ from pynput import keyboard
 import audio_devices
 import logo
 import notes
+import paste as paste_mod
 import relay_host
 import streaming
 import sync
@@ -34,6 +34,9 @@ MIN_SECONDS = 0.4
 MAX_SECONDS = 360
 TAP_SECONDS = 0.3       # a press shorter than this is a tap
 DOUBLE_TAP_GAP = 0.5    # second tap within this starts hands-free mode
+# How long the pill shows a green check / a red ! (see Engine.flash). Keep equal to BubbleView.SENT_MS / ERROR_MS
+# in android/src/com/minhaj/vox/BubbleView.java (tests/test_flash_constants.py checks it).
+FLASH_SECONDS = {"sent": 0.7, "error": 1.8}
 
 KEY_ALIASES = {
     "ctrl": {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r},
@@ -45,7 +48,6 @@ KEY_ALIASES = {
     "shift": {keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r},
     "space": {keyboard.Key.space},
 }
-MODIFIERS = set().union(*[KEY_ALIASES[k] for k in ("ctrl", "cmd", "alt", "shift")])
 
 
 def foreground_app():
@@ -77,6 +79,13 @@ def open_window():
 
 
 class Engine:
+    # Class-level defaults ONLY for tests that build an Engine with object.__new__ (no __init__); __init__ sets
+    # the real values. flash_kind: "sent" | "error" | "" (what the pill signals for a moment, read by the
+    # overlay); flash_until: time.monotonic() when flash_kind stops showing.
+    overlay = None
+    flash_kind = ""
+    flash_until = 0.0
+
     def __init__(self):
         self.cfg = core.load_config()
         self.cfg_mtime = self._mtime()
@@ -93,6 +102,8 @@ class Engine:
         self.state = "idle"   # read by the overlay: idle | rec | busy
         self.level = 0.0
         self.overlay = None
+        self.flash_kind = ""
+        self.flash_until = 0.0
         self.hands_free = False
         self.streaming = None         # StreamingStt for the current recording (long ones are sent in pieces)
         self.note_mode = False        # the current recording is a voice note: saved, not pasted
@@ -179,7 +190,26 @@ class Engine:
         self.state = name
         if name != "rec":
             self.level = 0.0
+        if name != "idle":
+            self.flash_kind = ""   # a new recording or send replaces whatever the pill was signalling
         self.icon.icon = ICONS[name]
+
+    def flash(self, kind):
+        """Makes the pill show "sent" (green check, 0.7 s) or "error" (red !, 1.8 s), then go back to the real
+        state. Only a signal: the state is unchanged and the tray balloon keeps the words. Does nothing without
+        a pill. Any thread may call it; the overlay reads flash_kind and flash_until on the Tk thread."""
+        seconds = FLASH_SECONDS[kind]
+        if self.overlay is None:
+            return
+        self.flash_until = time.monotonic() + seconds   # the deadline before the kind
+        self.flash_kind = kind
+
+    def active_flash(self, now=None):
+        """The flash the pill should show at `now` ("sent", "error", or "" when there is none or it has run out)."""
+        kind = self.flash_kind
+        if not kind:
+            return ""
+        return kind if (time.monotonic() if now is None else now) < self.flash_until else ""
 
     # ----------------------------------------------------------------- relay
     def start_relay(self):
@@ -259,6 +289,7 @@ class Engine:
             "Add your API key in Vox > Settings" if core.key_missing(self.cfg) else "")
         if problem:
             self.notify(problem)
+            self.flash("error")
             open_window()
             return
         self.target = foreground_app()
@@ -277,6 +308,7 @@ class Engine:
             self.stream.start()
         except Exception as e:
             self.notify(f"Microphone error: {e}")
+            self.flash("error")
             if self.streaming:
                 self.streaming.cancel()
                 self.streaming = None
@@ -341,6 +373,7 @@ class Engine:
                 streamer.cancel()
             self.notify(f"Vox did not hear anything (loudest sound {core.peak_level(pcm)} of 32768). Check the microphone in Vox > Settings.")
             self.set_state("idle")
+            self.flash("error")
             return
         self.busy = True
         self.set_state("busy")
@@ -381,6 +414,7 @@ class Engine:
             else:
                 res = core.process_detailed(self.cfg, pcm, label, label)
             raw, text = res.raw, res.text
+            outcome = ""   # what the pill shows once the result is in; set only when something was sent or saved
             self.pending = None
             if res.cleanup_error:
                 self.notify(("Cleanup did not work, so Vox saved your words as spoken: " if note else "Cleanup did not work, so Vox pasted your words as spoken: ") + res.cleanup_error[:120])
@@ -388,13 +422,19 @@ class Engine:
                 saved = notes.add(text, raw=raw, secs=secs, source=notes.SOURCE_NOTE, device=sync.device_name(self.cfg))
                 self.sync.trigger()
                 self.notify("Note saved: " + saved["title"])
+                outcome = "sent"
             elif text:
-                self.paste(text)
+                outcome = "sent" if self.paste(text) else "error"   # the pill reflects the paste only
                 if self.cfg.get("keep_history", True):
-                    core.add_history({
-                        "t": time.time(), "app": exe, "raw": raw, "text": text,
-                        "words": len(text.split()), "secs": round(secs, 1),
-                    })
+                    try:
+                        core.add_history({
+                            "t": time.time(), "app": exe, "raw": raw, "text": text,
+                            "words": len(text.split()), "secs": round(secs, 1),
+                        })
+                    except Exception:   # the text already landed: log it, never flash error over "sent"
+                        log.exception("could not save the history entry")
+            if outcome:
+                self.flash(outcome)
         except core.ApiError as e:
             log.error("api error: %s", e)
             self.pending = (pcm, exe, note)
@@ -407,32 +447,27 @@ class Engine:
                 self.notify("Rate limit reached. Try again shortly." + keep)
             else:
                 self.notify(str(e) + keep)
+            self.flash("error")
         except requests.RequestException as e:
             self.pending = (pcm, exe, note)
             self.notify(f"Network error: {e}." + keep)
+            self.flash("error")
         except Exception:
             log.exception("processing failed")
+            self.flash("error")
         finally:
             self.busy = False
             self.set_state("idle")
 
     def paste(self, text):
-        # Wait until the hotkey modifiers are up so Ctrl+V is not combined with Win.
-        deadline = time.time() + 2
-        while self.pressed & MODIFIERS and time.time() < deadline:
-            time.sleep(0.02)
-        try:
-            old = pyperclip.paste()
-        except Exception:
-            old = None
-        pyperclip.copy(text)
-        time.sleep(0.05)
-        with self.kb.pressed(keyboard.Key.ctrl):
-            self.kb.tap("v")
-        time.sleep(0.4)
-        # By default the dictated text stays on the clipboard so you can paste it again anywhere.
-        if old is not None and not self.cfg.get("keep_clipboard", True):
-            pyperclip.copy(old)
+        """True when the text was pasted into the window; False when it only reached the clipboard (said so in a
+        balloon). Does not flash: _process flashes from this result once everything else is done."""
+        # paste.py checks the window is still the one the dictation started in, sends Ctrl+V, and restores the
+        # old clipboard only when keep_clipboard is off and the clipboard still holds our text.
+        if paste_mod.paste_text(text, self.target, self.cfg.get("keep_clipboard", False)) == paste_mod.COPIED:
+            self.notify("Copied; the window changed")
+            return False
+        return True
 
     # -------------------------------------------------------------- meeting
     def _event(self, uid=None):

@@ -1,15 +1,19 @@
-"""Small pill at the bottom of the screen: live waveform while recording, bouncing dots while processing.
+"""Small pill at the bottom of the screen: live waveform while recording, bouncing dots while processing, and a
+short green check ("sent") or red ! ("error") when a dictation ends.
 
 The window never takes focus and ignores the mouse, so pasting still goes to the app you were typing in.
-Tk runs on the main thread and polls the shared state; other threads only set `state` and `level`.
+Tk runs on the main thread and polls the shared state; other threads only set `state`, `level` and the flash
+(`flash_kind` and its expiry `flash_until`; overlay_mode.py decides what shows).
 """
 import logging
 import math
 import random
 import sys
+import time
 import tkinter as tk
 
 import vox_core as core
+from overlay_mode import overlay_mode
 
 KEY = "#010203"          # colour made fully transparent (gives the pill rounded corners)
 BG = "#161618"
@@ -17,6 +21,7 @@ EDGE = "#3A3A3F"
 BAR = "#F2F2F2"
 REC_DOT = "#FF453A"
 BUSY = "#F5B83D"
+SENT = "#30D158"
 FPS_MS = 33               # about 30 frames a second is plenty for a meter
 SAMPLE_MS = 80            # one meter bar per 80 ms of voice (about a syllable)
 log = logging.getLogger("vox.overlay")
@@ -73,7 +78,7 @@ class Overlay:
     N_BARS = 11
 
     def __init__(self, app):
-        self.app = app  # needs .state ("idle" | "rec" | "busy") and .level (0..1)
+        self.app = app  # needs .state ("idle" | "rec" | "busy"), .level (0..1), .flash_kind ("sent" | "error" | "") and .flash_until
         self.root = tk.Tk()
         self.root.withdraw()
         self.scale = self.root.winfo_fpixels("1i") / 96.0
@@ -106,6 +111,11 @@ class Overlay:
         self.hist = core.LevelHistory(self.N_BARS)
         self.sample_acc = 0
         self.phase = [random.random() * math.tau for _ in range(self.N_BARS)]
+        # The check mark and the "!" never change size: their coordinates are worked out once, not every frame.
+        cx, cy = self.w / 2, self.h / 2
+        self.check = (cx - 7.5 * s, cy + 0.5 * s, cx - 2.5 * s, cy + 5.5 * s, cx + 7.5 * s, cy - 5.5 * s)
+        self.bang = (cx, cy - 9 * s, cx, cy + 2.5 * s)
+        self.bang_dot = (cx - 1.9 * s, cy + 6.1 * s, cx + 1.9 * s, cy + 9.9 * s)
         self.root.after(FPS_MS, self._tick)
 
     def _place(self):
@@ -162,6 +172,14 @@ class Overlay:
             r = 3.4 * s
             c.create_oval(x - r, y - r, x + r, y + r, fill=BUSY, outline="")
 
+    def _draw_sent(self):
+        self.canvas.create_line(*self.check, fill=SENT, width=3 * self.scale, capstyle=tk.ROUND, joinstyle=tk.ROUND)
+
+    def _draw_error(self):
+        c = self.canvas
+        c.create_line(*self.bang, fill=REC_DOT, width=3 * self.scale, capstyle=tk.ROUND)
+        c.create_oval(*self.bang_dot, fill=REC_DOT, outline="")
+
     def _draw_meeting(self):
         c, s = self.canvas, self.scale
         cy = self.h / 2
@@ -176,11 +194,11 @@ class Overlay:
     def _tick(self):
         try:
             self.t += FPS_MS / 1000
-            state = self.app.state
             meeting = getattr(self.app, "meeting", None)
-            if state == "idle" and meeting is not None and meeting.active:
-                state = "meet"
-            want = state != "idle"
+            # Precedence (flash over the meeting timer, flash only while idle) lives in overlay_mode, which is tested.
+            state = overlay_mode(self.app.state, self.app.flash_kind, self.app.flash_until, time.monotonic(),
+                                 meeting is not None and meeting.active)
+            want = state is not None
             if want and not self.visible:
                 self._place()
                 self.hist.reset()
@@ -198,6 +216,10 @@ class Overlay:
                     self._draw_busy()
                 elif state == "meet":
                     self._draw_meeting()
+                elif state == "sent":
+                    self._draw_sent()
+                elif state == "error":
+                    self._draw_error()
                 else:
                     self._draw_recording()
         except Exception:
