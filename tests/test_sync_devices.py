@@ -34,6 +34,15 @@ def test_fetch_devices_lists_this_device_and_the_others(srv):
     assert all(set(d) == {"name", "first_seen", "last_seen", "requests", "login"} for d in got)
 
 
+@pytest.mark.parametrize("name", ["Yuvraj’s PC", "युवराज", "Desk 😀"])
+def test_a_device_name_outside_latin_1_does_not_break_the_relay_calls(srv, name):
+    """http.client sends a header as latin-1: the header carries the Android spelling (? for every other character)."""
+    got = sync.fetch_devices(cfg_for(srv, name))
+    assert [d["name"] for d in got] == [sync._ascii_name(name)]
+    assert sync.test_relay(f"http://127.0.0.1:{srv.server_address[1]}", srv.token, name)["ok"]
+    assert sync.devices_for_ui(cfg_for(srv, name))["devices"][0]["this"]   # the row is still marked as this device
+
+
 def test_fetch_devices_works_with_sync_switched_off(srv):
     """The card needs only the saved address and token, not the notes switch."""
     assert sync.fetch_devices(cfg_for(srv, relay_sync=False))[0]["name"] == "Laptop"

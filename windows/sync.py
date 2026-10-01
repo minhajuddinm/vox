@@ -101,7 +101,7 @@ def problem(url, token):
 
 def _call(method, url, path, token, device, headers=None, allow=(), **kw):
     """(status, JSON body). Statuses in `allow` are returned; other failures raise SyncError."""
-    h = {"Authorization": "Bearer " + token, "X-Vox-Device": device}
+    h = {"Authorization": "Bearer " + token, "X-Vox-Device": _ascii_name(device)}   # a header is latin-1: spelled as Android does
     h.update(headers or {})
     try:
         r = _session.request(method, url + path, headers=h, timeout=TIMEOUT, **kw)
