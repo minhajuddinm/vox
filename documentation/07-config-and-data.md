@@ -78,7 +78,8 @@ Settings shown in the Windows window: `relay_proxy`, `api_key`, `base_url`, `hot
 | `cleanup_min_words` | string | `3` | Phrases with fewer words than this skip the AI cleanup. Stored as text; Settings saves a whole number from 1 to 20, and `Bridge.state` reports it as a number. |
 | `keep_history` | bool | `true` | Save dictations. |
 | `only_typing` | bool | `true` | Show the bubble only while a text field is focused. |
-| `bubble_x`, `bubble_y` | int | -1 (default spot) | Saved bubble position. |
+| `always_show_bubble` | bool | `false` | "Always show the bubble" (Settings, System): the mic bubble stays on screen whether or not a text field is focused, overriding `only_typing`. Per device, not synced. |
+| `bubble_x`, `bubble_y` | int | -1 (default spot) | Saved bubble position. It is clamped to the current screen when the bubble is placed, and the clamped value is not written back. |
 | `note_bubble` | bool | `false` | Show the second, always-visible bubble that starts and stops a voice note (drawn by the accessibility service, independent of the focused field and of `only_typing`). |
 | `note_bubble_x`, `note_bubble_y` | int | -1 (default spot: right edge, 55% down) | Saved position of the note bubble. |
 | `note_notification` | bool | `false` | Keep an ongoing "Record note" notification in the shade. `Bridge.state` reports `note_bubble` and `note_notification`; `Bridge.save` accepts them. |

@@ -90,6 +90,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/Terms.java` | Parses the dictionary text into terms and replacements. |
 | `android/src/com/minhaj/vox/NotificationActions.java` | Pure choice of the foreground notification buttons (at most three) and its Retry hint line. |
 | `android/src/com/minhaj/vox/OverlayDiag.java` | Pure bubble diagnostics: a ring buffer of the last 50 events that can make the bubble appear or vanish, its one-line event text, the service and battery lines and the copyable report, kept in memory and in a small private file (`files/overlay_diag.log`). |
+| `android/src/com/minhaj/vox/BubbleLogic.java` | Pure bubble rules: `clamp` keeps a saved position on the current screen, `shouldShow` is the visibility rule (only-typing, Always show, focused field, screen on, service ready), `action` is the watchdog's decision (none, add, remove, repair) and `WATCHDOG_MS` is its 30 s period. |
 | `android/src/com/minhaj/vox/InsertGuard.java` | Pure typing guard: never type a restored dictation (empty target package), refuse a switched app, and the toast words. |
 | `android/src/com/minhaj/vox/PinnedUrlConfig.java` | A `SyncConfig` with the relay address fixed for one sync run (the address is read once per run). |
 | `android/src/com/minhaj/vox/Endpoint.java` | Server address rules (which hosts may use plain http). |
@@ -166,7 +167,8 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/PendingQueueTest.java` | The unsent-recordings queue: oldest-first order, cap drops the oldest, cancel rules (live recording and Retry discard nothing, only a fresh queued entry), remove on success, age purge, file names. |
 | `android/test/com/minhaj/vox/NoteLogicTest.java` | Note rules beyond the golden rows: Python-style whitespace and `strip`, search words, tag clean-up and its cap, null inputs, merge edge cases. |
 | `android/test/com/minhaj/vox/NoteTest.java` | The `Note` value class: defaults and `copy`. |
-| `android/test/com/minhaj/vox/OverlayDiagTest.java` | `OverlayDiag`: ring size and order, merging of a repeated event, event text, file round trip, damaged and unwritable file, the only-typing reason and kind, the report text. |
+| `android/test/com/minhaj/vox/BubbleLogicTest.java` | `BubbleLogic`: the clamp (inside, corners, too far right or down, negative, a screen smaller than the bubble, overflow), the visibility rule and the watchdog's decision. |
+| `android/test/com/minhaj/vox/OverlayDiagTest.java` | `OverlayDiag`: ring size and order, merging of a repeated event, event text, file round trip, damaged and unwritable file, the only-typing reason and kind (also with Always show and a dark screen), the watchdog event, the report text. |
 | `android/test/com/minhaj/vox/NoteEventsTest.java` | `NoteEvents`: order, no double add, remove, a failing listener, adding during a fire, several threads. |
 | `android/test/com/minhaj/vox/ParityTest.java` | Runs `spec/golden.txt` against the Java helpers. |
 | `android/test/com/minhaj/vox/ProfileMergeTest.java` | Profile merge beyond the golden rows: lists and booleans, removals, null maps, fields outside the set, inputs left unchanged, the field lists. |
@@ -267,6 +269,7 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p6-android-note-mode.md` | Spec for P6: Android note mode (faster start, note bubble, notification, tile), with the device checklist. |
 | `documentation/specs/p7e-android-sync.md` | Spec for P7e: Android relay sync and profile merge, with the device checklist and known limits. |
 | `documentation/specs/p8c-quick-wins.md` | Spec for P8c: the quick wins (Java test runner and compile check, `ApiClient` rename, `cleanup_min_words`, the relay run from the Windows app), with what was and was not verified. |
+| `documentation/specs/p9d-android-bubble.md` | Spec for P9d: the Android bubble that keeps disappearing (diagnostics, watchdog, clamp, Always show the bubble, battery prompt), with the device checklist. |
 | `documentation/specs/p8b-design-refresh.md` | Spec for P8b: shared UI parts, regrouped settings and Status card, result flash, safer paste, privacy rewrite, with what was not verified. |
 | `ui-shared/tokens.css` | The palette both pages share (light values and a `@dark` block; Windows gets a `prefers-color-scheme` media query, Android a `.dark` class rule). |
 | `ui-shared/components.css` | The CSS declarations that are identical in both pages for `.card .btn .chips .chip .switch .status .srow .hint .day .entry`; each page keeps its own sizes and spacing next to it. |
