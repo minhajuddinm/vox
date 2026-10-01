@@ -34,7 +34,9 @@ MIN_SECONDS = 0.4
 MAX_SECONDS = 360
 TAP_SECONDS = 0.3       # a press shorter than this is a tap
 DOUBLE_TAP_GAP = 0.5    # second tap within this starts hands-free mode
-FLASH_SECONDS = {"sent": 0.7, "error": 1.8}   # how long the pill shows a green check / a red ! (see Engine.flash)
+# How long the pill shows a green check / a red ! (see Engine.flash). Keep equal to BubbleView.SENT_MS / ERROR_MS
+# in android/src/com/minhaj/vox/BubbleView.java (tests/test_flash_constants.py checks it).
+FLASH_SECONDS = {"sent": 0.7, "error": 1.8}
 
 KEY_ALIASES = {
     "ctrl": {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r},
@@ -77,10 +79,12 @@ def open_window():
 
 
 class Engine:
-    # Class-level defaults, so an Engine built without __init__ (tests) still has a valid "no pill, no flash".
+    # Class-level defaults ONLY for tests that build an Engine with object.__new__ (no __init__); __init__ sets
+    # the real values. flash_kind: "sent" | "error" | "" (what the pill signals for a moment, read by the
+    # overlay); flash_until: time.monotonic() when flash_kind stops showing.
     overlay = None
-    flash_kind = ""       # "sent" | "error" | "" : what the pill signals for a moment (read by the overlay)
-    flash_until = 0.0     # time.monotonic() when flash_kind stops showing
+    flash_kind = ""
+    flash_until = 0.0
 
     def __init__(self):
         self.cfg = core.load_config()
@@ -98,6 +102,8 @@ class Engine:
         self.state = "idle"   # read by the overlay: idle | rec | busy
         self.level = 0.0
         self.overlay = None
+        self.flash_kind = ""
+        self.flash_until = 0.0
         self.hands_free = False
         self.streaming = None         # StreamingStt for the current recording (long ones are sent in pieces)
         self.note_mode = False        # the current recording is a voice note: saved, not pasted
@@ -408,6 +414,7 @@ class Engine:
             else:
                 res = core.process_detailed(self.cfg, pcm, label, label)
             raw, text = res.raw, res.text
+            outcome = ""   # what the pill shows once the result is in; set only when something was sent or saved
             self.pending = None
             if res.cleanup_error:
                 self.notify(("Cleanup did not work, so Vox saved your words as spoken: " if note else "Cleanup did not work, so Vox pasted your words as spoken: ") + res.cleanup_error[:120])
@@ -415,14 +422,19 @@ class Engine:
                 saved = notes.add(text, raw=raw, secs=secs, source=notes.SOURCE_NOTE, device=sync.device_name(self.cfg))
                 self.sync.trigger()
                 self.notify("Note saved: " + saved["title"])
-                self.flash("sent")
+                outcome = "sent"
             elif text:
-                self.paste(text)
+                outcome = "sent" if self.paste(text) else "error"   # the pill reflects the paste only
                 if self.cfg.get("keep_history", True):
-                    core.add_history({
-                        "t": time.time(), "app": exe, "raw": raw, "text": text,
-                        "words": len(text.split()), "secs": round(secs, 1),
-                    })
+                    try:
+                        core.add_history({
+                            "t": time.time(), "app": exe, "raw": raw, "text": text,
+                            "words": len(text.split()), "secs": round(secs, 1),
+                        })
+                    except Exception:   # the text already landed: log it, never flash error over "sent"
+                        log.exception("could not save the history entry")
+            if outcome:
+                self.flash(outcome)
         except core.ApiError as e:
             log.error("api error: %s", e)
             self.pending = (pcm, exe, note)
@@ -448,13 +460,14 @@ class Engine:
             self.set_state("idle")
 
     def paste(self, text):
+        """True when the text was pasted into the window; False when it only reached the clipboard (said so in a
+        balloon). Does not flash: _process flashes from this result once everything else is done."""
         # paste.py checks the window is still the one the dictation started in, sends Ctrl+V, and restores the
         # old clipboard only when keep_clipboard is off and the clipboard still holds our text.
         if paste_mod.paste_text(text, self.target, self.cfg.get("keep_clipboard", False)) == paste_mod.COPIED:
             self.notify("Copied; the window changed")
-            self.flash("error")   # the text did not land in the window
-        else:
-            self.flash("sent")
+            return False
+        return True
 
     # -------------------------------------------------------------- meeting
     def _event(self, uid=None):
