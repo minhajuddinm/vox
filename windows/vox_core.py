@@ -572,6 +572,9 @@ def _spoken_number(tokens, i):
     return (total, k) if k > i else None
 
 
+_ORDINAL_SUFFIX = re.compile(r"^([0-9]+)(?:st|nd|rd|th)$")
+
+
 def _number_token(tokens, i):
     """(token, next index) for the spoken number at i, or None: "twenty five" = "25", an ordinal ("twenty first" = "21st"),
     "half past three" = "330" (3:30)."""
@@ -593,7 +596,8 @@ def _merge_numbers(tokens):
     "one hundred and five" = "105", "two thousand twenty six" = "2026", "a hundred" = "100", "five five five one two" =
     "55512" = "555-12" and "twenty twenty six" = "2026"; "five million" = "5000000", "five lakh" = "500000"; ordinals are
     "21st" ("twenty first"), "half past three" = "330" (3:30). "point" between two numbers is the decimal point ("three
-    point five" = "3.5" = "35") and "p m" / "a m" are "pm" / "am"."""
+    point five" = "3.5" = "35") and "p m" / "a m" are "pm" / "am". An ordinal's suffix is dropped last ("21st" = "21"),
+    so the plain written date "May 3" matches "may third"."""
     out, i, n = [], 0, len(tokens)
     while i < n:
         t = tokens[i]
@@ -611,7 +615,7 @@ def _merge_numbers(tokens):
             out[-1] += t
         else:
             out.append(t)
-    return out
+    return [_ORDINAL_SUFFIX.sub(r"\1", t) for t in out]
 
 
 def _without_commands(tokens):

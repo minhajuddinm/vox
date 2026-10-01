@@ -96,6 +96,7 @@ public final class FidelityTest {
         eq("recall wrong decimal", 0.0, Fidelity.wordRecall("three point five", "3.6"));
         // ordinals, scale words, half past N
         eq("recall ordinal", 1.0, Fidelity.wordRecall("the twenty first of march", "the 21st of March"));
+        eq("recall ordinal written plain", 1.0, Fidelity.wordRecall("the twenty first of march", "the 21 of March"));
         eq("recall ordinals", 1.0, Fidelity.wordRecall("the twenty-second and the thirtieth", "the 22nd and the 30th"));
         eq("recall ordinal suffixes", 1.0, Fidelity.wordRecall("the third eleventh twelfth thirteenth", "the 3rd 11th 12th 13th"));
         eq("recall million", 1.0, Fidelity.wordRecall("five million two hundred thousand", "5,200,000"));

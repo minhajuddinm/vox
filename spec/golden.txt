@@ -590,6 +590,16 @@ recall	a million	1,000,000	1.000
 recall	twenty first	21st	1.000
 recall	fifth	5th	1.000
 recall	half past three	3:30	1.000
+# an ordinal is compared without its suffix: the standard written date "May 3" is as good as "May 3rd"
+fidelity	light	the meeting is on march fifth at five thirty p m	The meeting is on March 5 at 5:30 PM.	true
+fidelity	light	it is on may third	It is on May 3.	true
+fidelity	light	it is on may third	It is on May 3rd.	true
+fidelity	light	it is on may third	It is on May 4.	false
+fidelity	light	it is on may third	It is on May 4th.	false
+fidelity	light	on the twenty first of march we ship the first release	On the 21 of March we ship the 1 release.	true
+recall	may third	May 3	1.000
+recall	may 3rd	May 3	1.000
+recall	twenty first	21	1.000
 # cleanstrength: the stored "Cleanup strength" setting, read as light or standard (anything else, or unset, is light)
 cleanstrength		light
 cleanstrength	light	light

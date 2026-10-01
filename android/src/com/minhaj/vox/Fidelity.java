@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * The fidelity guard: rejects a cleanup that lost the speaker's words (a summary, a rewrite, a dropped paragraph).
@@ -108,6 +109,8 @@ final class Fidelity {
         if (cur.length() > 0) out.add(cur.toString());
         return out;
     }
+
+    private static final Pattern ORDINAL_SUFFIX = Pattern.compile("^([0-9]+)(?:st|nd|rd|th)$");
 
     private static boolean allDigits(String t) {
         if (t.isEmpty()) return false;
@@ -217,7 +220,8 @@ final class Fidelity {
      * "one hundred and five" = "105", "two thousand twenty six" = "2026", "a hundred" = "100", "five five five one two" =
      * "55512" = "555-12" and "twenty twenty six" = "2026"; "five million" = "5000000", "five lakh" = "500000"; ordinals are
      * "21st" ("twenty first"), "half past three" = "330" (3:30). "point" between two numbers is the decimal point ("three
-     * point five" = "3.5" = "35") and "p m" / "a m" are "pm" / "am".
+     * point five" = "3.5" = "35") and "p m" / "a m" are "pm" / "am". An ordinal's suffix is dropped last ("21st" = "21"),
+     * so the plain written date "May 3" matches "may third".
      */
     private static List<String> mergeNumbers(List<String> tokens) {
         List<String> out = new ArrayList<>();
@@ -245,6 +249,7 @@ final class Fidelity {
                 out.add(t);
             }
         }
+        for (int j = 0; j < out.size(); j++) out.set(j, ORDINAL_SUFFIX.matcher(out.get(j)).replaceFirst("$1"));
         return out;
     }
 

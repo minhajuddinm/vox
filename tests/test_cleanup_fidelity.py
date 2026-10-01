@@ -101,6 +101,7 @@ def test_big_numbers_with_and_and_point_equal_their_digits():
 
 def test_ordinals_scale_words_and_half_past_equal_their_digits():
     assert core.word_recall("the twenty first of march", "the 21st of March") == 1.0
+    assert core.word_recall("the twenty first of march", "the 21 of March") == 1.0   # the plain written date has no suffix
     assert core.word_recall("the twenty-second and the thirtieth", "the 22nd and the 30th") == 1.0
     assert core.word_recall("the third eleventh twelfth thirteenth", "the 3rd 11th 12th 13th") == 1.0
     assert core.word_recall("five million two hundred thousand", "5,200,000") == 1.0
