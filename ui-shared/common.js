@@ -24,8 +24,8 @@ function statusRows(st, cfg, sync, test) {
   const [syncText, syncKind] = !cfg.relay_sync ? ["Off", "dim"] : !sync ? ["Checking…", "dim"] : sync.running ? ["Syncing…", ""]
     : sync.error ? ["Not synced: " + sync.error, "bad"] : ["Synced " + agoText(sync.last_ok), "ok"];
   const l = st.last, app = l && l.app ? " in " + String(l.app).replace(/\.exe$/i, "") : "";
-  const [lastText, lastKind] = l ? [`${l.words} word${l.words === 1 ? "" : "s"}, ${agoText(l.t)}${app}`, ""]
-    : st.unsent ? ["Not sent. Retry from the notification.", "bad"] : [cfg.keep_history === false ? "History is off" : "None yet", "dim"];
+  const [lastText, lastKind] = st.unsent ? ["Not sent. Retry from the notification.", "bad"]
+    : l ? [`${l.words} word${l.words === 1 ? "" : "s"}, ${agoText(l.t)}${app}`, ""] : [cfg.keep_history === false ? "History is off" : "None yet", "dim"];
   return [
     ["AI provider", st.provider, ""],
     ["Voice model", st.stt_model, ""],

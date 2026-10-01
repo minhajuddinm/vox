@@ -76,3 +76,25 @@ def test_both_dark_mechanisms_come_from_one_token_source():
         andr = f.read()
     assert "@media (prefers-color-scheme: dark)" in win
     assert "\n.dark {" in andr and "prefers-color-scheme" not in andr
+
+
+def test_status_rows_show_a_failed_dictation_even_when_history_has_older_entries(tmp_path):
+    node = shutil.which("node")
+    if not node:
+        import pytest
+        pytest.skip("node not installed")
+    script = tmp_path / "t.js"
+    js = open(os.path.join(ROOT, "ui-shared", "common.js"), encoding="utf-8").read()
+    script.write_text(js + """
+const old = {words: 3, t: Date.now() / 1000 - 600, app: "x.exe"};
+const row = (st) => statusRows(st, {relay_sync: false}, null, null).find(r => r[0] === "Last dictation");
+const a = row({last: old, unsent: true, notes: 0});
+const b = row({last: old, unsent: false, notes: 0});
+console.log(JSON.stringify([a, b]));
+""", encoding="utf-8")
+    r = subprocess.run([node, str(script)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    import json
+    a, b = json.loads(r.stdout.strip().splitlines()[-1])
+    assert a[1].startswith("Not sent") and a[2] == "bad"
+    assert "3 words" in b[1]
