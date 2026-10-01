@@ -16,10 +16,17 @@ public final class PendingQueue {
     public static final int MAX_KEPT = 5;
     public static final long MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000;
 
-    /** One kept recording: where it goes (pkg, label, dest) and when it was made (id). Immutable. */
+    /** A failed Retry moves its entry behind the others; after this many failed retries it is parked (Retry skips it). */
+    public static final int MAX_RETRIES = 3;
+
+    /**
+     * One kept recording: where it goes (pkg, label, dest) and when it was made (id). Only the retry-failure counter
+     * changes, and only through the synchronized methods of {@link PendingQueue}.
+     */
     public static final class Entry {
         public final long id;
         public final String pkg, label, dest;
+        int failures;   // failed Retry sends so far (the first send of a fresh recording is not counted)
         public Entry(long id, String pkg, String label, String dest) {
             this.id = id; this.pkg = pkg; this.label = label; this.dest = dest;
         }
@@ -33,12 +40,53 @@ public final class PendingQueue {
         int at = items.size();
         while (at > 0 && items.get(at - 1).id > e.id) at--;   // keeps oldest-first order when a restored entry arrives late
         items.add(at, e);
-        while (items.size() > MAX_KEPT) dropped.add(items.remove(0));
+        while (items.size() > MAX_KEPT) {   // the oldest by age (lowest id), which after a rotation is not always the first in line
+            int oldest = 0;
+            for (int i = 1; i < items.size(); i++) if (items.get(i).id < items.get(oldest).id) oldest = i;
+            dropped.add(items.remove(oldest));
+        }
         return dropped;
     }
 
-    /** The entry Retry sends next (the oldest), or null when nothing is kept. Does not remove it: only a success does. */
-    public synchronized Entry next() { return items.isEmpty() ? null : items.get(0); }
+    /**
+     * The entry Retry sends next: the first in line that is not parked, or null when nothing is kept or every entry is
+     * parked. Does not remove it: only a success does. A failed retry moves its entry to the back ({@link #onSendFailed}).
+     */
+    public synchronized Entry next() {
+        for (Entry e : items) if (e.failures < MAX_RETRIES) return e;
+        return null;
+    }
+
+    /** Failed retries of this entry so far (0 when unknown). */
+    public synchronized int failures(long id) {
+        Entry e = get(id);
+        return e == null ? 0 : e.failures;
+    }
+
+    /** How many kept entries are parked (failed {@link #MAX_RETRIES} retries). */
+    public synchronized int stuck() {
+        int n = 0;
+        for (Entry e : items) if (e.failures >= MAX_RETRIES) n++;
+        return n;
+    }
+
+    /**
+     * The send of this entry failed. When it was a Retry of this entry (see {@link #beginRetry}) the failure is counted
+     * and the entry goes to the back, so the next Retry tries the next one, and true is returned. A failed first send of
+     * a fresh recording is not a retry: nothing changes and false is returned. Call it before {@link #endJob}.
+     */
+    public synchronized boolean onSendFailed(long id) {
+        if (inFlight != id || inFlightFresh) return false;
+        for (int i = 0; i < items.size(); i++) {
+            if (items.get(i).id == id) {
+                Entry e = items.remove(i);
+                e.failures++;
+                items.add(e);
+                return true;
+            }
+        }
+        return false;
+    }
 
     /** The entry with this id, or null. */
     public synchronized Entry get(long id) {
@@ -100,8 +148,13 @@ public final class PendingQueue {
         return old;
     }
 
-    /** The notification line when more than one recording is kept ("2 recordings kept"), else null. */
+    /**
+     * The notification line when more than one recording is kept ("2 recordings kept"), else null. When some are
+     * parked it says how many ("2 recordings kept, 1 stuck"), also for a single kept recording.
+     */
     public synchronized String summary() {
+        int stuck = stuck();
+        if (stuck > 0) return items.size() + (items.size() == 1 ? " recording kept, " : " recordings kept, ") + stuck + " stuck";
         return items.size() > 1 ? items.size() + " recordings kept" : null;
     }
 
