@@ -2,7 +2,7 @@
 
 Checks the manifest (permissions the code really uses, targetSdk in step with the platform the sources compile against, no
 isAccessibilityTool) and the Android page's install-help card (steps, the App info button, the adb alternative).
-Sources and limits: documentation/specs/p9g-note-bubble.md (G2 section) and J:/Projects/.notes research (not in the repo).
+Sources and limits: documentation/specs/p9g-note-bubble.md (G2 section) and a research note kept outside the repo.
 """
 import glob
 import os

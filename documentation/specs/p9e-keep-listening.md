@@ -3,7 +3,7 @@
 Status: Implemented on branch `feat/p9e-listen` (tasks E1, E2 and E5, then the branch E review fixes), merged into `feat/part3`. **Windows only. Android keep-listening is out of scope for this round** (the phone already has note mode, [p6-android-note-mode.md](p6-android-note-mode.md), and the note bubble, [p9g-note-bubble.md](p9g-note-bubble.md)); nothing here was written for Java and there are no golden rows. Date: 2026-10-01. **Never run with a real microphone, a real speech server or on a real desktop** (only pure logic, fakes and a hidden-Tk drawing check were run). The reasons are in [decision 0032](../decisions/0032-keep-listening-pieces-two-targets-crash-safe-buffer.md). Behaviour as built: [04-windows-app.md](../04-windows-app.md), [08-features.md](../08-features.md); settings: [07-config-and-data.md](../07-config-and-data.md); privacy: [09-security-privacy.md](../09-security-privacy.md).
 
 ## Goal
-Request R7 of the v2 part 3 plan: the double-press mode should keep listening through long speech, fast, in the background, for long voice notes. It is **not** an AI assistant: Yuvraj's answer to "what should the text bot do?" was "no ai chat only listening". So the mode has two targets:
+Request R7 of the v2 part 3 plan: the double-press mode should keep listening through long speech, fast, in the background, for long voice notes. It is **not** an AI assistant: the requester's answer to "what should the text bot do?" was "no ai chat only listening". So the mode has two targets:
 
 - **Note** (default): one long continuous voice note. Everything said is turned into text while you speak; when you stop, the text is cleaned once (in chunks) and saved as one note.
 - **Type**: each piece is cleaned and typed into the app you started in, as you pause.
@@ -52,7 +52,7 @@ Before this, a double press started a hands-free dictation limited to `MAX_SECON
 ## Files
 `windows/session.py` (pure: `ListenSession`, `same_target`, `chunk_text`, `parse_note_hotkey`, `SessionBuffer`, `recoverable`, `load_pcm`), `windows/listen.py` (`Listening`), `windows/engine.py` (hotkeys, tray, `start_listening`, `stop_listening`, `save_note`, `_ready`, `_open_mic`, `_save_setting`, recovery), `windows/streaming.py` (`piece_text`), `windows/overlay.py`, `windows/overlay_mode.py`, `windows/timing.py`, `windows/ui_app.py`, `windows/ui/index.html`, `windows/vox_core.py` (two settings). Tests: `tests/test_listen_session.py`, `tests/test_listen.py`, `tests/test_engine_listen.py`, `tests/test_note_hotkey.py`, plus additions to `tests/test_streaming.py`, `tests/test_timing.py`, `tests/test_overlay_mode.py` and `tests/test_ui_static.py`.
 
-## Checklist without a phone (for Yuvraj, on the PC; none of this has been run)
+## Checklist without a phone (for a tester, on the PC; none of this has been run)
 Start Vox from your own terminal (a GUI started from the coding agent's shell is invisible), key set, the right microphone chosen. Keep `%APPDATA%\Vox\vox.log` open to check the log lines.
 
 1. **Start (Note).** Tap Ctrl+Win twice quickly. The pill widens and shows a stop square and `Listening 0:00` counting up; the tray icon turns red. The log says `keep listening started (target=note, ...)`.

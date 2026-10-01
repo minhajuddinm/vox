@@ -75,7 +75,7 @@ Settings gets an **AI provider** card: preset dropdown (fills the address and li
 ## Done when
 - pytest and the Java tests pass in CI; docs checker passes.
 - With a Groq key both pickers list only usable models on Windows and phone; choosing them changes the model used (checked against a stub server).
-- Pointing voice at a Speaches/whisper.cpp server and cleanup at Ollama works (Yuvraj's 3060 over Tailscale), or the Test button says exactly which side fails.
+- Pointing voice at a Speaches/whisper.cpp server and cleanup at Ollama works (a home GPU PC over Tailscale), or the Test button says exactly which side fails.
 - No "Groq" string is shown when another provider is configured.
 
 ## Open questions (for the review)

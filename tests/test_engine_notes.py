@@ -164,7 +164,7 @@ def test_a_401_through_the_relay_tells_the_user_to_check_the_relay_token(eng, mo
         raise core.ApiError(401, "API 401: unauthorised")
 
     monkeypatch.setattr(core, "process_detailed", refused)
-    eng.cfg = {"keep_history": False, "relay_proxy": True, "relay_url": "https://yuvipi.tail1234.ts.net", "relay_token": "T"}
+    eng.cfg = {"keep_history": False, "relay_proxy": True, "relay_url": "https://your-pi.your-tailnet.ts.net", "relay_token": "T"}
     eng.start()
     eng.chunks = speech()
     eng.stop()

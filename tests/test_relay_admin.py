@@ -225,8 +225,8 @@ GOOD_ADDRESSES = [
     "http://172.31.255.255",
     "http://100.64.0.1:9000",            # Tailscale (100.64.0.0/10)
     "http://100.127.255.255",
-    "http://yuvipi:8000/v1",             # one-label name
-    "http://yuvipi.tail1234.ts.net",     # MagicDNS
+    "http://your-pi:8000/v1",            # one-label name
+    "http://your-pi.your-tailnet.ts.net", # MagicDNS
     "http://my-nas.local/v1",
     "http://printer.lan",
 ]

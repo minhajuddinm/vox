@@ -15,7 +15,7 @@ public final class EndpointTest {
     public static void main(String[] args) {
         String[] privateHosts = {
             "localhost", "127.0.0.1", "[::1]", "10.1.2.3", "172.16.0.5", "172.31.255.255", "192.168.1.20",
-            "100.64.0.1", "100.101.102.103", "100.127.255.254", "laptop", "my-laptop.tail1234.ts.net",
+            "100.64.0.1", "100.101.102.103", "100.127.255.254", "laptop", "my-laptop.your-tailnet.ts.net",
             "printer.local", "nas.lan", "169.254.1.1", "fd7a:115c:a1e0::1"
         };
         for (String h : privateHosts) check("private " + h, Endpoint.isPrivateHost(h));

@@ -399,9 +399,9 @@ public final class RelayClientTest {
     }
 
     private static void problems() {
-        eq("problem: a good https address and token", "", RelayClient.problem("https://your-pi.tail1234.ts.net", "abc_DEF-123"));
-        eq("problem: a trailing slash is fine", "", RelayClient.problem("https://your-pi.tail1234.ts.net/", "abc"));
-        eq("problem: surrounding blanks are fine", "", RelayClient.problem("  https://your-pi.tail1234.ts.net//  ", "abc"));
+        eq("problem: a good https address and token", "", RelayClient.problem("https://your-pi.your-tailnet.ts.net", "abc_DEF-123"));
+        eq("problem: a trailing slash is fine", "", RelayClient.problem("https://your-pi.your-tailnet.ts.net/", "abc"));
+        eq("problem: surrounding blanks are fine", "", RelayClient.problem("  https://your-pi.your-tailnet.ts.net//  ", "abc"));
         eq("problem: a path is fine (a relay published under a path)", "", RelayClient.problem("https://host.ts.net/vox", "abc"));
         eq("problem: plain http on Tailscale", "", RelayClient.problem("http://100.101.102.103:8765", "abc"));
         eq("problem: plain http on a public host", Endpoint.error("http://relay.example.com"), RelayClient.problem("http://relay.example.com", "abc"));

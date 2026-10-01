@@ -5,7 +5,7 @@ Every tracked file is listed here with its purpose. `documentation/tools/check_d
 ## Shape
 
 ```
-.github/workflows/      CI: tests, Windows installer, Android APK, release
+.github/                CI workflow (tests, Windows installer, Android APK, release), issue forms, PR template
 android/                Android app (Java, no Gradle)
   assets/               the app's screens (one HTML file)
   res/                  icons, strings, accessibility and network config
@@ -27,9 +27,12 @@ windows/                Windows app (Python) and its installer scripts
 
 | Path | What it is |
 |---|---|
-| `README.md` | End-user guide for both apps, plus maintainer notes (release, signing, local build). User-facing; not this documentation. |
+| `README.md` | The project's front page for outsiders: what Vox is, features, screenshots to take, status and known limits, install (Windows, Android with the sideload warnings), short user guide, privacy summary, build and test, repository map, contributing and the licence status. User-facing; not this documentation. |
 | `AGENTS.md` | Short entry point for coding agents; points here. |
 | `CHANGELOG.md` | Release-style change history. |
+| `CONTRIBUTING.md` | How to contribute: setup, running the tests, the golden-rows rule, the docs-sync rule, the pull request checklist, and that contributions take the licence the owner selects. |
+| `SECURITY.md` | How to report a vulnerability privately (GitHub private vulnerability reporting) and a short trust model; links to [09-security-privacy.md](09-security-privacy.md) and the relay pages. |
+| `CODE_OF_CONDUCT.md` | Points to the Contributor Covenant 2.1 and says how to raise a conduct concern privately. |
 | `.gitattributes` | Forces LF line endings for `*.sh` and `*.list` so the test runner works on Windows checkouts with `core.autocrlf=true`. |
 | `.gitignore` | Keeps secrets (`config.json`, `google_client.json`, keystores), logs, build output, the local `.venv/` and the local agent scratch folder `.superpowers/` out of git. |
 
@@ -37,7 +40,12 @@ windows/                Windows app (Python) and its installer scripts
 
 | Path | What it is |
 |---|---|
-| `.github/workflows/build.yml` | Jobs `tests` (pytest and the documentation checker), `windows` (PyInstaller + Inno Setup), `android` (Java tests + APK), `release` (on tags `v*`). Runs on tag push or manually. See [10-build-test-release.md](10-build-test-release.md). |
+| `.github/workflows/build.yml` | Jobs `tests` (pytest and the documentation checker), `windows` (PyInstaller + Inno Setup), `android` (Java tests + APK), `release` (on tags `v*`), plus `relay` (relay tests on Python 3.9 and 3.13, x86 and arm64). Runs on pull requests (without `windows` and `release`), on tag push or manually. See [10-build-test-release.md](10-build-test-release.md). |
+| `.github/ISSUE_TEMPLATE/bug_report.yml` | Issue form for a bug (part, version, system, provider, steps, logs with personal text removed). |
+| `.github/ISSUE_TEMPLATE/feature_request.yml` | Issue form for a feature idea (problem, idea, what it would send or store). |
+| `.github/ISSUE_TEMPLATE/device_test.yml` | Issue form for the result of a device checklist from `documentation/specs/` (phone, PC or relay), step by step. |
+| `.github/ISSUE_TEMPLATE/config.yml` | Allows blank issues; links to the documentation, the relay guide and private security reporting. |
+| `.github/PULL_REQUEST_TEMPLATE.md` | Pull request description: what and why, how it was tested, and the checklist from `CONTRIBUTING.md`. |
 
 ## Windows app (`windows/`)
 

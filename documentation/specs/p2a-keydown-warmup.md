@@ -13,4 +13,4 @@ Less waiting after the user releases the key, without changing behaviour or open
 Shortening the Android start delay (400 ms trampoline plus 350 ms in `VoxAccessibilityService.onDictationServiceReady`), skipping cleanup for short phrases, pre-roll, streaming cleanup, chunked speech-to-text.
 
 ## Done when
-Tests pass (`tests/test_warmup.py`); CI green; Yuvraj notices no regression on Windows and phone. Time saved is not measured.
+Tests pass (`tests/test_warmup.py`); CI green; a tester notices no regression on Windows and phone. Time saved is not measured.

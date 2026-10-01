@@ -208,7 +208,7 @@ def test_strip_think_removes_a_leading_block_only():
 
 # ------------------------------------------------------------ the relay as the AI server
 
-RELAY = {"relay_proxy": True, "relay_url": "https://yuvipi.tail1234.ts.net", "relay_token": "RELAY-TOKEN"}
+RELAY = {"relay_proxy": True, "relay_url": "https://your-pi.your-tailnet.ts.net", "relay_token": "RELAY-TOKEN"}
 PROVIDER_KEYS = {"api_key": "MAIN-PROVIDER-KEY", "stt_api_key": "STT-PROVIDER-KEY", "llm_api_key": "LLM-PROVIDER-KEY"}
 RELAY_HINT = "check the relay token and the AI server key set on the relay page"
 # the requests the relay forwards, taken from the relay itself (relay/relay.py PROXY_ROUTES): nothing else may be asked of it
@@ -326,7 +326,7 @@ def test_with_the_proxy_off_the_relay_token_is_never_sent_to_a_provider(monkeypa
     use_every_server_call(cfg)
     assert sent
     for url, headers, rest in sent:
-        assert "/proxy/" not in url and "yuvipi" not in url, url
+        assert "/proxy/" not in url and "your-pi" not in url, url
         assert "RELAY-TOKEN" not in url + str(headers) + rest, url
     assert {h.get("Authorization") for u, h, _ in sent if u.startswith(core.BASE)} == {"Bearer MAIN-PROVIDER-KEY"}
     assert {h.get("Authorization") for u, h, _ in sent if u.startswith("http://localhost")} == {"Bearer LLM-PROVIDER-KEY"}

@@ -1,0 +1,61 @@
+name: Bug report
+description: Something in Vox does not work as described.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please leave out API keys, relay tokens, real host names and personal dictations: use made-up text.
+        A security problem goes to private reporting instead (see SECURITY.md).
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part?
+      options:
+        - Windows app
+        - Android app
+        - Relay
+        - Meeting notes (Windows, beta)
+        - Build, CI or documentation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release (for example v1.2.0) or the commit you built from.
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Windows version, or phone model and Android version, or the relay's OS and Python version.
+  - type: input
+    id: provider
+    attributes:
+      label: Speech and cleanup provider
+      description: For example "Groq, whisper-large-v3-turbo and openai/gpt-oss-20b", or "own server through the relay". No keys or addresses.
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log lines (optional)
+      description: |
+        Windows: %APPDATA%\Vox\vox.log. Android: Settings, System, Bubble diagnostics (Copy report), or `adb logcat -s vox`.
+        Read them first and remove anything personal.
+      render: text

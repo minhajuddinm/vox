@@ -40,7 +40,7 @@ Median of an even count averages the two middle values, rounded down; p90 is the
 
 ## Answers given to the requester
 - "Will Rust be faster?" No: the app's own time is about 10 to 30 ms of a 1 to 2 s wait; the wait is network and models. Revisit only if the Speed card shows app-side time matters.
-- "Best model for the fastest cleanup": no default changed without evidence. The Speed card shows total, speech and cleanup time per model pair on the user's own network; the benchmark of branch A (`tools/bench_cleanup.py`) measures quality and latency with his own key.
+- "Best model for the fastest cleanup": no default changed without evidence. The Speed card shows total, speech and cleanup time per model pair on the user's own network; the benchmark of branch A (`tools/bench_cleanup.py`) measures quality and latency with your own key.
 
 ## Needs a phone (or a real network) to prove
 Nothing below has run outside unit tests, a fake server and the compile check.

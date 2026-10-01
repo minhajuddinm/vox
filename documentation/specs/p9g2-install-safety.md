@@ -1,6 +1,6 @@
 # Spec P9g2: install safety for a sideloaded Vox (Android)
 
-Status: Implemented on branch `feat/p9g-notes` (task G2), **not run on a phone**. Date: 2026-10-01. Source: the research note on Android install trust (kept outside the repo, `J:\Projects\.notes`, primary sources only), and the "Additions agreed" list of the part 3 plan. Decision record: [0035](../decisions/0035-sideload-warnings-are-explained-not-engineered-away.md).
+Status: Implemented on branch `feat/p9g-notes` (task G2), **not run on a phone**. Date: 2026-10-01. Source: the research note on Android install trust (kept outside the repo, primary sources only), and the "Additions agreed" list of the part 3 plan. Decision record: [0035](../decisions/0035-sideload-warnings-are-explained-not-engineered-away.md).
 
 ## Goal
 Vox is installed from a file (GitHub Releases) and types for you through an accessibility service. Two things then get in the way, and neither can be removed by code:
@@ -19,7 +19,7 @@ What code can do: tell the user exactly what to tap, keep the manifest small and
 - **Signing unchanged.** The same release key (the `ANDROID_KEYSTORE_B64` secret) must sign every build, because Android updates only same-key apps and any future developer-verification registration is tied to the package name plus that key. Back the key up. Without the secret every CI APK gets a new key and cannot update an installed Vox (already in the known issues).
 
 ## targetSdk: kept at 34, on purpose
-The research recommends 35 or 36 (Play Protect warns when the target is more than two API levels below the phone: a target of 34 is fine on Android 15 and 16 but would warn on Android 17, API 37; Play's own requirement is 36). The sources compile against `platforms/android-34/android.jar` (local `J:\Projects\.tools`, `build.sh`, CI), so the code cannot be type-checked against newer APIs. The task rule was: do not raise it if a newer `android.jar` is needed. Raising it also changes behaviour that nobody has reviewed for Vox (for target 35 and up: edge-to-edge enforcement for the WebView page, foreground-service rules for the microphone service; the research did not verify each change against Vox's code).
+The research recommends 35 or 36 (Play Protect warns when the target is more than two API levels below the phone: a target of 34 is fine on Android 15 and 16 but would warn on Android 17, API 37; Play's own requirement is 36). The sources compile against `platforms/android-34/android.jar` (the local SDK, `build.sh`, CI), so the code cannot be type-checked against newer APIs. The task rule was: do not raise it if a newer `android.jar` is needed. Raising it also changes behaviour that nobody has reviewed for Vox (for target 35 and up: edge-to-edge enforcement for the WebView page, foreground-service rules for the microphone service; the research did not verify each change against Vox's code).
 
 What is needed to raise it, as a separate task:
 1. Install `platforms;android-35` (or 36) next to android-34 locally and in the CI step "Install SDK parts"; point `ANDROID_JAR`, `android/build.sh` (`JAR` and `--target-sdk-version`), `run-tests.sh` and `compile-check.sh` at it. `build-tools;36.0.0` is already installed in CI.
@@ -34,7 +34,7 @@ What is needed to raise it, as a separate task:
 ## Tests
 `tests/test_android_install_safety.py` (6 tests): declared permissions equal the expected five and each has a use in the sources; `VIBRATE` absent and no `Vibrator` use; `targetSdkVersion` equals `--target-sdk-version` in `build.sh` and the platform it builds against; no `isAccessibilityTool` anywhere in the manifest or `res/xml`; the card exists with the key texts, the App info button, the Optional adb command and Copy buttons; the Home step links to it. `tests/test_ui_static.py` (ids, bridge calls) and `tests/test_ui_shared.py` still pass.
 
-## Device checklist (for Yuvraj; none of this has been run)
+## Device checklist (for a tester; none of this has been run)
 1. Settings, System, **Install help**: opens and closes; the text reads well in light and dark; Copy command puts `adb install -r Vox.apk` on the clipboard.
 2. **Open App info** opens Vox's App info screen.
 3. On a fresh install (or after clearing the restriction) with the service off: Home shows the setup steps; the link "Install help" jumps to Settings with the card open.

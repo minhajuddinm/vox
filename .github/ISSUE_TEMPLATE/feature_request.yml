@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest something Vox could do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the roadmap first: documentation/12-known-issues-and-roadmap.md. Larger changes get a short design in documentation/specs/ before the code.
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part?
+      multiple: true
+      options:
+        - Windows app
+        - Android app
+        - Relay
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would it solve?
+      description: Describe what you are trying to do and what gets in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Data and privacy
+      description: Would it send anything new to a server, or store anything new? Vox sends only what a feature needs.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
