@@ -12,9 +12,9 @@ What leaves the device, what is stored, what protects it, and what is still weak
 | Language setting; on Windows the last 150 characters of the previous piece of a long recording | The speech server | Every dictation | `streaming.CONTEXT_CHARS` |
 | "About you" text (`user_context`) | The cleanup server only | Every cleaned dictation | Never the speech server |
 | Voice notes, profile (see "Sync from the apps") | The user's relay | Only with `relay_sync` on | Full text, raw transcript, tags, device name; profile fields; provider settings and keys only with `relay_sync_keys` |
-| Speech and cleanup calls (Windows) | The user's relay, which forwards them | Only with `relay_proxy` on | Audio and cleanup text transit the relay |
+| Speech and cleanup calls (Windows and Android) | The user's relay, which forwards them | Only with `relay_proxy` on | Audio and cleanup text transit the relay |
 | App name (Windows exe name such as `slack.exe`; Android app label) | The server, inside the cleanup prompt | Every cleaned dictation | Never the window title |
-| Meeting title and attendee names | The server | Meeting notes | From the calendar or typed by the user |
+| Meeting title, attendee names, organizer, and the user's own name (`your_name`, default "You") | The cleanup server; the speech server gets the first 12 attendee names as a Whisper hint | Meeting notes, live questions, speaker guesses | From the calendar or typed by the user. Attendee names are the display name, else the email's part before the `@` (not the address). The organizer is the display name, else (Google events) the raw email address; it is left out when the organizer is the user (Google). `Meeting._context`, `_context_prompt`, `_label` |
 | API key | The server, as `Authorization: Bearer` | Every request | Sent only to the configured address |
 | Calendar read requests | Google, or the ICS host | Optional, Windows | Read-only scope `calendar.events.readonly` |
 
@@ -58,7 +58,7 @@ There is no analytics, crash reporting or Vox backend. Audio and text go only to
 
 - Android API keys, the relay token and all history are unencrypted at rest inside the app sandbox.
 - History and meeting data on Windows are plain text; Google tokens are plain JSON.
-- Dictated text is on the clipboard for a moment while it is pasted (clipboard history and other apps can read it). `keep_clipboard` defaults to false, so the old clipboard text is put back afterwards; with it on, or when the window changed and the text is only copied, the dictation stays on the clipboard.
+- Dictated text is on the clipboard for a moment while it is pasted (clipboard history and other apps can read it). `keep_clipboard` defaults to false, so the earlier clipboard text is put back afterwards (an image or files on the clipboard cannot be read as text and are not restored); with it on, or when the window changed and the text is only copied, the dictation stays on the clipboard. The "window changed" check compares only the program's exe name, so two windows of the same program (for example two Chrome or Slack windows) are not told apart and the paste goes ahead.
 - The API key goes to whatever address is configured; a tampered `config.json` could redirect it (mitigated only by the https/private rule).
 - Whisper and the chat model are third parties; their handling of the data is covered by their own policies.
 - `ACTION_SET_TEXT` rewrites the whole field, which can drop rich text or race with typing.
