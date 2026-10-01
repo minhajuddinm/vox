@@ -227,3 +227,60 @@ retry	503	false	false	true
 retry	504	false	false	true
 retry	401	false	false	false
 retry	400	false	false	false
+# timing_*: the per-dictation timing core (windows/timing.py, Timing.java). Lists use | between whole numbers; a map is k=v pairs separated by a comma.
+# timing_median / timing_p90: numbers => value (0 for an empty list). Even-sized lists average the two middle values, rounded down; p90 is the ceil(0.9 n)-th smallest.
+timing_median		0
+timing_median	5	5
+timing_median	9|1|5	5
+timing_median	1|2|3|10	2
+timing_median	10|20	15
+timing_median	7|8	7
+timing_median	0|0|0	0
+timing_median	100|100|100|100	100
+timing_median	3|3|4|4	3
+timing_p90		0
+timing_p90	5	5
+timing_p90	1|2	2
+timing_p90	10|1|5	10
+timing_p90	100|200|300|400|500	500
+timing_p90	1|2|3|4|5|6|7|8|9|10	9
+timing_p90	11|10|9|8|7|6|5|4|3|2|1	10
+timing_p90	1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20	18
+# timing_biggest: stages map => the largest of start/stt/llm/insert (never rec or total); empty when all are 0; a tie goes to the earlier one.
+timing_biggest	start=40,rec=9000,stt=600,llm=300,insert=30,total=5000	stt
+timing_biggest	stt=500,llm=500	stt
+timing_biggest	start=40,stt=300,llm=900,insert=20	llm
+timing_biggest	stt=100,llm=0,insert=700	insert
+timing_biggest	start=800,stt=100	start
+timing_biggest	rec=9000,total=5000	
+timing_biggest		
+# timing_format: milliseconds => text (one decimal from 1000 ms up, halves round up).
+timing_format	0	0 ms
+timing_format	1	1 ms
+timing_format	850	850 ms
+timing_format	999	999 ms
+timing_format	1000	1.0 s
+timing_format	1049	1.0 s
+timing_format	1050	1.1 s
+timing_format	1449	1.4 s
+timing_format	1450	1.5 s
+timing_format	2000	2.0 s
+timing_format	12340	12.3 s
+timing_format	59960	60.0 s
+timing_format	125000	125.0 s
+timing_format	-5	0 ms
+# timing_stages: marks map (ms) => stages map. A missing mark gives 0; llm is 0 unless both llm marks exist, then insert counts from stt_done.
+timing_stages	key_down=1000,rec_start=1040,key_up=3040,stt_start=3050,stt_done=3650,llm_start=3660,llm_done=3960,inserted=3990	start=40,rec=2000,stt=600,llm=300,insert=30,total=950
+timing_stages	key_down=0,rec_start=30,key_up=1030,stt_start=1035,stt_done=1535,inserted=1560	start=30,rec=1000,stt=500,llm=0,insert=25,total=530
+timing_stages		start=0,rec=0,stt=0,llm=0,insert=0,total=0
+timing_stages	key_down=500,rec_start=400,key_up=900	start=0,rec=500,stt=0,llm=0,insert=0,total=0
+timing_stages	key_down=0,rec_start=10,key_up=110,stt_start=120,stt_done=220,llm_start=230,inserted=260	start=10,rec=100,stt=100,llm=0,insert=40,total=150
+timing_stages	rec_start=10,key_up=2010,stt_start=2020,stt_done=2420,inserted=2440	start=0,rec=2000,stt=400,llm=0,insert=20,total=430
+# timing_summary: entries (stages maps separated by ;) and n => "count=C biggest=B stage=median/p90 ...". The newest n entries (the end of the list) are used; a 0 stage did not run and is left out of that stage.
+timing_summary	start=40,rec=2000,stt=600,llm=300,insert=30,total=930;start=40,rec=2000,stt=600,llm=300,insert=30,total=930;start=40,rec=2000,stt=600,llm=300,insert=30,total=930	50	count=3 biggest=stt start=40/40 rec=2000/2000 stt=600/600 llm=300/300 insert=30/30 total=930/930
+timing_summary	stt=500,llm=0,total=500;stt=700,llm=400,total=1100;stt=900,llm=0,total=900	50	count=3 biggest=stt start=0/0 rec=0/0 stt=700/900 llm=400/400 insert=0/0 total=900/1100
+timing_summary	stt=9000;stt=9000;stt=100;stt=300	2	count=2 biggest=stt start=0/0 rec=0/0 stt=200/300 llm=0/0 insert=0/0 total=0/0
+timing_summary		50	count=0 biggest= start=0/0 rec=0/0 stt=0/0 llm=0/0 insert=0/0 total=0/0
+timing_summary	start=50,rec=3000,stt=300,llm=900,insert=20,total=1270;start=70,rec=2500,stt=500,llm=1100,insert=40,total=1640	50	count=2 biggest=llm start=60/70 rec=2750/3000 stt=400/500 llm=1000/1100 insert=30/40 total=1455/1640
+timing_summary	stt=400;stt=500;stt=600;stt=700;stt=800;stt=9000	50	count=6 biggest=stt start=0/0 rec=0/0 stt=650/9000 llm=0/0 insert=0/0 total=0/0
+timing_summary	stt=1;stt=2	1	count=1 biggest=stt start=0/0 rec=0/0 stt=2/2 llm=0/0 insert=0/0 total=0/0

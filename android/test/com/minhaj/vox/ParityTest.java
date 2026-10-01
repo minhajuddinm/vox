@@ -46,6 +46,41 @@ public final class ParityTest {
         return v.equals("~") ? null : v;
     }
 
+    /** A | separated list of whole numbers. */
+    private static List<Long> numbers(String field) {
+        List<Long> out = new ArrayList<>();
+        for (String x : items(field, "|")) out.add(Long.parseLong(x));
+        return out;
+    }
+
+    /** A comma separated k=v map of whole numbers (timing marks or stages), in the order written. */
+    private static Map<String, Long> kv(String field) {
+        Map<String, Long> out = new LinkedHashMap<>();
+        for (String p : items(field, ",")) out.put(p.substring(0, p.indexOf('=')), Long.parseLong(p.substring(p.indexOf('=') + 1)));
+        return out;
+    }
+
+    private static String stagesText(Map<String, Long> st) {
+        StringBuilder b = new StringBuilder();
+        for (String k : Timing.STAGES) b.append(b.length() == 0 ? "" : ",").append(k).append('=').append(st.get(k));
+        return b.toString();
+    }
+
+    private static String timingStages(String marks) {
+        Timing t = new Timing();
+        for (Map.Entry<String, Long> m : kv(marks).entrySet()) t.mark(m.getKey(), m.getValue());
+        return stagesText(t.stages());
+    }
+
+    private static String timingSummary(String entries, int n) {
+        List<Timing.Entry> list = new ArrayList<>();
+        for (String e : items(entries, ";")) list.add(new Timing.Entry(kv(e), "", "", "", false));
+        Timing.Summary s = Timing.summarize(list, n);
+        StringBuilder b = new StringBuilder("count=" + s.count + " biggest=" + s.biggest);
+        for (String k : Timing.STAGES) b.append(' ').append(k).append('=').append(s.median(k)).append('/').append(s.p90(k));
+        return b.toString();
+    }
+
     private static void eq(int line, String kind, String expected, String actual) {
         checks++;
         if (!expected.equals(actual)) {
@@ -137,6 +172,24 @@ public final class ParityTest {
                     break;
                 case "retry":   // status (0 = no answer), request timeout, via the relay, whether the same request is sent again
                     eq(ln, kind, f[3], ApiClient.retryable(Integer.parseInt(f[0]), f[1].equals("true"), f[2].equals("true")) ? "true" : "false");
+                    break;
+                case "timing_median":
+                    eq(ln, kind, f[1], String.valueOf(Timing.median(numbers(f[0]))));
+                    break;
+                case "timing_p90":
+                    eq(ln, kind, f[1], String.valueOf(Timing.p90(numbers(f[0]))));
+                    break;
+                case "timing_biggest":
+                    eq(ln, kind, f[1], Timing.biggest(kv(f[0])));
+                    break;
+                case "timing_format":
+                    eq(ln, kind, f[1], Timing.formatMs(Long.parseLong(f[0])));
+                    break;
+                case "timing_stages":   // marks (ms) => stages
+                    eq(ln, kind, f[1], timingStages(f[0]));
+                    break;
+                case "timing_summary":   // entries (stages maps separated by ;), n => count, biggest and median/p90 per stage
+                    eq(ln, kind, f[2], timingSummary(f[0], Integer.parseInt(f[1])));
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);

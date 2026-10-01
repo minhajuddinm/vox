@@ -7,6 +7,7 @@ import pytest
 import notes
 import providers
 import sync
+import timing
 import vox_core as core
 
 GOLDEN = os.path.join(os.path.dirname(__file__), "..", "spec", "golden.txt")
@@ -53,6 +54,36 @@ def merged_value(base, local, remote):
     def side(v):
         return {} if v == "~" else {"k": v}
     return sync.merge3(side(base), side(local), side(remote)).get("k", "~")
+
+
+def numbers(field):
+    """A | separated list of whole numbers."""
+    return [int(x) for x in field.split("|") if x]
+
+
+def kv(field):
+    """A comma separated k=v map of whole numbers (timing marks or stages)."""
+    return dict((p.split("=", 1)[0], int(p.split("=", 1)[1])) for p in field.split(",") if p)
+
+
+def stages_text(st):
+    return ",".join("%s=%d" % (k, st[k]) for k in timing.STAGES)
+
+
+def summary_text(s):
+    return "count=%d biggest=%s " % (s["count"], s["biggest"]) + " ".join(
+        "%s=%d/%d" % (k, s[k]["median"], s[k]["p90"]) for k in timing.STAGES)
+
+
+def timing_stages(marks):
+    t = timing.Timing()
+    for name, at in kv(marks).items():
+        t.mark(name, at)
+    return t.stages()
+
+
+def timing_summary(entries, n):
+    return timing.summarize([{"stages": kv(e)} for e in entries.split(";") if e], int(n))
 
 
 @pytest.mark.parametrize("kind,f", cases())
@@ -104,5 +135,17 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert providers.proxy_url(f[0], f[1]) == f[2]
     elif kind == "retry":   # status (0 = no answer), request timeout, via the relay, whether the same request is sent again
         assert core.retryable(int(f[0]), f[1] == "true", f[2] == "true") == (f[3] == "true")
+    elif kind == "timing_median":
+        assert str(timing.median(numbers(f[0]))) == f[1]
+    elif kind == "timing_p90":
+        assert str(timing.p90(numbers(f[0]))) == f[1]
+    elif kind == "timing_biggest":
+        assert timing.biggest(kv(f[0])) == f[1]
+    elif kind == "timing_format":
+        assert timing.format_ms(int(f[0])) == f[1]
+    elif kind == "timing_stages":   # marks (ms) => stages
+        assert stages_text(timing_stages(f[0])) == f[1]
+    elif kind == "timing_summary":   # entries (stages maps separated by ;), n => count, biggest and median/p90 per stage
+        assert summary_text(timing_summary(f[0], f[1])) == f[2]
     else:
         pytest.fail(f"unknown case kind {kind}")
