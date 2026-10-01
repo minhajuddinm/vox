@@ -449,3 +449,12 @@ bubbleaction	false	true	true	remove
 bubbleaction	false	true	false	remove
 bubbleaction	false	false	true	none
 bubbleaction	false	false	false	none
+# notebubble: persistent note bubble switch, a note is recording, a note is being saved -> is the note bubble on screen (NoteBubbleLogic.visible; the Android bubble only)
+notebubble	true	true	true	true
+notebubble	true	true	false	true
+notebubble	true	false	true	true
+notebubble	true	false	false	true
+notebubble	false	true	true	true
+notebubble	false	true	false	true
+notebubble	false	false	true	true
+notebubble	false	false	false	false

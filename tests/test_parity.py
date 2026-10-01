@@ -207,6 +207,10 @@ def bubble_action(wanted, shown, attached):
     return "remove" if shown else "none"
 
 
+def note_bubble_visible(persistent, recording, saving):
+    return persistent or recording or saving
+
+
 @pytest.mark.parametrize("kind,f", cases())
 def test_golden(kind, f, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))   # the notes rows use a real (temporary) notes.db
@@ -287,5 +291,7 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert bubble_show(*[v == "true" for v in f[:5]]) == (f[5] == "true")
     elif kind == "bubbleaction":   # wanted, shown, window still attached, expected none|add|remove|repair
         assert bubble_action(*[v == "true" for v in f[:3]]) == f[3]
+    elif kind == "notebubble":   # persistent switch, note recording, note being saved, expected
+        assert note_bubble_visible(*[v == "true" for v in f[:3]]) == (f[3] == "true")
     else:
         pytest.fail(f"unknown case kind {kind}")

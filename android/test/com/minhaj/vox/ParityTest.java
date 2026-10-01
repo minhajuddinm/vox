@@ -367,6 +367,9 @@ public final class ParityTest {
                 case "bubbleaction":   // wanted, shown, window still attached, expected none|add|remove|repair
                     eq(ln, kind, f[3], BubbleLogic.action(f[0].equals("true"), f[1].equals("true"), f[2].equals("true")));
                     break;
+                case "notebubble":   // persistent switch, note recording, note being saved, expected
+                    eq(ln, kind, f[3], NoteBubbleLogic.visible(f[0].equals("true"), f[1].equals("true"), f[2].equals("true")) ? "true" : "false");
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);
