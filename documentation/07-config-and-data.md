@@ -52,7 +52,7 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `your_name` | string | absent | Label for your lines in meeting notes (default "You"). |
 | `my_email` | string | absent | Your calendar address, so you are not listed as an attendee. |
 | `auto_notes` | bool | absent (false) | Start meeting notes automatically when a calendar meeting with others begins. |
-| `calendar_url` | string | absent | Private iCal (ICS) link. |
+| `calendar_url` | string | absent | Private iCal (ICS) link. A bearer secret: stored protected like the API keys (`dpapi:<base64>`), plain text in memory. |
 | `notes_model` | string | absent | Model for meeting notes and questions (default `openai/gpt-oss-120b`). |
 | `final_stt_model` | string | absent | Model for the final meeting pass (default `whisper-large-v3`). |
 | `final_pass` | bool | `true` (when absent) | Re-transcribe the meeting after it ends. |
@@ -122,7 +122,7 @@ The relay's data lives next to it in `relay.db` (SQLite: tables `notes` with a `
 | `window.log` (+ backups) | window | Same for the window process. |
 | `relay.log` (+ backups) | `Vox.exe --relay` | Same for the relay process started by the tray item; holds the traceback when the relay crashes or cannot start (for example its data folder cannot be created; checked: exit code 1 and an `uncaught` traceback). A taken port is not such a case on Windows: the relay binds with `SO_REUSEADDR`, so it does not fail, and the app checks the port itself before starting and says so in a tray notification ([14-relay.md](14-relay.md)). |
 | `engine.json` | engine | `{"port", "token", "pid"}` for the control server. Deleted on quit. |
-| `calendar.json` | `vcalendar` | Cached events `{"source", "events", "error", "fetched"}` (5 minutes). |
+| `calendar.json` | `vcalendar` | Cached events `{"source", "events", "error", "fetched"}` (5 minutes). `source` is `google:<email>` or `ics:<hash of the link>`, never the link; the file is removed when the link is cleared. |
 | `google_token.json` | `gcal` | `{"refresh_token", "access_token", "expires", "email"}`. Plain JSON. |
 | `google_client.json` | build (optional) | OAuth client for Google sign-in; ignored by git. |
 | `meetings\<id>\` | `meeting` | `transcript.json` `{"id", "started", "entries": [{"t", "who", "text", "name"?}], "qa"}`, `notes.md`, `meta.json` `{"id", "title", "started", "duration", "words", "attendees", "export", "done"}`, optional `my_notes.md`, and `you.raw` / `others.raw` (16 kHz int16 speech pieces; removed after the notes are written unless `keep_audio`). `<id>` is `YYYYMMDD-HHMMSS`. |

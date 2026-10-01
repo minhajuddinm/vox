@@ -28,6 +28,7 @@ There is no analytics, crash reporting or Vox backend. Audio and text go only to
 
 | Item | Where | Protection |
 |---|---|---|
+| Private iCal address (Windows) | `config.json` (`calendar_url`) | Windows DPAPI like the API key. It is a secret: anyone who has it can read your calendar. It is never logged and never stored in `calendar.json`; error messages from the calendar fetch carry only the status or the host name |
 | Windows API key | `%APPDATA%\Vox\config.json` | Windows DPAPI (`secret.py`), value `dpapi:<base64>`; only the same Windows user on the same PC can open it |
 | Android API keys and relay token | SharedPreferences `vox` | App-private storage only (no extra encryption); `allowBackup="false"`. The relay token (`relay_token`) is handled like the API key: never logged, sent only to the relay's own address |
 | History | `history.jsonl` (Windows) / SharedPreferences (Android) | Plain text. Switch it off with **Keep dictation history**; then nothing is saved. Each line also carries its `timing` (stage times in milliseconds, model names, provider host or `relay`) for the Speed card; it is never sent or synced ([decision 0031](decisions/0031-timings-stay-on-the-device.md)) |

@@ -136,7 +136,7 @@ All model calls go through `core.post_with_retry` to the configured server. Deta
 
 ## Calendar (`windows/gcal.py`, `windows/vcalendar.py`)
 
-- `vcalendar.fetch(cfg)` returns `{"events", "error", "fetched", "source"}` for 12 h ago to 7 days ahead, cached 5 minutes in `calendar.json`. Source is Google (if connected) or the ICS link in `calendar_url` (`webcal://` accepted).
+- `vcalendar.fetch(cfg)` returns `{"events", "error", "fetched", "source"}` for 12 h ago to 7 days ahead, cached 5 minutes in `calendar.json`. Source is Google (if connected) or the ICS link in `calendar_url` (`webcal://` accepted). The secret link is never written to `calendar.json` (the `source` is `ics:` plus a short hash of it) or to the log: a failed fetch stores only "Calendar server answered 404" or "Could not reach <host> (<error type>)", and clearing the link deletes `calendar.json`.
 - `gcal`: OAuth 2.0 for desktop apps with a loopback redirect and PKCE; scope `calendar.events.readonly` plus `openid email`. Needs a `google_client.json` (from a Google Cloud project) next to the app, bundled at build time from the `GOOGLE_CLIENT_JSON` secret, or in `%APPDATA%\Vox`. Without it the Google button is unavailable and the ICS link still works. Tokens are in `%APPDATA%\Vox\google_token.json` (plain JSON, see [09-security-privacy.md](09-security-privacy.md)).
 - All-day events and cancelled events are skipped; attendees exclude you, rooms and declined guests.
 
