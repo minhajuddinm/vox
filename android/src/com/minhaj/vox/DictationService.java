@@ -5,6 +5,8 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
@@ -53,6 +55,8 @@ public class DictationService extends Service {
     /** Throws away every unsent recording (the notification's "Clear" button). */
     private static final String ACTION_CLEAR = "com.minhaj.vox.CLEAR_UNSENT";
     private static final int SEND_ATTEMPTS = 3;
+    /** A vox-up-* temp upload file older than this belongs to a send that was killed (see PendingQueue.sweepUploads). */
+    private static final long UPLOAD_MAX_AGE_MS = 10 * 60 * 1000L;
 
     /**
      * Extras of the start intent. TrampolineActivity passes its own extras on, so one set of keys serves both:
@@ -105,6 +109,8 @@ public class DictationService extends Service {
      * the job ends so cancel() can stop it, and handed to the worker (a local copy) by stopRecording.
      */
     private volatile StreamingStt stream;
+    /** The clients of the send in progress, so cancel() can cut its HTTP request instead of leaving the worker stuck in it. */
+    private volatile ApiClient[] liveClients;
     /** Longest wait for the pieces still being sent after the user stops, before the whole recording is sent instead. */
     private static final long STREAM_WAIT_MS = 120000;
     /** AudioRecord.getMinBufferSize never changes on a device: asked once, off the main thread. */
@@ -528,6 +534,9 @@ public class DictationService extends Service {
      */
     public synchronized void cancel() {
         jobId++;
+        final ApiClient[] live = liveClients;
+        liveClients = null;
+        if (live != null) new Thread(() -> { for (ApiClient a : live) a.abort(); }, "vox-abort").start();   // off the main thread: disconnect closes a socket
         recording = false;
         timing = null;
         dropStream();
@@ -590,6 +599,7 @@ public class DictationService extends Service {
     /** At service start: delete unsent recordings older than 7 days and keep the rest (files written before a restart are retried). */
     private void restorePending() {
         PendingQueue.migrate(getCacheDir(), pendingDir());   // earlier versions kept them in the cache folder
+        PendingQueue.sweepUploads(getCacheDir(), System.currentTimeMillis(), UPLOAD_MAX_AGE_MS);   // temp upload files a kill left behind
         File[] files = pendingDir().listFiles();
         if (files == null) return;
         for (File f : files) {
@@ -629,6 +639,8 @@ public class DictationService extends Service {
             String[] stt = p.role(Providers.STT), llm = p.role(Providers.LLM);
             ApiClient g = new ApiClient(stt[1], stt[0]);
             ApiClient gl = new ApiClient(llm[1], llm[0]);
+            final ApiClient[] mine = new ApiClient[]{g, gl};
+            liveClients = mine;
             String raw = null;
             if (tm != null) tm.mark("stt_start");
             if (streamer != null) {
@@ -700,7 +712,13 @@ public class DictationService extends Service {
             // The text goes to the screen first; the recording file is removed after (a notification update that
             // would otherwise sit between the text and the screen).
             main.post(() -> {
-                if (isCurrent(job) && listener != null) listener.onResult(result, pkg);
+                int route = InsertGuard.route(isCurrent(job), listener != null);
+                if (route == InsertGuard.ROUTE_TYPE) {
+                    listener.onResult(result, pkg);
+                } else if (route == InsertGuard.ROUTE_CLIPBOARD) {   // nothing can type it (accessibility is off): the text is not lost
+                    ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Vox", result));
+                    Toast.makeText(this, InsertGuard.noListenerMessage(), Toast.LENGTH_LONG).show();
+                }
                 // The history entry is written after the text went in, so its timing includes the insertion; the
                 // write is off the main thread (the history is a JSON list in the preferences).
                 final Timing.Entry te;
@@ -725,7 +743,9 @@ public class DictationService extends Service {
             retryFailed(entry);
             postError("Network error:" + e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
         } finally {
+            if (isCurrent(job)) liveClients = null;
             if (streamer != null) streamer.cancel();   // ends its thread on every way out (a no-op once it has finished)
+            PendingQueue.sweepUploads(getCacheDir(), System.currentTimeMillis(), UPLOAD_MAX_AGE_MS);   // temp upload files an earlier kill left
             finish(job);
         }
     }

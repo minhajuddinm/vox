@@ -8,7 +8,24 @@ package com.minhaj.vox;
 public final class InsertGuard {
     public static final int TYPE = 0, SWITCHED_APPS = 1, NO_TARGET = 2;
 
+    /** Where a finished dictation goes (see {@link #route}). */
+    public static final int ROUTE_TYPE = 0, ROUTE_CLIPBOARD = 1, ROUTE_NONE = 2;
+
     private InsertGuard() { }
+
+    /**
+     * @param current     the job is still the current one (false after a cancel or a newer recording: nothing is shown)
+     * @param hasListener the accessibility service is attached and can type the text
+     */
+    public static int route(boolean current, boolean hasListener) {
+        if (!current) return ROUTE_NONE;
+        return hasListener ? ROUTE_TYPE : ROUTE_CLIPBOARD;
+    }
+
+    /** The toast when the text was copied because nothing could type it. */
+    public static String noListenerMessage() {
+        return "Vox could not type (accessibility is off). Text copied to clipboard.";
+    }
 
     /**
      * @param targetPkg the app the dictation was made for: null (not known to matter: typing is allowed), "" (a

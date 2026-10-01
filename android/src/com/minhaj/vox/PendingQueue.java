@@ -199,4 +199,19 @@ public final class PendingQueue {
         }
         return moved;
     }
+
+    /**
+     * Deletes the temporary upload files ({@code vox-up-*}, the user's voice as WAV or m4a, see AudioUpload) in {@code cacheDir}
+     * that are older than {@code maxAgeMs}: a kill in the middle of an upload leaves them behind. Other files stay.
+     * Returns how many were deleted.
+     */
+    public static int sweepUploads(java.io.File cacheDir, long nowMs, long maxAgeMs) {
+        java.io.File[] files = cacheDir.listFiles();
+        if (files == null) return 0;
+        int n = 0;
+        for (java.io.File f : files) {
+            if (f.getName().startsWith("vox-up-") && f.lastModified() < nowMs - maxAgeMs && f.delete()) n++;
+        }
+        return n;
+    }
 }
