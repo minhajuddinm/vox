@@ -121,18 +121,22 @@ def test_a_version_that_could_carry_markup_is_dropped(monkeypatch):
 
 @pytest.fixture
 def ui_app(monkeypatch):
-    """windows/ui_app.py imports pyperclip and webview at the top; CI's test job has neither. Stub whichever is missing for
-    this test only (monkeypatch undoes it), and never leave a stub-bound ui_app module for other tests."""
-    for name in ("pyperclip", "webview"):
+    """windows/ui_app.py imports pyperclip and webview, and through meeting.py numpy, at the top; CI's test job installs only
+    requests and pytest. Stub whichever of them is missing for this test only (monkeypatch undoes it), and drop every module
+    this test imported while stubs were active, so no stub-bound ui_app or meeting is left for other tests."""
+    before = set(sys.modules)
+    stubbed = False
+    for name in ("pyperclip", "webview", "numpy"):
         try:
             __import__(name)
         except ImportError:
             monkeypatch.setitem(sys.modules, name, MagicMock())
-    had = "ui_app" in sys.modules
+            stubbed = True
     import ui_app as module
     yield module
-    if not had:
-        sys.modules.pop("ui_app", None)
+    if stubbed:
+        for name in set(sys.modules) - before:
+            sys.modules.pop(name, None)
 
 
 def test_the_windows_bridge_passes_the_whole_answer_on(srv, monkeypatch, tmp_path, ui_app):
