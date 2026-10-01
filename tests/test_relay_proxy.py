@@ -1201,3 +1201,34 @@ def test_the_upstream_key_is_in_no_response_no_output_and_no_download(server, st
         assert key.encode() not in everything
     # the same scan must be able to find a key where one is: it is stored in relay.json, and only there
     assert LLM_KEY in open(os.path.join(str(tmp_path), "relay.json"), encoding="utf-8").read()
+
+
+# ================================================================= the Windows app's speech upload through the proxy
+def _relay_cfg(srv):
+    import vox_core
+    cfg = dict(vox_core.DEFAULT_CONFIG)
+    cfg.update(relay_proxy=True, relay_url="http://127.0.0.1:%d" % srv.server_address[1], relay_token=srv.token)
+    return cfg
+
+
+def test_vox_core_transcribe_goes_through_the_real_proxy_with_a_content_length(server, stt_stub):
+    """requests sends Content-Length for an in-memory files= upload; the relay answers 411 to anything chunked."""
+    import vox_core
+    wav = b"RIFF" + bytes(range(256)) * 40
+    assert vox_core.transcribe(_relay_cfg(server), wav) == "from the stub"
+    rec = stt_stub.seen[-1]
+    assert rec["path"] == "/v1/audio/transcriptions"
+    assert "transfer-encoding" not in rec["headers"] and rec["headers"]["content-length"] == str(len(rec["body"]))
+    assert wav in rec["body"]
+    assert vox_core.transcribe_segments(_relay_cfg(server), wav)[0]["text"] == "from the stub"
+
+
+def test_a_streamed_chunked_upload_is_411_through_the_real_proxy_and_never_reaches_the_upstream(server, stt_stub):
+    """The framing the Android app used to send (Transfer-Encoding: chunked): the reason an upload needs a length."""
+    import requests
+    body = multipart()
+    r = requests.post("http://127.0.0.1:%d%s" % (server.server_address[1], STT_PATH),
+                      headers={"Authorization": "Bearer " + server.token, "Content-Type": "multipart/form-data; boundary=" + BOUNDARY.decode()},
+                      data=(body[i:i + 100] for i in range(0, len(body), 100)), timeout=10)
+    assert r.status_code == 411 and "Content-Length" in r.json()["error"]
+    assert stt_stub.seen == [] and free_slots(server)

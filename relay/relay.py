@@ -770,6 +770,11 @@ class Handler(BaseHTTPRequestHandler):
         if route is None:
             return self._refuse(404, {"error": "unknown request"}, n or 0)
         if problem:
+            # The body of a chunked or badly framed request cannot be skipped (its end is unknown), so what comes in is read
+            # and dropped for a moment before the answer, as `_drain` does, and the connection ends: otherwise the client
+            # gets a reset instead of the 411 that says what to change.
+            self._drain(MAX_DRAIN if self.headers.get("Transfer-Encoding") is not None else 0)
+            self.close_connection = True
             return self._send(problem[0], {"error": problem[1]})
         if method == "POST" and n is None:
             return self._send(411, {"error": "Content-Length is required"})
