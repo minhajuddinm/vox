@@ -4,6 +4,7 @@ import difflib
 import io
 import ipaddress
 import json
+import logging
 import os
 import re
 import sys
@@ -20,10 +21,12 @@ import requests
 import providers
 import secret
 
+log = logging.getLogger("vox")
+
 BASE = providers.GROQ_BASE
 DEFAULT_STT = providers.DEFAULT_MODELS["stt"]
 DEFAULT_LLM = providers.DEFAULT_MODELS["llm"]
-KEY_FIELDS = ("api_key", "stt_api_key", "llm_api_key", "relay_token")   # stored protected by the Windows login
+KEY_FIELDS = ("api_key", "stt_api_key", "llm_api_key", "relay_token", "calendar_url")   # stored protected by the Windows login (the secret iCal address is a bearer secret too)
 SAMPLE_RATE = 16000
 LEVEL_FLOOR = 0.004         # normalised rms of a quiet room: below it the meter shows nothing
 LEVEL_GAIN = 30             # how fast the meter fills as the voice gets louder
@@ -149,18 +152,31 @@ def write_history(entries):
 def load_config():
     path = config_path()
     if not os.path.exists(path):
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(DEFAULT_CONFIG, f, indent=2)
+        save_config(DEFAULT_CONFIG)
         return dict(DEFAULT_CONFIG)
-    with open(path, encoding="utf-8") as f:
-        cfg = json.load(f)
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            cfg = json.load(f)
+        if not isinstance(cfg, dict):
+            raise ValueError("config.json is not a JSON object")
+    except (ValueError, OSError) as e:
+        # a bad file must not stop Vox from starting: keep it aside and carry on with the defaults
+        log.warning("config.json could not be read (%s); keeping it as .bad and using the defaults", type(e).__name__)
+        try:
+            os.replace(path, path + ".bad-%d" % time.time())
+        except OSError:
+            log.warning("config.json could not be moved aside")
+        return dict(DEFAULT_CONFIG)
     merged = dict(DEFAULT_CONFIG)
     merged.update(cfg)
     stored = {k: merged.get(k) or "" for k in KEY_FIELDS}
     for k, v in stored.items():
         merged[k] = secret.unprotect(v)
     if secret.available() and any(v and not secret.is_protected(v) for v in stored.values()):
-        save_config(merged)   # a key typed into config.json by hand: protect it from now on
+        try:
+            save_config(merged)   # a key typed into config.json by hand: protect it from now on
+        except OSError:
+            log.warning("config.json could not be rewritten (read-only?); keys stay as typed")
     return merged
 
 
@@ -1033,7 +1049,11 @@ def transcribe(cfg, wav_bytes, context=""):
         timeout=60,
         via_relay=providers.uses_relay(cfg),
     )
-    return check_response(r, providers.uses_relay(cfg)).get("text", "").strip()
+    res = check_response(r, providers.uses_relay(cfg))
+    text = res.get("text", "") if isinstance(res, dict) else None
+    if not isinstance(text, str):   # a null, a number or a list: keep the recording for Retry instead of losing it
+        raise ApiError(0, "The speech server sent an answer Vox could not read")
+    return text.strip()
 
 
 def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
@@ -1082,7 +1102,12 @@ def chat_text(cfg, body, timeout=60):
         for k in extra:
             body.pop(k, None)
         r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout, via_relay=via_relay)
-    return providers.strip_think(check_response(r, via_relay)["choices"][0]["message"].get("content", ""))
+    data = check_response(r, via_relay)
+    try:
+        content = data["choices"][0]["message"].get("content")
+    except (KeyError, IndexError, TypeError, AttributeError):
+        raise ApiError(0, "The cleanup server sent an answer Vox could not read")
+    return providers.strip_think(content or "")
 
 
 def cleanup(cfg, raw, style, app_label):
@@ -1150,6 +1175,9 @@ def process_text(cfg, raw, exe, app_label):
                 error, rejected = "the cleanup answer looked wrong", True
         except (ApiError, requests.RequestException) as e:
             error = str(e)
+        except Exception as e:   # anything unexpected: the spoken words are still pasted
+            log.exception("cleanup failed")
+            error = "the cleanup failed (%s)" % type(e).__name__
         finally:
             _mark("llm_done")
     if not cleaned:

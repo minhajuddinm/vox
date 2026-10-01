@@ -188,7 +188,7 @@ Java tests (the Android logic, no device): with a JDK 17 on `PATH` and `ANDROID_
 
 Builds: `windows\build_app.bat` builds and installs the Windows app locally; `ANDROID_HOME=... ./android/build.sh` builds the APK (needs build-tools 36). CI ([.github/workflows/build.yml](.github/workflows/build.yml)) runs the tests on every pull request and builds both apps and a GitHub Release when a `v*` tag is pushed. Details, signing and releasing: [documentation/10-build-test-release.md](documentation/10-build-test-release.md).
 
-Never commit `config.json`, `google_client.json`, `relay.json`, keystores or API keys.
+Never commit `config.json`, `google_client.json`, `.env` files, `relay.json`, `relay.db`, keystores (`*.keystore`, `*.jks`, `*.p12`), `*.pem` files or API keys. All are in `.gitignore`, wherever in the tree they are.
 
 ---
 

@@ -28,15 +28,16 @@ There is no analytics, crash reporting or Vox backend. Audio and text go only to
 
 | Item | Where | Protection |
 |---|---|---|
+| Private iCal address (Windows) | `config.json` (`calendar_url`) | Windows DPAPI like the API key. It is a secret: anyone who has it can read your calendar. It is never logged and never stored in `calendar.json`; error messages from the calendar fetch carry only the status or the host name |
 | Windows API key | `%APPDATA%\Vox\config.json` | Windows DPAPI (`secret.py`), value `dpapi:<base64>`; only the same Windows user on the same PC can open it |
 | Android API keys and relay token | SharedPreferences `vox` | App-private storage only (no extra encryption); `allowBackup="false"`. The relay token (`relay_token`) is handled like the API key: never logged, sent only to the relay's own address |
 | History | `history.jsonl` (Windows) / SharedPreferences (Android) | Plain text. Switch it off with **Keep dictation history**; then nothing is saved. Each line also carries its `timing` (stage times in milliseconds, model names, provider host or `relay`) for the Speed card; it is never sent or synced ([decision 0031](decisions/0031-timings-stay-on-the-device.md)) |
-| Meeting audio | `meetings\<id>\*.raw` | Deleted after the notes are written unless `keep_audio`; a crash can leave it behind |
+| Meeting audio | `meetings\<id>\*.raw` | Deleted after the notes are written unless `keep_audio` (also when the copy to Documents fails); after a crash it is deleted at the next start, when the cut-off meeting is recovered, unless `keep_audio` is on |
 | Meeting notes and transcripts | `%APPDATA%\Vox\meetings`, `Documents\Vox Notes` | Plain text |
-| Google tokens | `google_token.json` | Plain JSON with default file permissions |
+| Google tokens | `google_token.json` | Windows DPAPI for `refresh_token` and `access_token` (`gcal._save_token`); only the same Windows user on the same PC can open them, anything else means "Connect again". The file itself has default permissions |
 | Control token | `engine.json` | Random per run, deleted on quit; readable by the same Windows user |
 | Bubble diagnostics log (Android) | `files/overlay_diag.log` | App-private, plain text, at most 50 events (what the bubble did and why, screen on or off, unlock, rotation; no dictated text, no app names, no package names; the insert probe records only buckets). Never sent anywhere; the Copy report button only puts it on the clipboard when the user taps it |
-| Failed dictation audio (Android) | `cache/vox_pending_<id>_<dest>.wav` (up to 5) | Until sent, cleared in the notification, cancelled (that recording only), dropped as the oldest, or 7 days old; kept across a service stop |
+| Failed dictation audio (Android) | `no_backup/pending/vox_pending_<id>_<dest>.wav` (up to 5; not in the cache, not in backups) | Until sent, cleared in the notification, cancelled (that recording only), dropped as the oldest, or 7 days old; kept across a service stop |
 | Failed dictation audio (Windows) | Memory only (`Engine.pending`) | Lost when Vox quits |
 | **Keep-listening audio (Windows)** | `%APPDATA%\Vox\listen\listen-<date>-<time>-<microseconds>-<note or type>.pcm` | Raw 16 kHz 16-bit mono audio of everything said in a session, **plain and unencrypted**, appended while it runs. Removed after a clean end (the note saved, or the Type text typed or saved) and after a successful "Recover listening session". **It stays after a failed send, a failed save or a crash**, and nothing deletes it by itself: the startup balloon only offers recovery. To discard it, delete the files (or the `listen` folder). It is not sent anywhere except by a recovery, which transcribes it like a new session |
 | Learned cleanup rules and their versions | `config.json`: `my_cleanup_rules`, `my_cleanup_rules_versions` | Plain text. The rules are short phrases derived from the person's dictations, so they can contain their words and names; they are synced to the relay with the profile (and reach the phone). The versions list (the previous rules and added dictionary lines, last 20) stays on the PC |
@@ -58,8 +59,8 @@ There is no analytics, crash reporting or Vox backend. Audio and text go only to
 
 ## Secrets in the repository and CI
 
-- Never commit `config.json`, `google_client.json`, `client_secret*.json`, keystores (all in `.gitignore`).
-- CI secrets: `GOOGLE_CLIENT_JSON`, `ANDROID_KEYSTORE_B64`, and optionally `ANDROID_KEYSTORE_PASS`. Without the keystore secret each CI run creates a new throwaway signing key.
+- Never commit `config.json`, `google_client.json`, `client_secret*.json`, `.env` files, `relay.json`, `relay.db`, keystores or `*.pem` files (all in `.gitignore`, anywhere in the tree; `tests/test_repo_hygiene.py` checks it).
+- CI secrets: `GOOGLE_CLIENT_JSON`, `ANDROID_KEYSTORE_B64`, and optionally `ANDROID_KEYSTORE_PASS`. Without the keystore secret a tag build fails, and other CI runs create a new throwaway signing key (artifact `Vox-android-debug-key`).
 - Workflow permissions are read-only except the `release` job; third-party Actions are pinned by commit SHA.
 
 ## Known gaps (also listed in [12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md))

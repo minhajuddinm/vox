@@ -329,7 +329,11 @@ public class MainActivity extends Activity {
         public void testKey(String key, String baseUrl, String callback) {
             new Thread(() -> {
                 String res;
-                try { res = new ApiClient(key.trim(), baseUrl).checkKey() ? "ok" : "bad"; }
+                try {
+                    // a refused address is never contacted (the key would travel in clear text): tell the page, not "offline"
+                    if (Endpoint.error(Endpoint.normalize(baseUrl)) != null) { js(callback + "('address')"); return; }
+                    res = new ApiClient(key.trim(), baseUrl).checkKey() ? "ok" : "bad";
+                }
                 catch (Exception e) { res = "offline"; }
                 js(callback + "('" + res + "')");
             }).start();

@@ -29,7 +29,7 @@ import sync
 import timing as timing_mod
 import vox_core as core
 import vcalendar
-from meeting import Meeting
+from meeting import Meeting, recover_unfinished
 from overlay import Overlay
 
 log = logging.getLogger("vox")
@@ -70,6 +70,16 @@ def key_vk(key):
     """Windows virtual-key code of a pynput key (a letter, digit or F key), or None. The code, not the char: with
     Ctrl held the char of N is a control character, and it changes between the press and the release."""
     return getattr(key, "vk", None) or getattr(getattr(key, "value", None), "vk", None)
+
+
+def calendar_action(ev, cfg, now):
+    """What the calendar watcher does for an event: "start" (record automatically), "remind" or None. Only a meeting
+    you accepted (or cannot tell about) starts by itself; an invite you have not answered only reminds."""
+    if not ev.get("attendees") or not (ev["start"] - 60 <= now <= ev["start"] + 180):
+        return None
+    if cfg.get("auto_notes") and ev.get("my_status", "accepted") == "accepted":
+        return "start"
+    return "remind"
 
 
 ICONS = {k: logo.draw(64, k) for k in ("idle", "rec", "busy")}
@@ -231,7 +241,10 @@ class Engine:
             self.level = 0.0
         if name != "idle":
             self.flash_kind = ""   # a new recording or send replaces whatever the pill was signalling
-        self.icon.icon = ICONS[name]
+        try:
+            self.icon.icon = ICONS[name]   # pystray can raise here (DestroyIcon); it is called from several threads
+        except Exception:
+            log.exception("could not change the tray icon")
 
     def flash(self, kind):
         """Makes the pill show "sent" (green check, 0.7 s) or "error" (red !, 1.8 s), then go back to the real
@@ -286,6 +299,26 @@ class Engine:
         return all(self.pressed & group for group in self.hotkey)
 
     def on_press(self, key):
+        try:
+            self._on_press(key)
+        except Exception:   # pynput stops the listener when a handler raises: keep the hotkey alive
+            self._hotkey_failed()
+
+    def on_release(self, key):
+        try:
+            self._on_release(key)
+        except Exception:
+            self._hotkey_failed()
+
+    def _hotkey_failed(self):
+        log.exception("hotkey handler failed")
+        try:
+            if getattr(self, "stream", None) is not None and not self.recording and not self.listening:
+                self._close_stream()   # a half-started recording must not keep the microphone open
+        except Exception:
+            log.exception("could not close the microphone after a hotkey failure")
+
+    def _on_press(self, key):
         hk = self.note_hotkey
         if hk and key_vk(key) == hk.vk:   # the note shortcut's main key: never kept in `pressed` (its char varies)
             if not self.note_key_down and all(self.pressed & KEY_ALIASES[m] for m in hk.mods):
@@ -303,7 +336,7 @@ class Engine:
             self.combo_was_down = True
             self.on_combo_down()
 
-    def on_release(self, key):
+    def _on_release(self, key):
         hk = self.note_hotkey
         if hk and key_vk(key) == hk.vk:
             self.note_key_down = False
@@ -495,6 +528,7 @@ class Engine:
     def _process(self, pcm, exe, note=False, streamer=None, tm=None):
         secs = len(pcm) / (core.SAMPLE_RATE * 2)
         keep = " Your recording is kept: tray icon > Retry last dictation."
+        delivered = False   # the text was pasted or the note saved: nothing left to retry
         try:
             label = "" if note else exe
             with core.timing_scope(tm):   # the network steps mark stt_start/stt_done and llm_start/llm_done on tm
@@ -512,16 +546,24 @@ class Engine:
                     res = core.process_detailed(self.cfg, pcm, label, label)
             raw, text = res.raw, res.text
             outcome = ""   # what the pill shows once the result is in; set only when something was sent or saved
-            self.pending = None
+            keep_pending = False
             if res.fidelity_fallback:
                 log.warning("fidelity guard: the cleanup answer lost the spoken words, used the raw words (%d words)", len(raw.split()))
             if res.cleanup_error:
                 self.notify(("Cleanup did not work, so Vox saved your words as spoken: " if note else "Cleanup did not work, so Vox pasted your words as spoken: ") + res.cleanup_error[:120])
             if text and note:
                 self.save_note(text, raw, secs)
+                delivered = True
                 outcome = "sent"
             elif text:
-                outcome = "sent" if self.paste(text) else "error"   # the pill reflects the paste only
+                try:
+                    outcome = "sent" if self.paste(text) else "error"   # the pill reflects the paste only
+                    delivered = True
+                except Exception:   # e.g. the clipboard stayed busy: the text is not lost, the recording is kept
+                    log.exception("paste failed")
+                    keep_pending = True
+                    outcome = "error"
+                    self.notify("Vox could not paste (the clipboard is busy)." + keep)
                 if tm:
                     tm.mark("inserted")
                 if self.cfg.get("keep_history", True):
@@ -536,6 +578,11 @@ class Engine:
                         core.add_history(entry)
                     except Exception:   # the text already landed: log it, never flash error over "sent"
                         log.exception("could not save the history entry")
+            if keep_pending:
+                self.pending = (pcm, exe, note)
+            else:
+                self.pending = None
+                delivered = True
             if outcome:
                 self.flash(outcome)
         except core.ApiError as e:
@@ -555,8 +602,11 @@ class Engine:
             self.pending = (pcm, exe, note)
             self.notify(f"Network error: {e}." + keep)
             self.flash("error")
-        except Exception:
+        except Exception as e:
             log.exception("processing failed")
+            if not delivered:   # a dictation is never thrown away on an unexpected error
+                self.pending = (pcm, exe, note)
+                self.notify("Something went wrong (%s)." % type(e).__name__ + keep)
             self.flash("error")
         finally:
             self.busy = False
@@ -701,10 +751,11 @@ class Engine:
                     continue
                 now = time.time()
                 for ev in vcalendar.fetch(self.cfg).get("events", []):
-                    if not ev["attendees"] or ev["uid"] in reminded or not (ev["start"] - 60 <= now <= ev["start"] + 180):
+                    action = calendar_action(ev, self.cfg, now)
+                    if not action or ev["uid"] in reminded:
                         continue
                     reminded.add(ev["uid"])
-                    if self.cfg.get("auto_notes"):
+                    if action == "start":
                         self.start_meeting(ev["uid"])
                     else:
                         self.notify(f"'{ev['title']}' is starting. Tray icon > Start meeting notes, or open Vox.")
@@ -795,6 +846,10 @@ class Engine:
 
     # ------------------------------------------------------------------ run
     def run(self):
+        try:
+            recover_unfinished(self.cfg)   # a meeting cut off by a quit or a crash gets its live transcript back
+        except Exception:
+            log.exception("could not recover unfinished meetings")
         listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
         listener.daemon = True
         listener.start()

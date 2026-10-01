@@ -1,10 +1,12 @@
 """Calendar via a private iCal (ICS) link: Google Calendar's "Secret address in iCal format",
 or Outlook's published ICS link. Read-only, no sign-in, works for anyone you share Vox with."""
+import hashlib
 import json
 import logging
 import os
 import re
 import time
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -13,6 +15,7 @@ import vox_core as core
 
 log = logging.getLogger("vox.calendar")
 CACHE_SECONDS = 300
+PARTSTAT = {"ACCEPTED": "accepted", "DECLINED": "declined", "TENTATIVE": "tentative", "NEEDS-ACTION": "needsAction", "": "needsAction"}
 
 
 def cache_path():
@@ -57,14 +60,19 @@ def parse(ics_text, start, end, my_email=""):
         if not isinstance(atts, list):
             atts = [atts]
         people = []
+        my_status = "accepted"   # unchanged behaviour when we cannot tell (no email set, or not on the list)
         for a in atts:
             if my_email and _email(a) == my_email.lower():
+                if _email(ev.get("ORGANIZER")) != my_email.lower():
+                    my_status = PARTSTAT.get(str(a.params.get("PARTSTAT", "")).upper(), "needsAction")
                 continue
             if str(a.params.get("CUTYPE", "")).upper() in ("RESOURCE", "ROOM"):
                 continue
             n = _name(a)
             if n and n not in people:
                 people.append(n)
+        if my_status == "declined":
+            continue
         org = _name(ev.get("ORGANIZER"))
         desc = str(ev.get("DESCRIPTION", ""))
         loc = str(ev.get("LOCATION", ""))
@@ -76,10 +84,19 @@ def parse(ics_text, start, end, my_email=""):
             "uid": str(ev.get("UID", "")) + "|" + s.isoformat(),
             "title": str(ev.get("SUMMARY", "(no title)")),
             "start": s.timestamp(), "end": (e or s).timestamp(),
-            "attendees": people, "organizer": org, "link": link,
+            "attendees": people, "organizer": org, "link": link, "my_status": my_status,
         })
     out.sort(key=lambda x: x["start"])
     return out
+
+
+def _safe_error(e, url):
+    """The error text without the address: requests puts the whole (secret) URL into its messages."""
+    if isinstance(e, requests.HTTPError) and getattr(e, "response", None) is not None:
+        return "Calendar server answered %s" % e.response.status_code
+    if isinstance(e, requests.RequestException):
+        return "Could not reach %s (%s)" % (urllib.parse.urlparse(url).hostname or "the calendar server", type(e).__name__)
+    return str(e)[:200]
 
 
 def fetch(cfg, force=False):
@@ -88,8 +105,13 @@ def fetch(cfg, force=False):
     url = (cfg.get("calendar_url") or "").strip()
     if url.startswith("webcal://"):
         url = "https://" + url[len("webcal://"):]
-    source = "google:" + gcal.account() if gcal.connected() else url
+    # the cache key never holds the address itself: the secret iCal link must not be written to calendar.json
+    source = "google:" + gcal.account() if gcal.connected() else ("ics:" + hashlib.sha256(url.encode()).hexdigest()[:16] if url else "")
     if not source:
+        try:
+            os.remove(cache_path())   # disconnected: the events of the old calendar go too
+        except OSError:
+            pass
         return {"events": [], "error": "", "fetched": 0, "source": ""}
     try:
         with open(cache_path(), encoding="utf-8") as f:
@@ -108,8 +130,9 @@ def fetch(cfg, force=False):
             events = parse(r.content, now - timedelta(hours=12), now + timedelta(days=7), cfg.get("my_email", ""))
         data = {"source": source, "events": events, "error": "", "fetched": time.time()}
     except Exception as e:
-        log.warning("calendar fetch failed: %s", e)
-        data = {"source": source, "events": [], "error": str(e)[:200], "fetched": time.time()}
+        msg = _safe_error(e, url)
+        log.warning("calendar fetch failed: %s", msg)
+        data = {"source": source, "events": [], "error": msg, "fetched": time.time()}
     with open(cache_path(), "w", encoding="utf-8") as f:
         json.dump(data, f)
     return data

@@ -1,7 +1,7 @@
 """Google Calendar sign-in (OAuth 2.0 for desktop apps, loopback redirect + PKCE) and event reading.
 
 Works for Gmail and Google Workspace (school/work) accounts, unless the Workspace admin blocks the app.
-Only read access to events is requested. The refresh token is stored in %APPDATA%\\Vox\\google_token.json.
+Only read access to events is requested. The tokens are stored protected by the Windows login (secret.py) in %APPDATA%\\Vox\\google_token.json.
 """
 import base64
 import hashlib
@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+import secret
 import vox_core as core
 
 log = logging.getLogger("vox.gcal")
@@ -56,18 +57,50 @@ def connected():
     return os.path.exists(token_path())
 
 
-def account():
+TOKEN_FIELDS = ("refresh_token", "access_token")
+
+
+def _load_token():
+    """The saved tokens in plain text ({} when the file is missing or unreadable). A token file written by an older
+    Vox in plain text is read as it is and protected at once."""
     try:
         with open(token_path(), encoding="utf-8") as f:
-            return json.load(f).get("email", "")
+            raw = json.load(f)
     except (OSError, ValueError):
-        return ""
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    tok = dict(raw)
+    legacy = False
+    for k in TOKEN_FIELDS:
+        v = raw.get(k)
+        if isinstance(v, str) and v:
+            legacy = legacy or not secret.is_protected(v)
+            tok[k] = secret.unprotect(v)
+    if legacy and secret.available():
+        try:
+            _save_token(tok)
+        except OSError:
+            log.warning("could not protect the saved Google token")
+    return tok
+
+
+def _save_token(tok):
+    """Writes the tokens protected by the Windows login, through a temp file so a crash cannot cut the file."""
+    on_disk = dict(tok, **{k: secret.protect(tok.get(k) or "") for k in TOKEN_FIELDS})
+    tmp = token_path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(on_disk, f)
+    os.replace(tmp, token_path())
+
+
+def account():
+    return _load_token().get("email", "")
 
 
 def disconnect():
     try:
-        with open(token_path(), encoding="utf-8") as f:
-            tok = json.load(f)
+        tok = _load_token()
         requests.post("https://oauth2.googleapis.com/revoke", params={"token": tok.get("refresh_token")}, timeout=10)
     except Exception:
         pass
@@ -152,8 +185,7 @@ def connect(timeout=240):
     email = _email_from_id_token(tok.get("id_token", ""))
     save = {"refresh_token": tok.get("refresh_token"), "access_token": tok.get("access_token"),
             "expires": time.time() + tok.get("expires_in", 3600) - 60, "email": email}
-    with open(token_path(), "w", encoding="utf-8") as f:
-        json.dump(save, f)
+    _save_token(save)
     try:
         os.remove(os.path.join(core.data_dir(), "calendar.json"))
     except OSError:
@@ -172,8 +204,9 @@ def _email_from_id_token(idt):
 
 
 def _access_token():
-    with open(token_path(), encoding="utf-8") as f:
-        tok = json.load(f)
+    tok = _load_token()
+    if not tok.get("refresh_token"):   # no file, a damaged one, or tokens of another Windows user or PC
+        raise RuntimeError("Google sign-in expired. Connect again in Vox > Notes.")
     if tok.get("access_token") and time.time() < tok.get("expires", 0):
         return tok["access_token"]
     client_id, client_secret = _client()
@@ -184,8 +217,7 @@ def _access_token():
     j = r.json()
     tok["access_token"] = j["access_token"]
     tok["expires"] = time.time() + j.get("expires_in", 3600) - 60
-    with open(token_path(), "w", encoding="utf-8") as f:
-        json.dump(tok, f)
+    _save_token(tok)
     return tok["access_token"]
 
 
@@ -204,10 +236,20 @@ def events():
     r = requests.get(EVENTS_URL, params=params, headers={"Authorization": f"Bearer {_access_token()}"}, timeout=20)
     if r.status_code != 200:
         raise RuntimeError(f"Google Calendar {r.status_code}: {r.text[:150]}")
+    return _parse_items(r.json().get("items", []))
+
+
+def _parse_items(items):
+    """Google event items in the shape of vcalendar.parse(). An event you declined is dropped; `my_status` is your
+    answer ("accepted" when it is your own event or Google gives no answer)."""
     out = []
-    for ev in r.json().get("items", []):
+    for ev in items:
         s, e = _ts(ev.get("start")), _ts(ev.get("end"))
         if s is None or ev.get("status") == "cancelled":
+            continue
+        mine = next((a for a in ev.get("attendees", []) if a.get("self")), None)
+        my_status = "accepted" if mine is None or (ev.get("organizer") or {}).get("self") else mine.get("responseStatus", "accepted")
+        if my_status == "declined":
             continue
         people = []
         for a in ev.get("attendees", []):
@@ -222,7 +264,7 @@ def events():
                 link = link or ep.get("uri", "")
         org = ev.get("organizer", {})
         out.append({"uid": ev.get("id", "") + "|" + str(s), "title": ev.get("summary", "(no title)"),
-                    "start": s, "end": e or s, "attendees": people,
+                    "start": s, "end": e or s, "attendees": people, "my_status": my_status,
                     "organizer": "" if org.get("self") else (org.get("displayName") or org.get("email", "")),
                     "link": link})
     return out

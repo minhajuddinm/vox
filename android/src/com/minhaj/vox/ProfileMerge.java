@@ -36,12 +36,19 @@ final class ProfileMerge {
      * result means the field is dropped (a removal is a change like any other). The values are compared with
      * {@code equals}, which agrees with Python's {@code ==} for strings, booleans and lists of them; convert numbers
      * to one type first, since an Integer 1 is not equal to a Long 1.
+     * One exception: a field with no base (this device's first sync) whose relay value is blank ("" or an empty
+     * list) keeps the local value when that is not blank, because the blank is only the other device's default.
      */
     static Object merge3(Object base, Object local, Object remote) {
+        if (base == null && local != null && remote != null && isBlank(remote) && !isBlank(local)) return local;
         if (Objects.equals(local, remote)) return local;
         if (Objects.equals(local, base)) return remote;
         if (Objects.equals(remote, base)) return local;
         return remote;
+    }
+
+    private static boolean isBlank(Object v) {
+        return "".equals(v) || (v instanceof java.util.List && ((java.util.List<?>) v).isEmpty());
     }
 
     /**

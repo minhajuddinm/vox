@@ -262,10 +262,15 @@ def shared_fields(cfg):
 
 
 def merge3(base, local, remote):
-    """Field by field: the side that changed since `base` wins; if both changed differently, the relay's value wins."""
+    """Field by field: the side that changed since `base` wins; if both changed differently, the relay's value wins.
+    One exception: a field with no base (this device's first sync) whose relay value is blank ("" or an empty list)
+    keeps this device's value when that is not blank, because the blank is only the other device's default."""
     out = {}
     for k in set(base) | set(local) | set(remote):
         b, l, r = base.get(k), local.get(k), remote.get(k)
+        if b is None and l is not None and r is not None and (r == "" or r == []) and not (l == "" or l == []):
+            out[k] = l
+            continue
         v = l if l == r else r if l == b else l if r == b else r
         if v is not None:
             out[k] = v
