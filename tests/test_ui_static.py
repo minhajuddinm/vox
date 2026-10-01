@@ -243,3 +243,13 @@ def test_checker_finds_annotated_java_methods_only():
            "@JavascriptInterface public void save(String j) {}"
     assert js_interface_methods(java) == {"state", "save"}
     assert android_calls('V.state(); window.Vox.save(x); DEV.nope(); "Vox. Hi"') == {"state", "save"}
+
+
+@pytest.mark.parametrize("name", sorted(PAGES))
+def test_key_sharing_hint_matches_the_sync_rule(name):
+    """Switch-off strips only this device's keys, once; another device that still shares keys puts them back (sync.sync_profile)."""
+    with open(PAGES[name], encoding="utf-8") as f:
+        text = f.read()
+    assert "removes this device's keys from the relay once" in text
+    assert "turn it off on every device" in text
+    assert "Turning it off removes them from the relay" not in text
