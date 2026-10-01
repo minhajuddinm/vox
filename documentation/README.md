@@ -27,6 +27,7 @@ Documentation verified against commit: see the `Verified against` line at the bo
 | Why things are the way they are | [decisions/README.md](decisions/README.md) (architecture decision records) |
 | Designs written before the code (one per sub-project) | [specs/README.md](specs/README.md) |
 | What changed and when | [../CHANGELOG.md](../CHANGELOG.md) and [devlog.md](devlog.md) |
+| How to contribute, report a vulnerability, or the project's conduct rules (for people outside the project) | [../CONTRIBUTING.md](../CONTRIBUTING.md), [../SECURITY.md](../SECURITY.md), [../CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) |
 
 ## Rules for keeping these docs true
 
@@ -45,6 +46,8 @@ Documentation verified against commit: see the `Verified against` line at the bo
 - "Groq" means the default speech and language API at `https://api.groq.com/openai/v1`. "Server" means whatever the Server address setting points to (Groq by default).
 
 ## Verified against
+
+Branch `docs/open-source` on top of `main` at `c97c4e2` (the merge of PR 25): documentation, README, community files, issue forms and test-fixture strings only; no app code changed, so everything below about the code still holds. Tests run locally on Windows on 2026-10-01 (`APPDATA`, `HOME` and `USERPROFILE` pointed at a temporary folder): 1940 pytest tests collected (1938 pass, 2 skipped); 28 Java test programs pass (2 integration programs skipped); `documentation/tools/check_docs.py` reports OK.
 
 Integration branch `feat/part3`, review fixes on top of `b7ebe8f` (seven small code commits, then this documentation commit): the fuzzy dictionary's one-letter guess only for terms of 7+ letters ([decision 0036](decisions/0036-fuzzy-dictionary-guesses-only-for-long-terms.md)), the benchmark no longer sends the learned cleanup rules, the fidelity guard ignores an ordinal's suffix, a closing "Thank you." after speech is kept in pieces, the m4a upload falls back to WAV when a server refuses it, the Windows relay header uses the Android spelling of the device name, the Android insert probe carries no package or class, and nested prompt tags are removed until none is left. Tests run locally on Windows on 2026-10-01 (`--basetemp` outside the repo): 1940 pytest tests collected (1938 pass, 2 skipped), including 657 shared golden cases; 28 Java test programs pass (2 integration programs skipped), `ParityTest` 657 golden cases; `javatest compile` compiled 46 files; `tools/sync_ui.py --check` reports ui-shared OK; `documentation/tools/check_docs.py` reports OK. **Not run:** the m4a fallback against a real whisper.cpp server (a stand-in server only), the insert probe and the streaming change on a phone, the fuzzy change on real speech.
 

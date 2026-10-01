@@ -116,4 +116,16 @@ Each needs a short spec, tests first, a docs sync and its own pull request. Sugg
 
 8. **Measure and speed up (R8 and "make Android faster"): built on branch `feat/p9b-speed`, not run on a phone.** The Speed card, the timing in the history, the Android speed work and the answers given are in [specs/p9b-measure-and-speed-up.md](specs/p9b-measure-and-speed-up.md). Still to do: read the real numbers on a phone, decide the cleanup model from them (with the benchmark of item 7), and a Windows cleanup token bound.
 
+### Open-source presentation (left for the owner or a code branch)
+
+The README, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, the issue forms and the PR template exist. Still to do:
+
+1. **Choose a licence.** There is no `LICENSE` file; the README says reuse is not permitted until the owner chooses one. The decision belongs to the owner and the original author.
+2. **Turn on GitHub private vulnerability reporting** (repository Settings, Code security). It is off today, so `SECURITY.md` tells reporters what to do without it.
+3. **Take the screenshots** listed in the README (`docs/screenshots/`, made-up text only) and link them from the README.
+4. **Tag a new release.** The latest release, v1.2.0, predates the v2 work, so the README's install steps give the old app.
+5. **Neutral example values in the app pages** (code change): the example relay address in `ui-shared/relay-steps.txt` (run `tools/sync_ui.py` afterwards) and in the relay address hints of `windows/ui/index.html` and `android/assets/index.html` still uses the developer's own Pi host name, and the Windows device-name hint and a note in the Android preview mock use his laptop's name. They should read `your-pi.your-tailnet.ts.net` and a neutral name like the docs.
+6. **The public site's contact address.** `docs/index.html` and `docs/privacy.html` give the original author's personal email as the contact; the owner may prefer the repository's issues or private reporting.
+7. **Labels for the issue forms.** The forms add `bug`, `enhancement` and `device-test`; a label that does not exist on the repository is not applied, so create `device-test`.
+
 Not planned: Android meeting notes, iOS, on-device speech recognition.
