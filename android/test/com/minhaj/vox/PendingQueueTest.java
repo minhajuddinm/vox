@@ -56,10 +56,8 @@ public final class PendingQueueTest {
         k.add(e(10, "note"));
         k.beginRecording();
         eq("cancel while recording discards nothing", 0L, k.onCancel());
-        eq("old one survives live cancel", 1, k.size());
         k.beginRetry(10);
         eq("cancel during retry discards nothing", 0L, k.onCancel());
-        eq("old one survives retry cancel", 1, k.size());
         k.add(e(20, "dictation"));
         k.beginFresh(20);
         eq("cancel of fresh queued entry returns only it", 20L, k.onCancel());

@@ -194,8 +194,9 @@ final class SyncEngine {
     /**
      * Two-way sync of the shared settings with the relay's profile document (sync.sync_profile). Returns "", "sent",
      * "received" or "both". The relay refuses a stale write (If-Match), so a race with another device is read again
-     * and merged, not lost. Keys and provider settings travel only while the switch is on; when it is off they are
-     * taken off the relay's document.
+     * and merged, not lost. Keys and provider settings travel only while the switch is on. They are taken off the
+     * relay's document only on this device's own on-to-off change (it had sent keys, KEYS_SENT, and they are now
+     * off); a device that never sent keys leaves other devices' keys alone, so two devices do not undo each other.
      */
     private String syncProfile() throws RelayApi.RelayError {
         boolean receivedAny = false;   // settings written here in any attempt: a retry sees them as local, so remember them

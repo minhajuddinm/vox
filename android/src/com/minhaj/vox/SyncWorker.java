@@ -180,7 +180,9 @@ final class SyncWorker {
         String problem = RelayClient.problem(url, token);
         if (!problem.isEmpty()) return SyncResult.failed(problem);
         RelayClient client = new RelayClient(url, token, prefs.deviceName());
-        return new SyncEngine(NotesStore.get(app), client, new PrefsConfig(prefs)).syncOnce();
+        // The address is read once for the whole run: the engine ties its state to the same address the client uses,
+        // even when the user saves another one while the run is going (the next run then follows it).
+        return new SyncEngine(NotesStore.get(app), client, new PinnedUrlConfig(new PrefsConfig(prefs), url)).syncOnce();
     }
 
     /** The profile settings of the phone, read from and written to Prefs through ProfileMap. */
