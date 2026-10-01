@@ -307,3 +307,10 @@ def test_text_without_any_full_stop_is_cut_by_words_and_loses_nothing():
 def test_the_default_chunk_size_is_a_few_hundred_words():
     assert 200 <= session.CHUNK_WORDS <= 500
     assert len(session.chunk_text(sentences(100))) == 2                  # 500 words
+
+
+# ------------------------------------------------------------------ the setting
+def test_the_listen_target_setting_defaults_to_note_and_ignores_unknown_values():
+    assert core.DEFAULT_CONFIG["listen_target"] == "note"
+    assert session.listen_target({"listen_target": "type"}) == "type"
+    assert session.listen_target({"listen_target": "x"}) == session.listen_target({}) == "note"

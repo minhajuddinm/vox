@@ -13,7 +13,7 @@ import time
 import tkinter as tk
 
 import vox_core as core
-from overlay_mode import overlay_mode
+from overlay_mode import overlay_mode, pill_clock
 
 KEY = "#010203"          # colour made fully transparent (gives the pill rounded corners)
 BG = "#161618"
@@ -22,6 +22,7 @@ BAR = "#F2F2F2"
 REC_DOT = "#FF453A"
 BUSY = "#F5B83D"
 SENT = "#30D158"
+WIDE = 230               # the pill's width while listening (px at 96 dpi): it holds a message; the usual pill is 132
 FPS_MS = 33               # about 30 frames a second is plenty for a meter
 SAMPLE_MS = 80            # one meter bar per 80 ms of voice (about a syllable)
 log = logging.getLogger("vox.overlay")
@@ -78,7 +79,8 @@ class Overlay:
     N_BARS = 11
 
     def __init__(self, app):
-        self.app = app  # needs .state ("idle" | "rec" | "busy"), .level (0..1), .flash_kind ("sent" | "error" | "") and .flash_until
+        self.app = app  # needs .state ("idle" | "rec" | "busy" | "listen"), .level (0..1), .flash_kind ("sent" | "error" | ""),
+        #                 .flash_until and .listening (the running keep-listening session or None)
         self.root = tk.Tk()
         self.root.withdraw()
         self.scale = self.root.winfo_fpixels("1i") / 96.0
@@ -111,12 +113,26 @@ class Overlay:
         self.hist = core.LevelHistory(self.N_BARS)
         self.sample_acc = 0
         self.phase = [random.random() * math.tau for _ in range(self.N_BARS)]
-        # The check mark and the "!" never change size: their coordinates are worked out once, not every frame.
+        self._shape()
+        self.root.after(FPS_MS, self._tick)
+
+    def _shape(self):
+        """The check mark and the "!" never change size: their coordinates are worked out when the pill's width is set,
+        not every frame."""
+        s = self.scale
         cx, cy = self.w / 2, self.h / 2
         self.check = (cx - 7.5 * s, cy + 0.5 * s, cx - 2.5 * s, cy + 5.5 * s, cx + 7.5 * s, cy - 5.5 * s)
         self.bang = (cx, cy - 9 * s, cx, cy + 2.5 * s)
         self.bang_dot = (cx - 1.9 * s, cy + 6.1 * s, cx + 1.9 * s, cy + 9.9 * s)
-        self.root.after(FPS_MS, self._tick)
+
+    def _fit(self, state):
+        """The pill is wider while listening, and back to its usual width for everything else."""
+        w = int((WIDE if state == "listen" else 132) * self.scale)
+        if w != self.w:
+            self.w = w
+            self.canvas.config(width=w)
+            self._shape()
+            self._place()
 
     def _place(self):
         left, top, right, bottom = _work_area(self.root)
@@ -186,9 +202,16 @@ class Overlay:
         pr = (3.4 + 0.9 * math.sin(self.t * 3)) * s
         cx = 19 * s
         c.create_oval(cx - pr, cy - pr, cx + pr, cy + pr, fill=REC_DOT, outline="")
-        secs = int(self.app.meeting.elapsed())
-        label = f"Notes  {secs // 3600}:{secs // 60 % 60:02d}:{secs % 60:02d}" if secs >= 3600 else f"Notes  {secs // 60}:{secs % 60:02d}"
+        label = "Notes  " + pill_clock(self.app.meeting.elapsed())
         c.create_text(self.w / 2 + 8 * s, cy, text=label, fill=BAR, font=("Segoe UI", 10, "bold"))
+
+    def _draw_listening(self):
+        c, s = self.canvas, self.scale
+        cx, cy, q = 17 * s, self.h / 2, 4.2 * s
+        c.create_rectangle(cx - q, cy - q, cx + q, cy + q, fill=REC_DOT, outline="")   # stop square: double-press to end
+        lis = self.app.listening
+        text = (lis.message or "Listening  " + pill_clock(lis.seconds)) if lis else "Listening"
+        c.create_text(32 * s, cy, anchor="w", text=text, fill=BAR, font=("Segoe UI", 10, "bold"))
 
     # ---------------------------------------------------------------- loop
     def _tick(self):
@@ -199,6 +222,8 @@ class Overlay:
             state = overlay_mode(self.app.state, self.app.flash_kind, self.app.flash_until, time.monotonic(),
                                  meeting is not None and meeting.active)
             want = state is not None
+            if want:
+                self._fit(state)
             if want and not self.visible:
                 self._place()
                 self.hist.reset()
@@ -216,6 +241,8 @@ class Overlay:
                     self._draw_busy()
                 elif state == "meet":
                     self._draw_meeting()
+                elif state == "listen":
+                    self._draw_listening()
                 elif state == "sent":
                     self._draw_sent()
                 elif state == "error":

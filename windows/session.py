@@ -23,6 +23,12 @@ _STOP = re.compile(r"[\s,]*\bstop,?\s+listening[\s.!?,;:]*$", re.I)
 Segment = namedtuple("Segment", "id pcm para")   # para: a long pause came before this piece
 
 
+def listen_target(cfg):
+    """The keep-listening target from the settings ("note" or "type"); anything else means "note"."""
+    t = cfg.get("listen_target")
+    return t if t in TARGETS else "note"
+
+
 def stop_requested(text):
     """True when the text ends with the stop phrase ("stop listening", any case, with or without punctuation)."""
     return bool(_STOP.search(text))

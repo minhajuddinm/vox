@@ -17,10 +17,12 @@ import sounddevice as sd
 from pynput import keyboard
 
 import audio_devices
+import listen as listen_mod
 import logo
 import notes
 import paste as paste_mod
 import relay_host
+import session as session_mod
 import streaming
 import sync
 import timing as timing_mod
@@ -64,6 +66,7 @@ def foreground_app():
 
 
 ICONS = {k: logo.draw(64, k) for k in ("idle", "rec", "busy")}
+ICONS["listen"] = ICONS["rec"]   # keep listening is a recording as far as the tray icon goes
 
 
 def window_command():
@@ -87,6 +90,7 @@ class Engine:
     flash_kind = ""
     flash_until = 0.0
     timing = None   # the timing.Timing of the recording in progress (the Speed card); None when there is none
+    listening = None   # the listen.Listening of the keep-listening session in progress (also while it saves); None when none
 
     def __init__(self):
         self.cfg = core.load_config()
@@ -101,7 +105,7 @@ class Engine:
         self.stream = None
         self.target = ""
         self.started_at = 0.0
-        self.state = "idle"   # read by the overlay: idle | rec | busy
+        self.state = "idle"   # read by the overlay: idle | rec | busy | listen
         self.level = 0.0
         self.overlay = None
         self.flash_kind = ""
@@ -110,6 +114,7 @@ class Engine:
         self.streaming = None         # StreamingStt for the current recording (long ones are sent in pieces)
         self.note_mode = False        # the current recording is a voice note: saved, not pasted
         self.timing = None
+        self.listening = None
         self.combo_was_down = False
         self.press_t = 0.0
         self.last_tap_t = 0.0
@@ -126,6 +131,12 @@ class Engine:
                                  self.toggle_note),
                 pystray.MenuItem(lambda _: "Stop meeting notes" if self.meeting.active else "Start meeting notes",
                                  self.toggle_meeting),
+                pystray.MenuItem(lambda _: "Stop listening" if self.listening else "Start listening", self.toggle_listening),
+                pystray.MenuItem("Keep listening: Note", lambda *_: self.set_listen_target("note"), radio=True,
+                                 checked=lambda _: session_mod.listen_target(self.cfg) == "note"),
+                pystray.MenuItem("Keep listening: Type", lambda *_: self.set_listen_target("type"), radio=True,
+                                 checked=lambda _: session_mod.listen_target(self.cfg) == "type"),
+                pystray.MenuItem("Recover listening session", self.recover_listening, visible=lambda _: self.can_recover()),
                 pystray.MenuItem("Run relay on this PC", self.toggle_relay, checked=lambda _: bool(self.cfg.get("relay_run"))),
                 pystray.MenuItem("Quit Vox", self.quit),
             ),
@@ -171,6 +182,11 @@ class Engine:
             deadline = time.time() + 180
             while m.processing and time.time() < deadline:
                 time.sleep(0.5)
+        if self.listening:   # the session saves its note first, as with the meeting above
+            self.stop_listening()
+            deadline = time.time() + 180
+            while self.listening and time.time() < deadline:
+                time.sleep(0.5)
         self.sync.stop()
         self.relay.stop()
         self.icon.stop()
@@ -214,6 +230,19 @@ class Engine:
             return ""
         return kind if (time.monotonic() if now is None else now) < self.flash_until else ""
 
+    def _save_setting(self, key, value):
+        """Saves one setting to the file (and to our copy). False, after telling the user, when it cannot be saved."""
+        try:
+            cfg = core.load_config()   # the file, not our copy: the window may have saved settings since we read it
+            cfg[key] = value
+            core.save_config(cfg)
+        except Exception as e:
+            log.exception("could not save %s", key)
+            self.notify(f"Could not save the setting: {e}")
+            return False
+        self.cfg[key] = value
+        return True
+
     # ----------------------------------------------------------------- relay
     def start_relay(self):
         self.relay.port = relay_host.port_from(self.cfg)
@@ -222,15 +251,8 @@ class Engine:
     def toggle_relay(self, *_):
         """Tray item "Run relay on this PC": saves the choice (relay_run) and starts or stops the relay process."""
         on = not self.cfg.get("relay_run")
-        try:
-            cfg = core.load_config()   # the file, not our copy: the window may have saved settings since we read it
-            cfg["relay_run"] = on
-            core.save_config(cfg)
-        except Exception as e:
-            log.exception("could not save relay_run")
-            self.notify(f"Could not save the relay setting: {e}")
+        if not self._save_setting("relay_run", on):
             return
-        self.cfg["relay_run"] = on
         if on:
             self.start_relay()
         else:
@@ -238,12 +260,16 @@ class Engine:
 
     # --------------------------------------------------------------- hotkey
     # Hold the shortcut to talk, release to insert.
-    # Double-tap it for hands-free: recording continues until you press it once more (Esc cancels).
+    # Double-tap it to keep listening (a note, or text typed as you pause, see listen.py); double-tap again, Esc or the
+    # stop phrase ends it.
     def combo_down(self):
         return all(self.pressed & group for group in self.hotkey)
 
     def on_press(self, key):
         self.pressed.add(key)
+        if key == keyboard.Key.esc and self.listening:
+            self.stop_listening()   # ends it and saves what was said: audio is never thrown away
+            return
         if key == keyboard.Key.esc and self.recording and self.hands_free:
             self.cancel()
             return
@@ -264,6 +290,13 @@ class Engine:
         if self.busy:
             return
         now = time.time()
+        if self.listening:   # one press could be part of another shortcut (Ctrl+Win+arrows): ending takes a double press
+            if now - self.last_tap_t < DOUBLE_TAP_GAP:
+                self.last_tap_t = 0.0
+                self.stop_listening()
+            else:
+                self.last_tap_t = now
+            return
         if self.recording and self.hands_free:
             self.hands_free = False
             self.stop()
@@ -271,11 +304,11 @@ class Engine:
         if not self.recording:
             double = now - self.last_tap_t < DOUBLE_TAP_GAP
             self.press_t = now
-            self.start()
-            if double and self.recording:
-                self.hands_free = True
+            if double:
                 self.last_tap_t = 0.0
-                log.info("hands-free mode")
+                self.start_listening()
+            else:
+                self.start()
 
     def on_combo_up(self):
         if not self.recording or self.hands_free:
@@ -290,12 +323,7 @@ class Engine:
     def start(self):
         tm = timing_mod.Timing()
         tm.mark("key_down")
-        problem = core.endpoint_error(self.cfg) or (
-            "Add your API key in Vox > Settings" if core.key_missing(self.cfg) else "")
-        if problem:
-            self.notify(problem)
-            self.flash("error")
-            open_window()
+        if not self._ready():
             return
         self.target = foreground_app()
         self.chunks = []
@@ -305,12 +333,7 @@ class Engine:
             self.streaming.start()
         core.warm(self.cfg)   # open the server connections while the user speaks
         try:
-            device = audio_devices.input_index(self.cfg.get("input_device"))
-            if self.cfg.get("input_device") and device is None:
-                self.notify("Your chosen microphone is not connected. Using the Windows default one.")
-            self.stream = sd.InputStream(samplerate=core.SAMPLE_RATE, channels=1, dtype="int16",
-                                         device=device, callback=self._audio)
-            self.stream.start()
+            self._open_mic(self._audio)
             tm.mark("rec_start")
         except Exception as e:
             self.notify(f"Microphone error: {e}")
@@ -323,6 +346,25 @@ class Engine:
         self.recording = True
         self.set_state("rec")
         log.info("recording started (app=%s)", self.target)
+
+    def _ready(self):
+        """False, after telling the user, when a settings problem stops any recording."""
+        problem = core.endpoint_error(self.cfg) or (
+            "Add your API key in Vox > Settings" if core.key_missing(self.cfg) else "")
+        if problem:
+            self.notify(problem)
+            self.flash("error")
+            open_window()
+        return not problem
+
+    def _open_mic(self, callback):
+        """Starts the microphone (the chosen one when it is connected); `callback` gets every block. Raises on failure."""
+        device = audio_devices.input_index(self.cfg.get("input_device"))
+        if self.cfg.get("input_device") and device is None:
+            self.notify("Your chosen microphone is not connected. Using the Windows default one.")
+        self.stream = sd.InputStream(samplerate=core.SAMPLE_RATE, channels=1, dtype="int16",
+                                     device=device, callback=callback)
+        self.stream.start()
 
     def _audio(self, indata, frames, t, status):
         self.chunks.append(bytes(indata))
@@ -396,7 +438,7 @@ class Engine:
         if self.recording and self.note_mode:
             self.stop()
             return
-        if self.recording or self.busy:
+        if self.recording or self.busy or self.listening:
             return
         self.note_mode = True
         self.start()
@@ -405,9 +447,15 @@ class Engine:
         else:
             self.note_mode = False
 
+    def save_note(self, text, raw, secs):
+        """Saves a voice note, asks the sync thread to send it and says so."""
+        saved = notes.add(text, raw=raw, secs=secs, source=notes.SOURCE_NOTE, device=sync.device_name(self.cfg))
+        self.sync.trigger()
+        self.notify("Note saved: " + saved["title"])
+
     def retry_last(self, *_):
         """Sends again the last recording that could not be sent."""
-        if self.busy or self.recording or self.pending is None:
+        if self.busy or self.recording or self.listening or self.pending is None:
             return
         pcm, exe, note = self.pending
         self.busy = True
@@ -440,9 +488,7 @@ class Engine:
             if res.cleanup_error:
                 self.notify(("Cleanup did not work, so Vox saved your words as spoken: " if note else "Cleanup did not work, so Vox pasted your words as spoken: ") + res.cleanup_error[:120])
             if text and note:
-                saved = notes.add(text, raw=raw, secs=secs, source=notes.SOURCE_NOTE, device=sync.device_name(self.cfg))
-                self.sync.trigger()
-                self.notify("Note saved: " + saved["title"])
+                self.save_note(text, raw, secs)
                 outcome = "sent"
             elif text:
                 outcome = "sent" if self.paste(text) else "error"   # the pill reflects the paste only
@@ -495,6 +541,81 @@ class Engine:
             self.notify("Copied; the window changed")
             return False
         return True
+
+    # ------------------------------------------------------------ keep listening
+    # The session (listen.py) does the work; these are the engine's side: the microphone, the pill state, the setting.
+    def start_listening(self):
+        """Double press: keeps listening to a Note or typed pieces (setting listen_target) until it is stopped."""
+        if self.recording or self.busy or self.listening or not self._ready():
+            return
+        target = session_mod.listen_target(self.cfg)
+        try:
+            buf = session_mod.SessionBuffer(session_mod.buffer_dir(), target)   # the audio on disk, for a crash
+        except OSError:
+            log.exception("could not open the listening buffer, going on without a copy of the audio")
+            buf = None
+        lis = listen_mod.Listening(self, self.cfg, target, buf)
+        self.target = lis.exe   # Engine.paste checks the window against it
+        core.warm(self.cfg)
+        try:
+            self._open_mic(lis.audio)
+        except Exception as e:
+            self.notify(f"Microphone error: {e}")
+            self.flash("error")
+            if buf:
+                buf.discard()
+            return
+        self.listening = lis
+        self.set_state("listen")
+        lis.start()
+        log.info("keep listening started (target=%s, app=%s)", target, lis.exe)
+
+    def stop_listening(self, *_):
+        """Ends the session: the rest of the audio is sent, then the note is saved (or the typed text is done)."""
+        if self.listening:
+            self.listening.stop()
+
+    def toggle_listening(self, *_):
+        if self.listening:
+            self.stop_listening()
+        else:
+            self.start_listening()
+
+    def close_mic(self):
+        self._close_stream()
+
+    def listen_state(self, name):
+        """Called by the session: "busy" while it finishes (hotkey and tray wait), "idle" when it is over."""
+        self.busy = name == "busy"
+        if name == "idle":
+            self.listening = None
+        self.set_state(name)
+
+    def set_listen_target(self, target):
+        """Tray menu "Keep listening: Note / Type"."""
+        self._save_setting("listen_target", target)
+
+    def can_recover(self):
+        return not (self.listening or self.busy or self.recording) and bool(session_mod.recoverable(session_mod.buffer_dir()))
+
+    def recover_listening(self, *_):
+        """Turns the audio of a session that did not finish (a crash, a failed send) into a note."""
+        found = session_mod.recoverable(session_mod.buffer_dir()) if self.can_recover() else []
+        if not found:
+            return
+        path = found[0]["path"]
+
+        def remove():
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+        lis = self.listening = listen_mod.Listening(self, self.cfg, "note", after=remove)
+        self.listen_state("busy")
+        lis.start()
+        lis.replay(session_mod.load_pcm(path))
+        self.notify("Recovering your listening session. The note appears when it is done.")
 
     # -------------------------------------------------------------- meeting
     def _event(self, uid=None):
@@ -623,6 +744,8 @@ class Engine:
             self.start_relay()
         if core.key_missing(self.cfg) or core.endpoint_error(self.cfg):
             open_window()
+        if session_mod.recoverable(session_mod.buffer_dir()):
+            self.notify("Vox found a listening session that did not finish. Tray icon > Recover listening session.")
         try:
             self.overlay = Overlay(self)
         except Exception:
