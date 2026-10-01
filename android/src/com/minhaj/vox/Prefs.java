@@ -81,11 +81,21 @@ public final class Prefs {
     public boolean onlyWhenTyping() { return sp.getBoolean("only_typing", true); }
     public int bubbleX() { return sp.getInt("bubble_x", -1); }
     public int bubbleY() { return sp.getInt("bubble_y", -1); }
+    /** Show the second, always-visible bubble that starts and stops a voice note (off by default). */
+    public boolean noteBubble() { return sp.getBoolean("note_bubble", false); }
+    public int noteBubbleX() { return sp.getInt("note_bubble_x", -1); }
+    public int noteBubbleY() { return sp.getInt("note_bubble_y", -1); }
+    /** Keep a "Record note" notification in the shade (off by default). */
+    public boolean noteNotification() { return sp.getBoolean("note_notification", false); }
 
     public SharedPreferences.Editor edit() { return sp.edit(); }
 
     public void saveBubblePos(int x, int y) {
         sp.edit().putInt("bubble_x", x).putInt("bubble_y", y).apply();
+    }
+
+    public void saveNoteBubblePos(int x, int y) {
+        sp.edit().putInt("note_bubble_x", x).putInt("note_bubble_y", y).apply();
     }
 
     /** Plain dictionary terms (lines without "=>"). */

@@ -16,11 +16,13 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
+import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -32,7 +34,13 @@ public class DictationService extends Service {
     public static final int SAMPLE_RATE = 16000;
     private static final int MAX_SECONDS = 360;
     private static final String CH = "vox_service";
-    private static final String ACTION_STOP = "com.minhaj.vox.STOP";
+    /** Turns the whole service off (the notification's "Turn off" button). */
+    public static final String ACTION_STOP = "com.minhaj.vox.STOP";
+    /**
+     * Finishes the recording in progress and sends it; the service keeps running. The "Stop" button of the
+     * notification while a voice note is recorded and the quick settings tile send it.
+     */
+    public static final String ACTION_STOP_RECORDING = "com.minhaj.vox.STOP_RECORDING";
     private static final String ACTION_RETRY = "com.minhaj.vox.RETRY";
     private static final int SEND_ATTEMPTS = 3;
 
@@ -58,10 +66,27 @@ public class DictationService extends Service {
         void onError(String message);
     }
 
+    /**
+     * Told when a voice note has been saved. Separate from {@link Listener}, which belongs to the accessibility
+     * service and types text: a note is never typed, so it does not go through onResult. Called on the main thread.
+     */
+    public interface NoteListener {
+        void onNoteSaved(String id, String title);
+    }
+
     public static volatile DictationService instance;
     private static Listener listener;
+    private static volatile NoteListener noteListener;
 
     public static void setListener(Listener l) { listener = l; }
+
+    public static void setNoteListener(NoteListener l) { noteListener = l; }
+
+    /** Where one recording goes and which app it was made in. Copied for each job, so a later recording cannot change it. */
+    private static final class Job {
+        final String pkg, label, dest;
+        Job(String pkg, String label, String dest) { this.pkg = pkg; this.label = label; this.dest = dest; }
+    }
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -73,8 +98,11 @@ public class DictationService extends Service {
     private ByteArrayOutputStream pcm;
     private String targetPkg;
     private String targetLabel;
-    private String targetDest = DEST_DICTATION;   // where the result goes; set per recording, read by send() in the notes task
+    /** Where the job in progress sends its result (DEST_DICTATION or DEST_NOTE). Each job takes a copy (see Job). */
+    private volatile String targetDest = DEST_DICTATION;
     private volatile boolean hasPending;
+    /** The recording kept on disk for Retry, with the pkg/label/dest it was made with. Set when the file is written. */
+    private volatile Job pendingJob;
 
     @Override public IBinder onBind(Intent i) { return null; }
 
@@ -93,6 +121,13 @@ public class DictationService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
+        if (intent != null && ACTION_STOP_RECORDING.equals(intent.getAction())) {
+            stopRecording();
+            // A stop that reached a service which is not running as the foreground service (a stale button) has
+            // nothing to stop and must not leave a background service behind.
+            if (instance == null) stopSelf();
+            return START_NOT_STICKY;
+        }
         if (intent != null && ACTION_RETRY.equals(intent.getAction())) {
             retryLast();
             return START_NOT_STICKY;
@@ -105,8 +140,12 @@ public class DictationService extends Service {
         }
         instance = this;
         try {
-            // Started by TrampolineActivity for a bubble tap: record right now, while that activity is still on
-            // screen (the microphone may only be opened while the app is visible), with no fixed delay.
+            // Started through TrampolineActivity (a bubble tap, the "Record note" notification, the tile): record
+            // right away, with no fixed delay. What lets the microphone work is the while-in-use grant this
+            // microphone foreground service received at startForeground above, which needs the app to be visible
+            // at that moment; the trampoline is still on screen then. The AudioRecord is created here but only
+            // starts capturing a moment later on the vox-rec thread, after the trampoline has been asked to close,
+            // so the activity does not have to stay open for the recording itself.
             if (intent != null && intent.getBooleanExtra(EXTRA_START, false)) {
                 startRecording(intent.getStringExtra(EXTRA_PKG), intent.getStringExtra(EXTRA_LABEL),
                         intent.getStringExtra(EXTRA_DEST), intent.getLongExtra(EXTRA_TAP_AT, 0L));
@@ -122,12 +161,21 @@ public class DictationService extends Service {
         PendingIntent openPi = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_IMMUTABLE);
         Intent stop = new Intent(this, DictationService.class).setAction(ACTION_STOP);
         PendingIntent stopPi = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_IMMUTABLE);
+        boolean noting = isNoteRecording();
+        Job kept = pendingJob;
+        String unsent = kept != null && DEST_NOTE.equals(kept.dest) ? "Last voice note not sent" : "Last dictation not sent";
         Notification.Builder b = new Notification.Builder(this, CH)
                 .setSmallIcon(R.drawable.ic_stat_mic)
-                .setContentTitle(hasPending ? "Last dictation not sent" : "Vox is ready")
-                .setContentText(hasPending ? "Tap Retry to send it again" : "Tap the bubble in any text field to dictate")
+                .setContentTitle(noting ? "Recording a voice note" : hasPending ? unsent : "Vox is ready")
+                .setContentText(noting ? "Tap Stop when you are done"
+                        : hasPending ? "Tap Retry to send it again" : "Tap the bubble in any text field to dictate")
                 .setContentIntent(openPi)
                 .setOngoing(true);
+        if (noting) {
+            Intent stopRec = new Intent(this, DictationService.class).setAction(ACTION_STOP_RECORDING);
+            PendingIntent stopRecPi = PendingIntent.getService(this, 3, stopRec, PendingIntent.FLAG_IMMUTABLE);
+            b.addAction(new Notification.Action.Builder(null, "Stop", stopRecPi).build());
+        }
         if (hasPending) {
             Intent retry = new Intent(this, DictationService.class).setAction(ACTION_RETRY);
             PendingIntent retryPi = PendingIntent.getService(this, 2, retry, PendingIntent.FLAG_IMMUTABLE);
@@ -157,6 +205,12 @@ public class DictationService extends Service {
 
     public int getState() { return state; }
 
+    /** True when the job in progress (recording or sending) is a voice note. Only meaningful while the state is not IDLE. */
+    public boolean isNoteJob() { return DEST_NOTE.equals(targetDest); }
+
+    /** True while a voice note is being recorded (not while it is being sent). */
+    public boolean isNoteRecording() { return state == RECORDING && isNoteJob(); }
+
     // ------------------------------------------------------------ recording
 
     public void startRecording(String pkg, String label) {
@@ -181,9 +235,12 @@ public class DictationService extends Service {
             postError("Add your API key in the Vox app first");
             return;
         }
-        targetPkg = pkg;
-        targetLabel = label;
-        targetDest = DEST_NOTE.equals(dest) ? DEST_NOTE : DEST_DICTATION;
+        boolean note = DEST_NOTE.equals(dest);
+        // A note belongs to no app: like Windows note mode (engine.py _process) it uses the default style and sends
+        // no app name to the cleanup model.
+        targetPkg = note ? null : pkg;
+        targetLabel = note ? "" : label;
+        targetDest = note ? DEST_NOTE : DEST_DICTATION;
         final String[] warmStt = p.role(Providers.STT), warmLlm = p.role(Providers.LLM);
         new Thread(() -> {   // open the server connections while the user speaks
             new ApiClient(warmStt[1], warmStt[0]).warm();
@@ -260,6 +317,7 @@ public class DictationService extends Service {
         final ByteArrayOutputStream data = pcm;
         final String pkg = targetPkg;
         final String label = targetLabel;
+        final String dest = targetDest;   // this job's own copy, like pkg and label: a later recording cannot change it
         worker.execute(() -> {
             try { if (t != null) t.join(2000); } catch (InterruptedException ignored) { }
             if (!isCurrent(job)) return;
@@ -280,19 +338,26 @@ public class DictationService extends Service {
                 finish(job);
                 return;
             }
+            pendingJob = new Job(pkg, label, dest);
             setPending(true);
-            send(job, pkg, label);
+            send(job, pkg, label, dest);
         });
     }
 
-    /** Sends the last recording that failed to go through. Started from the notification's Retry button. */
+    /**
+     * Sends the last recording that failed to go through. Started from the notification's Retry button. It goes to
+     * where that recording was made for (the job kept with the file), not to wherever the latest recording pointed:
+     * a short or silent recording started in between must not send an old voice note into a text field.
+     */
     public synchronized void retryLast() {
-        if (state != IDLE || !hasPending || !pendingFile().exists()) return;
+        final Job kept = pendingJob;
+        if (state != IDLE || !hasPending || kept == null || !pendingFile().exists()) return;
         final int job = ++jobId;
-        final String pkg = targetPkg;
-        final String label = targetLabel;
+        targetPkg = kept.pkg;       // the state shown on screen (isNoteJob) follows the job being sent
+        targetLabel = kept.label;
+        targetDest = kept.dest;
         setState(PROCESSING);
-        worker.execute(() -> send(job, pkg, label));
+        worker.execute(() -> send(job, kept.pkg, kept.label, kept.dest));
     }
 
     /** Discards the current recording. */
@@ -319,8 +384,13 @@ public class DictationService extends Service {
         refreshNotification();
     }
 
-    /** Uploads the saved recording, with a few retries. The audio is only deleted after a success. */
-    private void send(int job, String pkg, String label) {
+    /**
+     * Uploads the saved recording, with a few retries. The audio is only deleted after a success.
+     * {@code dest} is the destination this recording was made for (a copy taken when it stopped): DEST_DICTATION types
+     * the text through the accessibility listener, DEST_NOTE stores it as a voice note and types nothing.
+     */
+    private void send(int job, String pkg, String label, String dest) {
+        final boolean note = DEST_NOTE.equals(dest);
         Prefs p = new Prefs(this);
         File wav = pendingFile();
         try {
@@ -342,9 +412,10 @@ public class DictationService extends Service {
             if (raw.isEmpty() || ApiClient.isSilenceHallucination(raw)) {
                 wav.delete();
                 setPending(false);
+                if (note) postError("Vox did not hear any words, so no note was saved");
                 return;
             }
-            String style = p.styleFor(pkg);
+            String style = p.styleFor(pkg);   // a note has no pkg (see startRecording): the default style, as on Windows
             String out = raw;
             boolean cleaned = false, cleanupFailed = false;
             boolean doClean = ApiClient.needsCleanup(raw, style, p.cleanupEnabled(), p.cleanupMinWords());
@@ -359,9 +430,16 @@ public class DictationService extends Service {
                 }
             }
             if (!cleaned) out = ApiClient.applySpokenCommands(out);
-            if (cleanupFailed) postError("Cleanup did not work, so Vox typed your words as spoken");
+            if (cleanupFailed) {
+                postError(note ? "Cleanup did not work, so Vox saved your words as spoken"
+                        : "Cleanup did not work, so Vox typed your words as spoken");
+            }
             out = ApiClient.applyReplacements(out, p.replacements());
             if (!isCurrent(job)) return;
+            if (note) {
+                saveNote(wav, raw, out, seconds, p);   // a note is not typed and is not added to the dictation history
+                return;
+            }
             p.addHistory(label, raw, out, seconds);
             wav.delete();
             setPending(false);
@@ -380,16 +458,60 @@ public class DictationService extends Service {
         }
     }
 
+    /**
+     * The note branch of {@link #send}, the same as the note branch of windows/engine.py _process: the text after the
+     * cleanup step is stored with the transcript before cleanup, the length and this phone's name; then it says so
+     * ("Note saved: title"), tells the listeners, and never types anything. The recording is deleted only once the
+     * note is stored, so a full disk or a damaged database keeps it for Retry.
+     */
+    private void saveNote(File wav, String raw, String text, double seconds, Prefs p) {
+        if (NoteLogic.strip(text).isEmpty()) {   // nothing left to keep (engine.py saves only when there is text)
+            wav.delete();
+            setPending(false);
+            postError("Vox did not hear any words, so no note was saved");
+            return;
+        }
+        String id, title;
+        try {
+            NotesStore store = NotesStore.get(this);
+            id = store.add(text, raw, seconds, Note.SOURCE_NOTE, p.deviceName(), new ArrayList<String>(), "");
+            Note saved = store.get(id);
+            title = saved != null && !saved.title.isEmpty() ? saved.title : NoteLogic.autoTitle(NoteLogic.strip(text));
+        } catch (RuntimeException e) {   // SQLiteException: disk full, database damaged
+            postError("Could not save the note: " + e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
+            return;
+        }
+        wav.delete();
+        setPending(false);
+        NoteEvents.fireSaved();   // the relay sync listens here
+        final String noteId = id, noteTitle = title;
+        main.post(() -> {
+            NoteEntry.postSaved(this, noteTitle);
+            NoteListener nl = noteListener;
+            if (nl != null) nl.onNoteSaved(noteId, noteTitle);
+        });
+    }
+
     // ------------------------------------------------------------- helpers
 
     private void setState(int s) {
+        int was = state;
         state = s;
+        // The notification has a Stop button only while a note is being recorded: show or hide it. Not after the
+        // service has been destroyed (instance is cleared first), or the notification would come back.
+        if (instance == this && isNoteJob() && (s == RECORDING || was == RECORDING)) refreshNotification();
         main.post(() -> { if (listener != null) listener.onState(s); });
     }
 
     private void postLevel(float l) { main.post(() -> { if (listener != null) listener.onLevel(l); }); }
 
-    private void postError(String m) { main.post(() -> { if (listener != null) listener.onError(m); }); }
+    private void postError(String m) {
+        main.post(() -> {
+            if (listener != null) listener.onError(m);
+            // No accessibility service (a note started from the tile or the notification): nobody else would say why nothing happened.
+            else Toast.makeText(this, m, Toast.LENGTH_LONG).show();
+        });
+    }
 
     private static float rms(byte[] b, int n) {
         long sum = 0;
