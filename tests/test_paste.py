@@ -82,10 +82,25 @@ def test_a_clipboard_the_user_changed_during_the_wait_is_not_overwritten():
     assert ("set", "old") not in d.calls
 
 
-def test_an_empty_old_clipboard_is_restored_as_empty():
+def test_an_empty_old_clipboard_is_unknown_so_the_text_stays():
+    # pyperclip returns '' (not None) when the clipboard holds an image or files: restoring '' would wipe it
     d = FakeDeps(clip="")
     assert paste.paste_text("Hello.", "notepad.exe", False, deps=d) == "pasted"
-    assert d.clip == ""
+    assert d.clip == "Hello." and ("set", "") not in d.calls
+
+
+def test_a_non_text_old_clipboard_value_is_not_restored():
+    d = FakeDeps(clip=b"bytes")
+    assert paste.paste_text("Hello.", "notepad.exe", False, deps=d) == "pasted"
+    assert d.clip == "Hello."
+
+
+def test_the_wait_before_the_restore_is_one_second():
+    d = FakeDeps(clip="old")
+    d.sleeps = []
+    d.sleep = lambda seconds: d.sleeps.append(seconds)
+    paste.paste_text("Hello.", "notepad.exe", False, deps=d)
+    assert paste.PASTE_WAIT == 1.0 and d.sleeps[-1] == paste.PASTE_WAIT
 
 
 def test_an_unreadable_old_clipboard_cannot_be_restored_so_the_text_stays():
