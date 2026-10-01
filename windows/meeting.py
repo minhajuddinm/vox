@@ -123,6 +123,14 @@ MEETING_ASK_PROMPT = """You answer questions about one meeting using its notes a
 
 # ------------------------------------------------------------------ recording
 
+def _frames(rest, block):
+    """Cuts `rest` (what was left over from the last block) plus `block` into whole FRAME-sample frames.
+    Returns ([frame, ...], new_rest): the remainder is shorter than a frame and starts the next call."""
+    data = np.concatenate([rest, block])
+    whole = len(data) // FRAME * FRAME
+    return [data[i:i + FRAME] for i in range(0, whole, FRAME)], data[whole:]
+
+
 class _Source(threading.Thread):
     """Records one device, cuts speech into pieces at natural pauses, and keeps every speech piece on disk
     (raw 16 kHz int16) for the final high-accuracy pass."""
@@ -137,22 +145,22 @@ class _Source(threading.Thread):
         self.speaking = False
         self.pieces = []            # [(start_seconds, byte_offset, n_samples)] of speech saved to disk
         self.raw_path = os.path.join(meeting.folder(), f"{who.lower()}.raw")
-        self.samples = 0            # samples read so far
+        self.samples = 0            # samples cut into frames so far (a remainder of less than a frame is carried over)
         self.t0 = 0.0               # meeting time of sample 0
 
     def run(self):
         noise = 0.004
         buf, buf_start, speech_frames, silence_run = [], None, 0, 0.0
+        rest = np.zeros(0, np.float32)
         try:
             with self.make_recorder() as rec, open(self.raw_path, "wb") as raw:
                 self.t0 = self.meeting.elapsed()
                 while self.meeting.active:
                     block = rec.record(numframes=SR // 10)[:, 0].astype(np.float32)   # 100 ms
-                    n = len(block)
-                    if not n:
+                    if not len(block):
                         continue
-                    for i in range(0, n - FRAME + 1, FRAME):
-                        fr = block[i:i + FRAME]
+                    frames, rest = _frames(rest, block)   # a block is not a whole number of frames: carry the remainder over
+                    for j, fr in enumerate(frames):
                         rms = float(np.sqrt(np.mean(fr * fr)))
                         # slowly track background noise so the threshold adapts to each room and device
                         noise = min(max(noise * 0.995 + rms * 0.005 if rms < noise * 3 else noise * 1.0005, 0.0015), 0.05)
@@ -160,14 +168,14 @@ class _Source(threading.Thread):
                         self.level = min(1.0, rms * 12)
                         self.speaking = voiced
                         if buf_start is None:
-                            buf_start = self.samples + i
+                            buf_start = self.samples + j * FRAME
                         buf.append(fr)
                         if voiced:
                             speech_frames += 1
                             silence_run = 0.0
                         else:
                             silence_run += FRAME / SR
-                    self.samples += n
+                    self.samples += len(frames) * FRAME
                     dur = sum(len(b) for b in buf) / SR
                     if (dur >= MIN_CHUNK and silence_run >= PAUSE) or dur >= MAX_CHUNK:
                         self._emit(buf, buf_start, speech_frames, raw)

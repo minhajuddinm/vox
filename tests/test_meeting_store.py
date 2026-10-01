@@ -115,7 +115,7 @@ def test_a_folder_that_is_not_a_meeting_id_is_left_alone(meeting_mod):
 
 # ---- a meeting id is checked before it becomes a folder (R3-H1 / C-U7) ---------------------------------------------------
 
-BAD_IDS = ["..", ".", "", None, 5, "../x", "20261001-120000/..", "20261001-120000\..", "2026-10-01", "20261001-12000",
+BAD_IDS = ["..", ".", "", None, 5, "../x", "20261001-120000/..", "20261001-120000\\..","2026-10-01", "20261001-12000",
            "20261001-120000 ", "x" * 15]
 
 
@@ -181,3 +181,17 @@ def test_ask_skips_a_meeting_whose_id_is_not_valid(meeting_mod, monkeypatch):
         json.dump({"id": "..", "title": "bad", "started": 2.0}, f)
     monkeypatch.setattr(mt, "_llm", lambda *a, **k: "answer")
     assert mt.ask({}, "notes")["sources"][0]["id"] == "20261001-120000"
+
+
+# ---- no audio is dropped between 100 ms blocks (R3-M1) -------------------------------------------------------------------
+
+def test_every_sample_of_every_block_ends_up_in_a_frame_or_the_remainder(meeting_mod):
+    np = pytest.importorskip("numpy")
+    mt = meeting_mod
+    blocks = [np.arange(i * 1600, (i + 1) * 1600, dtype=np.float32) for i in range(10)]
+    rest, frames = np.zeros(0, np.float32), []
+    for block in blocks:
+        got, rest = mt._frames(rest, block)
+        assert all(len(f) == mt.FRAME for f in got) and len(rest) < mt.FRAME
+        frames += got
+    assert np.array_equal(np.concatenate(frames + [rest]), np.concatenate(blocks))
