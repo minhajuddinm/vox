@@ -833,20 +833,24 @@ $("relay-test").onclick = async () => {
   const s = $("relay-status"); s.className = "status"; s.textContent = "Checking…";
   const r = await api().sync_test($("relay-url").value.trim(), $("relay-token").value.trim());
   s.className = "status " + (r.ok ? "ok" : "bad"); s.textContent = r.message;
-  if (r.ok) { await save({ relay_url: $("relay-url").value.trim(), relay_token: $("relay-token").value.trim() }, "Saved"); loadDevices(); }
+  if (r.ok) { await save({ relay_url: $("relay-url").value.trim(), relay_token: $("relay-token").value.trim() }, "Saved"); loadDevices(true); }
 };
 // ---------- devices on the relay (Settings): the list the relay recorded, newest first; the rows come ready from the bridge
 let devSeq = 0;
-async function loadDevices() {
+// Opening Settings or editing the address only looks when sync or the AI-server switch is on (a relay is not contacted
+// otherwise); the Refresh button and a good Test are the person asking, and always look.
+async function loadDevices(asked) {
   const box = $("devices-list"), c = (S && S.config) || {}, my = ++devSeq;
-  if (!(c.relay_url || "").trim() || !(c.relay_token || "").trim()) { $("devices-refresh").disabled = false; box.innerHTML = '<div class="dempty">Fill in the relay address and token above to see your devices.</div>'; return; }
+  $("devices-refresh").disabled = false;
+  if (!(c.relay_url || "").trim() || !(c.relay_token || "").trim()) { box.innerHTML = '<div class="dempty">Fill in the relay address and token above to see your devices.</div>'; return; }
+  if (asked !== true && !c.relay_sync && !c.relay_proxy) { box.innerHTML = '<div class="dempty">Press Refresh to ask the relay which devices have used it.</div>'; return; }
   $("devices-refresh").disabled = true; box.innerHTML = '<div class="dempty">Checking…</div>';
   let res;
   try { res = await api().get_devices(); } catch (e) { res = { ok: false, error: "The device list could not be read." }; }
   if (my !== devSeq) return;   // a newer look is on its way
   $("devices-refresh").disabled = false; box.innerHTML = devicesHtml(res);
 }
-$("devices-refresh").onclick = loadDevices;
+$("devices-refresh").onclick = () => loadDevices(true);
 $("auto-notes").onchange = (e) => save({ auto_notes: e.target.checked });
 $("open-about").onclick = () => document.querySelector('nav button[data-page="dictionary"]').click();
 $("open-data").onclick = () => api().open_data_folder();

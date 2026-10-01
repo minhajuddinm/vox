@@ -119,3 +119,12 @@ def test_the_card_is_not_filled_before_the_relay_has_an_address_and_a_token(page
     """No request for a card that cannot work: the page says what is missing instead."""
     html = read(PAGES[page])
     assert "Fill in the relay address and token above to see your devices." in html
+
+
+@pytest.mark.parametrize("page", list(PAGES))
+def test_the_relay_is_not_contacted_by_the_card_unless_a_relay_switch_is_on_or_the_person_asks(page):
+    """09-security-privacy.md: nothing contacts a relay unless sync or the AI-server switch is on, or Test/Refresh is pressed."""
+    html = read(PAGES[page])
+    assert "Press Refresh to ask the relay which devices have used it." in html
+    assert re.search(r"asked !== true && !c\.relay_sync && !c\.relay_proxy", html)
+    assert 'onclick = () => loadDevices(true)' in html

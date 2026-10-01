@@ -806,18 +806,22 @@ $("device-name").onchange = () => save({ device_name: $("device-name").value.tri
 window.relayResult = (json) => {
   const r = JSON.parse(json), s = $("relay-status");
   s.className = "status " + (r.ok ? "ok" : "bad"); s.textContent = r.message;
-  if (r.ok) loadDevices();
+  if (r.ok) loadDevices(true);
 };
 // Devices on the relay (Settings): the list the relay recorded, newest first; the rows come ready from the bridge, which
 // answers devicesResult(json) when the request is over.
 window.devicesResult = (json) => { $("devices-refresh").disabled = false; $("devices-list").innerHTML = devicesHtml(JSON.parse(json)); };
-function loadDevices() {
+// Opening Settings or editing the address only looks when sync or the AI-server switch is on (a relay is not contacted
+// otherwise); the Refresh button and a good Test are the person asking, and always look.
+function loadDevices(asked) {
   const c = (S && S.config) || {};
-  if (!(c.relay_url || "").trim() || !(c.relay_token || "").trim()) { $("devices-refresh").disabled = false; $("devices-list").innerHTML = '<div class="dempty">Fill in the relay address and token above to see your devices.</div>'; return; }
+  $("devices-refresh").disabled = false;
+  if (!(c.relay_url || "").trim() || !(c.relay_token || "").trim()) { $("devices-list").innerHTML = '<div class="dempty">Fill in the relay address and token above to see your devices.</div>'; return; }
+  if (asked !== true && !c.relay_sync && !c.relay_proxy) { $("devices-list").innerHTML = '<div class="dempty">Press Refresh to ask the relay which devices have used it.</div>'; return; }
   $("devices-refresh").disabled = true; $("devices-list").innerHTML = '<div class="dempty">Checking…</div>';
   V.getDevices("devicesResult");
 }
-$("devices-refresh").onclick = loadDevices;
+$("devices-refresh").onclick = () => loadDevices(true);
 $("relay-test").onclick = () => {
   const s = $("relay-status"), url = $("relay-url").value.trim(), token = $("relay-token").value.trim();
   const problem = url ? V.endpointProblem(url) : "";
