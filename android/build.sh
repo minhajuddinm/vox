@@ -37,9 +37,15 @@ cp build/base.apk build/unsigned.apk
 KS="vox.keystore"
 # Keystore password: the ANDROID_KEYSTORE_PASS secret in CI (KS_PASS). The old default keeps existing keys working.
 PASS="${KS_PASS:-voxvox}"
-if [ ! -f "$KS" ]; then
+if [ -f "$KS" ]; then
+  echo "> signing with the existing $KS"
+else
+  case "${GITHUB_REF:-}" in
+    refs/tags/v*) echo "No $KS on a tag build: refusing to sign a release with a throw-away key." >&2; exit 1 ;;
+  esac
+  echo "> no $KS: generating a throw-away key. This APK cannot update an installed Vox signed with another key."
   keytool -genkeypair -keystore "$KS" -storepass "$PASS" -keypass "$PASS" -alias vox \
-    -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Vox" >/dev/null 2>&1
+    -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Vox"
 fi
 "$BT/apksigner" sign --ks "$KS" --ks-pass "pass:$PASS" --key-pass "pass:$PASS" \
   --out build/Vox.apk build/aligned.apk
