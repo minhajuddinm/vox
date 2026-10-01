@@ -131,9 +131,12 @@ Logs for bug reports are in `%APPDATA%\Vox\vox.log` (type that into the File Exp
 
 ## 10. Privacy
 
-- Vox has no servers and no accounts. Nothing is sent to the developer.
-- Audio and text go to Groq under your own key, only when you dictate or record a meeting.
-- Settings, key, history and notes are stored on your PC in `%APPDATA%\Vox` and `Documents\Vox Notes`.
+- Vox has no analytics, no accounts and no server of its own. Nothing is sent to the developer.
+- Your audio goes to the speech server you chose in Settings (Groq by default, under your own key). The text of what you said, your "About you" text, dictionary, people and the name of the app you are typing into go to the cleanup server you chose. Spelling hints (dictionary and people) also go to the speech server.
+- If you turn on **Use my relay as the AI server** (Windows), both go through your own relay instead. If you turn on **Sync voice notes with my relay**, the full text, raw transcript, tags and device name of your voice notes and your "About you", dictionary, people, default style, cleanup switch and language go to your relay. Provider settings and API keys go there only if you also turn on "Also share my provider settings and API keys" (off by default).
+- Long recordings on Windows are sent in pieces while you are still speaking.
+- Settings, history and notes are stored on your PC in `%APPDATA%\Vox` (voice notes in `notes.db`) and `Documents\Vox Notes`. After pasting, Vox puts your old clipboard text back unless you turn on "Keep dictation on the clipboard" (off by default).
+- On Android the API key and the history are stored unencrypted on the phone. The relay stores the AI server keys in plain text in its `relay.json`.
 - Full policy: [minhajuddinm.github.io/vox/privacy.html](https://minhajuddinm.github.io/vox/privacy.html)
 
 ---
