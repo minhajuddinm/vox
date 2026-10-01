@@ -215,9 +215,9 @@ def sync_once(cfg):
     if err:
         return {"pushed": 0, "pulled": 0, "error": err}
     pushed = pulled = 0
-    follow_relay(url)
     refused = []   # what the relay said about each note it refuses for good: those notes are skipped, the rest goes on
     try:
+        follow_relay(url)   # inside the try: a database error is a result, never a dead sync thread
         handled = set()   # (id, updated_at) of every version sent or refused in this run, so none is tried twice in a run
         parked = 0        # refused notes: the only handled ones that stay dirty, so the only ones that need room in the batch
         while True:

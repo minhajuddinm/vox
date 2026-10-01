@@ -297,3 +297,13 @@ def test_an_install_without_a_saved_relay_address_keeps_its_state(dev, srv):
         con.execute("DELETE FROM sync_meta WHERE key = 'relay_origin'")
     assert brief(sync.sync_once(a)) == {"pushed": 0, "pulled": 0, "error": ""}
     assert notes.get(n["id"])["dirty"] is False and notes.get_meta("relay_origin") == a["relay_url"]
+
+
+def test_a_database_error_while_following_the_relay_is_a_message_not_a_crash(dev, monkeypatch):
+    a = dev("A")
+
+    def locked(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(notes, "get_meta", locked)
+    res = sync.sync_once(a)
+    assert res["pushed"] == 0 and res["pulled"] == 0 and res["error"] == "Sync failed: OperationalError"
