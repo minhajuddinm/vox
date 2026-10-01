@@ -1,17 +1,17 @@
 # Spec P9a: cleanup keeps my words (fidelity guard, prompt, strength, benchmark)
 
-Status: **Partly implemented.** Branch `feat/p9a-fidelity` of the v2 part 3 plan (`J:\Projects\.notes\PLAN-vox-v2-part3-2026-10-01.md`, branch A). Date: 2026-10-01. Decision: [0030](../decisions/0030-cleanup-keeps-the-spoken-words.md). Follows [p3](p3-about-you-context.md) (the About you text) and [0013](../decisions/0013-raw-fallback-when-cleanup-fails.md) (the raw fallback). Requests R1, R2, R3 and R6 of the part 3 notes.
+Status: **Partly implemented (A1, A2 and A6 built).** Branch `feat/p9a-fidelity` of the v2 part 3 plan (`J:\Projects\.notes\PLAN-vox-v2-part3-2026-10-01.md`, branch A). Date: 2026-10-01. Decision: [0030](../decisions/0030-cleanup-keeps-the-spoken-words.md). Follows [p3](p3-about-you-context.md) (the About you text) and [0013](../decisions/0013-raw-fallback-when-cleanup-fails.md) (the raw fallback). Requests R1, R2, R3 and R6 of the part 3 notes.
 
 | Task | What | State on this branch |
 |---|---|---|
 | A1 | Fidelity guard in both apps | **Built and tested** (three commits; see "Verification done") |
-| A2 | Prompt rewrite, About you first, structure rules | **Not built** |
+| A2 | Prompt rewrite, About you first, structure rules | **Built and tested** (one commit, see "Verification done") |
 | A3 | `cleanup_strength` setting row, "Use raw" in history, guard wiring in the services | **Not built** (the guard itself is wired in; the setting has no row and no default of Light yet) |
 | A4 | Dictionary really applied (fuzzy term pass) | **Not built** |
 | A5 | Benchmark harness `tools/bench_cleanup.py` | **Not built** |
 | A6 | This page, ADR 0030, the doc updates | Done in this commit |
 
-Everything below under "Design" for A2 to A5 is the plan, not behaviour you can find in the code today. The sections marked **Built** describe code that exists.
+Everything below under "Design" for A3 to A5 is the plan, not behaviour you can find in the code today. The sections marked **Built** describe code that exists.
 
 ## Goal
 1. A cleanup that shortened, summarised or rewrote what was said is never typed as if it were the user's words (R1).
@@ -32,17 +32,19 @@ Pure rules in `windows/vox_core.py` (Java twin: `android/src/com/minhaj/vox/Fide
 - Under four words the length rule is skipped. An empty answer fails. The existing length ceiling (`1.6 x len(raw) + 40` characters) still applies in `looks_valid`.
 - Comparison is a multiset (order ignored, repeats counted). Integer arithmetic only, so Python and Java agree. `word_recall(raw, cleaned)` gives the same measure as a number and is what the benchmark (A5) reuses.
 - **On failure** `process_text` records `cleanup_error = "the cleanup answer looked wrong"` and uses the words as spoken: `apply_spoken_commands(raw)` then the dictionary replacements, the same as a failed call ([0013](../decisions/0013-raw-fallback-when-cleanup-fails.md)); the existing notice tells the user.
-- **Strength today.** `process_text` reads `cleanup_strength` and treats an unset value as `standard`; `DictationService.send` passes `"standard"`. Both are deliberate until A2 and A3 land: the current prompt removes fillers, and a Light guard would reject its answers. There is no Settings row for the key, so only a hand-edited `config.json` can switch Windows to Light.
+- **Strength today.** `process_text` reads `cleanup_strength` and treats an unset value as `standard`; `DictationService.send` passes `"standard"`. Both are deliberate until A3 lands: the prompt (A2) takes the same strength and is sent `standard` too, because a Light prompt would be asked to keep fillers that nobody has chosen yet. There is no Settings row for the key, so only a hand-edited `config.json` can switch Windows to Light.
 - Tests: golden kinds `fidelity` (strength, raw, cleaned, expected; 84 rows), `tokens` (14) and `recall` (28), run by `tests/test_parity.py` and `ParityTest.java`; `tests/test_cleanup_fidelity.py` (96 tests: tokens, recall, numbers, symbols, Light and Standard, property checks that adding only whitespace or bullet markers never lowers recall, a 1,500-word dictation, `looks_valid`, `process_text` fallback); `FidelityTest.java` (112 checks).
 
-### A2. Prompt rewrite (Not built)
-`system_prompt(style, terms, app_label, context="", strength="light")` in both apps, same text:
+### A2. Prompt rewrite, About you first, structure rules (Built)
+`system_prompt(style, terms, app_label, context="", strength="light")` in `windows/vox_core.py` and `ApiClient.systemPrompt(style, terms, appLabel, context, strength)` (the shorter Java overloads call it with the defaults), same text byte for byte. The order, the wording and the style table are described in [06-pipeline.md](../06-pipeline.md) ("Cleanup prompt"); in short:
 1. Opens with the formatter role: copy the transcript word for word; change only punctuation, capitalisation, spelling, obvious grammar slips, paragraph breaks and list formatting; never summarise, shorten, merge, reorder, paraphrase or drop anything.
-2. The About you block (`<about_speaker>`, still cleaned by `clean_context`, never echoed) is the first block after the role line, so the stable prefix caches; the dictionary line follows.
-3. Strength text (Light: keep every spoken word except um, uh, er; Standard: remove fillers, stutters and false starts and apply self-corrections), then structure rules (a paragraph break at clear topic shifts and about every five sentences in long text; `- ` bullets or numbered lists only when the speaker enumerates; chat styles stay flat; never reorder), then three short few-shot examples whose output has the same word count as the input.
-4. `STRUCTURE_BY_STYLE`: casual and very casual flat; neutral paragraphs allowed; formal and email paragraphs and lists; notes paragraphs and bullets.
-5. The prompt for identical inputs is byte-identical (no timestamps).
-Golden `prompt` rows or substring asserts keep both apps equal, as part 1 did for `<about_speaker>`.
+2. The About you block (`<about_speaker>`, still cleaned by `clean_context`, never echoed) is the first block after the role line, so the stable prefix caches; the dictionary line follows. The block is introduced as the most important context about the speaker, for names, spelling, jargon, language mix and tone.
+3. Strength rule (`STRENGTH_TEXT`: Light keeps every spoken word except um, uh, er, erm, ah, hmm; Standard removes fillers, stutters and false starts and applies self-corrections), then the structure rule of the style plus "Never reorder or regroup what was said.", then three short examples (`EXAMPLES`) whose output has exactly the words of the input.
+4. `STRUCTURE_BY_STYLE`: `casual` and `very_casual` flat; `neutral` paragraphs, and a list only when the speaker clearly counts items; `formal` and `email` paragraphs and bullets where the speaker enumerates; `notes` paragraphs and bullets; an unknown style is read as neutral. `email` and `notes` are not styles the settings offer yet.
+5. The prompt for identical inputs is byte-identical (nothing depends on the time).
+6. **Decision made while building:** lists are "- " bullets that keep every spoken word (including first, second, third). A numbered list would replace those words with digits and the Light guard counts an ordinal as lost, so the model would be asked for output the guard rejects. The third example shows the bullet form; a test runs every example through `fidelity_ok` in both strengths.
+7. `cleanup` / `ApiClient.cleanup` pass the strength to the prompt: the `cleanup_strength` value on Windows (Standard while unset) and the constant `"standard"` on Android, the same value the guard gets, so prompt and guard cannot disagree.
+Tests: `tests/test_prompt.py` (role first, About you right after it and before the dictionary, strength flips the filler rule, odd strengths read as Light, flat styles, unknown style, tag-like and 20,000-character About you, Hinglish About you, byte-identical output, the examples, `cleanup` sends the strength), the golden kinds `prompt`, `promptctx` (regenerated) and the new `promptstrength` (strength, style, terms, app, context, expected; 8 rows: Standard, odd strengths, `notes`, `email`, a closing tag in About you, 8,100 characters), run by `tests/test_parity.py` and `ParityTest.java`, plus the prompt checks in `ApiClientTest.java`.
 
 ### A3. Strength setting, "Use raw", fallback marker (Not built)
 `cleanup_strength` in `DEFAULT_CONFIG` as `light` (and as an Android preference), a "Cleanup strength" row in Settings on both pages (shared UI block, then `python tools/sync_ui.py`), `process()` passing the strength, a history flag `fidelity_fallback` and a one-tap "Use raw" in history that copies or pastes `raw`. The setting is per device and not part of the synced profile. When this lands, ADR 0030 point 3 becomes true and the "unset counts as standard" sentence above goes.
@@ -61,10 +63,13 @@ Worktree `J:\Projects\vox-wt\w1-a-fidelity`, Windows, 2026-10-01, before the A6 
 - `python -m pytest -q` (the venv of the main checkout, with `--basetemp` outside the repo because the default pytest temp folder gave `PermissionError` on this PC): 1080 passed, 2 skipped (the POSIX permission tests), 1082 collected (one earlier full run had a single socket error in `test_relay_proxy.py`, which did not repeat).
 - `J:\Projects\.bin\javatest.cmd`: 18 programs run and pass (`FidelityTest` 112 checks, `ParityTest` 335 golden cases, `ApiClientTest` 52, `SyncEngineTest` 373), 2 integration programs skipped.
 - `javatest compile`: `compile-check: OK (34 files)`. `python tools/sync_ui.py --check`: `ui-shared OK`.
+- Task A2 (commit `6c3d4d8`): `tests/test_prompt.py` was written first and failed (14 of 16 failed before the code); after it, `python -m pytest -q`: 1104 passed, 2 skipped (1106 collected); `javatest`: 18 programs pass (`ApiClientTest` 77 checks, `ParityTest` 343 golden cases); `javatest compile`: OK (34 files). The Java side of A2 was written together with its tests, not red first.
 - Each guard rule was written test first (red, then green) in the A1 commits and its review fixes; see the devlog entries of 2026-10-01.
 
 ## NOT verified
-- **Tasks A2 to A5 do not exist yet**, so the Light default, the new prompt, the strength row, "Use raw", the fuzzy dictionary and the benchmark have no behaviour to check.
+- **Tasks A3 to A5 do not exist yet**, so the Light default, the strength row, "Use raw", the fuzzy dictionary and the benchmark have no behaviour to check.
+- **The new prompt with a real model (A2).** Nobody has sent it to a cleanup model: whether it stops the summarising, whether the examples make a model copy their wording, whether the long dictation keeps its paragraph breaks and whether a model really keeps the speaker's words in Light is for the benchmark (A5) and for Yuvraj's own use to show. Only the text of the prompt and its order are tested.
+- **Prompt length and cost.** The prompt without terms or About you is 2,607 characters, was 1,272 before (counted with `len`): about 330 more input tokens at four characters a token (an estimate, not a tokenizer count) on every cleanup; the extra latency and cost were not measured.
 - **Real model output.** The thresholds (97%, 85%, 60%, 90%, 12 words) were tuned on written examples and a synthetic 1,000-word text, not on transcripts that real cleanup models returned. Whether Standard rejects too many legitimate cleanups, or Light too few, is for the benchmark (A5) to show.
 - **A phone.** `Fidelity.java` is covered by unit tests and golden rows and type-checks; `DictationService` calling it was not run on a device.
 - **CI.** None of this has run in CI.

@@ -130,7 +130,7 @@ The same functions exist in both languages:
 | Device name on the relay and on notes (typed name trimmed and cut at 60 characters, counted as code points) | `sync.device_name` | `NoteLogic.deviceName` (the fallback when no name is typed, computer name or phone model, is not shared) |
 | Whether cleanup runs (off, `raw` style, phrase shorter than `cleanup_min_words`) | `clean_min_words`, `needs_cleanup` | `ApiClient.cleanMinWords`, `ApiClient.needsCleanup` |
 
-`spec/golden.txt` holds expected results for the prompt, spelling hint, sanitize, looks_valid, replacement, terms, spoken-command, silence-phrase, About-you, model-classification, meter-level, cleanup-gate, voice-note title and search-string, note-sync winner, profile-merge, profile-field and device-name rows (the others have their own test on each side); `tests/test_parity.py` and `android/test/.../ParityTest.java` both run it. See [decisions/0007-shared-golden-file.md](decisions/0007-shared-golden-file.md).
+`spec/golden.txt` holds expected results for the prompt (with and without About you, by strength), spelling hint, sanitize, looks_valid, replacement, terms, spoken-command, silence-phrase, About-you, model-classification, meter-level, cleanup-gate, voice-note title and search-string, note-sync winner, profile-merge, profile-field and device-name rows (the others have their own test on each side); `tests/test_parity.py` and `android/test/.../ParityTest.java` both run it. See [decisions/0007-shared-golden-file.md](decisions/0007-shared-golden-file.md).
 
 ## External services
 
