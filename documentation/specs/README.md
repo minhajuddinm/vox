@@ -20,5 +20,6 @@ The roadmap these come from (v2: any provider, lighter, faster, personal context
 | [p8c-quick-wins.md](p8c-quick-wins.md) | Quick wins: one Java test runner and compile check, `GroqClient` renamed `ApiClient`, `cleanup_min_words`, the relay run from the Windows app | Implemented (not run as a built exe or on a device) |
 | [p6-android-note-mode.md](p6-android-note-mode.md) | Android note mode: faster start, note bubble, notification, quick settings tile, notes store | Implemented (not run on a device) |
 | [p7e-android-sync.md](p7e-android-sync.md) | Android relay sync and profile merge | Implemented (not run on a device) |
+| [p8b-design-refresh.md](p8b-design-refresh.md) | Design and privacy refresh: shared UI parts, regrouped settings and Status card, result flash on the pill and bubble, safer paste, privacy text | Implemented (not seen on a screen, phone or packaged build) |
 
-Later specs (write each just before its work starts): key-down speed, "About you" context, live voice level, lightweight build, notes store, Android note mode, relay, design and privacy refresh.
+Later specs (write each just before its work starts): lightweight build, cleanup fidelity and structure (see the roadmap in [../12-known-issues-and-roadmap.md](../12-known-issues-and-roadmap.md)).
