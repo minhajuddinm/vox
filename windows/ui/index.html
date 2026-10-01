@@ -38,6 +38,16 @@
 .entry { border-bottom: 1px solid var(--line); }
 .entry:last-child { border-bottom: 0; }
 .entry .txt { white-space: pre-wrap; word-break: break-word; }
+.drow { display: flex; gap: 12px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.drow:last-child { border-bottom: 0; }
+.drow .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted); opacity: .5; }
+.drow.active .dot { background: var(--ok); opacity: 1; }
+.drow.recent .dot { background: var(--accent); opacity: 1; }
+.drow .dn { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 550; }
+.drow.old .dn { color: var(--muted); font-weight: 400; }
+.drow .da { flex: none; color: var(--muted); font-size: 13px; }
+.badge { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; vertical-align: 1px; }
+.dempty { color: var(--muted); padding: 6px 0; }
 /* ui-shared:css end */
 :root {
   --side: #EFEFEC; --line: #E4E4E0; --danger: #D93025; --bad: var(--danger);
@@ -353,6 +363,10 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="setting"><div><div class="t">This device's name</div><div class="d">Sent to the relay and shown on its page and on the notes made here. Blank uses the computer name.</div></div><input type="text" id="device-name" style="width:220px" placeholder="e.g. laptop-uv"></div>
       <div class="setting"><div><div class="t">About you</div><div class="d">Added to every cleanup request, so it goes to your cleanup server. While sync is on it is also copied to your relay. Edit it on the Dictionary page.</div></div><button class="btn ghost" id="open-about">Open</button></div>
     </div>
+    <div class="card list" id="devices-card" style="margin-top:10px">
+      <div class="setting"><div><div class="t">Devices on my relay</div><div class="d">Phones and PCs that have used your relay, newest first, as the relay itself recorded them. Needs the relay address and token above; the only thing sent from here is this device's name.</div></div><button class="btn ghost" id="devices-refresh">Refresh</button></div>
+      <div id="devices-list" style="padding:4px 18px 12px"></div>
+    </div>
 
     <h2>System</h2>
     <div class="card list">
@@ -408,6 +422,14 @@ function statusRows(st, cfg, sync, test) {
   ];
 }
 const statusHtml = (rows) => rows.map(([a, b, k]) => `<div class="srow"><span class="sl">${esc(a)}</span><span class="sv ${k}">${esc(b)}</span></div>`).join("");
+// The Devices card's list, from the bridge's answer {ok, error, devices: [{name, this, state, ago}]} (windows/sync.py
+// devices_for_ui; Android: MainActivity.getDevices). A failure shows its reason; nothing but those four fields is drawn.
+function devicesHtml(res) {
+  if (!res || !res.ok) return `<div class="status bad">${esc((res && res.error) || "The device list could not be read.")}</div>`;
+  const rows = res.devices || [];
+  if (!rows.length) return '<div class="dempty">No device has synced yet</div>';
+  return rows.map(d => `<div class="drow ${d.state === "active" || d.state === "recent" ? d.state : "old"}"><span class="dot"></span><span class="dn">${esc(d.name)}${d.this ? '<span class="badge">this device</span>' : ""}</span><span class="da">${esc(d.ago)}</span></div>`).join("");
+}
 // ui-shared:js end
 const ICON_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg>';
 const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4"/></svg>';
@@ -473,6 +495,7 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   if (b.dataset.page === "home") refresh();
   if (b.dataset.page === "notes") enterNotes();
   if (b.dataset.page === "voicenotes") { renderVoiceNotes(); pollNote(); renderSync(); }
+  if (b.dataset.page === "settings") loadDevices();
 });
 
 function styleOptions(sel, value) { sel.innerHTML = STYLES.map(([v, l]) => `<option value="${v}">${l}</option>`).join(""); sel.value = value || "neutral"; }
@@ -798,19 +821,32 @@ $("relay-url").onchange = async () => {
   if (problem) { s.className = "status bad"; s.textContent = problem; return; }
   s.textContent = ""; await save({ relay_url: v });
   if (S.config.relay_proxy) reloadModels();
-  renderProvider();
+  renderProvider(); loadDevices();
 };
 $("relay-token").onchange = async () => {
   await save({ relay_token: $("relay-token").value.trim() }); $("relay-status").textContent = "";
   if (S.config.relay_proxy) reloadModels();
-  renderProvider();
+  renderProvider(); loadDevices();
 };
 $("device-name").onchange = () => save({ device_name: $("device-name").value.trim() });
 $("relay-test").onclick = async () => {
   const s = $("relay-status"); s.className = "status"; s.textContent = "Checking…";
   const r = await api().sync_test($("relay-url").value.trim(), $("relay-token").value.trim());
   s.className = "status " + (r.ok ? "ok" : "bad"); s.textContent = r.message;
+  if (r.ok) { await save({ relay_url: $("relay-url").value.trim(), relay_token: $("relay-token").value.trim() }, "Saved"); loadDevices(); }
 };
+// ---------- devices on the relay (Settings): the list the relay recorded, newest first; the rows come ready from the bridge
+let devSeq = 0;
+async function loadDevices() {
+  const box = $("devices-list"), c = (S && S.config) || {}, my = ++devSeq;
+  if (!(c.relay_url || "").trim() || !(c.relay_token || "").trim()) { $("devices-refresh").disabled = false; box.innerHTML = '<div class="dempty">Fill in the relay address and token above to see your devices.</div>'; return; }
+  $("devices-refresh").disabled = true; box.innerHTML = '<div class="dempty">Checking…</div>';
+  let res;
+  try { res = await api().get_devices(); } catch (e) { res = { ok: false, error: "The device list could not be read." }; }
+  if (my !== devSeq) return;   // a newer look is on its way
+  $("devices-refresh").disabled = false; box.innerHTML = devicesHtml(res);
+}
+$("devices-refresh").onclick = loadDevices;
 $("auto-notes").onchange = (e) => save({ auto_notes: e.target.checked });
 $("open-about").onclick = () => document.querySelector('nav button[data-page="dictionary"]').click();
 $("open-data").onclick = () => api().open_data_folder();

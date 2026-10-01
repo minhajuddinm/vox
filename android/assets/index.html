@@ -35,6 +35,16 @@
 .entry { border-bottom: 1px solid var(--line); }
 .entry:last-child { border-bottom: 0; }
 .entry .txt { white-space: pre-wrap; word-break: break-word; }
+.drow { display: flex; gap: 12px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.drow:last-child { border-bottom: 0; }
+.drow .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted); opacity: .5; }
+.drow.active .dot { background: var(--ok); opacity: 1; }
+.drow.recent .dot { background: var(--accent); opacity: 1; }
+.drow .dn { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 550; }
+.drow.old .dn { color: var(--muted); font-weight: 400; }
+.drow .da { flex: none; color: var(--muted); font-size: 13px; }
+.badge { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; vertical-align: 1px; }
+.dempty { color: var(--muted); padding: 6px 0; }
 /* ui-shared:css end */
 :root { --line:#E6E6E2; --bad:#D93025; --warn:#B26A00; }
 .dark { --line:#2C2C31; --bad:#FF6B5E; --warn:#F5B83D; }
@@ -237,6 +247,10 @@ nav button.on .pill { background:var(--accent-soft); }
     <div class="item"><div class="grow"><div class="t">Also share my provider settings and API keys</div><div class="d">Off by default. When on, the AI provider, models and API keys are copied to your other devices through the relay, so anyone with the relay token can read them. Turning this off here removes this device's keys from the relay once. Any other device that still shares keys will put them back, so turn it off on every device.</div></div><label class="switch"><input type="checkbox" id="relay-keys"><span></span></label></div>
     <div class="item" id="open-about"><div class="grow"><div class="t">About you</div><div class="d">Added to every cleanup request, so it goes to your cleanup server. While sync is on it is also copied to your relay. Edit it on the Dictionary tab</div></div><span style="color:var(--muted)">›</span></div>
   </div>
+  <div class="card list" id="devices-card" style="margin-top:10px">
+    <div class="item"><div class="grow"><div class="t">Devices on my relay</div><div class="d">Phones and PCs that have used your relay, newest first, as the relay itself recorded them. Needs the relay address and token above; the only thing sent from here is this phone's name</div></div><button class="btn ghost" id="devices-refresh">Refresh</button></div>
+    <div id="devices-list" style="padding:4px 16px 12px"></div>
+  </div>
 
   <h2>System</h2>
   <div class="card list">
@@ -305,6 +319,14 @@ function statusRows(st, cfg, sync, test) {
   ];
 }
 const statusHtml = (rows) => rows.map(([a, b, k]) => `<div class="srow"><span class="sl">${esc(a)}</span><span class="sv ${k}">${esc(b)}</span></div>`).join("");
+// The Devices card's list, from the bridge's answer {ok, error, devices: [{name, this, state, ago}]} (windows/sync.py
+// devices_for_ui; Android: MainActivity.getDevices). A failure shows its reason; nothing but those four fields is drawn.
+function devicesHtml(res) {
+  if (!res || !res.ok) return `<div class="status bad">${esc((res && res.error) || "The device list could not be read.")}</div>`;
+  const rows = res.devices || [];
+  if (!rows.length) return '<div class="dempty">No device has synced yet</div>';
+  return rows.map(d => `<div class="drow ${d.state === "active" || d.state === "recent" ? d.state : "old"}"><span class="dot"></span><span class="dn">${esc(d.name)}${d.this ? '<span class="badge">this device</span>' : ""}</span><span class="da">${esc(d.ago)}</span></div>`).join("");
+}
 // ui-shared:js end
 // Browser preview only: a few voice notes kept in memory, and the bridge methods that work on them.
 function previewNotes() {
@@ -339,6 +361,7 @@ function previewNotes() {
     syncStatus: () => JSON.stringify({ enabled: !!(S && S.config.relay_sync), running: false, last_run: 0, last_ok: 0, error: "Relay sync is not built into this version of the app yet.", pushed: 0, pulled: 0 }),
     syncNow: (cb) => setTimeout(() => window[cb](JSON.stringify({ ok: false, message: "Preview only" })), 300),
     syncTest: (cb) => setTimeout(() => window[cb](JSON.stringify({ ok: false, message: "Relay sync is not built into this version of the app yet." })), 300),
+    getDevices: (cb) => setTimeout(() => window[cb](JSON.stringify({ ok: true, error: "", devices: [{ name: "Preview phone", this: true, state: "active", ago: "just now" }, { name: "Laptop", this: false, state: "recent", ago: "3 h ago" }, { name: "Old PC", this: false, state: "old", ago: "2 days ago" }] })), 300),
   };
 }
 const V = window.Vox || {   // browser preview fallback
@@ -373,6 +396,7 @@ function go(p) {
   $("title").textContent = TITLES[p][0];
   window.scrollTo(0, 0);
   render();
+  if (p === "settings") loadDevices();
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => go(b.dataset.p));
 window.voxBack = () => { if ($("sheet").classList.contains("on")) { closeSheet(); return true; } if (PAGE !== "home") { go("home"); return true; } return false; };
@@ -775,14 +799,25 @@ $("relay-url").onchange = () => {
   const v = $("relay-url").value.trim(), s = $("relay-url-status");
   const problem = v ? V.endpointProblem(v) : "";
   if (problem) { s.className = "status bad"; s.textContent = problem; return; }
-  s.textContent = ""; save({ relay_url: v }, "Saved");
+  s.textContent = ""; save({ relay_url: v }, "Saved"); loadDevices();
 };
-$("relay-token").onchange = () => { save({ relay_token: $("relay-token").value.trim() }, "Saved"); $("relay-status").textContent = ""; };
+$("relay-token").onchange = () => { save({ relay_token: $("relay-token").value.trim() }, "Saved"); $("relay-status").textContent = ""; loadDevices(); };
 $("device-name").onchange = () => save({ device_name: $("device-name").value.trim() }, "Saved");
 window.relayResult = (json) => {
   const r = JSON.parse(json), s = $("relay-status");
   s.className = "status " + (r.ok ? "ok" : "bad"); s.textContent = r.message;
+  if (r.ok) loadDevices();
 };
+// Devices on the relay (Settings): the list the relay recorded, newest first; the rows come ready from the bridge, which
+// answers devicesResult(json) when the request is over.
+window.devicesResult = (json) => { $("devices-refresh").disabled = false; $("devices-list").innerHTML = devicesHtml(JSON.parse(json)); };
+function loadDevices() {
+  const c = (S && S.config) || {};
+  if (!(c.relay_url || "").trim() || !(c.relay_token || "").trim()) { $("devices-refresh").disabled = false; $("devices-list").innerHTML = '<div class="dempty">Fill in the relay address and token above to see your devices.</div>'; return; }
+  $("devices-refresh").disabled = true; $("devices-list").innerHTML = '<div class="dempty">Checking…</div>';
+  V.getDevices("devicesResult");
+}
+$("devices-refresh").onclick = loadDevices;
 $("relay-test").onclick = () => {
   const s = $("relay-status"), url = $("relay-url").value.trim(), token = $("relay-token").value.trim();
   const problem = url ? V.endpointProblem(url) : "";

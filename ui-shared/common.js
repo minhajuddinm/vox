@@ -37,3 +37,11 @@ function statusRows(st, cfg, sync, test) {
   ];
 }
 const statusHtml = (rows) => rows.map(([a, b, k]) => `<div class="srow"><span class="sl">${esc(a)}</span><span class="sv ${k}">${esc(b)}</span></div>`).join("");
+// The Devices card's list, from the bridge's answer {ok, error, devices: [{name, this, state, ago}]} (windows/sync.py
+// devices_for_ui; Android: MainActivity.getDevices). A failure shows its reason; nothing but those four fields is drawn.
+function devicesHtml(res) {
+  if (!res || !res.ok) return `<div class="status bad">${esc((res && res.error) || "The device list could not be read.")}</div>`;
+  const rows = res.devices || [];
+  if (!rows.length) return '<div class="dempty">No device has synced yet</div>';
+  return rows.map(d => `<div class="drow ${d.state === "active" || d.state === "recent" ? d.state : "old"}"><span class="dot"></span><span class="dn">${esc(d.name)}${d.this ? '<span class="badge">this device</span>' : ""}</span><span class="da">${esc(d.ago)}</span></div>`).join("");
+}
