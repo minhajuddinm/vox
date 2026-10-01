@@ -112,6 +112,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/BubbleLogic.java` | Pure bubble rules: `clamp` keeps a saved position on the current screen, `shouldShow` is the visibility rule (only-typing, Always show, focused field, screen on, service ready), `action` is the watchdog's decision (none, add, remove, repair) and `WATCHDOG_MS` is its 30 s period. |
 | `android/src/com/minhaj/vox/NoteBubbleLogic.java` | Pure note bubble rules: `visible` (the persistent switch, a note recording, a note being saved) and `timer` (the recording time as `m:ss` or `h:mm:ss`). |
 | `android/src/com/minhaj/vox/InsertGuard.java` | Pure typing guard: never type a restored dictation (empty target package), refuse a switched app, the toast words, and `route` (type, copy to the clipboard when accessibility is off, or nothing for a cancelled job). |
+| `android/src/com/minhaj/vox/MicChoice.java` | Pure microphone choice: the saved key (device type and product name, never the numeric id), labels, the deduplicated list for Settings, which connected device to prefer (or null for the phone default), and when to show the "not connected" notice once. |
 | `android/src/com/minhaj/vox/HintGuard.java` | Pure placeholder check: is the "text" an empty field reports only its hint ("Message" in WhatsApp and Telegram)? Typing then starts from an empty field. |
 | `android/src/com/minhaj/vox/PinnedUrlConfig.java` | A `SyncConfig` with the relay address fixed for one sync run (the address is read once per run). |
 | `android/src/com/minhaj/vox/Endpoint.java` | Server address rules (which hosts may use plain http). |
@@ -220,6 +221,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/NotificationActionsTest.java` | Notification buttons (never more than three in any state), the Retry hint and the typing guard. |
 | `android/test/com/minhaj/vox/InsertGuardTest.java` | `InsertGuard.route` (typed, copied when no accessibility listener is attached, nothing for a cancelled job) and the existing typing check. |
 | `android/test/com/minhaj/vox/ManifestTest.java` | Reads `android/AndroidManifest.xml` as text: `.MainActivity` handles `orientation` and `screenSize` changes itself and not `uiMode`. |
+| `android/test/com/minhaj/vox/MicChoiceTest.java` | Plain-Java checks for `MicChoice` (keys, labels, deduplication, `pick`, the one-time warning). |
 | `android/test/com/minhaj/vox/HintGuardTest.java` | Plain-Java checks for `HintGuard`: placeholders are recognised, real text is never mistaken for one. |
 | `android/test/com/minhaj/vox/PcmTest.java` | Silence gate. |
 | `android/test/com/minhaj/vox/TimingTest.java` | The Java timing core: stages, skipped cleanup, clock, summary rules, per-model medians, `speedView` from history rows. |
@@ -340,6 +342,7 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p2b-stream-long-dictations.md` | Spec for P2b: send long recordings in pieces while speaking. |
 | `documentation/decisions/0036-fuzzy-dictionary-guesses-only-for-long-terms.md` | ADR: the one-letter dictionary guess only for terms of 7+ letters; a short name keeps the case fix. |
 | `documentation/decisions/0035-sideload-warnings-are-explained-not-engineered-away.md` | ADR: explain the Play Protect and Restricted setting warnings in the app; no `isAccessibilityTool`, targetSdk stays 34, minimum permissions. |
+| `documentation/specs/p9h-android-mic-choice.md` | Spec for the Android Microphone setting: what was built, the Bluetooth limits and the device checklist (not run on a phone). |
 | `documentation/specs/p9g2-install-safety.md` | Spec for part 3 branch G task G2: the Install help card, the permission clean-up, why targetSdk stays 34, what a sideloaded APK cannot avoid, the unverified list. |
 | `documentation/specs/p9e-keep-listening.md` | Spec for part 3 branch E: keep listening (Note and Type targets, stop phrase, note shortcut, crash-safe buffer and recovery), the checklist that needs no phone, what was not verified, Android out of scope. |
 | `documentation/specs/p9f-improve-my-cleanup.md` | Spec for part 3 branch F: the Improve my cleanup card, what one run sends, the proposal, apply and revert, `my_cleanup_rules` in the prompt and the profile sync, the checklist, known limits. |

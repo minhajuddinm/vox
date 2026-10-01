@@ -75,6 +75,7 @@ Settings shown in the Windows window: `relay_proxy`, `api_key`, `base_url`, `hot
 | `user_context` | string | blank | Same as the Windows setting: background text added to every cleanup request. |
 | `my_cleanup_rules` | string | blank | Same as the Windows setting, read only: the rules learned on the PC arrive through the profile sync and go into the cleanup prompt (`Prefs.myCleanupRules()`). |
 | `language` | string | `""` | Whisper language code. |
+| `mic_device` | string | `""` | The microphone chosen in Settings, Voice & audio, as a `MicChoice.key` (device type, a bar and the product name, for example `7|Buds`; never the numeric id). Empty is the phone's default. Per phone: not part of the profile that syncs through the relay. Read with `Prefs.micDevice`. |
 | `device_name` | string | `""` | This phone's name on the notes it records and on the relay; blank uses the phone model (`Build.MODEL`), and `android-phone` when that is empty too. Trimmed, at most 60 code points (`Prefs.deviceName`, the rule of `NoteLogic.deviceName`). Set in Settings, Sync between devices. |
 | `relay_sync` | bool | `false` | Sync voice notes with a relay (the Settings switch "Sync voice notes with my relay"). Read with `Prefs.relaySync`. |
 | `relay_url` | string | `""` | Address of the relay. Saved only when `Endpoint.error` accepts it (plain http only for private hosts); a trailing slash is removed. Read with `Prefs.relayUrl`. |

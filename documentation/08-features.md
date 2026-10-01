@@ -61,7 +61,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | Silence gate: nothing is uploaded for a silent recording | yes | yes | `vox_core.is_silent` / `Pcm.isSilent` | py `test_robustness`; java `PcmTest` |
 | Type only into the app you started in; refuse password fields | - | yes | `VoxAccessibilityService.insertText` | - |
 | Dictation state machine that survives cancel and errors | - | yes | `DictationService` job ids | - |
-| Choose the microphone | yes | - | `audio_devices.py`, `input_device` | py `test_audio_devices` |
+| Choose the microphone (Android: Phone default or a connected input device, kept by type and name; not run on a phone) | yes | yes | `audio_devices.py`, `input_device` / `MicChoice`, `DictationService.preferMic`, `mic_device` | py `test_audio_devices`; java `MicChoiceTest` |
 | "Vox did not hear anything (loudest sound N)" diagnostics | yes | - | `Engine.stop`, `vox_core.peak_level` | py `test_robustness` |
 | Fix a word in History -> suggested dictionary entries | yes | yes | `vox_core.suggest_corrections` / `Corrections` | py `test_suggest_corrections`; java `CorrectionsTest` |
 | Spoken "new line"/"new paragraph" when cleanup did not run | yes | yes | `vox_core.apply_spoken_commands` / `ApiClient.applySpokenCommands` | py `test_spoken_commands`, parity; java parity |
