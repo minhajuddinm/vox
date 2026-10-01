@@ -90,7 +90,13 @@ public final class RelayIntegrationTest {
             File data = new File(root, "data");
             ProcessBuilder pb = new ProcessBuilder(python, relayPy, "--data-dir", data.getPath(), "--port", String.valueOf(port));
             pb.redirectErrorStream(true);
-            Process process = pb.start();
+            Process process;
+            try {
+                process = pb.start();
+            } catch (IOException | RuntimeException e) {
+                delete(root);   // nothing is running yet that would clean up the temp folder
+                throw e;
+            }
             StringBuilder output = drain(process);
             String url = "http://127.0.0.1:" + port;
             long deadline = System.currentTimeMillis() + 20000;
@@ -244,6 +250,27 @@ public final class RelayIntegrationTest {
         }
     }
 
+    /** Wraps a real client and counts the pages of {@code /changes} that were asked for. */
+    static final class CountingApi implements RelayApi {
+        private final RelayApi real;
+        int changePages;
+
+        CountingApi(RelayApi real) {
+            this.real = real;
+        }
+
+        @Override public Map<String, Object> putNote(Map<String, Object> wire) throws RelayError { return real.putNote(wire); }
+
+        @Override public Changes changes(long since, int limit) throws RelayError {
+            changePages++;
+            return real.changes(since, limit);
+        }
+
+        @Override public Profile getProfile() throws RelayError { return real.getProfile(); }
+
+        @Override public Profile putProfile(long ifMatch, Map<String, Object> data) throws RelayError { return real.putProfile(ifMatch, data); }
+    }
+
     /** A phone: the notes and settings in memory (the same fakes SyncEngineTest uses), a real client to the relay. */
     static final class Phone {
         final SyncEngineTest.MemStore store = new SyncEngineTest.MemStore();
@@ -318,8 +345,18 @@ public final class RelayIntegrationTest {
             ok = true;
         } catch (Failure f) {
             System.err.println("FAIL " + f.getMessage());
+        } catch (Throwable t) {   // anything else (a crash in the client, an unexpected exception) is a failure too
+            System.err.println("FAIL unexpected " + t);
+            t.printStackTrace();
         } finally {
-            if (relay != null) relay.stop();
+            if (relay != null) {
+                try {
+                    relay.stop();
+                } catch (Throwable stopFailed) {   // must not hide the failure above, and must not pass silently either
+                    System.err.println("FAIL stopping the relay: " + stopFailed);
+                    ok = false;
+                }
+            }
         }
         if (!ok) System.exit(1);
         System.out.println("OK: " + checks + " checks passed against a real relay");
@@ -425,21 +462,25 @@ public final class RelayIntegrationTest {
         return t + 11;
     }
 
-    /** 201 notes (one more than a page of /changes, three pushes of at most 100): a phone that is new gets them all. */
+    /** One more note than a page of /changes holds (and more than one push batch): a phone that is new gets them all, over two pages. */
     private static double pagingToNewPhone(RealRelay relay, Phone a, double t) throws Exception {
-        for (int i = 0; i < 201; i++) a.store.add(id(1000 + i), "bulk " + i, t + 1 + i);
-        eq("a sends 201 notes", "201/0//", outcome(a.sync()));
-        RelayApi.Changes all = a.client.changes(0, 500);
-        eq("relay: 203 rows (the marker, the good note, 201)", 203, all.notes.size());
+        final int bulk = SyncEngine.PULL_LIMIT + 1;
+        for (int i = 0; i < bulk; i++) a.store.add(id(1000 + i), "bulk " + i, t + 1 + i);
+        eq("a sends " + bulk + " notes", bulk + "/0//", outcome(a.sync()));
+        RelayApi.Changes all = a.client.changes(0, 2 * bulk);
+        eq("relay: the marker, the good note and the bulk notes", bulk + 2, all.notes.size());
         eq("a: the cursor is the relay's last number", String.valueOf(all.next), a.store.getMeta("relay_cursor", ""));
         Phone c = new Phone("phone-c", relay.url, relay.token);
-        eq("a new phone gets 202 notes over two pages (no delete marker for a note it never had) and the profile",
-                "0/202//received", outcome(c.sync()));
+        CountingApi counting = new CountingApi(c.client);
+        c.api = counting;
+        eq("a new phone gets the good note and the bulk notes (no delete marker for a note it never had) and the profile",
+                "0/" + (bulk + 1) + "//received", outcome(c.sync()));
+        eq("c: asked for exactly two pages of /changes", 2, counting.changePages);
         eq("c: the profile is the phones' profile", sharedSettings(a), sharedSettings(c));
-        eq("c: has 202 notes", 202, c.store.notes.size());
+        eq("c: has the good note and the bulk notes", bulk + 1, c.store.notes.size());
         eq("c: the cursor is the relay's last number", String.valueOf(all.next), c.store.getMeta("relay_cursor", ""));
-        eq("c: has the last bulk note", "bulk 200", c.note(id(1200)).text);
-        return t + 1 + 200;
+        eq("c: has the last bulk note", "bulk " + (bulk - 1), c.note(id(1000 + bulk - 1)).text);
+        return t + bulk;
     }
 
     /** Both phones change the same field and each a field of its own; the relay's value wins the clash, the rest merges. */
