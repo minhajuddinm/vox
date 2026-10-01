@@ -218,6 +218,16 @@ def test_the_tray_toggle_starts_and_stops(eng, mic):
     lis.buffer.close()
 
 
+def test_the_tray_cannot_start_the_type_target_because_it_would_not_know_the_app(eng, mic):
+    eng.cfg["listen_target"] = "type"
+    eng.toggle_listening()
+    assert eng.listening is None and FakeListening.made == [] and "double" in eng.messages[0].lower()
+    eng.cfg["listen_target"] = "note"
+    eng.toggle_listening()
+    assert eng.listening.target == "note"
+    eng.listening.buffer.close()
+
+
 # ------------------------------------------------------------------ the note and the setting
 def test_save_note_stores_it_syncs_and_says_so(eng):
     eng.save_note("Buy milk and eggs today.", "buy milk and eggs today", 12.0)

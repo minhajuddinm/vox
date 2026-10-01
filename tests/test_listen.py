@@ -316,3 +316,21 @@ def test_the_audio_callback_only_queues_the_bytes(monkeypatch):
     lis = listen.Listening(Host(), NOCLEAN, "note", focus=lambda: "x.exe")
     lis.audio(memoryview(tone(0.1)), 0, 0, None)
     assert lis._q.get_nowait() == tone(0.1)
+
+
+def test_a_buffer_that_cannot_be_discarded_still_ends_the_session_cleanly(monkeypatch):
+    monkeypatch.setattr(core, "transcribe", Script(["hello there my friend."]))
+
+    class Stuck:
+        def append(self, pcm):
+            pass
+
+        def close(self):
+            pass
+
+        def discard(self):
+            raise PermissionError("held by another program")
+
+    host = Host()
+    run(host, utterances(1), buffer=Stuck())
+    assert host.notes and host.states == ["busy", "idle"] and host.flashes == ["sent"]

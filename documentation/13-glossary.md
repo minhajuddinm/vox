@@ -22,7 +22,7 @@
 | Term | A word or name in the dictionary that helps spelling (a plain dictionary line, or the right side of a replacement). |
 | Replacement | A `wrong => right` dictionary line applied to the final text. |
 | People | Extra dictionary terms for names. |
-| Hands-free | Windows recording mode started by double-tapping the shortcut; finish with one more press. |
+| Keep listening | Windows session started by double-tapping the shortcut (or the note hotkey): Note or Type target; a double press, the stop phrase or Esc ends it and saves. |
 | Silence gate | The check that skips upload when the loudest sample is below 655 (of 32768). |
 | Silence hallucination | Whisper inventing "thank you", "bye" and similar on silence. Filtered out. |
 | Pending recording | A dictation that failed to send and is kept for retry. |

@@ -5,6 +5,7 @@ latency), numbers them, collects the text that comes back for each one in any or
 the user said the stop phrase or the time limit is reached. The engine (task E2) owns the threads, the speech
 calls and the pill. `SessionBuffer` appends the audio to a file so a crash does not lose a long session.
 """
+import logging
 import math
 import os
 import re
@@ -12,6 +13,8 @@ from collections import namedtuple
 from datetime import datetime
 
 import vox_core as core
+
+log = logging.getLogger("vox")
 
 TARGETS = ("note", "type")
 WARN_SECONDS = 55 * 60       # the pill warns from here
@@ -242,6 +245,8 @@ class SessionBuffer:
             os.remove(self.path)
         except FileNotFoundError:
             pass
+        except OSError:   # a program holds the file (antivirus, backup): it stays and is offered for recovery
+            log.warning("keep listening: could not remove %s", self.path)
 
 
 def recoverable(folder):

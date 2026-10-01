@@ -237,13 +237,16 @@ class Listening:
             self._failed, kind = True, "error"
             self.host.notify("Vox could not save the listening session. Your audio is kept: %s." % RECOVER)
         finally:
-            if self.buffer:
-                if self._failed:
-                    self.buffer.close()
-                else:
-                    self.buffer.discard()
-            if self.after and not self._failed:
-                self.after()
+            try:   # whatever happens to the audio file, the pill and the hotkey must be released below
+                if self.buffer:
+                    if self._failed:
+                        self.buffer.close()
+                    else:
+                        self.buffer.discard()
+                if self.after and not self._failed:
+                    self.after()
+            except Exception:
+                log.exception("keep listening: could not tidy up the audio buffer")
             self.host.flash(kind)
             self.host.listen_state("idle")
             self.done.set()

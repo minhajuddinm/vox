@@ -220,6 +220,12 @@ def test_the_buffer_appends_and_discard_removes_the_file(tmp_path):
     b.discard()                                            # a second discard is harmless
 
 
+def test_a_buffer_that_cannot_be_removed_does_not_raise(tmp_path, monkeypatch):
+    b = session.SessionBuffer(str(tmp_path), "note")
+    monkeypatch.setattr(os, "remove", lambda p: (_ for _ in ()).throw(PermissionError("held by another program")))
+    b.discard()                                            # the file stays for recovery, the session still ends
+
+
 def test_data_is_on_disk_before_close_so_a_crash_keeps_it(tmp_path):
     b = session.SessionBuffer(str(tmp_path), "type")
     b.append(tone(1))

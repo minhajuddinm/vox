@@ -18,7 +18,7 @@ The engine and window modes set DPI awareness, install `sys.excepthook` / `threa
 
 - Shortcuts (`ui_app.HOTKEYS`): Ctrl+Win (default, keys `ctrl_l` + `cmd`), Right Ctrl, Right Alt, Ctrl+Alt, Ctrl+Shift. Stored in `config.json` as a list of key names; `engine.KEY_ALIASES` maps names to pynput keys.
 - **Hold to talk:** press starts recording (`start`), release stops (`stop`). A press shorter than 0.3 s (`TAP_SECONDS`) is a tap: recording is cancelled and the tap time remembered.
-- **Hands-free:** a second tap within 0.5 s (`DOUBLE_TAP_GAP`) starts recording that continues after release; press the shortcut once more to finish, Esc to cancel. Limit is `MAX_SECONDS` (360 s) normally, three times that in hands-free.
+- **Keep listening:** a second tap within 0.5 s (`DOUBLE_TAP_GAP`) starts a keep-listening session (target Note or Type, setting `listen_target`, default Note), not a hands-free dictation. A single press while it runs is ignored; a double press, the stop phrase or Esc ends it and saves what was said. Type can only be started with the double press, because it needs the app you are in (from the tray it is refused). Dictation limit is `MAX_SECONDS` (360 s).
 - When the Windows key is part of the shortcut, the engine taps virtual key `0xE8` so releasing Win does not open the Start menu.
 - `on_combo_down` ignores presses while `busy` (a dictation is being sent).
 

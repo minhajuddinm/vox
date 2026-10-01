@@ -244,7 +244,7 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="row" id="w-keyrow" style="margin-top:12px"><input type="password" id="w-key" class="grow" placeholder="Paste the key here"><button class="btn ghost" id="w-test">Test</button><button class="btn" id="w-save">Save key</button></div>
       <div class="status" id="w-status" style="margin-top:8px"></div>
     </div>
-    <div class="hint">Hold <span id="hk-keys"></span> in any app, speak, then release. Double-tap it for hands-free.</div>
+    <div class="hint">Hold <span id="hk-keys"></span> in any app, speak, then release. Double-tap it to keep listening.</div>
     <div class="card" id="status-card">
       <div class="row"><h2 style="margin:0" class="grow">Status</h2><button class="btn ghost" id="status-test">Test connection</button></div>
       <div id="status-rows"></div>
@@ -358,7 +358,7 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
 
     <h2>Voice &amp; audio</h2>
     <div class="card list">
-      <div class="setting"><div><div class="t">Dictation shortcut</div><div class="d">Hold to talk and release to insert. Double-tap for hands-free, then press once to finish (Esc cancels).</div></div><select id="hotkey"></select></div>
+      <div class="setting"><div><div class="t">Dictation shortcut</div><div class="d">Hold to talk and release to insert. Double-tap to keep listening (saves a note); double-tap again or press Esc to end it.</div></div><select id="hotkey"></select></div>
       <div class="setting"><div><div class="t">Note shortcut</div><div class="d">Press once to start a voice note that keeps listening, press again to stop and save it. Use Ctrl, Alt or Win plus one letter, digit or F key, for example ctrl+alt+n. Empty turns it off. The keys are not blocked, so the app in front also receives them.</div><div class="status" id="note-hotkey-status"></div></div><input type="text" id="note-hotkey" style="width:170px" placeholder="off" spellcheck="false"></div>
       <div class="setting"><div><div class="t">Microphone</div><div class="d">Which microphone Vox listens to. The Windows default unless you pick one. If dictation says it heard nothing, try another.</div></div><select id="mic" style="max-width:260px"></select></div>
       <div class="setting"><div><div class="t">Language</div><div class="d">Auto detect can switch language on short phrases. Pick one to lock it.</div></div>

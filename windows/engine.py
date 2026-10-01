@@ -607,6 +607,8 @@ class Engine:
     def toggle_listening(self, *_):
         if self.listening:
             self.stop_listening()
+        elif session_mod.listen_target(self.cfg) == "type":   # the foreground window now is the taskbar, not the app
+            self.notify("Type needs the app you are typing into: click in it and double-press the shortcut to start.")
         else:
             self.start_listening()
 
