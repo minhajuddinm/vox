@@ -18,7 +18,10 @@ Messages worth knowing:
 | `overlay ready WxH scale=... geometry=...` | The pill window was created (it appears only while recording, sending or showing a result signal) |
 | `overlay shown (rec)` | The pill became visible for a recording (the word in brackets is the state drawn: `rec`, `busy`, `meet`, or `sent` / `error` for the short result signal) |
 | `recording started (app=Code.exe)` | Hotkey accepted; the exe that will receive the text |
-| `hands-free mode` | Double-tap detected |
+| `keep listening started (target=note, app=...)` | A keep-listening session started (double-tap, tray or note shortcut) |
+| `keep listening: piece N is text X ms after it ended` | One piece of a session became text; X is the wait from the end of the speech |
+| `keep listening: ...` (warning or traceback) | A piece could not be sent, the audio buffer could not be written or removed, typing or the cleanup failed; the audio file under `%APPDATA%\Vox\listen` is kept after a failure |
+| `note shortcut '...' is off: ...` | The note shortcut setting is not usable (for example it contains the dictation shortcut) and is ignored |
 | `notify: ...` | A tray notification was shown (text included), e.g. "Vox did not hear anything (loudest sound N of 32768)..." |
 | `api error: ...` | The server answered with an error status |
 | `settings reloaded, hotkey=...` | `config.json` changed and was re-read |
@@ -31,7 +34,7 @@ Messages worth knowing:
 
 ## Android
 
-The Android app writes no log files. Problems are shown as toasts. The one exception is a debug line under the tag `vox`, `tap->recording ms=N`: the time from a bubble tap to the first audio frame (`adb logcat -s vox`). Otherwise use `adb logcat` only for crashes of the process itself.
+The Android app writes one small file: the bubble diagnostics, `files/overlay_diag.log` in the app's private folder (the last 50 events that can make the floating bubble appear or vanish: service connected or unbound, bubble added or removed with the reason, a bubble put back by the watchdog, screen on or off, unlock, rotation, an app being installed or removed). Read it in the app: Settings, System, **Bubble diagnostics** (service state, battery optimisation state, the last 20 events, Copy report). The same events go to logcat as `bubble: kind detail` under the tag `vox`, together with the debug line `tap->recording ms=N` (the time from a bubble tap to the first audio frame): `adb logcat -s vox`. Problems are shown as toasts. Otherwise use `adb logcat` only for crashes of the process itself.
 
 ## Diagnosing common problems
 
@@ -45,7 +48,7 @@ The Android app writes no log files. Problems are shown as toasts. The one excep
 | Notification "Rate limit reached" | Groq free limit; wait, then tray > Retry last dictation |
 | Recording pill missing but dictation works | Vox was started from a session the user cannot see, or the overlay failed (`overlay failed to start` in `vox.log`) |
 | Window will not open | `window.log`; see the WebView2 line above |
-| Android bubble never appears | Accessibility service off, or "bubble only while typing" is on and no field is focused |
+| Android bubble never appears or keeps disappearing | Settings, System, Bubble diagnostics: "Switched on but not running" means Android stopped the service (switch it off and on in Accessibility settings); "Bubble hidden by only-typing" means no text field was focused; "Bubble could not be added" names the exception; a screen off or unlock line just before a removal points at the screen; a battery line saying Vox may be stopped points at battery optimisation (the card then shows an Open battery settings button); "Bubble put back by the watchdog" means Android had dropped the window and Vox added it again; "Always show the bubble" in Settings, System keeps the bubble up without a focused text field |
 | Android "Vox did not hear anything" | Silent recording (mic covered, wrong source) |
 | Android dictation fails with a network message | The recording is kept; tap Retry in the Vox notification |
 

@@ -67,6 +67,8 @@ public final class Prefs {
     public String raw(String key) { return sp.getString(key, ""); }
     /** Free text about the user (work, projects, style) added to every cleanup request. */
     public String userContext() { return sp.getString("user_context", ""); }
+    /** The cleanup rules learned on the PC (Improve my cleanup), received through profile sync; the phone only reads them. */
+    public String myCleanupRules() { return sp.getString("my_cleanup_rules", ""); }
     public String language() { return sp.getString("language", "").trim(); }
     /**
      * This phone's name on the notes it records and on the relay: what the user typed, else the phone model, else
@@ -93,7 +95,11 @@ public final class Prefs {
     public boolean cleanupEnabled() { return sp.getBoolean("cleanup", true); }
     /** The setting "skip AI cleanup for phrases shorter than N words" as stored; read it with ApiClient.cleanMinWords. */
     public String cleanupMinWords() { return sp.getString("cleanup_min_words", "3"); }
+    /** The setting "Cleanup strength": "light" (the default: keep every spoken word) or "standard" (fillers and false starts may go). */
+    public String cleanupStrength() { return Fidelity.cleanStrength(sp.getString("cleanup_strength", "")); }
     public boolean onlyWhenTyping() { return sp.getBoolean("only_typing", true); }
+    /** "Always show the bubble": the mic bubble stays on screen and ignores "only_typing". Per device, not synced. */
+    public boolean alwaysShowBubble() { return sp.getBoolean("always_show_bubble", false); }
     public int bubbleX() { return sp.getInt("bubble_x", -1); }
     public int bubbleY() { return sp.getInt("bubble_y", -1); }
     /** Show the second, always-visible bubble that starts and stops a voice note (off by default). */
@@ -119,6 +125,7 @@ public final class Prefs {
         m.put("default_style", defaultStyle());
         m.put("cleanup", cleanupEnabled());
         m.put("language", language());
+        m.put("my_cleanup_rules", myCleanupRules());
         m.put("provider", provider());
         m.put("base_url", baseUrl());
         m.put("stt_base_url", raw("stt_base_url"));
@@ -176,7 +183,17 @@ public final class Prefs {
     // ---- history ----
 
     public void addHistory(String app, String raw, String clean, double secs) {
+        addHistory(app, raw, clean, secs, null, false);
+    }
+
+    /** The history is read, changed and written back as one string: one writer at a time (the service writes from a thread). */
+    private static final Object HISTORY_LOCK = new Object();
+
+    /** @param timing where the time of this dictation went (the Speed card), or null when it was not timed (a retry) */
+    /** @param fidelityFallback true when the cleanup answer lost the spoken words and the raw words were used (shown in the history) */
+    public void addHistory(String app, String raw, String clean, double secs, Timing.Entry timing, boolean fidelityFallback) {
         if (!keepHistory()) return;
+        synchronized (HISTORY_LOCK) {
         try {
             JSONArray arr = new JSONArray(sp.getString("history", "[]"));
             JSONObject o = new JSONObject();
@@ -186,14 +203,28 @@ public final class Prefs {
             o.put("text", clean);
             o.put("words", clean.trim().isEmpty() ? 0 : clean.trim().split("\\s+").length);
             o.put("secs", Math.round(secs * 10) / 10.0);
+            if (timing != null) o.put("timing", timingJson(timing));
+            if (fidelityFallback) o.put("fidelity_fallback", true);
             JSONArray next = new JSONArray();
             next.put(o);
             for (int i = 0; i < arr.length() && i < 499; i++) next.put(arr.get(i));
             sp.edit().putString("history", next.toString()).apply();
         } catch (Exception ignored) { }
+        }
+    }
+
+    /** The same shape as the "timing" of a Windows history entry (windows/timing.py Timing.entry); the keys are Timing.historyMap's. */
+    static JSONObject timingJson(Timing.Entry e) throws org.json.JSONException {
+        java.util.Map<String, Object> m = Timing.historyMap(e);
+        JSONObject stages = new JSONObject();
+        for (java.util.Map.Entry<String, Long> kv : e.stages.entrySet()) stages.put(kv.getKey(), kv.getValue().longValue());
+        JSONObject o = new JSONObject();
+        for (java.util.Map.Entry<String, Object> kv : m.entrySet()) o.put(kv.getKey(), kv.getKey().equals("stages") ? stages : kv.getValue());
+        return o;
     }
 
     public void deleteHistory(double t) {
+        synchronized (HISTORY_LOCK) {
         try {
             JSONArray arr = history(), next = new JSONArray();
             for (int i = 0; i < arr.length(); i++) {
@@ -202,6 +233,7 @@ public final class Prefs {
             }
             sp.edit().putString("history", next.toString()).apply();
         } catch (Exception ignored) { }
+        }
     }
 
     public JSONArray history() {

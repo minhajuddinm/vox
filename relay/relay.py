@@ -764,6 +764,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._admin(method, parts, q)
             if parts == ["health"] and method == "GET":
                 return self._send(200, dict(store.stats(), ok=True, version=RELAY_VERSION))
+            if parts == ["devices"] and method == "GET":
+                return self._send(200, {"devices": [{k: d[k] for k in ("name", "first_seen", "last_seen", "requests", "login")}
+                                                    for d in store.devices()]})   # newest first; no events, no notes
             if parts == ["changes"] and method == "GET":
                 return self._send(200, store.changes(int(q.get("since", 0)), int(q.get("limit", 200))))
             if parts == ["notes"] and method == "GET":

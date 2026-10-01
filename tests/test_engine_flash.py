@@ -10,6 +10,7 @@ for _mod in ("pynput", "pystray", "sounddevice", "pyperclip", "psutil"):
 
 import engine as engine_mod  # noqa: E402
 import notes  # noqa: E402
+import timing as timing_mod  # noqa: E402
 import vox_core as core  # noqa: E402
 
 
@@ -262,6 +263,15 @@ def test_a_history_failure_after_a_successful_paste_still_flashes_sent(eng, monk
     assert eng.active_flash() == "sent" and eng.state == "idle" and eng.pending is None
 
 
+def test_history_keeps_the_raw_words_and_flags_a_guard_fallback(eng, monkeypatch):
+    eng.cfg["keep_history"] = True
+    dictate(eng, monkeypatch, result=core.Result("so i went", "So i went", False, "the cleanup answer looked wrong", True))
+    dictate(eng, monkeypatch, result=ok_result("Hello."))
+    flagged, plain = core.read_history()
+    assert flagged["raw"] == "so i went" and flagged["text"] == "So i went" and flagged["fidelity_fallback"] is True
+    assert plain["raw"] == "hello" and "fidelity_fallback" not in plain
+
+
 def test_paste_itself_does_not_flash(eng, monkeypatch):
     monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep: "pasted")
     assert eng.paste("Hi.") is True
@@ -278,3 +288,80 @@ def test_a_new_engine_starts_with_no_flash(monkeypatch):
     e = engine_mod.Engine()
     assert e.overlay is None and e.flash_kind == "" and e.flash_until == 0.0
     assert "flash_kind" in vars(e) and "flash_until" in vars(e) and "overlay" in vars(e)
+
+
+# ------------------------------------------------------------- the timing of a dictation (the Speed card)
+def timed_dictation(e, monkeypatch, **cfg):
+    e.cfg.update(keep_history=True, **cfg)
+    ticks = iter(range(10, 100000, 10))               # each mark is 10 ms after the one before
+    e.timing = timing_mod.Timing(clock=lambda: next(ticks) / 1000.0)
+    e.timing.mark("key_down")
+    e.timing.mark("rec_start")
+    dictate(e, monkeypatch)
+
+
+def test_a_dictation_keeps_its_timing_in_the_history(eng, monkeypatch):
+    timed_dictation(eng, monkeypatch, stt_model="whisper-large-v3-turbo", llm_model="openai/gpt-oss-20b")
+    (h,) = core.read_history()
+    t = h["timing"]
+    assert t["stt_model"] == "whisper-large-v3-turbo" and t["llm_model"] == "openai/gpt-oss-20b" and t["relay"] is False
+    assert set(t["stages"]) == set(timing_mod.STAGES)
+    assert t["stages"]["start"] == 10 and t["stages"]["total"] > 0     # key_up -> inserted; the fake process marks nothing in between
+    assert eng.timing is None                                            # one Timing per recording
+
+
+def test_the_inserted_mark_comes_after_the_paste(eng, monkeypatch):
+    order = []
+    eng.cfg["keep_history"] = True
+    eng.timing = timing_mod.Timing()
+    real_mark = eng.timing.mark
+    eng.timing.mark = lambda name, at_ms=None: (order.append(name), real_mark(name, at_ms))
+    monkeypatch.setattr(core, "process_detailed", lambda cfg, pcm, exe, label: ok_result())
+    monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep: order.append("paste") or "pasted")
+    eng.recording, eng.chunks = True, speech()
+    eng.stop()
+    assert order == ["key_up", "paste", "inserted"]
+
+
+def test_history_off_keeps_no_timing_and_a_note_has_none(eng, monkeypatch):
+    eng.timing = timing_mod.Timing()
+    eng.cfg["keep_history"] = False
+    dictate(eng, monkeypatch)
+    assert core.read_history() == []
+    eng.cfg["keep_history"] = True
+    eng.note_mode = True
+    eng.timing = timing_mod.Timing()
+    dictate(eng, monkeypatch)
+    assert core.read_history() == []                                     # a note is saved as a note, not as a dictation
+
+
+def test_a_dictation_without_a_timing_still_saves_its_history_entry(eng, monkeypatch):
+    eng.cfg["keep_history"] = True
+    dictate(eng, monkeypatch)                                           # eng.timing is None: start() was not the one that ran
+    (h,) = core.read_history()
+    assert "timing" not in h and h["text"] == "Hello."
+
+
+def test_start_marks_key_down_and_rec_start(eng, monkeypatch):
+    class Stream:
+        def __init__(self, **kw):
+            pass
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(engine_mod.sd, "InputStream", Stream)
+    monkeypatch.setattr(core, "warm", lambda cfg: None)
+    monkeypatch.setattr(core, "endpoint_error", lambda cfg: "")
+    monkeypatch.setattr(core, "key_missing", lambda cfg: False)
+    monkeypatch.setattr(engine_mod, "foreground_app", lambda: "notepad.exe")
+    eng.start()
+    assert eng.timing.has("key_down") and eng.timing.has("rec_start")
+    assert eng.timing.get("rec_start") >= eng.timing.get("key_down")
+
+
+def test_a_cancelled_recording_drops_its_timing(eng):
+    eng.timing = timing_mod.Timing()
+    eng.recording = True
+    eng.cancel()
+    assert eng.timing is None

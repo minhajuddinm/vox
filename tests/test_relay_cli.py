@@ -169,6 +169,12 @@ def test_first_start_shows_the_exact_tailscale_hint_and_later_starts_do_not(tmp_
     assert len(h.messages) == 1
 
 
+def test_first_start_hint_points_at_the_in_app_set_up_card(tmp_path):
+    h = Host(tmp_path, port=8770)
+    h.host.start()
+    assert "Settings > Privacy > How to set up the relay" in h.messages[0] and "Test connection" in h.messages[0]
+
+
 def test_a_launcher_error_is_reported_not_raised(tmp_path):
     h = Host(tmp_path, fail=OSError("no such file"))
     assert h.host.start() is False

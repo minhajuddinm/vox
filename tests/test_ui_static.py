@@ -198,6 +198,16 @@ def test_home_shows_a_status_card_and_no_typing_stats(page):
     assert 's-saved' not in html and "Time saved" not in html
 
 
+@pytest.mark.parametrize("page", list(PAGES))
+def test_cleanup_strength_row_and_use_raw_button_exist(page):
+    """A3: Settings has the Cleanup strength choice (Light first, Standard second) and a history entry can copy its raw words."""
+    html = read(PAGES[page])
+    select = re.search(r'<select[^>]*id="cleanup-strength"[^>]*>(.*?)</select>', html, re.S)
+    assert select and re.findall(r'value="(\w+)"', select.group(1)) == ["light", "standard"]
+    assert '$("cleanup-strength").value = ' in html and "cleanup_strength" in html
+    assert "data-raw=" in html and "Use raw" in html
+
+
 # ---------- the checkers themselves: they must fire on the mistakes they exist for ----------
 
 def test_checker_catches_a_swapped_id():
@@ -253,3 +263,48 @@ def test_key_sharing_hint_matches_the_sync_rule(name):
     assert "removes this device's keys from the relay once" in text
     assert "turn it off on every device" in text
     assert "Turning it off removes them from the relay" not in text
+
+
+def test_android_page_has_the_bubble_diagnostics_card_in_system_settings():
+    """D1: the card that explains a vanishing bubble (service state, battery state, last events, copy)."""
+    html = read(PAGES["android"])
+    system = re.search(r'<h2[^>]*>System</h2>.*?</section>', html, re.S).group(0)
+    for ident in ("diag-card", "diag-service", "diag-battery", "diag-events", "diag-refresh", "diag-copy"):
+        assert f'id="{ident}"' in system, ident
+    assert "getDiagnostics" in js_interface_methods(read(MAIN_ACTIVITY))
+    assert "V.getDiagnostics()" in html
+    assert "V.copy(" in html and "report" in html   # the Copy button copies the text the bridge built
+
+
+def test_android_page_has_the_always_show_bubble_setting_and_the_battery_prompt():
+    """D2: "Always show the bubble" is a stored setting both ways, and the battery prompt opens Android's battery screen."""
+    html = read(PAGES["android"])
+    system = re.search(r'<h2[^>]*>System</h2>.*?</section>', html, re.S).group(0)
+    for ident in ("always-show", "diag-battery-fix"):
+        assert f'id="{ident}"' in system, ident
+    assert "always_show_bubble" in html
+    assert "always_show_bubble" in read(MAIN_ACTIVITY)          # sent to the page and saved from it
+    assert "alwaysShowBubble" in read(os.path.join(ROOT, "android", "src", "com", "minhaj", "vox", "Prefs.java"))
+    assert "V.openBattery()" in html
+    assert "openBattery" in js_interface_methods(read(MAIN_ACTIVITY))
+    svc = read(os.path.join(ROOT, "android", "src", "com", "minhaj", "vox", "VoxAccessibilityService.java"))
+    assert "BubbleLogic.shouldShow(" in svc and "BubbleLogic.clamp(" in svc   # the service uses the pure rules
+
+
+def test_android_service_brings_the_note_bubble_up_for_a_note_in_progress():
+    """G1: the note bubble follows NoteBubbleLogic.visible (not only the note_bubble switch), holds for the result flash, and draws a timer."""
+    d = os.path.join(ROOT, "android", "src", "com", "minhaj", "vox")
+    svc = read(os.path.join(d, "VoxAccessibilityService.java"))
+    assert "NoteBubbleLogic.visible(noteOn, noteRec, noteSaving)" in svc
+    assert "isNoteRecording()" in svc and "flashNote(BubbleView.SENT)" in svc and "flashNote(BubbleView.ERROR)" in svc
+    assert "NoteBubbleLogic.timer(" in read(os.path.join(d, "BubbleView.java"))
+
+
+def test_the_windows_page_has_the_note_shortcut_row():
+    """E5: a text field for the note shortcut, its status line, and the two bridge calls that exist in ui_app.py."""
+    html = read(PAGES["windows"])
+    assert 'id="note-hotkey"' in html and 'id="note-hotkey-status"' in html
+    assert '$("note-hotkey").value = c.note_hotkey' in html
+    assert "api().set_note_hotkey(" in html and "api().note_hotkey_problem(" in html
+    app = read(UI_APP)
+    assert "def set_note_hotkey(" in app and "def note_hotkey_problem(" in app

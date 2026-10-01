@@ -8,6 +8,7 @@ android/src/com/minhaj/vox/Multipart.java
 android/src/com/minhaj/vox/Pcm.java
 android/src/com/minhaj/vox/Corrections.java
 android/src/com/minhaj/vox/Terms.java
+android/src/com/minhaj/vox/Fidelity.java
 android/src/com/minhaj/vox/Providers.java
 android/src/com/minhaj/vox/NoteLogic.java
 android/src/com/minhaj/vox/Note.java
@@ -25,3 +26,14 @@ android/src/com/minhaj/vox/PendingQueue.java
 android/src/com/minhaj/vox/NotificationActions.java
 android/src/com/minhaj/vox/PinnedUrlConfig.java
 android/src/com/minhaj/vox/InsertGuard.java
+android/src/com/minhaj/vox/Timing.java
+android/src/com/minhaj/vox/Segmenter.java
+android/src/com/minhaj/vox/StreamingStt.java
+android/src/com/minhaj/vox/Latency.java
+android/src/com/minhaj/vox/UploadFormat.java
+android/src/com/minhaj/vox/DevicesView.java
+android/src/com/minhaj/vox/RelayCheck.java
+android/src/com/minhaj/vox/OverlayDiag.java
+android/src/com/minhaj/vox/BubbleLogic.java
+android/src/com/minhaj/vox/NoteBubbleLogic.java
+android/src/com/minhaj/vox/HintGuard.java

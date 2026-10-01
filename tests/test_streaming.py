@@ -124,6 +124,15 @@ def test_silent_pieces_are_skipped_and_hallucinated_ones_dropped():
     assert text2 == ""
 
 
+def test_a_closing_thank_you_after_real_speech_is_kept():
+    answers = iter(["real words", "Thank you."])
+    s, text = run(lambda cfg, wav, context="": next(answers), tone(13) + silence(1) + tone(3))
+    assert text == "real words Thank you."   # only a recording with no earlier text can be a silence hallucination
+    answers = iter(["Thank you.", "Bye"])
+    s, text = run(lambda cfg, wav, context="": next(answers), tone(13) + silence(1) + tone(3))
+    assert text == ""   # nothing real before it: both are hallucinations
+
+
 def test_a_last_piece_that_is_only_a_blip_is_not_sent():
     stt = FakeStt()
     s, text = run(stt, tone(13) + silence(0.7) + tone(0.1))   # cut right after the pause; under 0.2 s is left
@@ -173,3 +182,22 @@ def test_transcribe_adds_the_context_to_the_end_of_the_prompt(monkeypatch):
     assert "prompt" not in seen["data"]
     core.transcribe({"api_key": "k", "dictionary": ["A" * 800]}, b"RIFF", "tail")
     assert len(seen["data"]["prompt"]) <= 600 and seen["data"]["prompt"].endswith("tail")
+
+
+# ------------------------------------------------------------------ piece_text
+def test_piece_text_sends_a_piece_with_the_end_of_the_context():
+    stt = FakeStt()
+    assert streaming.piece_text({}, tone(1), "x" * 300, stt) == "piece1"
+    assert stt.calls[0][1] == "x" * streaming.CONTEXT_CHARS
+
+
+def test_piece_text_skips_silence_and_hallucinations():
+    stt = FakeStt()
+    assert streaming.piece_text({}, silence(1), "", stt) == "" and stt.calls == []
+    assert streaming.piece_text({}, tone(1), "", lambda cfg, wav, context="": "Thank you.") == ""
+    assert streaming.piece_text({}, tone(1), "", lambda cfg, wav, context="": "Thank you.", drop_hallucination=False) == "Thank you."
+
+
+def test_piece_text_uses_the_real_transcribe_by_default(monkeypatch):
+    monkeypatch.setattr(core, "transcribe", lambda cfg, wav, context="": "from core")
+    assert streaming.piece_text({}, tone(1), "") == "from core"

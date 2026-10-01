@@ -36,7 +36,8 @@ final class ProfileMap {
 
     private static int kindOf(String field) {
         switch (field) {
-            case "user_context": return CONTEXT;
+            case "user_context":
+            case "my_cleanup_rules": return CONTEXT;   // text kept as it is, like About you
             case "dictionary":
             case "people": return LINES;
             case "cleanup": return FLAG;

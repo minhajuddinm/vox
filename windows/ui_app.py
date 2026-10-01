@@ -10,11 +10,14 @@ import pyperclip
 import webview
 
 import audio_devices
+import improve
 import meeting
 import notes
 import sync
+import timing
 import vcalendar
 import providers
+import session
 import vox_core as core
 
 log = logging.getLogger("vox.ui")
@@ -113,6 +116,20 @@ class Api:
                 return h["label"]
         return None
 
+    def set_note_hotkey(self, text):
+        """Saves the note shortcut as {"value", "label", "problem"}: the normalised text ("" is off) and its label,
+        or the reason it was refused (then nothing is saved and the value is empty)."""
+        hk, problem = session.parse_note_hotkey(text, core.load_config().get("hotkey"))
+        if not problem:
+            self.save_config({"note_hotkey": hk.text if hk else ""})
+        return {"value": hk.text if hk else "", "label": hk.label if hk else "", "problem": problem}
+
+    def note_hotkey_problem(self, text=None):
+        """Why the note shortcut (the saved one when `text` is None) cannot be used, or ''. Asked after the
+        dictation shortcut changes too: the engine ignores a note shortcut that holds it."""
+        cfg = core.load_config()
+        return session.parse_note_hotkey(cfg.get("note_hotkey") if text is None else text, cfg.get("hotkey"))[1]
+
     def check_key(self, key, base_url=None):
         """True/False when the server answers; None when it cannot be reached or the address is refused."""
         try:
@@ -133,6 +150,82 @@ class Api:
     def copy(self, text):
         pyperclip.copy(text)
         return True
+
+    def get_speed(self):
+        """The Speed card: medians per stage over the last 50 timed dictations, per model, and the last 10. Local data only."""
+        try:
+            return timing.speed_view(core.read_history())
+        except Exception:
+            log.exception("could not build the speed view")
+            return timing.speed_view([])
+
+    # ------------------------------------------------- Improve my cleanup
+    _proposal = None   # the last answer of a run; apply works on this, never on items sent by the page
+
+    def improve_state(self, days=None):
+        """The Improve my cleanup card before anything is sent (improve.preview): counts, model, server, confirm sentence,
+        applied versions. Local data only: nothing leaves this PC."""
+        cfg = core.load_config()
+        return improve.preview(cfg, core.read_history(), cfg.get("improve_days") if days is None else days, time.time())
+
+    def improve_run(self, days, model, count, chars):
+        """One run over the history of the last `days` days. `count` and `chars` are the numbers the person confirmed (the
+        sentence improve_state gave): without them, or when the history no longer matches them, nothing is sent.
+        {"ok", "error", "stale", "items", "findings"}; a run changes no setting except the model, range and last-run time."""
+        def fail(msg, stale=False):
+            return {"ok": False, "error": msg, "stale": stale, "items": [], "findings": []}
+
+        self._proposal = None
+        cfg, now = core.load_config(), time.time()
+        if not (type(count) is int and type(chars) is int and count > 0):
+            return fail("Press Run once and confirm what is sent first.")
+        problem = core.endpoint_error(cfg) or ("Add an API key for this server first." if core.key_missing(cfg) else "")
+        if problem:
+            return fail(problem)
+        days, pairs = improve.selection(core.read_history(), days, now)
+        if (len(pairs), improve.estimate_cost(pairs, "")["chars"]) != (count, chars):
+            return fail("Your history changed since the numbers were shown. They are updated: check them and run again.", True)
+        model = (model or "").strip() or improve.DEFAULT_MODEL
+        messages = improve.build_request(pairs, cfg.get("user_context"), core.dictionary_terms(cfg), cfg.get("my_cleanup_rules"))
+        try:
+            text = improve.ask(cfg, messages, model)
+        except core.ApiError as e:
+            return fail(providers.explain(e.code, "llm", str(e)[:160], via_relay=providers.uses_relay(cfg)))
+        except core.requests.RequestException as e:
+            log.warning("improve run failed: %s", e)
+            return fail(f"Could not reach the server: {type(e).__name__}")
+        self._proposal = proposal = improve.parse_proposal(text)
+        self.save_config({"improve_model": model, "improve_days": days, "improve_last_run": now})
+        return {"ok": True, "error": proposal.error, "stale": False, "items": proposal.items, "findings": proposal.findings}
+
+    def improve_apply(self, ids):
+        """Applies the accepted items of the last proposal (only those: About you suggestions are never applied) and keeps the
+        change as a version. {"ok", "applied", "versions"}; the proposal is used up once something was applied."""
+        proposal = self._proposal
+        if proposal is None:
+            return {"ok": False, "error": "There is no proposal to apply. Run once first."}
+        cfg = core.load_config()
+        new = improve.apply(proposal, ids if isinstance(ids, list) else [], cfg)
+        def learned(c):   # dictionary lines and rule lines
+            return len(c.get("dictionary") or []) + len([r for r in (c.get("my_cleanup_rules") or "").split("\n") if r.strip()])
+
+        applied = learned(new) - learned(cfg)
+        if applied:
+            self._proposal = None
+            self._save_learned(new)
+        return {"ok": True, "applied": applied, "versions": improve.versions_view(new)}
+
+    def improve_revert(self, index):
+        """Undoes the applied change `index` (from improve_state's versions) and every later one."""
+        cfg = core.load_config()
+        new = improve.revert(cfg, index)
+        if len(new["my_cleanup_rules_versions"]) == len(cfg.get("my_cleanup_rules_versions") or []):
+            return {"ok": False, "error": "That change is not in the list any more."}
+        self._save_learned(new)
+        return {"ok": True, "versions": improve.versions_view(new)}
+
+    def _save_learned(self, cfg):
+        self.save_config({k: cfg[k] for k in ("dictionary", "my_cleanup_rules", "my_cleanup_rules_versions")})
 
     def delete_history(self, t):
         core.write_history([h for h in core.read_history() if h.get("t") != t])
@@ -207,12 +300,18 @@ class Api:
         return self._engine("/sync/now", {})
 
     def sync_test(self, url, token):
-        """{"ok", "message"}: can this relay address and token be used?"""
+        """Test connection: can this relay address and token be used? {"ok", "reachable", "token_ok", "device_name",
+        "relay_version", "notes", "message"} (sync.relay_check); the same fields on a failure."""
         try:
             return sync.test_relay(url, token, sync.device_name(core.load_config()))
         except Exception as e:
             log.warning("relay test failed: %s", e)
-            return {"ok": False, "message": "The test could not run."}
+            return sync.relay_check(0, None, "", "The test could not run.")
+
+    def get_devices(self):
+        """{"ok", "error", "devices": [{"name", "this", "state", "ago"}]} for the Devices card: the devices that have used
+        the relay in the saved settings. A failure gives an empty list and the reason (sync.devices_for_ui)."""
+        return sync.devices_for_ui(core.load_config())
 
     def meeting_status(self):
         return self._engine("/meeting/status")

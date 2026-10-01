@@ -20,7 +20,7 @@ final class ProfileMerge {
 
     /** Settings that always travel (sync.PROFILE_FIELDS). Read-only, in the order of the Python tuple. */
     static final Set<String> SHARED_FIELDS = Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(
-            "user_context", "dictionary", "people", "default_style", "cleanup", "language")));
+            "user_context", "dictionary", "people", "default_style", "cleanup", "language", "my_cleanup_rules")));
 
     /**
      * Provider settings and API keys, which travel only when the user switched on relay sync of keys

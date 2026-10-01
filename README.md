@@ -51,7 +51,7 @@ Windows **Settings** → **Privacy & security** → **Microphone**:
 | What | How |
 |---|---|
 | Dictate | Click into any text box, **hold Ctrl + Win**, speak, **release** |
-| Hands-free (long dictation) | **Double-tap Ctrl + Win**, speak, press **Ctrl + Win** once to finish. **Esc** cancels |
+| Keep listening (long notes, or typing as you pause) | **Double-tap Ctrl + Win** and speak. It saves a note by default (Type needs the app you start in). **Double-tap** again, say the stop phrase or press **Esc** to end it and save |
 | Paste the last dictation again | **Ctrl + V**, if **Settings → Keep dictation on the clipboard** is on. If you switch to a different program before the text is pasted, Vox does not paste it: it copies it and says "Copied; the window changed", so press **Ctrl + V** where you want it |
 | Open the Vox window | Double-click the tray icon, or search **Vox** in the Start menu |
 
@@ -133,8 +133,9 @@ Logs for bug reports are in `%APPDATA%\Vox\vox.log` (type that into the File Exp
 
 - Vox has no analytics, no accounts and no server of its own. Nothing is sent to the developer.
 - Your audio goes to the speech server you chose in Settings (Groq by default, under your own key). The text of what you said, your "About you" text, dictionary, people and the name of the app you are typing into go to the cleanup server you chose. Spelling hints (dictionary and people) also go to the speech server.
-- If you turn on **Use my relay as the AI server** (Windows and Android), both go through your own relay instead. If you turn on **Sync voice notes with my relay**, the full text, raw transcript, tags and device name of your voice notes and your "About you", dictionary, people, default style, cleanup switch and language go to your relay. Provider settings and API keys go there only if you also turn on "Also share my provider settings and API keys" (off by default).
-- Long recordings on Windows are sent in pieces while you are still speaking.
+- If you turn on **Use my relay as the AI server** (Windows and Android), both go through your own relay instead. If you turn on **Sync voice notes with my relay**, the full text, raw transcript, tags and device name of your voice notes and your "About you", dictionary, people, default style, cleanup switch, language and learned cleanup rules go to your relay. Provider settings and API keys go there only if you also turn on "Also share my provider settings and API keys" (off by default).
+- Long recordings on Windows are sent in pieces while you are still speaking, and so is **keep listening** (Windows, double-tap the shortcut): its audio is written to `%APPDATA%\Vox\listen` while it runs and removed when it ends cleanly; after a failure or a crash it stays there, unencrypted, until you recover it or delete it.
+- **Improve my cleanup** (Windows, Settings) is the one feature that sends your saved dictations (what you said and what Vox typed, up to about 40,000 characters, with your About you text, dictionary and cleanup rules) to the cleanup server you chose, to suggest dictionary words and rules. It runs only when you press **Run once** and then **Send** after reading how much will be sent; nothing is applied until you tick it. The rules it learns also travel with the relay sync to your phone.
 - Settings, history and notes are stored on your PC in `%APPDATA%\Vox` (voice notes in `notes.db`) and `Documents\Vox Notes`. After pasting, Vox puts your earlier copied text back (a copied image or file is not restored) unless you turn on "Keep dictation on the clipboard" (off by default).
 - On Android the API key and the history are stored unencrypted on the phone. The relay stores the AI server keys in plain text in its `relay.json`.
 - Full policy: [minhajuddinm.github.io/vox/privacy.html](https://minhajuddinm.github.io/vox/privacy.html)
@@ -156,7 +157,7 @@ Logs for bug reports are in `%APPDATA%\Vox\vox.log` (type that into the File Exp
 1. **Add your free Groq key**: the same kind of key as on Windows (see [step 2](#2-get-your-free-groq-key-2-minutes)). You can use the same key on your phone and PC; they share its free limits.
 2. **Allow the microphone.**
 3. **Turn on the Vox bubble**: Settings → Accessibility → Downloaded apps (or Installed apps) → **Vox dictation bubble** → On.
-   - If it is greyed out or says **Restricted setting**: tap the switch once so Android shows the message, then open **Settings → Apps → Vox → ⋮ (top right) → Allow restricted settings**, confirm, and turn the switch on again. Android does this for every app installed outside the Play Store.
+   - If it is greyed out or says **Restricted setting**: tap the switch once so Android shows the message, then open **Settings → Apps → Vox → ⋮ (top right) → Allow restricted settings**, confirm, and turn the switch on again. Android does this for every app installed outside the Play Store. The same steps, the Play Protect "Install anyway" note and the adb way are in Vox, Settings, System, **Install help**.
 4. **Start the dictation service.** A small "Vox is ready" notification stays while it runs.
 5. Optional but recommended: Vox → Settings → **Battery: Unrestricted**, so Android does not close Vox in the background.
 

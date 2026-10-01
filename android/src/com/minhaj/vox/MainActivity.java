@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -14,6 +15,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
@@ -29,6 +31,7 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -73,6 +76,17 @@ public class MainActivity extends Activity {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 2);
         }
         NoteEntry.applySettings(this);   // brings the "Record note" notification back (Android 14 lets users swipe it away)
+    }
+
+    /** True when the accessibility service is switched on in Android's settings (it may still not be running). */
+    private boolean a11yEnabledInSettings() {
+        String list = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        if (list == null) return false;
+        ComponentName me = new ComponentName(this, VoxAccessibilityService.class);
+        for (String part : list.split(":")) {
+            if (part.equalsIgnoreCase(me.flattenToString()) || part.equalsIgnoreCase(me.flattenToShortString())) return true;
+        }
+        return false;
     }
 
     private boolean isDark() {
@@ -132,8 +146,10 @@ public class MainActivity extends Activity {
                 cfg.put("language", prefs.language());
                 cfg.put("cleanup", prefs.cleanupEnabled());
                 cfg.put("cleanup_min_words", ApiClient.cleanMinWords(prefs.cleanupMinWords()));
+                cfg.put("cleanup_strength", prefs.cleanupStrength());
                 cfg.put("keep_history", prefs.keepHistory());
                 cfg.put("only_typing", prefs.onlyWhenTyping());
+                cfg.put("always_show_bubble", prefs.alwaysShowBubble());
                 cfg.put("note_bubble", prefs.noteBubble());
                 cfg.put("note_notification", prefs.noteNotification());
                 cfg.put("default_style", prefs.defaultStyle());
@@ -171,6 +187,20 @@ public class MainActivity extends Activity {
             }
         }
 
+        /** The Speed card (Home): medians per stage over the last 50 timed dictations, per model, and the last 10. Local data only. */
+        @SuppressWarnings("unchecked")
+        @JavascriptInterface
+        public String getSpeed() {
+            try {
+                List<Object> newestFirst = (List<Object>) PlainJson.parse(prefs.history().toString());
+                List<Object> oldestFirst = new ArrayList<>(newestFirst);   // the history is kept newest first, Timing.speedView wants oldest first
+                Collections.reverse(oldestFirst);
+                return PlainJson.stringify(Timing.speedView(oldestFirst, 50, 10));
+            } catch (Exception e) {
+                return PlainJson.stringify(Timing.speedView(new ArrayList<Object>(), 50, 10));
+            }
+        }
+
         @JavascriptInterface
         public void save(String json) {
             try {
@@ -183,8 +213,10 @@ public class MainActivity extends Activity {
                 if (c.has("language")) e.putString("language", c.getString("language"));
                 if (c.has("cleanup")) e.putBoolean("cleanup", c.getBoolean("cleanup"));
                 if (c.has("cleanup_min_words")) e.putString("cleanup_min_words", String.valueOf(ApiClient.cleanMinWords(c.getString("cleanup_min_words"))));
+                if (c.has("cleanup_strength")) e.putString("cleanup_strength", Fidelity.cleanStrength(c.getString("cleanup_strength")));
                 if (c.has("keep_history")) e.putBoolean("keep_history", c.getBoolean("keep_history"));
                 if (c.has("only_typing")) e.putBoolean("only_typing", c.getBoolean("only_typing"));
+                if (c.has("always_show_bubble")) e.putBoolean("always_show_bubble", c.getBoolean("always_show_bubble"));
                 if (c.has("note_bubble")) e.putBoolean("note_bubble", c.getBoolean("note_bubble"));
                 if (c.has("note_notification")) e.putBoolean("note_notification", c.getBoolean("note_notification"));
                 if (c.has("default_style")) e.putString("default_style", c.getString("default_style"));
@@ -244,6 +276,37 @@ public class MainActivity extends Activity {
                 try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); }
                 catch (Exception e) { openAppInfo(); }
             });
+        }
+
+        /**
+         * The Settings "Bubble diagnostics" card: {connected, service, battery_ok, battery, events[], report}. {@code events} are
+         * the last 20 lines of the on-phone overlay log, newest first; {@code report} is the text the Copy button copies.
+         */
+        @JavascriptInterface
+        public String getDiagnostics() {
+            try {
+                boolean connected = VoxAccessibilityService.instance != null;
+                String service = OverlayDiag.serviceLine(a11yEnabledInSettings(), connected);
+                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                boolean batteryOk = pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+                String battery = OverlayDiag.batteryLine(batteryOk);
+                List<OverlayDiag.Event> events = OverlayDiag.shared(new File(getFilesDir(), OverlayDiag.FILE_NAME)).last(20);
+                TimeZone zone = TimeZone.getDefault();
+                JSONArray lines = new JSONArray();
+                for (OverlayDiag.Event e : events) lines.put(e.text(zone));
+                JSONObject o = new JSONObject();
+                o.put("connected", connected);
+                o.put("service", service);
+                o.put("battery_ok", batteryOk);
+                o.put("battery", battery);
+                o.put("events", lines);
+                o.put("report", OverlayDiag.report("Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")",
+                        service, battery, events, zone));
+                return o.toString();
+            } catch (Exception e) {
+                Log.w("vox", "diagnostics failed: " + e.getClass().getSimpleName());
+                return "{}";
+            }
         }
 
         @JavascriptInterface
@@ -554,14 +617,52 @@ public class MainActivity extends Activity {
             SyncWorker.syncNow(MainActivity.this, r -> answerSync(callback, r.ok(), r.ok() ? "Synced." : r.error));
         }
 
-        /** Tries the saved relay address and token and answers callback("{ok, message}"). */
+        /**
+         * Test connection: tries the saved relay address and token and answers
+         * callback("{ok, reachable, token_ok, device_name, relay_version, notes, message}") (the same fields as the Windows
+         * app's sync_test, from RelayCheck).
+         */
         @JavascriptInterface
         public void syncTest(String callback) {
             final String url = prefs.relayUrl(), token = prefs.relayToken(), device = prefs.deviceName();
             new Thread(() -> {
                 RelayClient.Check c = RelayClient.check(url, token, device);
-                answerSync(callback, c.ok, c.message);
+                JSONObject res = new JSONObject();
+                put(res, "ok", c.ok);
+                put(res, "reachable", c.reachable);
+                put(res, "token_ok", c.tokenOk);
+                put(res, "device_name", c.deviceName);
+                put(res, "relay_version", c.relayVersion);
+                put(res, "notes", c.notes);
+                put(res, "message", c.message);
+                js(callback + "(" + JSONObject.quote(res.toString()) + ")");
             }, "vox-sync-test").start();
+        }
+
+        /**
+         * The devices that have used the saved relay, answered as callback("{ok, error, devices: [{name, this, state, ago}]}")
+         * (the same answer as the Windows app's get_devices). A failure is an empty list and the reason in {@code error}.
+         */
+        @JavascriptInterface
+        public void getDevices(String callback) {
+            final String url = prefs.relayUrl(), token = prefs.relayToken(), device = prefs.deviceName();
+            new Thread(() -> {
+                RelayClient.DeviceList l = RelayClient.listDevices(url, token, device, System.currentTimeMillis() / 1000.0);
+                JSONObject res = new JSONObject();
+                JSONArray rows = new JSONArray();
+                for (DevicesView.Row r : l.rows) {
+                    JSONObject o = new JSONObject();
+                    put(o, "name", r.name);
+                    put(o, "this", r.thisDevice);
+                    put(o, "state", r.state);
+                    put(o, "ago", r.ago);
+                    rows.put(o);
+                }
+                put(res, "ok", l.ok);
+                put(res, "error", l.error);
+                put(res, "devices", rows);
+                js(callback + "(" + JSONObject.quote(res.toString()) + ")");
+            }, "vox-devices").start();
         }
 
         private void answerSync(String callback, boolean ok, String message) {

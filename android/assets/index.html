@@ -35,6 +35,27 @@
 .entry { border-bottom: 1px solid var(--line); }
 .entry:last-child { border-bottom: 0; }
 .entry .txt { white-space: pre-wrap; word-break: break-word; }
+.srow .sv small { color: var(--muted); font-weight: 400; font-size: .85em; }
+.srow.big .sl, .srow.big .sv { color: var(--accent); font-weight: 650; }
+.sub-h { color: var(--muted); font-size: 12px; text-transform: uppercase; margin: 14px 0 2px; }
+.drow { display: flex; gap: 12px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.drow:last-child { border-bottom: 0; }
+.drow .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted); opacity: .5; }
+.drow.active .dot { background: var(--ok); opacity: 1; }
+.drow.recent .dot { background: var(--accent); opacity: 1; }
+.drow .dn { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 550; }
+.drow.old .dn { color: var(--muted); font-weight: 400; }
+.drow .da { flex: none; color: var(--muted); font-size: 13px; }
+.badge { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; vertical-align: 1px; }
+.dempty { color: var(--muted); padding: 6px 0; }
+.rsteps summary { cursor: pointer; font-weight: 600; }
+.rs-body { padding-top: 10px; }
+.rs-intro, .rs-note { color: var(--muted); margin: 0 0 10px; }
+.rs-list { margin: 12px 0; padding-left: 22px; }
+.rs-list li { margin: 0 0 16px; padding-left: 4px; }
+.rs-t { margin-bottom: 6px; }
+.rs-cmd { margin: 6px 0; padding: 9px 11px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: 12.5px/1.55 ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+.rs-copy { margin-top: 2px; }
 /* ui-shared:css end */
 :root { --line:#E6E6E2; --bad:#D93025; --warn:#B26A00; }
 .dark { --line:#2C2C31; --bad:#FF6B5E; --warn:#F5B83D; }
@@ -116,6 +137,12 @@ nav button.on .pill { background:var(--accent-soft); }
   <div class="card" id="status-card">
     <div id="status-rows"></div>
     <button class="btn ghost full" id="status-test">Test connection</button>
+  </div>
+  <h2>Speed</h2>
+  <div class="card" id="speed-card">
+    <div class="status" style="margin:0 0 6px;color:var(--muted)">Measured on this phone and kept only here. Nothing is sent anywhere.</div>
+    <div id="speed-rows"></div>
+    <button class="btn ghost full" id="speed-refresh">Refresh</button>
   </div>
   <h2>Try it</h2>
   <textarea id="try" rows="3" placeholder="Tap here, then tap the Vox bubble and speak"></textarea>
@@ -212,6 +239,7 @@ nav button.on .pill { background:var(--accent-soft); }
       <select class="inline" id="language"><option value="">Auto</option><option value="en">English</option><option value="ur">Urdu</option><option value="hi">Hindi</option><option value="ar">Arabic</option><option value="fr">French</option><option value="es">Spanish</option></select></div>
     <div class="item"><div class="grow"><div class="t">AI cleanup</div><div class="d">Removes fillers, fixes punctuation, applies corrections</div></div><label class="switch"><input type="checkbox" id="cleanup"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases are typed as spoken, which is faster. 1 cleans up everything (1 to 20)</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" inputmode="numeric" style="width:76px"></div>
+    <div class="item"><div class="grow"><div class="t">Cleanup strength</div><div class="d">Light keeps every word you said and only fixes punctuation, capitals, spelling and paragraphs. Standard also removes fillers and false starts. If the cleanup lost words, Vox types them as spoken</div></div><select class="inline" id="cleanup-strength"><option value="light">Light</option><option value="standard">Standard</option></select></div>
   </div>
 
   <h2>Privacy</h2>
@@ -228,6 +256,7 @@ nav button.on .pill { background:var(--accent-soft); }
     <input type="password" id="relay-token" placeholder="paste the relay token" autocomplete="off" style="margin-top:4px">
     <div class="row" style="margin-top:10px"><button class="btn ghost" id="relay-test" style="flex:1">Test connection</button></div>
     <div class="status" id="relay-status"></div>
+    <div id="relay-check"></div>
     <div class="note">Stored on this phone, not encrypted. Plain http works only for this phone, your local network and Tailscale.</div>
     <label class="note" style="display:block;margin:14px 0 0">This phone's name</label>
     <input type="text" id="device-name" placeholder="e.g. Pixel 7" autocomplete="off" style="margin-top:4px">
@@ -237,15 +266,59 @@ nav button.on .pill { background:var(--accent-soft); }
     <div class="item"><div class="grow"><div class="t">Also share my provider settings and API keys</div><div class="d">Off by default. When on, the AI provider, models and API keys are copied to your other devices through the relay, so anyone with the relay token can read them. Turning this off here removes this device's keys from the relay once. Any other device that still shares keys will put them back, so turn it off on every device.</div></div><label class="switch"><input type="checkbox" id="relay-keys"><span></span></label></div>
     <div class="item" id="open-about"><div class="grow"><div class="t">About you</div><div class="d">Added to every cleanup request, so it goes to your cleanup server. While sync is on it is also copied to your relay. Edit it on the Dictionary tab</div></div><span style="color:var(--muted)">›</span></div>
   </div>
+  <div class="card" id="relay-help-card" style="margin-top:10px">
+<!-- ui-shared:steps begin (generated by tools/sync_ui.py from ui-shared/: edit there, not here) -->
+<details class="rsteps" id="relay-steps">
+<summary>How to set up the relay</summary>
+<div class="rs-body">
+<p class="rs-intro">The relay is a small program that keeps your notes and settings in one place for your phone and PCs. Run it on something that is always on, such as a Raspberry Pi. Tailscale must be installed and signed in on it and on this device, with HTTPS turned on for your tailnet (Tailscale admin console, DNS page).</p>
+<ol class="rs-list"><li><div class="rs-t">On the Pi, put relay.py (from the relay folder of Vox) where the service will run it.</div><pre class="rs-cmd">sudo mkdir -p /opt/vox-relay
+sudo cp relay.py /opt/vox-relay/</pre><button type="button" class="btn ghost rs-copy" data-copy="sudo mkdir -p /opt/vox-relay&#10;sudo cp relay.py /opt/vox-relay/">Copy commands</button></li><li><div class="rs-t">Try it once by hand. It prints where it listens. Stop it with Ctrl+C.</div><pre class="rs-cmd">python3 /opt/vox-relay/relay.py --data-dir /tmp/vox-relay-test --show-token</pre><button type="button" class="btn ghost rs-copy" data-copy="python3 /opt/vox-relay/relay.py --data-dir /tmp/vox-relay-test --show-token">Copy command</button></li><li><div class="rs-t">Install it as a service, so it starts at boot and restarts if it stops (vox-relay.service is next to relay.py).</div><pre class="rs-cmd">sudo cp vox-relay.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now vox-relay</pre><button type="button" class="btn ghost rs-copy" data-copy="sudo cp vox-relay.service /etc/systemd/system/&#10;sudo systemctl daemon-reload&#10;sudo systemctl enable --now vox-relay">Copy commands</button></li><li><div class="rs-t">Read the token. Keep it private: anyone with the token and a way to reach the relay can read your notes.</div><pre class="rs-cmd">sudo cat /var/lib/vox-relay/relay.json</pre><button type="button" class="btn ghost rs-copy" data-copy="sudo cat /var/lib/vox-relay/relay.json">Copy command</button></li><li><div class="rs-t">Publish it to your tailnet. This is what adds HTTPS. Never use tailscale funnel, which puts it on the open internet. The second command shows the address.</div><pre class="rs-cmd">sudo tailscale serve --bg 8765
+tailscale serve status</pre><button type="button" class="btn ghost rs-copy" data-copy="sudo tailscale serve --bg 8765&#10;tailscale serve status">Copy commands</button></li><li><div class="rs-t">Enter that address (like https://yuvipi.your-tailnet.ts.net) and the token in the fields above, then press Test connection. It tells you whether the relay is reachable, whether the token works, and the name this device shows under.</div></li></ol>
+<p class="rs-note">No Raspberry Pi? A Windows PC can run it: in the Vox tray menu tick Run relay on this PC, then run tailscale serve --bg 8765 in a terminal. It only works while that PC is on and Vox is running.</p>
+</div>
+</details>
+<!-- ui-shared:steps end -->
+  </div>
+  <div class="card list" id="devices-card" style="margin-top:10px">
+    <div class="item"><div class="grow"><div class="t">Devices on my relay</div><div class="d">Phones and PCs that have used your relay, newest first, as the relay itself recorded them. Needs the relay address and token above; the only thing sent from here is this phone's name</div></div><button class="btn ghost" id="devices-refresh">Refresh</button></div>
+    <div id="devices-list" style="padding:4px 16px 12px"></div>
+  </div>
 
   <h2>System</h2>
   <div class="card list">
     <div class="item"><div class="grow"><div class="t">Dictation service</div><div class="d">Keeps the mic ready for the bubble</div></div><label class="switch"><input type="checkbox" id="service"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Bubble only while typing</div><div class="d">Hide the bubble when no text box is selected</div></div><label class="switch"><input type="checkbox" id="only-typing"><span></span></label></div>
+    <div class="item"><div class="grow"><div class="t">Always show the bubble</div><div class="d">Keep the mic bubble on screen whether or not a text box is selected. Overrides the setting above. Tapping it with no text box selected copies the text to the clipboard</div></div><label class="switch"><input type="checkbox" id="always-show"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Voice note bubble</div><div class="d">A bubble that stays on screen, drawn by the accessibility service. Tap it to start or finish a note. Needs no extra permission</div></div><label class="switch"><input type="checkbox" id="note-bubble"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Record note notification</div><div class="d">An ongoing notification with a Record note button. Needs no extra permission</div></div><label class="switch"><input type="checkbox" id="note-notification"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Quick Settings tile</div><div class="d">Add the Voice note tile from the system tile editor: swipe down twice, tap the pencil, drag Voice note in</div></div></div>
-    <div class="item" id="battery"><div class="grow"><div class="t">Battery: Unrestricted</div><div class="d">Stops Android from closing Vox. Tap, find Vox, allow.</div></div><span style="color:var(--muted)">›</span></div>
+    <div class="item" id="battery"><div class="grow"><div class="t" id="battery-t">Battery: Unrestricted</div><div class="d">Stops Android from closing Vox. Tap, find Vox, allow.</div></div><span style="color:var(--muted)">›</span></div>
+  </div>
+  <div class="card" id="diag-card" style="margin-top:10px">
+    <div class="t" style="font-weight:600">Bubble diagnostics</div>
+    <div class="d" style="color:var(--muted);font-size:13px">If the bubble keeps disappearing, this shows why. It stays on this phone; copy it only if you want to share it</div>
+    <div class="status" id="diag-service" style="margin-top:8px"></div>
+    <div class="status" id="diag-battery"></div>
+    <div id="diag-battery-prompt" hidden style="margin-top:8px"><div class="note" style="margin:0 0 6px">Android may close Vox in the background, and then the bubble disappears. Choose Vox in the list and set it to <b>Not optimised</b> (the wording differs by phone: Unrestricted, Don't optimise or Allow).</div><button class="btn full" id="diag-battery-fix">Open battery settings</button></div>
+    <div id="diag-events" style="margin-top:8px;font-size:12px;line-height:1.5;word-break:break-word"></div>
+    <div class="row" style="margin-top:10px;gap:8px"><button class="btn ghost" id="diag-refresh" style="flex:1">Refresh</button><button class="btn" id="diag-copy" style="flex:1">Copy report</button></div>
+  </div>
+  <div class="card" style="margin-top:10px">
+<details class="rsteps" id="install-help">
+<summary>Install help: warnings and Restricted setting</summary>
+<div class="rs-body">
+<p class="rs-intro">Vox is installed from a file, not from Google Play, and it types for you through an accessibility service. Android and Play Protect are careful about exactly that, so one or two warnings are normal. Nothing in the app can switch them off.</p>
+<ol class="rs-list">
+<li><div class="rs-t"><b>"Restricted setting" or the Vox switch is greyed out</b> (Android 13 and newer). Open Settings, Accessibility, Vox dictation bubble and tap the switch once so Android shows its message. Then:</div><button type="button" class="btn ghost" id="install-help-appinfo">Open App info</button><div class="rs-t" style="margin-top:6px">On that screen tap the three dots (top right), then <b>Allow restricted settings</b>, confirm with your PIN or fingerprint, and turn the switch on. The menu entry only appears after the first try.</div></li>
+<li><div class="rs-t"><b>Play Protect says "App blocked" or "Unknown app"</b> while installing. Tap <b>More details</b>, then <b>Install anyway</b> (or <b>Scan app</b> first). Play Protect does not know Vox, and apps that use accessibility and come from a browser or file manager are treated strictly. Your phone may offer no way past it; then use the next step.</div></li>
+<li><div class="rs-t"><b>Install from a computer instead.</b> Turn on USB debugging (Settings, Developer options), connect the phone and run, from the folder with the APK:</div><pre class="rs-cmd">adb install -r Vox.apk</pre><button type="button" class="btn ghost rs-copy" data-copy="adb install -r Vox.apk">Copy command</button><div class="rs-t" style="margin-top:8px">Optional, only if Allow restricted settings never shows up (it may do nothing on your phone):</div><pre class="rs-cmd">adb shell cmd appops set com.minhaj.vox ACCESS_RESTRICTED_SETTINGS allow</pre><button type="button" class="btn ghost rs-copy" data-copy="adb shell cmd appops set com.minhaj.vox ACCESS_RESTRICTED_SETTINGS allow">Copy command</button></li>
+</ol>
+<p class="rs-note">A sideloaded app cannot fully avoid these warnings. The ways that remove them are Google Play (closed testing) or an app store such as F-Droid. Update with the same kind of file every time: Android only updates an app signed with the same key.</p>
+</div>
+</details>
   </div>
   <button class="btn full danger" id="clear">Clear history</button>
   <p class="note" style="text-align:center;margin-top:18px" id="about-vox"></p>
@@ -305,6 +378,54 @@ function statusRows(st, cfg, sync, test) {
   ];
 }
 const statusHtml = (rows) => rows.map(([a, b, k]) => `<div class="srow"><span class="sl">${esc(a)}</span><span class="sv ${k}">${esc(b)}</span></div>`).join("");
+// Speed card (Home). Milliseconds as text, the same rule as timing.format_ms / Timing.formatMs: one decimal from 1000 ms, halves up.
+function fmtMs(ms) { ms = Math.max(0, Math.round(+ms || 0)); if (ms < 1000) return ms + " ms"; const t = Math.floor((ms + 50) / 100); return Math.floor(t / 10) + "." + (t % 10) + " s"; }
+// v = what the bridge gives (timing.speed_view / Timing.speedView): {count, biggest, stages: {stage: {median, p90}}, models: [...], last: [...]}.
+// Only the stages the app can work on are listed (the time spent speaking is not); the biggest one is marked. appLabel turns a stored app into text.
+const SPEED_STAGES = [["start", "Waiting for the microphone"], ["stt", "Speech to text"], ["llm", "Cleanup"], ["insert", "Typing it in"], ["total", "Total, after you stop"]];
+function speedHtml(v, appLabel) {
+  appLabel = appLabel || ((a) => String(a || "").replace(/\.exe$/i, ""));
+  if (!v || !v.count) return `<div class="srow"><span class="sl">No timed dictations yet. Dictate something and the numbers appear here.</span></div>`;
+  const ms = (x) => x ? fmtMs(x) : "–";
+  let html = `<div class="srow"><span class="sl">Median of your last ${v.count} dictation${v.count === 1 ? "" : "s"}</span><span class="sv dim">slowest 1 in 10</span></div>`;
+  for (const [k, label] of SPEED_STAGES) {
+    const s = (v.stages || {})[k] || { median: 0, p90: 0 };
+    html += `<div class="srow${k === v.biggest ? " big" : ""}"><span class="sl">${esc(label)}${k === v.biggest ? " (the biggest)" : ""}</span><span class="sv">${ms(s.median)} <small>${ms(s.p90)}</small></span></div>`;
+  }
+  if ((v.models || []).length) {
+    html += `<div class="sub-h">By model</div>`;
+    for (const m of v.models) {
+      html += `<div class="srow"><span class="sl">${esc(m.stt_model || "unknown")} + ${esc(m.llm_model || "unknown")}</span><span class="sv">${ms(m.total)} <small>speech ${ms(m.stt)}, cleanup ${ms(m.llm)}, ${m.count} dictation${m.count === 1 ? "" : "s"}</small></span></div>`;
+    }
+  }
+  if ((v.last || []).length) {
+    html += `<div class="sub-h">Last ${v.last.length}</div>`;
+    for (const d of v.last) {
+      const st = d.stages || {}, app = d.app ? " in " + appLabel(d.app) : "";
+      html += `<div class="srow"><span class="sl">${esc(agoText(d.t))}${esc(app)}</span><span class="sv">${ms(st.total)} <small>speech ${ms(st.stt)}, cleanup ${ms(st.llm)}</small></span></div>`;
+    }
+  }
+  return html;
+}
+// The Devices card's list, from the bridge's answer {ok, error, devices: [{name, this, state, ago}]} (windows/sync.py
+// devices_for_ui; Android: MainActivity.getDevices). A failure shows its reason; nothing but those four fields is drawn.
+function devicesHtml(res) {
+  if (!res || !res.ok) return `<div class="status bad">${esc((res && res.error) || "The device list could not be read.")}</div>`;
+  const rows = res.devices || [];
+  if (!rows.length) return '<div class="dempty">No device has synced yet</div>';
+  return rows.map(d => `<div class="drow ${d.state === "active" || d.state === "recent" ? d.state : "old"}"><span class="dot"></span><span class="dn">${esc(d.name)}${d.this ? '<span class="badge">this device</span>' : ""}</span><span class="da">${esc(d.ago)}</span></div>`).join("");
+}
+// Rows under the relay's Test connection button, from the bridge's answer {ok, reachable, token_ok, device_name,
+// relay_version, notes, message} (windows/sync.py relay_check; Android: RelayClient.check through MainActivity.syncTest).
+// Each row is [label, text, kind], drawn with statusHtml. An answer without the fields (an old one) adds no rows; the
+// answer's message is shown by the page as before.
+function relayCheckRows(r) {
+  if (!r || typeof r.reachable !== "boolean") return [];
+  const rows = [["Relay", r.reachable ? "Reachable" + (r.relay_version ? ", version " + r.relay_version : "") : "Not reachable", r.reachable ? "ok" : "bad"],
+    ["Token", r.token_ok ? "Accepted" : r.reachable ? "Refused" : "Not checked", r.token_ok ? "ok" : r.reachable ? "bad" : "dim"]];
+  if (r.ok && r.device_name) rows.push(["This device", r.device_name, ""]);
+  return rows;
+}
 // ui-shared:js end
 // Browser preview only: a few voice notes kept in memory, and the bridge methods that work on them.
 function previewNotes() {
@@ -338,13 +459,14 @@ function previewNotes() {
     noteStatus: () => JSON.stringify({ recording: rec, busy }),
     syncStatus: () => JSON.stringify({ enabled: !!(S && S.config.relay_sync), running: false, last_run: 0, last_ok: 0, error: "Relay sync is not built into this version of the app yet.", pushed: 0, pulled: 0 }),
     syncNow: (cb) => setTimeout(() => window[cb](JSON.stringify({ ok: false, message: "Preview only" })), 300),
-    syncTest: (cb) => setTimeout(() => window[cb](JSON.stringify({ ok: false, message: "Relay sync is not built into this version of the app yet." })), 300),
+    syncTest: (cb) => setTimeout(() => window[cb](JSON.stringify({ ok: true, reachable: true, token_ok: true, device_name: "Preview phone", relay_version: "0.2", notes: 3, message: "Connected. The relay holds 3 notes." })), 300),
+    getDevices: (cb) => setTimeout(() => window[cb](JSON.stringify({ ok: true, error: "", devices: [{ name: "Preview phone", this: true, state: "active", ago: "just now" }, { name: "Laptop", this: false, state: "recent", ago: "3 h ago" }, { name: "Old PC", this: false, state: "old", ago: "2 days ago" }] })), 300),
   };
 }
 const V = window.Vox || {   // browser preview fallback
-  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, relay_proxy: false, device_name: "", note_bubble: false, note_notification: false }, status: { notes: 0, unsent: false }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
+  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, always_show_bubble: false, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, relay_proxy: false, device_name: "", note_bubble: false, note_notification: false }, status: { notes: 0, unsent: false }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
   ...previewNotes(),
-  save(){}, requestMic(){}, openAccessibility(){}, openAppInfo(){}, openBattery(){}, setService(){}, testKey(k, u, cb){ setTimeout(() => window[cb]("ok"), 300); }, listModels(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ models: [], error: "Preview only" })), 200); }, testRole(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ ok: true, message: "Preview only" })), 200); }, endpointProblem: () => "", suggestCorrections: (a, b) => JSON.stringify(a !== b ? [["vox", "Vox"]] : []), copy(){}, deleteHistory(){}, clearHistory(){}, openUrl(){}, toast(){}, apps: () => "[]", appLabel: (p) => p
+  save(){}, requestMic(){}, openAccessibility(){}, openAppInfo(){}, openBattery(){}, setService(){}, testKey(k, u, cb){ setTimeout(() => window[cb]("ok"), 300); }, listModels(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ models: [], error: "Preview only" })), 200); }, testRole(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ ok: true, message: "Preview only" })), 200); }, endpointProblem: () => "", suggestCorrections: (a, b) => JSON.stringify(a !== b ? [["vox", "Vox"]] : []), copy(){}, deleteHistory(){}, clearHistory(){}, openUrl(){}, toast(){}, apps: () => "[]", appLabel: (p) => p, getSpeed: () => JSON.stringify({ count: 0, biggest: "", stages: {}, models: [], last: [] })
 };
 const TITLES = { home: ["Vox", ""], notes: ["Voice notes", ""], dict: ["Dictionary", ""], styles: ["Styles", ""], settings: ["Settings", ""] };
 const GROQ_URL = "https://api.groq.com/openai/v1";
@@ -373,6 +495,7 @@ function go(p) {
   $("title").textContent = TITLES[p][0];
   window.scrollTo(0, 0);
   render();
+  if (p === "settings") loadDevices();
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => go(b.dataset.p));
 window.voxBack = () => { if ($("sheet").classList.contains("on")) { closeSheet(); return true; } if (PAGE !== "home") { go("home"); return true; } return false; };
@@ -382,7 +505,7 @@ function setupSteps() {
   return [
     { done: S.mic, t: "Allow the microphone", d: "So Vox can hear you.", btn: "Allow", act: () => V.requestMic() },
     { done: S.a11y, t: "Turn on the Vox bubble", d: "Settings → Accessibility → Downloaded apps → Vox dictation bubble → On.", btn: "Open", act: () => V.openAccessibility(),
-      extra: '<div class="note">Greyed out or "Restricted setting"? Open <a href="#" id="appinfo">App info</a>, tap ⋮ (top right) → <b>Allow restricted settings</b>, then try again.</div>' },
+      extra: '<div class="note">Greyed out or "Restricted setting"? Open <a href="#" id="appinfo">App info</a>, tap ⋮ (top right) → <b>Allow restricted settings</b>, then try again. Blocked while installing? <a href="#" id="installhelp">Install help</a>.</div>' },
     { done: !!S.config.api_key || !needsKey() || viaRelay(), t: "Choose your AI provider", d: "Where speech and cleanup run: Groq, OpenAI, OpenRouter, Together, Mistral or a server of your own. Pick one and paste its key if it needs one.", btn: "Choose", act: () => { go("settings"); setTimeout(() => $("provider").focus(), 200); } },
   ];
 }
@@ -400,6 +523,12 @@ function renderStatus() {
   if (S.config.relay_sync) { try { sync = JSON.parse(V.syncStatus()); } catch (e) { sync = null; } }
   $("status-rows").innerHTML = statusHtml(statusRows(statusData(), S.config, sync, LASTTEST));
 }
+function renderSpeed() {   // local data only: the timings kept with each dictation in the history
+  let v = null;
+  try { v = JSON.parse(V.getSpeed()); } catch (e) { v = null; }
+  $("speed-rows").innerHTML = speedHtml(v, (a) => V.appLabel(a));
+}
+$("speed-refresh").onclick = renderSpeed;
 function homeTestDone(role, json) {
   try { HOMETEST[role] = JSON.parse(json); } catch (e) { HOMETEST[role] = { ok: false, message: "No answer" }; }
   if (!HOMETEST.stt || !HOMETEST.llm) return;
@@ -423,6 +552,7 @@ function renderHome() {
        ${s.done ? "" : `<button class="btn" data-step="${i}">${s.btn}</button>`}</div>`).join("") + "</div>";
     $("setup").querySelectorAll("[data-step]").forEach(b => b.onclick = () => steps[+b.dataset.step].act());
     const a = $("appinfo"); if (a) a.onclick = (e) => { e.preventDefault(); V.openAppInfo(); };
+    const h = $("installhelp"); if (h) h.onclick = (e) => { e.preventDefault(); go("settings"); $("install-help").open = true; setTimeout(() => $("install-help").scrollIntoView(), 50); };
     $("ready").innerHTML = "";
   } else {
     $("setup").innerHTML = "";
@@ -430,6 +560,7 @@ function renderHome() {
       <div><b>Ready.</b> Tap any text box, then tap the bubble, speak, and tap again. Long-press the bubble to cancel.</div></div>`;
   }
   renderStatus();
+  renderSpeed();
   renderHistory();
 }
 function renderHistory() {
@@ -441,8 +572,8 @@ function renderHistory() {
   items.slice(0, 200).forEach(e => {
     const d = new Date(e.t * 1000), ds = d.toDateString();
     if (ds !== day) { if (day) html += "</div>"; day = ds; html += `<div class="day">${ds === today ? "Today" : ds === yest ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</div><div class="card list">`; }
-    html += `<div class="entry"><div class="txt">${esc(e.text || e.clean)}</div><div data-fixbox="${e.t}"></div><div class="meta"><span class="grow">${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${e.app ? " · " + esc(e.app) : ""}</span>
-      <button class="ib" data-fix="${e.t}" title="Fix a word Vox got wrong">${ICON_EDIT}</button><button class="ib" data-copy="${e.t}">${ICON_COPY}</button><button class="ib" data-del="${e.t}">${ICON_DEL}</button></div></div>`;
+    html += `<div class="entry"><div class="txt">${esc(e.text || e.clean)}</div><div data-fixbox="${e.t}"></div><div class="meta"><span class="grow">${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${e.app ? " · " + esc(e.app) : ""}${e.fidelity_fallback ? " · cleanup rejected, your words as spoken" : ""}</span>
+      ${e.raw && e.raw !== e.text ? `<button class="ib" style="font:inherit;font-size:12px;padding:6px 8px" title="Copy the words as spoken, before any cleanup" data-raw="${e.t}">Use raw</button>` : ""}<button class="ib" data-fix="${e.t}" title="Fix a word Vox got wrong">${ICON_EDIT}</button><button class="ib" data-copy="${e.t}">${ICON_COPY}</button><button class="ib" data-del="${e.t}">${ICON_DEL}</button></div></div>`;
   });
   $("history").innerHTML = html + "</div>";
 }
@@ -480,8 +611,9 @@ $("history").onclick = (ev) => {
   const f = ev.target.closest("[data-fix]"), l = ev.target.closest("[data-learn]");
   if (f) return openFix(f.dataset.fix);
   if (l) return learnFix(l.dataset.learn);
-  const c = ev.target.closest("[data-copy]"), d = ev.target.closest("[data-del]");
+  const c = ev.target.closest("[data-copy]"), d = ev.target.closest("[data-del]"), r = ev.target.closest("[data-raw]");
   if (c) { const e = S.history.find(x => String(x.t) === c.dataset.copy); V.copy(e.text || e.clean); toast("Copied"); }
+  if (r) { const e = S.history.find(x => String(x.t) === r.dataset.raw); V.copy(e.raw); toast("Copied the words as spoken"); }
   if (d) { V.deleteHistory(Number(d.dataset.del)); S.history = S.history.filter(x => String(x.t) !== d.dataset.del); renderHome(); }
 };
 
@@ -635,11 +767,30 @@ function renderSettings() {
   const c = S.config;
   renderProvider();
   $("cleanup").checked = c.cleanup !== false; $("only-typing").checked = c.only_typing !== false;
+  $("always-show").checked = !!c.always_show_bubble;
   $("cleanup-min").value = c.cleanup_min_words || 3;
+  $("cleanup-strength").value = c.cleanup_strength === "standard" ? "standard" : "light";
   $("keep-history").checked = c.keep_history !== false;
   $("note-bubble").checked = !!c.note_bubble; $("note-notification").checked = !!c.note_notification;
   $("language").value = c.language || ""; $("service").checked = S.service;
   $("about-vox").textContent = `Vox ${S.version} · no analytics, no server of its own`;
+  renderDiag();
+}
+// The bubble diagnostics card: what the accessibility service and the battery setting look like now, and the last
+// events the service logged (bubble added or removed and why, screen on or off, unlock, rotation). Local only.
+let DIAG = null;
+function renderDiag() {
+  let d = {};
+  try { d = JSON.parse(V.getDiagnostics()); } catch (e) { d = {}; }
+  DIAG = d;
+  const sv = $("diag-service"), bt = $("diag-battery"), ev = $("diag-events");
+  if (!d.service) { sv.className = "status bad"; sv.textContent = "Could not read the diagnostics"; bt.textContent = ""; ev.textContent = ""; return; }
+  sv.className = "status " + (d.connected ? "ok" : "bad"); sv.textContent = "Service: " + d.service;
+  bt.className = "status " + (d.battery_ok ? "ok" : "bad"); bt.textContent = "Battery: " + d.battery;
+  $("diag-battery-prompt").hidden = !!d.battery_ok;   // the prompt only shows while Android may still stop Vox
+  $("battery-t").textContent = d.battery_ok ? "Battery: Unrestricted" : "Battery: may be restricted";
+  const lines = d.events || [];
+  ev.innerHTML = lines.length ? lines.map(l => `<div>${esc(l)}</div>`).join("") : `<div class="d" style="color:var(--muted)">No events recorded yet</div>`;
 }
 window.keyResult = (r) => {
   const s = $("key-status");
@@ -751,13 +902,18 @@ for (const [id, field] of [["stt-key", "stt_api_key"], ["llm-key", "llm_api_key"
 $("cleanup").onchange = (e) => save({ cleanup: e.target.checked }, "Saved");
 $("cleanup-min").onchange = (e) => { const v = parseInt(e.target.value, 10), n = isNaN(v) ? 3 : Math.max(1, Math.min(20, v)); e.target.value = n; save({ cleanup_min_words: n }, "Saved"); };
 $("only-typing").onchange = (e) => save({ only_typing: e.target.checked }, "Saved");
+$("always-show").onchange = (e) => save({ always_show_bubble: e.target.checked }, "Saved");
 $("note-bubble").onchange = (e) => save({ note_bubble: e.target.checked }, "Saved");
 $("note-notification").onchange = (e) => save({ note_notification: e.target.checked }, "Saved");
 $("open-about").onclick = () => go("dict");
 $("keep-history").onchange = (e) => save({ keep_history: e.target.checked }, "Saved");
+$("cleanup-strength").onchange = (e) => save({ cleanup_strength: e.target.value }, "Saved");
 $("language").onchange = (e) => save({ language: e.target.value }, "Saved");
 $("service").onchange = (e) => V.setService(e.target.checked);
 $("battery").onclick = () => V.openBattery();
+$("diag-battery-fix").onclick = () => V.openBattery();
+$("diag-refresh").onclick = () => { renderDiag(); toast("Refreshed"); };
+$("diag-copy").onclick = () => { renderDiag(); if (DIAG && DIAG.report) { V.copy(DIAG.report); toast("Copied"); } };
 $("stt").onchange = (e) => save({ stt_model: e.target.value.trim() }, "Saved");
 $("llm").onchange = (e) => save({ llm_model: e.target.value.trim() }, "Saved");
 $("clear").onclick = () => { V.clearHistory(); S.history = []; toast("History cleared"); render(); };
@@ -775,17 +931,37 @@ $("relay-url").onchange = () => {
   const v = $("relay-url").value.trim(), s = $("relay-url-status");
   const problem = v ? V.endpointProblem(v) : "";
   if (problem) { s.className = "status bad"; s.textContent = problem; return; }
-  s.textContent = ""; save({ relay_url: v }, "Saved");
+  s.textContent = ""; $("relay-check").innerHTML = ""; save({ relay_url: v }, "Saved"); loadDevices();
 };
-$("relay-token").onchange = () => { save({ relay_token: $("relay-token").value.trim() }, "Saved"); $("relay-status").textContent = ""; };
+$("relay-token").onchange = () => { save({ relay_token: $("relay-token").value.trim() }, "Saved"); $("relay-status").textContent = ""; $("relay-check").innerHTML = ""; loadDevices(); };
 $("device-name").onchange = () => save({ device_name: $("device-name").value.trim() }, "Saved");
 window.relayResult = (json) => {
   const r = JSON.parse(json), s = $("relay-status");
   s.className = "status " + (r.ok ? "ok" : "bad"); s.textContent = r.message;
+  $("relay-check").innerHTML = statusHtml(relayCheckRows(r));
+  if (r.ok) loadDevices(true);
 };
+// The copy buttons of "How to set up the relay" (generated from ui-shared/relay-steps.txt) hold their commands in data-copy.
+document.addEventListener("click", (e) => { const b = e.target.closest(".rs-copy"); if (b) { V.copy(b.dataset.copy); toast("Copied"); } });
+$("install-help-appinfo").onclick = () => V.openAppInfo();
+// Devices on the relay (Settings): the list the relay recorded, newest first; the rows come ready from the bridge, which
+// answers devicesResult(json) when the request is over.
+window.devicesResult = (json) => { $("devices-refresh").disabled = false; $("devices-list").innerHTML = devicesHtml(JSON.parse(json)); };
+// Opening Settings or editing the address only looks when sync or the AI-server switch is on (a relay is not contacted
+// otherwise); the Refresh button and a good Test are the person asking, and always look.
+function loadDevices(asked) {
+  const c = (S && S.config) || {};
+  $("devices-refresh").disabled = false;
+  if (!(c.relay_url || "").trim() || !(c.relay_token || "").trim()) { $("devices-list").innerHTML = '<div class="dempty">Fill in the relay address and token above to see your devices.</div>'; return; }
+  if (asked !== true && !c.relay_sync && !c.relay_proxy) { $("devices-list").innerHTML = '<div class="dempty">Press Refresh to ask the relay which devices have used it.</div>'; return; }
+  $("devices-refresh").disabled = true; $("devices-list").innerHTML = '<div class="dempty">Checking…</div>';
+  V.getDevices("devicesResult");
+}
+$("devices-refresh").onclick = () => loadDevices(true);
 $("relay-test").onclick = () => {
   const s = $("relay-status"), url = $("relay-url").value.trim(), token = $("relay-token").value.trim();
   const problem = url ? V.endpointProblem(url) : "";
+  $("relay-check").innerHTML = "";
   if (problem || !url || !token) { s.className = "status bad"; s.textContent = problem || "Enter the relay address and token first."; return; }
   save({ relay_url: url, relay_token: token });   // the test uses the saved address and token
   s.className = "status"; s.textContent = "Checking…";
