@@ -58,6 +58,10 @@ final class SyncEngine {
      * app is pointed at another address, that state is wrong for the new relay: start from zero and send everything,
      * notes and delete markers, so the new relay gets all of it. An install with no address saved yet (an update)
      * keeps its state and just records the address. The address is saved last, so a run that stops half way repeats this.
+     * KEYS_SENT (this device put keys on the relay) is not reset by a new address: it may be the same relay under another
+     * spelling, and a flag lost there would leave the keys on it for ever when they are switched off (a different relay
+     * without keys just clears the flag at its first sync). An install with no address saved yet and the keys switched
+     * on seeds the flag, so keys already on the relay from before the flag existed are taken off when switched off.
      */
     private void followRelay() {
         String origin = originOf(cfg.relayUrl());
@@ -68,8 +72,9 @@ final class SyncEngine {
             store.setMeta("relay_cursor", "0");
             store.setMeta("profile_version", "0");
             store.setMeta("profile_snapshot", "{}");
-            store.setMeta(KEYS_SENT, "");
             store.markAllDirty();
+        } else if (cfg.syncKeys()) {
+            store.setMeta(KEYS_SENT, "1");
         }
         store.setMeta("relay_origin", origin);
     }

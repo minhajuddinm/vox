@@ -63,7 +63,11 @@ def origin_of(url):
 def follow_relay(url):
     """The sync state (cursor, profile version and snapshot, which notes the relay has) describes one relay. When the
     address changes, start from zero and send everything again, notes and delete markers. An install with no address
-    saved yet keeps its state and just records it. The address is saved last, so a run that stops half way repeats this."""
+    saved yet keeps its state and just records it. The address is saved last, so a run that stops half way repeats this.
+    `profile_keys_sent` (this device put keys on the relay) is not reset by a new address: it may be the same relay under
+    another spelling, and a flag lost there would leave the keys on it for ever when they are switched off (a different
+    relay without keys just clears the flag at its first sync). An install with no address saved yet and the keys switched
+    on seeds the flag, so keys already on the relay from before the flag existed are taken off when switched off."""
     origin = origin_of(url)
     saved = notes.get_meta("relay_origin", "")
     if origin == saved:
@@ -72,8 +76,9 @@ def follow_relay(url):
         notes.set_meta("relay_cursor", 0)
         notes.set_meta("profile_version", 0)
         notes.set_meta("profile_snapshot", "{}")
-        notes.set_meta("profile_keys_sent", "")
         notes.mark_all_dirty()
+    elif core.load_config().get("relay_sync_keys"):
+        notes.set_meta("profile_keys_sent", "1")
     notes.set_meta("relay_origin", origin)
 
 
