@@ -130,6 +130,29 @@ def view_text(v):
     return "%s models=%s last=%s" % (summary_text(s), models_text(v["models"]), last)
 
 
+SEG_LEVEL = {"t": 8000, "s": 0, "q": 899, "n": 900}
+
+
+def seg_audio(runs):
+    """Golden audio: | separated runs, each a letter (see segcuts in spec/golden.txt) and a length in milliseconds."""
+    out = bytearray()
+    for r in runs.split("|"):
+        out += SEG_LEVEL[r[0]].to_bytes(2, "little", signed=True) * (int(r[1:]) * 16)
+    return bytes(out)
+
+
+def segcuts(params, runs, block):
+    mn, mx, pz = [int(x) for x in params.split("|")]
+    seg = core.Segmenter(mn / 1000.0, mx / 1000.0, pz / 1000.0)
+    pcm = seg_audio(runs)
+    pieces = []
+    for i in range(0, len(pcm), int(block)):
+        pieces += seg.feed(pcm[i:i + int(block)])
+    rest = seg.rest()
+    assert b"".join(pieces) + rest == pcm   # nothing is lost or repeated
+    return "|".join(str(len(p)) for p in pieces) + "/" + str(len(rest))
+
+
 @pytest.mark.parametrize("kind,f", cases())
 def test_golden(kind, f, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))   # the notes rows use a real (temporary) notes.db
@@ -195,5 +218,7 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert models_text(timing_models(f[0], f[1])) == f[2]
     elif kind == "timing_view":   # history rows (see history_rows), n, last => the whole Speed card as one line
         assert view_text(timing.speed_view(history_rows(f[0]), int(f[1]), int(f[2]))) == f[3]
+    elif kind == "segcuts":   # min_ms|max_ms|pause_ms, runs, block => piece lengths / rest length
+        assert segcuts(f[0], f[1], f[2]) == f[3]
     else:
         pytest.fail(f"unknown case kind {kind}")

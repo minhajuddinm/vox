@@ -46,6 +46,35 @@ public final class ParityTest {
         return v.equals("~") ? null : v;
     }
 
+    /** Golden audio (see segcuts in spec/golden.txt): | separated runs, each a letter and a length in milliseconds. */
+    private static byte[] segAudio(String runs) {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        for (String r : items(runs, "|")) {
+            int v = r.charAt(0) == 't' ? 8000 : r.charAt(0) == 'q' ? 899 : r.charAt(0) == 'n' ? 900 : 0;
+            int n = Integer.parseInt(r.substring(1)) * 16;
+            for (int i = 0; i < n; i++) { out.write(v & 0xff); out.write((v >> 8) & 0xff); }
+        }
+        return out.toByteArray();
+    }
+
+    /** min_ms|max_ms|pause_ms, runs, block => piece lengths in bytes and the rest, as a|b/rest. */
+    private static String segCuts(String params, String runs, int block) {
+        String[] p = params.split("\\|");
+        Segmenter seg = new Segmenter(Integer.parseInt(p[0]) / 1000.0, Integer.parseInt(p[1]) / 1000.0, Integer.parseInt(p[2]) / 1000.0);
+        byte[] pcm = segAudio(runs);
+        StringBuilder b = new StringBuilder();
+        long total = 0;
+        for (int i = 0; i < pcm.length; i += block) {
+            for (byte[] piece : seg.feed(pcm, i, Math.min(block, pcm.length - i))) {
+                b.append(b.length() == 0 ? "" : "|").append(piece.length);
+                total += piece.length;
+            }
+        }
+        byte[] rest = seg.rest();
+        if (total + rest.length != pcm.length) throw new IllegalStateException("audio was lost or repeated");
+        return b + "/" + rest.length;
+    }
+
     /** A | separated list of whole numbers. */
     private static List<Long> numbers(String field) {
         List<Long> out = new ArrayList<>();
@@ -263,6 +292,9 @@ public final class ParityTest {
                     break;
                 case "timing_view":   // history rows, n, last => the whole Speed card as one line
                     eq(ln, kind, f[3], timingView(f[0], Integer.parseInt(f[1]), Integer.parseInt(f[2])));
+                    break;
+                case "segcuts":   // min_ms|max_ms|pause_ms, runs, block => piece lengths / rest length
+                    eq(ln, kind, f[3], segCuts(f[0], f[1], Integer.parseInt(f[2])));
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
