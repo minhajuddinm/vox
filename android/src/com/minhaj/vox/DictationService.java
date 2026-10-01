@@ -570,7 +570,7 @@ public class DictationService extends Service {
                 postError(note ? "Cleanup did not work, so Vox saved your words as spoken"
                         : "Cleanup did not work, so Vox typed your words as spoken");
             }
-            out = ApiClient.applyReplacements(out, p.replacements());
+            out = Terms.fuzzy(ApiClient.applyReplacements(out, p.replacements()), p.dictionaryTerms());   // as Windows: replacements, then the dictionary's spellings
             if (!isCurrent(job)) return;
             if (note) {
                 saveNote(job, entry, raw, out, seconds, p);   // a note is not typed and is not added to the dictation history

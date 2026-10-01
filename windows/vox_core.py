@@ -215,6 +215,74 @@ def apply_replacements(text, repl):
     return text
 
 
+FUZZY_MIN_LEN = 5   # shortest term the fuzzy pass works on (and shortest word it changes)
+COMMON_WORDS = frozenset("""
+about above after again agree alone along already always among another answer anyone anything around
+asked asking based basic beach because become before began begin being below better between black
+blank board bring broke brown build built bunch cause chain chair change charge check child choice
+class clean clear click clock close cloud coffee color could count cover crash cross daily dance
+dates delay doing doubt dozen draft drive early earth eight email empty enjoy enough entire equal
+error event every exact extra faces fault field fifth final first fixed flash floor focus force
+found frame fresh front fruit funny given glass going grace grand grant great green group guess
+guide happy heard heart heavy hello house human ideas image issue items large later laugh layer
+learn least leave level light likely limit local logic looks lower lunch maybe means might money
+month mouse mouth movie music needs never night noise north noted notes novel number offer often
+older order other paper party peace phone piece place plain plane plant point power press price
+pride print prior prize proof proud quick quiet quite radio raise range rapid reach ready right
+rough round route royal salad sales scale scene score sense serve seven shall shape share sharp
+sheet shift short shown sight simple since sleep slice slide small smart smile solid solve sorry
+sound south space speak speed spend split spoke sport stack staff stage stand start state still
+stock stone stood store storm story study stuff style sugar super sweet table taken taste teach
+thank their theme there these thing think third those three threw throw tight times title today
+token total touch tough tower track trade train treat trend trial tried truck truly trust truth
+twice under union until upper urban usage usual value video visit voice waste watch water wheel
+where which while white whole whose woman women world worry worse worth would write wrong yield
+young yours
+""".split())   # ordinary English words the fuzzy pass never touches (Terms.java keeps the same list)
+
+
+def _one_edit(a, b):
+    """True when the different strings a and b are one substitution, insertion or deletion apart."""
+    if abs(len(a) - len(b)) > 1:
+        return False
+    i = 0
+    while i < min(len(a), len(b)) and a[i] == b[i]:
+        i += 1
+    if len(a) == len(b):
+        return a[i + 1:] == b[i + 1:]
+    a, b = (a, b) if len(a) > len(b) else (b, a)
+    return a[i + 1:] == b[i:] and not (i == len(b))   # a letter added at the end is a plural or a longer name, not a misspelling
+
+
+def fuzzy_dictionary(text, terms):
+    """Puts the dictionary's spelling on words that are the same word in another case or one letter off.
+
+    Only terms that are one word of FUZZY_MIN_LEN letters or more take part (spelled exactly as in the dictionary).
+    A word of that length is changed when it equals a term ignoring case, or is one edit from exactly one term that
+    starts with the same letter; never when it is an ordinary English word (COMMON_WORDS) or has a digit or underscore.
+    Spoken multi-word spellings (u v raj) and words of other languages are left alone. Applying it twice changes nothing.
+    """
+    by_lower = {}
+    for t in terms:
+        t = t.strip()
+        if len(t) >= FUZZY_MIN_LEN and t.isalpha():
+            by_lower.setdefault(t.lower(), t)
+    if not by_lower or not text:
+        return text
+
+    def fix(m):
+        w = m.group(0)
+        lw = w.lower()
+        if len(w) < FUZZY_MIN_LEN or not w.isalpha() or lw in COMMON_WORDS:
+            return w
+        if lw in by_lower:
+            return by_lower[lw]
+        near = {t for k, t in by_lower.items() if k[0] == lw[0] and _one_edit(lw, k)}
+        return near.pop() if len(near) == 1 else w
+
+    return re.sub(r"\w+", fix, text)
+
+
 def style_for(cfg, exe):
     styles = {k.lower(): v for k, v in cfg.get("app_styles", {}).items()}
     return styles.get((exe or "").lower(), cfg.get("default_style", "neutral"))
@@ -981,7 +1049,8 @@ def process_text(cfg, raw, exe, app_label):
             error = str(e)
     if not cleaned:
         out = fallback_text(out) if rejected else apply_spoken_commands(out)
-    return Result(raw, apply_replacements(out, replacements(cfg)), cleaned, error, rejected)
+    out = fuzzy_dictionary(apply_replacements(out, replacements(cfg)), dictionary_terms(cfg))
+    return Result(raw, out, cleaned, error, rejected)
 
 
 def process(cfg, pcm_bytes, exe, app_label):

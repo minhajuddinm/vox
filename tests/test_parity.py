@@ -116,5 +116,7 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert core.clean_strength(f[0]) == f[1]
     elif kind == "fallback":   # raw words, the text used when the fidelity guard rejects the cleanup
         assert core.fallback_text(f[0]) == f[1]
+    elif kind == "fuzzydict":   # terms, text, the text with the dictionary's spellings applied
+        assert core.fuzzy_dictionary(f[1], items(f[0])) == f[2]
     else:
         pytest.fail(f"unknown case kind {kind}")

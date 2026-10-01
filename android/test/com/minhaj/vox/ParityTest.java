@@ -156,6 +156,9 @@ public final class ParityTest {
                 case "fallback":   // raw words, the text used when the fidelity guard rejects the cleanup
                     eq(ln, kind, f[1], ApiClient.fallbackText(f[0]));
                     break;
+                case "fuzzydict":   // terms, text, the text with the dictionary's spellings applied
+                    eq(ln, kind, f[2], Terms.fuzzy(f[1], items(f[0], "|")));
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);
