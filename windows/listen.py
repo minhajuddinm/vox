@@ -251,7 +251,7 @@ class Listening:
                         self.buffer.close()
                     else:
                         self.buffer.discard()
-                if self.after and not self._failed:
+                if self.after and not self._failed and not self._mic_lost:
                     self.after()
             except Exception:
                 log.exception("keep listening: could not tidy up the audio buffer")

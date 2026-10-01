@@ -425,3 +425,16 @@ def test_the_tray_has_a_note_entry_with_the_hotkey_only_while_it_is_set(eng, mon
     assert item.text == "Stop listening (Ctrl + Alt + N)"
     e.note_hotkey = None
     assert not item.visible
+
+
+def test_a_saved_session_that_cannot_be_read_is_left_alone_and_no_session_is_started(eng, monkeypatch):
+    path = leave_a_session()
+
+    def unreadable(p):
+        raise OSError("sharing violation")
+
+    monkeypatch.setattr(session, "load_pcm", unreadable)
+    eng.recover_listening()
+    assert FakeListening.made == [] and eng.listening is None
+    assert __import__("os").path.exists(path)
+    assert eng.messages and "kept" in eng.messages[-1]

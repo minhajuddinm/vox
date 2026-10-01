@@ -727,10 +727,16 @@ class Engine:
             except OSError:
                 pass
 
+        try:   # read the audio first: the session's silence timer must not run while a slow read is still going
+            pcm = session_mod.load_pcm(path)
+        except OSError:
+            log.exception("could not read the saved listening session")
+            self.notify("Could not read the saved session; it is kept.")
+            return
         lis = self.listening = listen_mod.Listening(self, self.cfg, "note", after=remove)
         self.listen_state("busy")
         lis.start()
-        lis.replay(session_mod.load_pcm(path))
+        lis.replay(pcm)
         self.notify("Recovering your listening session. The note appears when it is done.")
 
     # -------------------------------------------------------------- meeting
