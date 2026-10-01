@@ -34,9 +34,10 @@ def load_corpus(path):
 
 
 def row_config(cfg, row, strength):
-    """The settings for one corpus row: the row's About you, dictionary and style, never the user's own."""
+    """The settings for one corpus row: the row's About you, dictionary and style, never the user's own
+    (not their learned cleanup rules either: those hold personal names and would skew the comparison)."""
     return dict(cfg, user_context=row["about"], people=list(row["terms"]), dictionary=[], app_styles={},
-                default_style=row["style"], cleanup_strength=strength)
+                my_cleanup_rules="", default_style=row["style"], cleanup_strength=strength)
 
 
 def run(rows, cleanup, strength, pause=0, sleep=time.sleep, clock=time.perf_counter, progress=None):

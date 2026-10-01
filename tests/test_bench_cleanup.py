@@ -168,13 +168,16 @@ def test_giving_the_raw_text_back_keeps_every_word_in_both_strengths():
 
 def row_cfg_base():
     return dict(core.DEFAULT_CONFIG, api_key="SECRET-KEY-123", user_context="my own about text", people=["Mine"],
-                dictionary=["a => B"], app_styles={"x.exe": "formal"}, default_style="formal")
+                dictionary=["a => B"], app_styles={"x.exe": "formal"}, default_style="formal",
+                my_cleanup_rules="Dana means Dani")
 
 
 def test_row_config_uses_the_rows_context_and_never_the_users_own():
     row = {"about": "Row about", "terms": ["Ledgerly", "Kubernetes"], "style": "casual"}
     cfg = bench.row_config(row_cfg_base(), row, "standard")
     assert cfg["user_context"] == "Row about"
+    assert cfg["my_cleanup_rules"] == ""   # the learned rules hold personal names: they never go to the provider
+    assert "Dana" not in core.system_prompt("neutral", [], "App", cfg["user_context"], "light", cfg["my_cleanup_rules"])
     assert core.dictionary_terms(cfg) == ["Ledgerly", "Kubernetes"]
     assert cfg["cleanup_strength"] == "standard" and cfg["default_style"] == "casual" and cfg["app_styles"] == {}
     assert cfg["api_key"] == "SECRET-KEY-123"   # the key still reaches the server it is meant for
