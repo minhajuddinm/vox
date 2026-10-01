@@ -392,8 +392,11 @@ public final class ApiClient {
         String body = in == null ? "" : readAll(in);   // read to the end and not disconnected: the connection is reused
         if (code >= 400) {
             String msg = body;
-            try { msg = new JSONObject(body).getJSONObject("error").optString("message", body); }
-            catch (Exception ignored) { }
+            try {   // OpenAI-shaped {"error": {"message": ...}}, or the relay's own {"error": "text"}
+                Object err = new JSONObject(body).opt("error");
+                if (err instanceof JSONObject) msg = ((JSONObject) err).optString("message", body);
+                else if (err instanceof String) msg = (String) err;
+            } catch (Exception ignored) { }
             throw new ApiException(code, "API " + code + ": " + msg);
         }
         try { return new JSONObject(body); }

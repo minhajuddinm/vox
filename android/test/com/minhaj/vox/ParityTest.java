@@ -131,6 +131,8 @@ public final class ParityTest {
                     break;
                 case "permanent":   // a refusal that will come back every time (4xx except 401, 403, 429)
                     eq(ln, kind, f[1], new RelayApi.RelayError(Integer.parseInt(f[0]), "x").permanent() ? "true" : "false");
+                case "proxyurl":   // relay_url, role, address (blank when no relay address)
+                    eq(ln, kind, f[2], Providers.proxyUrl(f[0], f[1]));
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);

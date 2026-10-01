@@ -100,5 +100,7 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert sync.device_name({"device_name": f[0]}) == f[1]
     elif kind == "permanent":
         assert sync.SyncError("x", int(f[0])).permanent == (f[1] == "true")
+    elif kind == "proxyurl":   # relay_url, role, address a role is sent to through the relay (blank when no relay address)
+        assert providers.proxy_url(f[0], f[1]) == f[2]
     else:
         pytest.fail(f"unknown case kind {kind}")

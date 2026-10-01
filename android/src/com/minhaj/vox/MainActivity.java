@@ -146,6 +146,7 @@ public class MainActivity extends Activity {
                 cfg.put("relay_url", prefs.relayUrl());
                 cfg.put("relay_token", prefs.relayToken());
                 cfg.put("relay_sync_keys", prefs.relaySyncKeys());
+                cfg.put("relay_proxy", prefs.relayProxy());
                 cfg.put("device_name", prefs.raw("device_name"));
                 cfg.put("dictionary", lines(prefs.dictionaryRaw()));
                 cfg.put("people", lines(prefs.peopleRaw()));
@@ -193,6 +194,7 @@ public class MainActivity extends Activity {
                 if (c.has("llm_api_key")) e.putString("llm_api_key", c.getString("llm_api_key").trim());
                 if (c.has("relay_sync")) e.putBoolean("relay_sync", c.getBoolean("relay_sync"));
                 if (c.has("relay_sync_keys")) e.putBoolean("relay_sync_keys", c.getBoolean("relay_sync_keys"));
+                if (c.has("relay_proxy")) e.putBoolean("relay_proxy", c.getBoolean("relay_proxy"));
                 if (c.has("relay_url") && Endpoint.error(text(c, "relay_url")) == null) e.putString("relay_url", Endpoint.normalize(text(c, "relay_url")));
                 if (c.has("relay_token")) e.putString("relay_token", text(c, "relay_token").trim());
                 if (c.has("device_name")) e.putString("device_name", text(c, "device_name").trim());
@@ -269,7 +271,8 @@ public class MainActivity extends Activity {
             JSONObject f = new JSONObject(form);
             return Providers.roleSettings(f.optString("base_url", prefs.baseUrl()), f.optString("api_key", prefs.apiKey()),
                     f.optString(role + "_base_url", ""), f.optString(role + "_api_key", ""), f.optString(role + "_model", ""),
-                    Providers.STT.equals(role) ? Prefs.DEFAULT_STT_MODEL : Prefs.DEFAULT_LLM_MODEL);
+                    Providers.STT.equals(role) ? Prefs.DEFAULT_STT_MODEL : Prefs.DEFAULT_LLM_MODEL,
+                    prefs.relayProxy(), prefs.relayUrl(), prefs.relayToken(), role);   // the switch and the relay are saved as they change: not part of the form
         }
 
         private void put(JSONObject o, String k, Object v) {
@@ -287,7 +290,7 @@ public class MainActivity extends Activity {
                     for (String[] m : new ApiClient(s[1], s[0]).listModels(role)) arr.put(m[0]);
                     if (arr.length() == 0) err = "The server listed no models for this. Type the model name instead.";
                 } catch (ApiClient.ApiException e) {
-                    err = Providers.explain(e.code, role, "");
+                    err = Providers.explain(e.code, role, "", prefs.usesRelay());
                 } catch (Exception e) {
                     String m = e.getMessage();
                     err = m != null && m.startsWith("Plain http") ? m : "Could not reach the server.";
@@ -317,7 +320,7 @@ public class MainActivity extends Activity {
                         msg = "Works (" + (System.currentTimeMillis() - t0) + " ms) with " + s[2] + ".";
                     }
                 } catch (ApiClient.ApiException e) {
-                    msg = Providers.explain(e.code, role, "");
+                    msg = Providers.explain(e.code, role, "", prefs.usesRelay());
                 } catch (Exception e) {
                     msg = "Could not reach the server.";
                 }

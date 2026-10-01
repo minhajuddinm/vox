@@ -202,3 +202,8 @@ permanent	429	false
 permanent	500	false
 permanent	502	false
 permanent	200	false
+proxyurl	https://r.example.ts.net	stt	https://r.example.ts.net/proxy/stt
+proxyurl	https://r.example.ts.net/	llm	https://r.example.ts.net/proxy/llm
+proxyurl	  https://r.example.ts.net///  	llm	https://r.example.ts.net/proxy/llm
+proxyurl	http://100.64.1.2:8765	stt	http://100.64.1.2:8765/proxy/stt
+proxyurl		llm	

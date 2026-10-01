@@ -52,6 +52,12 @@ def proxy_problem(cfg):
     return PROXY_PROBLEM if cfg.get("relay_proxy") and not uses_relay(cfg) else ""
 
 
+def proxy_url(relay_url, role):
+    """The address a role is sent to through the relay: `<relay_url>/proxy/<role>`, or '' without a relay address."""
+    base = _norm(relay_url)
+    return f"{base}/proxy/{role}" if base else ""
+
+
 def role_settings(cfg, role):
     """(base_url, api_key, model) for a role.
 
@@ -61,7 +67,7 @@ def role_settings(cfg, role):
     """
     model = (cfg.get(f"{role}_model") or "").strip() or DEFAULT_MODELS[role]
     if uses_relay(cfg):
-        return f"{_norm(cfg.get('relay_url'))}/proxy/{role}", cfg["relay_token"].strip(), model
+        return proxy_url(cfg.get("relay_url"), role), cfg["relay_token"].strip(), model
     main = _norm(cfg.get("base_url")) or GROQ_BASE
     own = _norm(cfg.get(f"{role}_base_url"))
     own_key = (cfg.get(f"{role}_api_key") or "").strip()
