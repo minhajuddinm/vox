@@ -22,6 +22,11 @@ Loaded by `vox_core.load_config` (missing keys take the defaults in `DEFAULT_CON
 | `user_context` | string | `""` | Free text about the user (work, projects, style, terms) added to every cleanup request; at most 8,000 characters are used. |
 | `my_cleanup_rules` | string | `""` | The cleanup rules learned by "Improve my cleanup", one per line; at most 2,000 characters are used, in a tagged block after the strength rule of the cleanup prompt. Part of the synced profile (the phone receives it). |
 | `my_cleanup_rules_versions` | list | `[]` | The last 20 changes `improve.apply` made ({`t`, the rules before it, the dictionary lines it added}) so that `improve.revert` can undo them. This device only; never synced. |
+| `improve_model` | string | `openai/gpt-oss-120b` | The model a run of "Improve my cleanup" uses on the cleanup server (or the relay). |
+| `improve_days` | number | `7` | How far back the card looks: 7, 14, 30, 90 days or 0 for all saved dictations. |
+| `improve_remind` | bool | `false` | The weekly tray reminder to look at "Improve my cleanup". It only shows a message; it never runs anything. |
+| `improve_remind_last` | number | `0` | When the reminder last fired or was switched on (seconds since 1970); 0 makes the engine start the week at its next check. |
+| `improve_last_run` | number | `0` | When the last successful run answered (seconds since 1970); a reminder comes a week after it. |
 | `relay_sync` | bool | `false` | Sync voice notes with a relay (see [14-relay.md](14-relay.md)). |
 | `relay_url` | string | `""` | Address of the relay (for example `https://yuvipi.your-tailnet.ts.net`). Same rule as the server address: plain http only for private hosts. |
 | `relay_token` | string | `""` | The relay's bearer token. DPAPI-protected like the API keys. It is also the key of both roles while `relay_proxy` is on. |

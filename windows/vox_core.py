@@ -42,6 +42,11 @@ DEFAULT_CONFIG = {
     "user_context": "",
     "my_cleanup_rules": "",
     "my_cleanup_rules_versions": [],
+    "improve_model": "openai/gpt-oss-120b",
+    "improve_days": 7,
+    "improve_remind": False,
+    "improve_remind_last": 0,
+    "improve_last_run": 0,
     "relay_sync": False,
     "relay_url": "",
     "relay_token": "",
@@ -1049,8 +1054,24 @@ def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
     return out
 
 
+def chat_text(cfg, body, timeout=60):
+    """The text of one chat answer from the cleanup server (or the relay): `body` is the request (model, messages, ...).
+    Reasoning fields are added for gpt-oss models and dropped, once, for a server that refuses them. Raises ApiError."""
+    base = providers.role_settings(cfg, "llm")[0]
+    via_relay = providers.uses_relay(cfg)
+    extra = providers.reasoning_params(cfg, base, body["model"])
+    body.update(extra)
+    r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout, via_relay=via_relay)
+    if extra and r.status_code in (400, 422):   # this server does not know the reasoning fields: retry without them
+        providers.remember_rejected(base, body["model"])
+        for k in extra:
+            body.pop(k, None)
+        r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout, via_relay=via_relay)
+    return providers.strip_think(check_response(r, via_relay)["choices"][0]["message"].get("content", ""))
+
+
 def cleanup(cfg, raw, style, app_label):
-    base, _, model = providers.role_settings(cfg, "llm")
+    model = providers.role_settings(cfg, "llm")[2]
     body = {
         "model": model,
         "temperature": 0.2,
@@ -1062,18 +1083,7 @@ def cleanup(cfg, raw, style, app_label):
             {"role": "user", "content": f"<transcript>\n{raw}\n</transcript>"},
         ],
     }
-    extra = providers.reasoning_params(cfg, base, model)
-    body.update(extra)
-    r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=60,
-                        via_relay=providers.uses_relay(cfg))
-    if extra and r.status_code in (400, 422):   # this server does not know the reasoning fields: retry without them
-        providers.remember_rejected(base, model)
-        for k in extra:
-            body.pop(k, None)
-        r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=60,
-                        via_relay=providers.uses_relay(cfg))
-    text = check_response(r, providers.uses_relay(cfg))["choices"][0]["message"].get("content", "")
-    return sanitize(providers.strip_think(text))
+    return sanitize(chat_text(cfg, body))
 
 
 Result = namedtuple("Result", "raw text cleaned cleanup_error fidelity_fallback", defaults=(False,))

@@ -2,12 +2,16 @@
 answer is read and capped, and what applying a proposal changes (with a way back). No network, no files, no UI: the caller
 sends the request through the provider layer and keeps the config.
 
-Nothing here runs by itself. About you is only ever suggested, never written. Spec: documentation/specs/p9f-*.md."""
+Nothing here runs by itself. About you is only ever suggested, never written. The one call to a server is ask(); the
+Settings card (windows/ui_app.py) calls it only after the person has confirmed the numbers preview() showed.
+Spec: documentation/specs/p9f-*.md."""
 import json
 import re
 import time
 from collections import namedtuple
+from urllib.parse import urlparse
 
+import providers
 import vox_core as core
 
 Proposal = namedtuple("Proposal", "items findings error")   # items: {"id", "kind", "text"}; findings: {"id", "note"}
@@ -16,6 +20,11 @@ MAX_DICTIONARY, MAX_REPLACEMENTS, MAX_RULE_ITEMS, MAX_ABOUT_ITEMS, MAX_FINDINGS 
 MAX_WORD, MAX_RULE, MAX_ABOUT_TEXT, MAX_NOTE, MAX_ID = 60, 200, 1000, 300, 12   # characters
 MAX_VERSIONS = 20
 CHARS_PER_TOKEN = 4   # a rough rule for the estimate
+DEFAULT_MODEL = "openai/gpt-oss-120b"
+DAYS = (7, 14, 30, 90, 0)   # the date ranges the card offers; 0 is all of the history
+MAX_SEND_CHARS = 40000      # most transcript characters one run sends (about 10,000 tokens)
+REMIND_SECONDS = 7 * 86400
+MAX_ANSWER_TOKENS = 4000
 
 INSTRUCTIONS = (
     "You review how a speech-to-text cleanup treated one speaker's dictations and propose small improvements for that "
@@ -211,3 +220,86 @@ def fidelity_report(transcripts):
     return [{"t": t["t"], "fallback": t["fallback"], "recall": round(core.word_recall(t["raw"], t["cleaned"]), 3),
              "raw_words": len(core.word_tokens(t["raw"])), "cleaned_words": len(core.word_tokens(t["cleaned"]))}
             for t in transcripts if t["fallback"] or not core.looks_valid(t["raw"], t["cleaned"], "standard")]
+
+
+# ------------------------------------------------------------------ the Settings card
+
+def provider_label(cfg):
+    """Where a run goes, as the confirm sentence names it: "My relay", the server's preset name, or its host name."""
+    base = providers.role_settings(cfg, "llm")[0]
+    if providers.uses_relay(cfg):
+        return "My relay"
+    preset = next((p for p in providers.PRESETS if p["base_url"] and p["base_url"].rstrip("/") == base), None)
+    return preset["name"] if preset else urlparse(base).hostname or base
+
+
+def confirm_text(count, chars, provider):
+    """The sentence the person confirms before anything is sent."""
+    return f"This sends {count} transcript{'' if count == 1 else 's'} (about {chars:,} characters) to {provider}"
+
+
+def selection(history, days, now):
+    """(days, transcripts): `days` as one of the offered ranges (7 when it is not one) and what a run over it would send."""
+    days = days if type(days) is int and days in DAYS else DAYS[0]
+    return days, select_transcripts(history, now - days * 86400 if days else 0, MAX_SEND_CHARS)
+
+
+def preview(cfg, history, days, now):
+    """What the card shows before anything is sent, from local data only: how many transcripts and characters a run over
+    the last `days` days (0 = all) would send, the model and server, a token estimate, the sentence to confirm and the
+    versions already applied. `extra` is the characters of About you, the dictionary and the rules that go along."""
+    days, pairs = selection(history, days, now)
+    model = (cfg.get("improve_model") or "").strip() or DEFAULT_MODEL
+    provider = provider_label(cfg)
+    extra = (len(core.clean_context(cfg.get("user_context") or "")) + sum(len(t) for t in core.dictionary_terms(cfg))
+             + len(core.clean_rules(cfg.get("my_cleanup_rules") or "")))
+    cost = estimate_cost(pairs, model, extra)
+    return {"days": days, "model": model, "provider": provider, "count": cost["count"], "chars": cost["chars"],
+            "tokens": cost["tokens_in_est"], "extra": extra, "lost": len(fidelity_report(pairs)),
+            "can_run": bool(pairs), "confirm": confirm_text(cost["count"], cost["chars"], provider),
+            "note": "" if pairs else ("History is off, so there is nothing to look at." if cfg.get("keep_history") is False
+                                      else "No saved dictations in this range."),
+            "versions": versions_view(cfg), "remind": bool(cfg.get("improve_remind"))}
+
+
+def ask(cfg, messages, model):
+    """Sends one run to the cleanup server (or the relay) with `model` and returns the answer text. Raises core.ApiError
+    for a server error and requests' errors for a network failure."""
+    return core.chat_text(cfg, {"model": model, "temperature": 0.2, "max_tokens": MAX_ANSWER_TOKENS, "messages": messages}, timeout=180)
+
+
+def _plural(n, word):
+    return "%d %s%s" % (n, word, "" if n == 1 else "s")
+
+
+def versions_view(cfg):
+    """The applied changes, newest first, for the Revert list: [{"index", "t", "text"}]; `index` is what revert() takes and
+    `text` says what the change added ("1 dictionary line, 2 rules")."""
+    versions = cfg.get("my_cleanup_rules_versions") or []
+    out = []
+    for i, v in enumerate(versions):
+        if not (isinstance(v, dict) and isinstance(v.get("t"), (int, float))):
+            continue
+        nxt = versions[i + 1] if i + 1 < len(versions) else None
+        after = nxt.get("rules") if isinstance(nxt, dict) else cfg.get("my_cleanup_rules")   # the rules this change led to
+        before = set((v.get("rules") or "").split("\n"))
+        rules = sum(1 for r in (after or "").split("\n") if r.strip() and r not in before)
+        lines = len(v.get("added") or [])
+        parts = ([_plural(lines, "dictionary line")] if lines else []) + ([_plural(rules, "rule")] if rules else [])
+        out.append({"index": i, "t": v["t"], "text": ", ".join(parts) or "no change"})
+    return out[::-1]
+
+
+def _num(x):
+    return x if isinstance(x, (int, float)) and not isinstance(x, bool) else 0
+
+
+def remind_action(cfg, now):
+    """What the weekly reminder does now: "" (nothing), "stamp" (the reminder was just turned on: start the week, say
+    nothing) or "remind" (a week since the last run or the last reminder). It only ever tells the person; it runs nothing."""
+    if not cfg.get("improve_remind"):
+        return ""
+    last = max(_num(cfg.get("improve_last_run")), _num(cfg.get("improve_remind_last")))
+    if not last:
+        return "stamp"
+    return "remind" if now - last >= REMIND_SECONDS else ""
