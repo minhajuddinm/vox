@@ -304,3 +304,30 @@ fidelity	light	dear john comma I hope you are well period new paragraph thanks f
 fidelity	standard	what time is it question mark	What time is it?	true
 fidelity	light	send it to sam colon the report is wrong	Send it to Sam: wrong.	false
 recall	hello new line world	Hello,\nworld	1.000
+# spoken numbers over a hundred, 'and' and 'point' inside a number, 'a hundred', 'p m' and spoken 'at' / 'dot' (an '@' or a dot inside a word in cleaned)
+fidelity	light	it costs two hundred dollars for the big one	It costs $200 for the big one.	true
+fidelity	standard	it costs two hundred dollars for the big one	It costs $200 for the big one.	true
+fidelity	light	it costs two hundred dollars for the big one	It costs $300 for the big one.	false
+fidelity	light	we launch in two thousand twenty six for sure	We launch in 2026 for sure.	true
+fidelity	light	we launch in two thousand twenty six for sure	We launch in 2025 for sure.	false
+fidelity	light	it is one hundred and five degrees outside today	It is 105° outside today.	true
+fidelity	light	it is one hundred and five degrees outside today	It is 100° outside today.	false
+fidelity	light	the price is one thousand two hundred and fifty rupees	The price is ₹1,250.	true
+fidelity	light	i have a hundred apples and about a thousand pears	I have 100 apples and about 1,000 pears.	true
+fidelity	light	send it to john at gmail dot com please	Send it to john@gmail.com please.	true
+fidelity	light	send it to john at gmail dot com please	Send it please.	false
+fidelity	light	it holds three point five liters of water	It holds 3.5 liters of water.	true
+fidelity	light	it holds three point five liters of water	It holds 3.6 liters of water.	false
+fidelity	light	let us meet at three thirty p m tomorrow	Let us meet at 3:30 PM tomorrow.	true
+fidelity	light	let us meet at three thirty p m tomorrow	Let us meet at 3:45 PM tomorrow.	false
+fidelity	light	meet me at the cafe near the old bridge	Meet me at the cafe near the old bridge.	true
+fidelity	light	meet me at the cafe near the old bridge	Meet me the cafe near the old bridge.	false
+fidelity	light	there is a dot on the page next to the title	There is a on the page next to the title.	false
+recall	john at gmail dot com	john@gmail.com	1.000
+recall	two thousand twenty six	2026	1.000
+recall	two hundred dollars	$200	1.000
+recall	one hundred and five	105	1.000
+recall	three point five	3.5	1.000
+recall	three thirty p m	3:30 PM	1.000
+recall	a hundred	100	1.000
+recall	one hundred and five	150	0.000

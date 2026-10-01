@@ -351,29 +351,76 @@ def _all_digits(t):
     return t != "" and all("0" <= ch <= "9" for ch in t)
 
 
+def _tens_units(tokens, i, allow_zero):
+    """(value, next index) of a spoken number below a hundred at i ("twenty five", "fourteen", "six"), or None."""
+    if i >= len(tokens):
+        return None
+    t = tokens[i]
+    if t in _TENS:
+        v = _TENS[t]
+        if i + 1 < len(tokens) and 1 <= _UNITS.get(tokens[i + 1], 0) <= 9:
+            return v + _UNITS[tokens[i + 1]], i + 2
+        return v, i + 1
+    if t in _UNITS and (allow_zero or _UNITS[t] > 0):
+        return _UNITS[t], i + 1
+    return None
+
+
+def _tail(tokens, i, below):
+    """The part after "hundred" or "thousand": an optional "and", then a smaller number; None if there is none."""
+    if i < len(tokens) and tokens[i] == "and":
+        i += 1
+    return below(tokens, i)
+
+
+def _hundreds(tokens, i):
+    """(value, next index) of a spoken number below a thousand at i: "N hundred [and] M", "a hundred", or below a hundred."""
+    if i + 1 < len(tokens) and tokens[i + 1] == "hundred" and (tokens[i] == "a" or _UNITS.get(tokens[i], 0) > 0):
+        v = 100 * (1 if tokens[i] == "a" else _UNITS[tokens[i]])
+        rest = _tail(tokens, i + 2, lambda tk, j: _tens_units(tk, j, False))
+        return (v + rest[0], rest[1]) if rest else (v, i + 2)
+    return _tens_units(tokens, i, True)
+
+
+def _spoken_number(tokens, i):
+    """(value, next index) of a spoken number at i: "two thousand twenty six", "one hundred and five", "a thousand"."""
+    if i + 1 < len(tokens) and tokens[i] == "a" and tokens[i + 1] == "thousand":
+        res = (1, i + 1)
+    else:
+        res = _hundreds(tokens, i)
+    if res is None:
+        return None
+    v, k = res
+    if k < len(tokens) and tokens[k] == "thousand":
+        v, k = v * 1000, k + 1
+        rest = _tail(tokens, k, _hundreds)
+        if rest and rest[0] > 0:
+            v, k = v + rest[0], rest[1]
+    return v, k
+
+
 def _merge_numbers(tokens):
-    """Spoken numbers (zero to a hundred) become digits, and runs of digit words or digit groups join into one token,
-    so "twenty five" = "25", "five five five one two" = "55512" = "555-12" and "twenty twenty six" = "2026"."""
-    out, i = [], 0
-    while i < len(tokens):
+    """Spoken numbers become digits, and runs of digit words or digit groups join into one token, so "twenty five" = "25",
+    "one hundred and five" = "105", "two thousand twenty six" = "2026", "a hundred" = "100", "five five five one two" =
+    "55512" = "555-12" and "twenty twenty six" = "2026". "point" between two numbers is the decimal point ("three point
+    five" = "3.5" = "35") and "p m" / "a m" are "pm" / "am"."""
+    out, i, n = [], 0, len(tokens)
+    while i < n:
         t = tokens[i]
-        if t in _TENS:
-            v = _TENS[t]
-            if i + 1 < len(tokens) and 1 <= _UNITS.get(tokens[i + 1], 0) <= 9:
-                v += _UNITS[tokens[i + 1]]
-                i += 1
-            t = str(v)
-        elif t in _UNITS:
-            t = str(_UNITS[t])
-        elif t == "hundred" and out and out[-1] == "1":
-            out[-1] = "100"
+        num = _spoken_number(tokens, i)
+        if num is not None:
+            t, i = str(num[0]), num[1]
+        elif t == "point" and out and _all_digits(out[-1]) and i + 1 < n and (_all_digits(tokens[i + 1]) or tokens[i + 1] in _UNITS):
             i += 1
             continue
+        elif t in ("a", "p") and i + 1 < n and tokens[i + 1] == "m":
+            t, i = t + "m", i + 2
+        else:
+            i += 1
         if _all_digits(t) and out and _all_digits(out[-1]):
             out[-1] += t
         else:
             out.append(t)
-        i += 1
     return out
 
 
@@ -391,10 +438,26 @@ def _without_commands(tokens):
     return out
 
 
+def _inner_dots(text):
+    """How many dots in text sit between two word characters (gmail.com, 3.5): not a full stop."""
+    return sum(1 for i in range(1, len(text) - 1)
+               if text[i] == "." and _is_word_char(text[i - 1]) and _is_word_char(text[i + 1]))
+
+
 def _compare_tokens(raw, cleaned):
     """(tokens of raw, tokens of cleaned) ready to compare."""
     c_text = cleaned or ""
-    r = [t for t in _without_commands(word_tokens(raw)) if not (t in _SYMBOL_WORDS and _SYMBOL_WORDS[t] in c_text)]
+    ats, dots = c_text.count("@"), _inner_dots(c_text)   # spoken "at" / "dot" are kept when cleaned has the symbol
+    r = []
+    for t in _without_commands(word_tokens(raw)):
+        if t in _SYMBOL_WORDS and _SYMBOL_WORDS[t] in c_text:
+            continue
+        if t == "at" and ats > 0:
+            ats -= 1
+        elif t == "dot" and dots > 0:
+            dots -= 1
+        else:
+            r.append(t)
     return _merge_numbers(r), _merge_numbers(word_tokens(c_text))
 
 

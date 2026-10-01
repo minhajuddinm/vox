@@ -88,6 +88,51 @@ def test_number_words_equal_digits():
     assert core.word_recall("nineteen ninety nine", "1999") == 1.0
 
 
+def test_big_numbers_with_and_and_point_equal_their_digits():
+    assert core.word_recall("it costs two hundred dollars", "It costs $200.") == 1.0
+    assert core.word_recall("two thousand twenty six", "2026") == 1.0
+    assert core.word_recall("one hundred and five degrees", "105°") == 1.0
+    assert core.word_recall("one thousand two hundred and fifty", "1,250") == 1.0
+    assert core.word_recall("a hundred and a thousand", "100 and 1000") == 1.0
+    assert core.word_recall("three point five liters", "3.5 liters") == 1.0
+    assert core.word_recall("three thirty p m", "3:30 PM") == 1.0
+    assert core.word_recall("seven a m", "7 a.m.") == 1.0
+
+
+def test_a_wrong_number_is_still_a_lost_word():
+    assert core.word_recall("two hundred", "300") == 0.0
+    assert core.word_recall("two thousand twenty six", "2025") == 0.0
+    assert core.word_recall("three point five", "3.6") == 0.0
+    assert core.word_recall("three thirty p m", "3:30 AM") < 1.0
+
+
+def test_and_is_a_word_unless_it_sits_inside_a_number():
+    assert core.word_recall("salt and pepper", "salt pepper") < 1.0
+    assert core.word_recall("one hundred and then some", "100 then some") < 1.0   # that "and" is a real word
+
+
+def test_spoken_at_and_dot_are_kept_only_for_an_at_sign_or_a_dot_inside_a_word():
+    assert core.word_recall("mail john at gmail dot com", "Mail john@gmail.com.") == 1.0
+    assert core.word_recall("see www dot example dot org", "See www.example.org.") == 1.0
+    assert core.word_recall("meet me at noon", "Meet me noon.") < 1.0
+    assert core.word_recall("a dot on the page", "A on the page.") < 1.0      # a full stop is not a spoken dot
+    assert core.word_recall("a dot on the page", "A dot. On the page.") == 1.0
+
+
+def test_common_dictation_with_numbers_and_emails_passes_the_guard_in_both_strengths():
+    pairs = [
+        ("it costs two hundred dollars for the big one", "It costs $200 for the big one."),
+        ("two thousand twenty six", "2026"),
+        ("one hundred and five degrees", "105°"),
+        ("john at gmail dot com", "john@gmail.com"),
+        ("three point five liters", "3.5 liters"),
+        ("three thirty p m", "3:30 PM"),
+    ]
+    for raw, cleaned in pairs:
+        for strength in ("light", "standard"):
+            assert core.fidelity_ok(raw, cleaned, strength), (raw, cleaned, strength)
+
+
 def test_symbols_cover_currency_and_percent_words_only_when_present():
     assert core.word_recall("five dollars", "$5") == 1.0
     assert core.word_recall("ten percent off", "10% off") == 1.0

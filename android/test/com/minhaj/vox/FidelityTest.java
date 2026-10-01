@@ -77,6 +77,37 @@ public final class FidelityTest {
         eq("recall symbol covers dollars", 1.0, Fidelity.wordRecall("five dollars", "$5"));
         eq("recall no symbol", 0.5, Fidelity.wordRecall("five dollars", "5"));
 
+        // big numbers, "and" and "point" inside a number, "p m", spoken "at" / "dot"
+        eq("recall two hundred", 1.0, Fidelity.wordRecall("it costs two hundred dollars", "It costs $200."));
+        eq("recall two thousand twenty six", 1.0, Fidelity.wordRecall("two thousand twenty six", "2026"));
+        eq("recall hundred and five", 1.0, Fidelity.wordRecall("one hundred and five degrees", "105°"));
+        eq("recall 1,250", 1.0, Fidelity.wordRecall("one thousand two hundred and fifty", "1,250"));
+        eq("recall a hundred a thousand", 1.0, Fidelity.wordRecall("a hundred and a thousand", "100 and 1000"));
+        eq("recall point", 1.0, Fidelity.wordRecall("three point five liters", "3.5 liters"));
+        eq("recall p m", 1.0, Fidelity.wordRecall("three thirty p m", "3:30 PM"));
+        eq("recall a m", 1.0, Fidelity.wordRecall("seven a m", "7 a.m."));
+        eq("recall wrong number", 0.0, Fidelity.wordRecall("two hundred", "300"));
+        eq("recall wrong decimal", 0.0, Fidelity.wordRecall("three point five", "3.6"));
+        eq("recall and is a word", true, Fidelity.wordRecall("salt and pepper", "salt pepper") < 1.0);
+        eq("recall and then some", true, Fidelity.wordRecall("one hundred and then some", "100 then some") < 1.0);
+        eq("recall email", 1.0, Fidelity.wordRecall("mail john at gmail dot com", "Mail john@gmail.com."));
+        eq("recall www", 1.0, Fidelity.wordRecall("see www dot example dot org", "See www.example.org."));
+        eq("recall plain at", true, Fidelity.wordRecall("meet me at noon", "Meet me noon.") < 1.0);
+        eq("recall full stop is not dot", true, Fidelity.wordRecall("a dot on the page", "A on the page.") < 1.0);
+        eq("recall dot said and written", 1.0, Fidelity.wordRecall("a dot on the page", "A dot. On the page."));
+        String[][] common = {
+                {"it costs two hundred dollars for the big one", "It costs $200 for the big one."},
+                {"two thousand twenty six", "2026"},
+                {"one hundred and five degrees", "105°"},
+                {"john at gmail dot com", "john@gmail.com"},
+                {"three point five liters", "3.5 liters"},
+                {"three thirty p m", "3:30 PM"},
+        };
+        for (String[] pair : common) {
+            eq("common light " + pair[0], true, Fidelity.ok(pair[0], pair[1], "light"));
+            eq("common standard " + pair[0], true, Fidelity.ok(pair[0], pair[1], "standard"));
+        }
+
         // adding only whitespace and bullet markers never lowers recall
         String[] vocab = {"alpha", "beta", "um", "gamma", "twenty", "five", "don't", "the", "the", "x1"};
         String[] gaps = {" ", "\n", "\n\n", "\n- ", "  ", "\t", "\n* ", "\n• "};

@@ -28,6 +28,10 @@ Chronological notes on how the improvement series was made, what was found, and 
 
 Later the same day: PR 2 (the documentation folder) was merged upstream as `de839c8`. Added `documentation/tools/docs_todo.py` (maps changed files to the pages that describe them, tested in `tests/test_docs_todo.py`) and the project skill `vox-doc-sync`, so the documentation is synced at the end of every session ([decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)). The tool was tried on its own branch: it listed the three new files and the pages to update.
 
+## 2026-10-01, fidelity guard: big numbers, decimals, times and emails (v2 part 3, task A1 review fix)
+
+The review found that the first version of the guard only understood spoken numbers up to a hundred, so common dictation (`two hundred dollars` -> `$200`, `two thousand twenty six` -> `2026`, `one hundred and five degrees` -> `105`, `john at gmail dot com` -> `john@gmail.com`, `three point five` -> `3.5`, `three thirty p m` -> `3:30 PM`) scored a recall of 0.63 to 0.80 and was thrown away in Standard strength. Fix in `_merge_numbers` / `Fidelity.mergeNumbers`: a small spoken-number reader (N hundred, thousand, an `and` inside a number, `a hundred`, `a thousand`), `point` between numbers, `p m` / `a m`, and one `at` per `@` and one `dot` per inner dot of the cleaned text. A wrong number (`two hundred` -> `300`) and a plain `at` or `dot` still count as lost words. 26 golden rows (kinds `fidelity` and `recall`), 5 Python tests and 29 Java checks; no new golden kind. Not handled: millions and billions, digit-then-word forms such as `2 hundred`, `oh` as zero in decimals.
+
 ## 2026-09-30, final review fixes
 
 Fixed the five findings of the final review (meeting STT timeout retry through the relay, stale Retry, Retry rotation and parking, `profile_keys_sent` seeding and keeping, relay README wording), each test first (red, then green) in Python and Java; the shared rule `core.retryable` is now used by the meeting loop, and the keys-flag rule is the same in `sync.py` and `SyncEngine.java`.

@@ -103,38 +103,97 @@ final class Fidelity {
         return true;
     }
 
+    /** {value, next index} of a spoken number below a hundred at i ("twenty five", "fourteen", "six"), or null. */
+    private static int[] tensUnits(List<String> tokens, int i, boolean allowZero) {
+        if (i >= tokens.size()) return null;
+        String t = tokens.get(i);
+        if (TENS.containsKey(t)) {
+            int v = TENS.get(t);
+            if (i + 1 < tokens.size()) {
+                Integer u = UNITS.get(tokens.get(i + 1));
+                if (u != null && u >= 1 && u <= 9) return new int[]{v + u, i + 2};
+            }
+            return new int[]{v, i + 1};
+        }
+        Integer u = UNITS.get(t);
+        if (u != null && (allowZero || u > 0)) return new int[]{u, i + 1};
+        return null;
+    }
+
+    /** The part after "hundred" or "thousand": an optional "and", then a smaller number; null if there is none. */
+    private static int[] tail(List<String> tokens, int i, boolean thousands) {
+        if (i < tokens.size() && tokens.get(i).equals("and")) i++;
+        return thousands ? hundreds(tokens, i) : tensUnits(tokens, i, false);
+    }
+
+    /** {value, next index} of a spoken number below a thousand at i: "N hundred [and] M", "a hundred", or below a hundred. */
+    private static int[] hundreds(List<String> tokens, int i) {
+        if (i + 1 < tokens.size() && tokens.get(i + 1).equals("hundred")) {
+            String t = tokens.get(i);
+            Integer u = UNITS.get(t);
+            if (t.equals("a") || (u != null && u > 0)) {
+                int v = 100 * (t.equals("a") ? 1 : u);
+                int[] rest = tail(tokens, i + 2, false);
+                return rest != null ? new int[]{v + rest[0], rest[1]} : new int[]{v, i + 2};
+            }
+        }
+        return tensUnits(tokens, i, true);
+    }
+
+    /** {value, next index} of a spoken number at i: "two thousand twenty six", "one hundred and five", "a thousand". */
+    private static int[] spokenNumber(List<String> tokens, int i) {
+        int[] res;
+        if (i + 1 < tokens.size() && tokens.get(i).equals("a") && tokens.get(i + 1).equals("thousand")) {
+            res = new int[]{1, i + 1};
+        } else {
+            res = hundreds(tokens, i);
+        }
+        if (res == null) return null;
+        int v = res[0];
+        int k = res[1];
+        if (k < tokens.size() && tokens.get(k).equals("thousand")) {
+            v *= 1000;
+            k++;
+            int[] rest = tail(tokens, k, true);
+            if (rest != null && rest[0] > 0) {
+                v += rest[0];
+                k = rest[1];
+            }
+        }
+        return new int[]{v, k};
+    }
+
     /**
-     * Spoken numbers (zero to a hundred) become digits, and runs of digit words or digit groups join into one token, so
-     * "twenty five" = "25", "five five five one two" = "55512" = "555-12" and "twenty twenty six" = "2026".
+     * Spoken numbers become digits, and runs of digit words or digit groups join into one token, so "twenty five" = "25",
+     * "one hundred and five" = "105", "two thousand twenty six" = "2026", "a hundred" = "100", "five five five one two" =
+     * "55512" = "555-12" and "twenty twenty six" = "2026". "point" between two numbers is the decimal point ("three point
+     * five" = "3.5" = "35") and "p m" / "a m" are "pm" / "am".
      */
     private static List<String> mergeNumbers(List<String> tokens) {
         List<String> out = new ArrayList<>();
         int i = 0;
-        while (i < tokens.size()) {
+        int n = tokens.size();
+        while (i < n) {
             String t = tokens.get(i);
-            if (TENS.containsKey(t)) {
-                int v = TENS.get(t);
-                if (i + 1 < tokens.size()) {
-                    Integer u = UNITS.get(tokens.get(i + 1));
-                    if (u != null && u >= 1 && u <= 9) {
-                        v += u;
-                        i++;
-                    }
-                }
-                t = String.valueOf(v);
-            } else if (UNITS.containsKey(t)) {
-                t = String.valueOf(UNITS.get(t));
-            } else if (t.equals("hundred") && !out.isEmpty() && out.get(out.size() - 1).equals("1")) {
-                out.set(out.size() - 1, "100");
+            int[] num = spokenNumber(tokens, i);
+            if (num != null) {
+                t = String.valueOf(num[0]);
+                i = num[1];
+            } else if (t.equals("point") && !out.isEmpty() && allDigits(out.get(out.size() - 1)) && i + 1 < n
+                    && (allDigits(tokens.get(i + 1)) || UNITS.containsKey(tokens.get(i + 1)))) {
                 i++;
                 continue;
+            } else if ((t.equals("a") || t.equals("p")) && i + 1 < n && tokens.get(i + 1).equals("m")) {
+                t = t + "m";
+                i += 2;
+            } else {
+                i++;
             }
             if (allDigits(t) && !out.isEmpty() && allDigits(out.get(out.size() - 1))) {
                 out.set(out.size() - 1, out.get(out.size() - 1) + t);
             } else {
                 out.add(t);
             }
-            i++;
         }
         return out;
     }
@@ -156,12 +215,41 @@ final class Fidelity {
         return out;
     }
 
+    /** How many dots in text sit between two word characters (gmail.com, 3.5): not a full stop. */
+    private static int innerDots(String text) {
+        int n = 0;
+        int prev = -1;
+        int i = 0;
+        while (i < text.length()) {
+            int cp = text.codePointAt(i);
+            int next = i + Character.charCount(cp);
+            if (cp == '.' && prev >= 0 && next < text.length() && isWordChar(prev) && isWordChar(text.codePointAt(next))) n++;
+            prev = cp;
+            i = next;
+        }
+        return n;
+    }
+
+    private static int count(String text, char c) {
+        int n = 0;
+        for (int i = 0; i < text.length(); i++) if (text.charAt(i) == c) n++;
+        return n;
+    }
+
     private static List<String> rawTokens(String raw, String cleaned) {
+        int ats = count(cleaned, '@');   // spoken "at" / "dot" are kept when cleaned has the symbol
+        int dots = innerDots(cleaned);
         List<String> r = new ArrayList<>();
         for (String t : withoutCommands(wordTokens(raw))) {
             String sym = SYMBOL_WORDS.get(t);
             if (sym != null && cleaned.contains(sym)) continue;
-            r.add(t);
+            if (t.equals("at") && ats > 0) {
+                ats--;
+            } else if (t.equals("dot") && dots > 0) {
+                dots--;
+            } else {
+                r.add(t);
+            }
         }
         return mergeNumbers(r);
     }
