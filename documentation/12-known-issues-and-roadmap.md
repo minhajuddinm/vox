@@ -60,7 +60,7 @@ State of the code, honestly. Update this page when you fix or discover something
 ### Security and privacy (see [09-security-privacy.md](09-security-privacy.md))
 
 - Android API key and history are not encrypted inside the app's private storage.
-- Windows history, meeting data and `google_token.json` are plain files.
+- Windows history and meeting data are plain files.
 - Dictated text passes through the clipboard (clipboard history can keep it). `keep_clipboard` defaults to false, so the old clipboard text is restored after a paste.
 
 ### Structure and quality
@@ -93,7 +93,7 @@ Ordered by how much they would help (the v2 plan; P1 to P4 are done):
 7. Cleanup quality: (fuzzy dictionary matching is built, applied after the cleanup and not before it) an `EMPTY` sentinel and stricter output checks, per-app modes. The larger part-3 requests below build on this.
 8. Set the signing-key secrets so phone updates work without uninstalling.
 9. Split `meeting.py` (store, prompts, recording/STT) and `engine.py` (hotkey, recorder, paste, control server, tray) behind tests first.
-10. Encrypt the Android API key with the Android Keystore; restrict `google_token.json` permissions.
+10. Encrypt the Android API key with the Android Keystore.
 11. Tests for `engine.py` state logic, `meeting.py` text helpers and `Prefs`; a Windows UI smoke test with a stubbed `pywebview.api`.
 12. Compress uploads when the server accepts it: done on Android (m4a from 4 s, not run on a phone yet); still to do on Windows (FLAC or Opus).
 13. Make the Microphone setting apply to meeting notes.
