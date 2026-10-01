@@ -51,11 +51,25 @@ public final class PendingQueueTest {
         eq("new oldest", 2L, c.next().id);
         eq("newest kept", true, c.get(6) != null);
 
-        // cancel of a live recording (not queued yet) touches nothing queued
+        // cancel rules: only a fresh, already-queued recording is discarded
         PendingQueue k = new PendingQueue();
         k.add(e(10, "note"));
-        eq("cancel live removes nothing", false, k.remove(20));
-        eq("queued survives", 1, k.size());
+        k.beginRecording();
+        eq("cancel while recording discards nothing", 0L, k.onCancel());
+        eq("old one survives live cancel", 1, k.size());
+        k.beginRetry(10);
+        eq("cancel during retry discards nothing", 0L, k.onCancel());
+        eq("old one survives retry cancel", 1, k.size());
+        k.add(e(20, "dictation"));
+        k.beginFresh(20);
+        eq("cancel of fresh queued entry returns only it", 20L, k.onCancel());
+        eq("second cancel returns nothing", 0L, k.onCancel());
+        k.beginFresh(20);
+        k.endJob();
+        eq("cancel after a failed send discards nothing", 0L, k.onCancel());
+        k.beginFresh(20);
+        k.beginRecording();
+        eq("new recording after fresh job resets it", 0L, k.onCancel());
 
         // age purge: older than 7 days goes, exactly 7 days and newer stay
         long now = 100 * DAY;

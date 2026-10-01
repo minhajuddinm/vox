@@ -109,10 +109,6 @@ public class DictationService extends Service {
      * discarded by the user (Clear, or a long-press cancel of that very recording) or dropped by the cap or age rule.
      */
     private final PendingQueue pending = new PendingQueue();
-    /** Id of the queue entry the job in progress is sending, or 0 (recording, or no job). */
-    private volatile long currentEntry;
-    /** True when the job in progress is a fresh recording (a cancel discards it), false for a Retry (a cancel only stops the send). */
-    private volatile boolean currentFresh;
     private long lastEntryId;
 
     @Override public IBinder onBind(Intent i) { return null; }
@@ -301,7 +297,7 @@ public class DictationService extends Service {
         final ByteArrayOutputStream data = new ByteArrayOutputStream();
         pcm = data;
         final int job = ++jobId;
-        currentEntry = 0;   // nothing queued belongs to this recording yet: a cancel now must not touch an older unsent one
+        pending.beginRecording();   // nothing queued belongs to this recording yet: a cancel now must not touch an older unsent one
         recording = true;
         setState(RECORDING);
         recThread = new Thread(() -> {
@@ -381,8 +377,7 @@ public class DictationService extends Service {
             }
             synchronized (DictationService.this) {   // with cancel(): either it saw this entry, or this sees the cancel
                 if (!isCurrent(job)) { fileOf(entry).delete(); return; }   // cancelled while the file was being written: this recording is the one being cancelled
-                currentEntry = entry.id;
-                currentFresh = true;
+                pending.beginFresh(entry.id);
                 enqueue(entry);
             }
             send(job, entry);
@@ -405,8 +400,7 @@ public class DictationService extends Service {
         if (kept == null) { refreshNotification(); return; }
         final PendingQueue.Entry entry = kept;
         final int job = ++jobId;
-        currentEntry = entry.id;
-        currentFresh = false;
+        pending.beginRetry(entry.id);
         targetPkg = entry.pkg;       // the state shown on screen (isNoteJob) follows the job being sent
         targetLabel = entry.label;
         targetDest = entry.dest;
@@ -422,9 +416,8 @@ public class DictationService extends Service {
     public synchronized void cancel() {
         jobId++;
         recording = false;
-        long id = currentEntry;
-        if (currentFresh && id != 0) discard(id);
-        currentEntry = 0;
+        long id = pending.onCancel();   // the rule lives in PendingQueue: only a fresh, queued recording is discarded
+        if (id != 0) discard(id);
         setState(IDLE);
     }
 
@@ -439,7 +432,7 @@ public class DictationService extends Service {
 
     /** Goes back to idle, but only for the job that is still current. */
     private synchronized void finish(int job) {
-        if (job == jobId) { currentEntry = 0; setState(IDLE); }
+        if (job == jobId) { pending.endJob(); setState(IDLE); }
     }
 
     private File fileOf(PendingQueue.Entry e) { return new File(getCacheDir(), PendingQueue.fileName(e)); }

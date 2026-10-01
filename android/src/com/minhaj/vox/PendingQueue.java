@@ -54,6 +54,34 @@ public final class PendingQueue {
         return false;
     }
 
+    // ---- the job in flight, and what a cancel may remove
+
+    private long inFlight;          // id of the queued entry the job is sending, or 0 (recording, or no job)
+    private boolean inFlightFresh;  // true: a fresh recording (cancel discards it); false: a Retry of an older entry
+
+    /** A recording has started (or any job ended): nothing queued belongs to it, so a cancel removes nothing. */
+    public synchronized void beginRecording() { inFlight = 0; inFlightFresh = false; }
+
+    /** The job in flight is a fresh recording that is now queued as this entry. */
+    public synchronized void beginFresh(long id) { inFlight = id; inFlightFresh = true; }
+
+    /** The job in flight is a Retry of this older entry: a cancel only stops the send. */
+    public synchronized void beginRetry(long id) { inFlight = id; inFlightFresh = false; }
+
+    /** The job is over (sent, failed, or went idle): a later cancel removes nothing. */
+    public synchronized void endJob() { inFlight = 0; inFlightFresh = false; }
+
+    /**
+     * The user cancelled. Returns the id of the one entry to discard (a fresh recording already queued), or 0 when
+     * nothing must be removed (still recording, a Retry, or no job). Ends the job. Does not remove it from the
+     * queue: the caller discards the id (remove + delete file).
+     */
+    public synchronized long onCancel() {
+        long id = inFlightFresh ? inFlight : 0;
+        inFlight = 0; inFlightFresh = false;
+        return id;
+    }
+
     public synchronized int size() { return items.size(); }
 
     /** Removes and returns every entry (the "Clear" button). */
