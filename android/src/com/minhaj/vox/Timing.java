@@ -251,6 +251,21 @@ final class Timing {
         return rows;
     }
 
+    /**
+     * The "timing" value of a history row as plain maps: the keys stages, stt_model, llm_model, provider and relay, the same
+     * as windows/timing.py Timing.entry writes and speedView reads. Prefs.timingJson turns it into JSON, so the key names
+     * live here, where the offline tests (ParityTest, TimingTest) can reach them.
+     */
+    static Map<String, Object> historyMap(Entry e) {
+        Map<String, Object> o = new LinkedHashMap<>();
+        o.put("stages", new LinkedHashMap<String, Object>(e.stages));
+        o.put("stt_model", e.sttModel);
+        o.put("llm_model", e.llmModel);
+        o.put("provider", e.provider);
+        o.put("relay", e.relay);
+        return o;
+    }
+
     private static long asLong(Object o) {
         return o instanceof Number ? ((Number) o).longValue() : 0L;
     }

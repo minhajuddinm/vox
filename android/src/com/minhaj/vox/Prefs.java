@@ -204,16 +204,13 @@ public final class Prefs {
         }
     }
 
-    /** The same shape as the "timing" of a Windows history entry (windows/timing.py Timing.entry). */
+    /** The same shape as the "timing" of a Windows history entry (windows/timing.py Timing.entry); the keys are Timing.historyMap's. */
     static JSONObject timingJson(Timing.Entry e) throws org.json.JSONException {
+        java.util.Map<String, Object> m = Timing.historyMap(e);
         JSONObject stages = new JSONObject();
         for (java.util.Map.Entry<String, Long> kv : e.stages.entrySet()) stages.put(kv.getKey(), kv.getValue().longValue());
         JSONObject o = new JSONObject();
-        o.put("stages", stages);
-        o.put("stt_model", e.sttModel);
-        o.put("llm_model", e.llmModel);
-        o.put("provider", e.provider);
-        o.put("relay", e.relay);
+        for (java.util.Map.Entry<String, Object> kv : m.entrySet()) o.put(kv.getKey(), kv.getKey().equals("stages") ? stages : kv.getValue());
         return o;
     }
 

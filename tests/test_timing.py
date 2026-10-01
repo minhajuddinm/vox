@@ -78,6 +78,7 @@ def test_entry_carries_stages_and_model_names():
     assert e == {"stages": {"start": 40, "rec": 2000, "stt": 600, "llm": 300, "insert": 30, "total": 950},
                  "stt_model": "whisper-large-v3-turbo", "llm_model": "openai/gpt-oss-20b", "provider": "groq",
                  "relay": True}
+    assert list(e) == ["stages", "stt_model", "llm_model", "provider", "relay"]   # the order Timing.historyMap has (Java twin)
 
 
 def test_median_and_p90_basics():

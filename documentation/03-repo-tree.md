@@ -89,7 +89,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/Prefs.java` | All settings and the history, in SharedPreferences. |
 | `android/src/com/minhaj/vox/Providers.java` | Java twin of `windows/providers.py`: per-role settings, model classification and parsing, messages, reasoning fields. |
 | `android/src/com/minhaj/vox/Terms.java` | Parses the dictionary text into terms and replacements. |
-| `android/src/com/minhaj/vox/Timing.java` | Pure Java twin of `windows/timing.py` (marks, stages, median, p90, biggest stage, "1.4 s" text, summary, `byModel`, `speedView` for the Speed card); pinned by the `timing_*` rows of `spec/golden.txt`. |
+| `android/src/com/minhaj/vox/Timing.java` | Pure Java twin of `windows/timing.py` (marks, stages, median, p90, biggest stage, "1.4 s" text, summary, `byModel`, `speedView` for the Speed card, `historyMap` the keys of a history row's timing); pinned by the `timing_*` rows of `spec/golden.txt`. |
 | `android/src/com/minhaj/vox/NotificationActions.java` | Pure choice of the foreground notification buttons (at most three) and its Retry hint line. |
 | `android/src/com/minhaj/vox/InsertGuard.java` | Pure typing guard: never type a restored dictation (empty target package), refuse a switched app, and the toast words. |
 | `android/src/com/minhaj/vox/PinnedUrlConfig.java` | A `SyncConfig` with the relay address fixed for one sync run (the address is read once per run). |

@@ -135,6 +135,8 @@ public final class TimingTest {
         Timing.Entry e = full().entry("w", "l", "groq", true);
         check("entry fields", e.sttModel.equals("w") && e.llmModel.equals("l") && e.provider.equals("groq") && e.relay
                 && e.stages.get("total") == 950);
+        check("historyMap keys are the Windows entry keys", new ArrayList<>(Timing.historyMap(e).keySet())
+                .equals(Arrays.asList("stages", "stt_model", "llm_model", "provider", "relay")));
 
         check("median empty", Timing.median(new ArrayList<Long>()) == 0 && Timing.p90(new ArrayList<Long>()) == 0);
         List<Long> xs = new ArrayList<>(Arrays.asList(3L, 1L, 2L));

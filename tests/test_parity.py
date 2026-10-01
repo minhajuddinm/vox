@@ -99,6 +99,37 @@ def timing_models(entries, n):
     return timing.by_model(out, int(n))
 
 
+def history_rows(rows):
+    """Golden history rows, ; separated. A row is t@app@words@voice@cleanup@relay@stages (relay 1 or 0, stages a k=v map);
+    an empty t, app or words leaves that key out of the row. Three fields is a row without a timing, and a fourth field
+    ~ is a row whose timing is not a map."""
+    out = []
+    for r in rows.split(";") if rows else []:
+        p = r.split("@", 6)
+        h = {}
+        if p[0]:
+            h["t"] = int(p[0])
+        if p[1]:
+            h["app"] = p[1]
+        if p[2]:
+            h["words"] = int(p[2])
+        if len(p) == 4:
+            h["timing"] = "x"
+        elif len(p) == 7:
+            h["timing"] = {"stages": kv(p[6]), "stt_model": p[3], "llm_model": p[4], "provider": "p", "relay": p[5] == "1"}
+        out.append(h)
+    return out
+
+
+def view_text(v):
+    """The whole Speed card as one line: the summary, the by-model lines and the last dictations (newest first)."""
+    s = dict(v["stages"], count=v["count"], biggest=v["biggest"])
+    last = "|".join("%d@%s@%d@%s@%s@%d@%s" % (r["t"], r["app"], r["words"], r["stt_model"], r["llm_model"], 1 if r["relay"] else 0,
+                                              ",".join("%s=%d" % (k, r["stages"].get(k, 0)) for k in timing.STAGES))
+                    for r in v["last"])
+    return "%s models=%s last=%s" % (summary_text(s), models_text(v["models"]), last)
+
+
 @pytest.mark.parametrize("kind,f", cases())
 def test_golden(kind, f, tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))   # the notes rows use a real (temporary) notes.db
@@ -162,5 +193,7 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert summary_text(timing_summary(f[0], f[1])) == f[2]
     elif kind == "timing_models":   # entries (voice@cleanup@stages, separated by ;), n => one line per model pair
         assert models_text(timing_models(f[0], f[1])) == f[2]
+    elif kind == "timing_view":   # history rows (see history_rows), n, last => the whole Speed card as one line
+        assert view_text(timing.speed_view(history_rows(f[0]), int(f[1]), int(f[2]))) == f[3]
     else:
         pytest.fail(f"unknown case kind {kind}")

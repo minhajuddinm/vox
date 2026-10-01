@@ -96,6 +96,58 @@ public final class ParityTest {
         return b.toString();
     }
 
+    /**
+     * Golden history rows (see timing_view in spec/golden.txt) as the history holds them: a map per row. The "timing" of a
+     * timed row is made by Timing.historyMap, the same call Prefs.addHistory writes it with, so a renamed key on the writing
+     * side fails here and not only on a phone.
+     */
+    private static List<Object> historyRows(String rows) {
+        List<Object> out = new ArrayList<>();
+        for (String r : items(rows, ";")) {
+            String[] p = r.split("@", 7);
+            Map<String, Object> h = new LinkedHashMap<>();
+            if (!p[0].isEmpty()) h.put("t", Long.parseLong(p[0]));
+            if (!p[1].isEmpty()) h.put("app", p[1]);
+            if (!p[2].isEmpty()) h.put("words", Long.parseLong(p[2]));
+            if (p.length == 4) {
+                h.put("timing", "x");
+            } else if (p.length == 7) {
+                h.put("timing", Timing.historyMap(new Timing.Entry(kv(p[6]), p[3], p[4], "p", p[5].equals("1"))));
+            }
+            out.add(h);
+        }
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String timingView(String rows, int n, int last) {
+        Map<String, Object> v = Timing.speedView(historyRows(rows), n, last);
+        Map<String, Object> stages = (Map<String, Object>) v.get("stages");
+        StringBuilder b = new StringBuilder("count=" + v.get("count") + " biggest=" + v.get("biggest"));
+        for (String k : Timing.STAGES) {
+            Map<String, Object> m = (Map<String, Object>) stages.get(k);
+            b.append(' ').append(k).append('=').append(m.get("median")).append('/').append(m.get("p90"));
+        }
+        StringBuilder models = new StringBuilder();
+        for (Object o : (List<Object>) v.get("models")) {
+            Map<String, Object> m = (Map<String, Object>) o;
+            models.append(models.length() == 0 ? "" : ";").append(m.get("stt_model")).append('+').append(m.get("llm_model"))
+                    .append(" n=").append(m.get("count")).append(" stt=").append(m.get("stt")).append(" llm=").append(m.get("llm"))
+                    .append(" total=").append(m.get("total"));
+        }
+        StringBuilder recent = new StringBuilder();
+        for (Object o : (List<Object>) v.get("last")) {
+            Map<String, Object> m = (Map<String, Object>) o;
+            Map<String, Object> st = (Map<String, Object>) m.get("stages");
+            StringBuilder s = new StringBuilder();
+            for (String k : Timing.STAGES) s.append(s.length() == 0 ? "" : ",").append(k).append('=').append(st.containsKey(k) ? st.get(k) : 0L);
+            recent.append(recent.length() == 0 ? "" : "|").append(((Number) m.get("t")).longValue()).append('@').append(m.get("app")).append('@')
+                    .append(((Number) m.get("words")).longValue()).append('@').append(m.get("stt_model")).append('@').append(m.get("llm_model"))
+                    .append('@').append(Boolean.TRUE.equals(m.get("relay")) ? 1 : 0).append('@').append(s);
+        }
+        return b + " models=" + models + " last=" + recent;
+    }
+
     private static void eq(int line, String kind, String expected, String actual) {
         checks++;
         if (!expected.equals(actual)) {
@@ -208,6 +260,9 @@ public final class ParityTest {
                     break;
                 case "timing_models":   // entries (voice@cleanup@stages, separated by ;), n => one line per model pair
                     eq(ln, kind, f[2], timingModels(f[0], Integer.parseInt(f[1])));
+                    break;
+                case "timing_view":   // history rows, n, last => the whole Speed card as one line
+                    eq(ln, kind, f[3], timingView(f[0], Integer.parseInt(f[1]), Integer.parseInt(f[2])));
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
