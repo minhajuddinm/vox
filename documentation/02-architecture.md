@@ -125,8 +125,9 @@ The same functions exist in both languages:
 | Which version wins a note sync (strictly newer; a tie keeps the local one; a delete of an unknown note is ignored) | `notes.apply_remote` | `NoteLogic.remoteWins` |
 | Profile sync merge (per field: the side that changed since the last sync wins, the relay wins a clash, an absent result drops the field) and which settings travel | `sync.merge3`, `sync.PROFILE_FIELDS`, `sync.PROFILE_KEY_FIELDS` | `ProfileMerge.merge3`, `mergeProfile`, `SHARED_FIELDS`, `KEY_FIELDS` |
 | Tag clean-up (trim, no empties, no repeats) | `notes._tags` | `NoteLogic.cleanTags` (not in the golden file; see [12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md)) |
+| Whether cleanup runs (off, `raw` style, phrase shorter than `cleanup_min_words`) | `clean_min_words`, `needs_cleanup` | `ApiClient.cleanMinWords`, `ApiClient.needsCleanup` |
 
-`spec/golden.txt` holds expected results for the first eight rows; `tests/test_parity.py` and `android/test/.../ParityTest.java` both run it. See [decisions/0007-shared-golden-file.md](decisions/0007-shared-golden-file.md).
+`spec/golden.txt` holds expected results for the prompt, spelling hint, sanitize, looks_valid, replacement, terms, spoken-command, silence-phrase, About-you, model-classification, meter-level, cleanup-gate, voice-note title and search-string, note-sync winner, profile-merge and profile-field rows (the others have their own test on each side); `tests/test_parity.py` and `android/test/.../ParityTest.java` both run it. See [decisions/0007-shared-golden-file.md](decisions/0007-shared-golden-file.md).
 
 ## External services
 
