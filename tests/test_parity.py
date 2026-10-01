@@ -76,6 +76,8 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert core.apply_spoken_commands(f[0]) == f[1]
     elif kind == "promptctx":
         assert core.system_prompt(f[0], [t for t in f[1].split("|") if t], f[2], f[3]) == f[4]
+    elif kind == "promptstrength":
+        assert core.system_prompt(f[1], [t for t in f[2].split("|") if t], f[3], f[4], f[0]) == f[5]
     elif kind == "context":
         assert core.clean_context(f[0]) == f[1]
     elif kind == "level":

@@ -95,6 +95,9 @@ public final class ParityTest {
                 case "promptctx":
                     eq(ln, kind, f[4], ApiClient.systemPrompt(f[0], items(f[1], "|"), f[2], f[3]));
                     break;
+                case "promptstrength":
+                    eq(ln, kind, f[5], ApiClient.systemPrompt(f[1], items(f[2], "|"), f[3], f[4], f[0]));
+                    break;
                 case "context":
                     eq(ln, kind, f[1], ApiClient.cleanContext(f[0]));
                     break;

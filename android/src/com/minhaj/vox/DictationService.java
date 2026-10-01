@@ -556,8 +556,9 @@ public class DictationService extends Service {
             boolean doClean = ApiClient.needsCleanup(raw, style, p.cleanupEnabled(), p.cleanupMinWords());
             if (doClean) {
                 try {
-                    String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext());
-                    if (ApiClient.looksValid(raw, c, "standard")) { out = c; cleaned = true; }   // "standard" until the strength setting exists (task A3); the prompt is still the filler-removing one
+                    String strength = "standard";   // until the strength setting exists (task A3); the prompt and the guard use the same value
+                    String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext(), strength);
+                    if (ApiClient.looksValid(raw, c, strength)) { out = c; cleaned = true; }
                     else cleanupFailed = true;
                 } catch (IOException e) {
                     // Cleanup failure should never lose the dictation. Fall back to the raw transcript.
