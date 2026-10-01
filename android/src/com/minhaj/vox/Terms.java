@@ -76,7 +76,22 @@ final class Terms {
         "token total touch tough tower track trade train treat trend trial tried truck truly trust truth " +
         "twice under union until upper urban usage usual value video visit voice waste watch water wheel " +
         "where which while white whole whose woman women world worry worse worth would write wrong yield " +
-        "young yours ";
+        "young yours " +
+        "acute adapt admit adopt adult agent alarm album alert alive allow alter ample angle angry apart " +
+        "apply argue arise aware awful basis begun bible blame blind block blood bonus boost brain " +
+        "brand bread break brief broad brush buyer cable carry catch cease chart chase cheap chief civil " +
+        "claim clause clauses climb coach curve cycle dealt decker depth dirty docket drama dream dress drink " +
+        "drove eager enter essay exist fancy fiber fight flame flank fleet flesh fluid frank fraud fully " +
+        "giant glory goggle guard guest guilty habit handy harsh hence hotel humor ideal imply index " +
+        "inner input intro jelly joint judge knife known label lemon linux loose lotion lucky magic " +
+        "major march match mayor media metal minor minus mixed model motel motion nation noble nurse " +
+        "occur ocean opera outer owner panic pause phase photo pilot pitch pixel plate plenty polite potion " +
+        "pound prime queen quest quote rally reply rider rival robot rocker rocky rural scope serum shack " +
+        "shade shark shelf shell shine shirt shock shoot skill sleek slick slicker slope smoke snack snake " +
+        "solar spare spark spell spice spine spite sprint steam steel steep stern stick stiff stove strap " +
+        "straw stride strike strip strive stroke strong swing sword teeth tenth thick thumb " +
+        "tiger tired toast toggle topic torch trace tribe trick trunk tutor twist ultra uncle unite unity " +
+        "upset vague valid vital vowel wagon weird whale wheat wider wound wrist youth ";
     private static final Set<String> COMMON_WORDS = new HashSet<>(Arrays.asList(COMMON.trim().split(" ")));
     private static final Pattern WORD = Pattern.compile("[\\p{L}\\p{N}_]+");
 

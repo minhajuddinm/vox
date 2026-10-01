@@ -408,6 +408,12 @@ fuzzydict	Slack	the stack is full	the stack is full
 fuzzydict	Slack	post it on slack	post it on Slack
 fuzzydict	Grace	a grace period	a grace period
 fuzzydict	Docker	a locker room	a locker room
+fuzzydict	Claude	a clause in the contract	a clause in the contract
+fuzzydict	Claude	ask claude about it	ask Claude about it
+fuzzydict	Slack	a slick finish	a slick finish
+fuzzydict	Stripe	strive for more	strive for more
+fuzzydict	Apple	ample time left	ample time left
+fuzzydict	Linus	run it on Linux	run it on Linux
 fuzzydict	Docker	my dockr file	my Docker file
 fuzzydict	Pravin	Pravins phone	Pravins phone
 fuzzydict	Pravin	Pravina called	Pravina called
