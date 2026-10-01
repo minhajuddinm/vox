@@ -71,7 +71,7 @@ def _llm(cfg, system, user, max_tokens=4096, effort="medium"):
             body.pop(k, None)
         r = core.post_with_retry(f"{base}/chat/completions", headers=core.auth_headers(cfg, "llm"),
                        json=body, timeout=240)
-    return core.sanitize(core.providers.strip_think(core.check_response(r)["choices"][0]["message"].get("content", "")))
+    return core.sanitize(core.providers.strip_think(core.check_response(r, core.providers.uses_relay(cfg))["choices"][0]["message"].get("content", "")))
 
 
 # --------------------------------------------------------------------- prompts
