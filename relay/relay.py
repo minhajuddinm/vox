@@ -880,7 +880,10 @@ class Handler(BaseHTTPRequestHandler):
                                                "Check its address and key on the management page."}, n)
         if n > MAX_PROXY_BODY[kind]:
             return self._refuse(413, {"error": "request too large"}, n)
+        if not srv.proxy_running.acquire(blocking=False):     # exchanges still alive (an abandoned one lives on until its read ends)
+            return self._refuse(429, {"error": "busy"}, n)
         if not srv.proxy_slots.acquire(blocking=False):
+            srv.proxy_running.release()
             return self._refuse(429, {"error": "busy"}, n)
         once = threading.Lock()     # the slot is given back by whoever comes first: the exchange, or the watcher of a
                                     # client that left (its upstream read may take a while to notice, see forward_upstream)
@@ -892,6 +895,7 @@ class Handler(BaseHTTPRequestHandler):
             reply = self._exchange(n, base, key, suffix, kind, method, release)
         finally:
             release()
+            srv.proxy_running.release()     # only here, when the exchange has really ended (never from the watcher)
         if reply is None:       # the client left: nobody to answer
             self._status = 499
             self.close_connection = True
@@ -993,6 +997,7 @@ class RelayServer(ThreadingHTTPServer):
         self.store, self.token, self.owner, self.data_dir = store, token, owner, data_dir
         self.upstream = upstream_settings(upstream)   # replaced as a whole, never changed in place
         self.config_lock = threading.Lock()           # one writer at a time for relay.json
+        self.proxy_running = threading.BoundedSemaphore(2 * PROXY_SLOTS)   # exchanges alive at all, abandoned ones included
         self.proxy_slots = threading.BoundedSemaphore(PROXY_SLOTS)   # upstream exchanges in flight (and their bodies in memory)
         self.started = time.time()
         self._events = collections.deque(maxlen=100)

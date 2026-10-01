@@ -1352,3 +1352,57 @@ def test_a_client_that_waits_still_gets_its_answer_from_a_slow_upstream(server, 
     stt_stub.script = script
     resp = send_route(server, ROUTES[0])
     assert resp.status == 200 and resp.json() == {"text": "slow but fine"} and free_slots(server)
+
+
+# ------------------------------------------------------------------ medium round M4 (C-R3)
+def test_abandoned_calls_cannot_pile_up_more_than_twice_the_slots_where_a_shutdown_does_not_wake_the_read(server, llm_stub, monkeypatch):
+    """On Windows a client that leaves frees its slot at once while the read of its exchange runs on until the timeout.
+    Imitated here on every OS. The exchanges (each holds its request body) alive at one time stay at 2 * PROXY_SLOTS."""
+    monkeypatch.setitem(relay.PROXY_TIMEOUT, "llm", 3.0)
+    crippled_sockets(monkeypatch, no_shutdown=True)
+    llm_stub.script = lambda h, rec: time.sleep(3.5)         # reads the request, never answers
+    real, state = relay.forward_upstream, {"alive": 0, "peak": 0}
+    lock = threading.Lock()
+
+    def counting(*args, **kw):
+        with lock:
+            state["alive"] += 1
+            state["peak"] = max(state["peak"], state["alive"])
+        try:
+            return real(*args, **kw)
+        finally:
+            with lock:
+                state["alive"] -= 1
+    monkeypatch.setattr(relay, "forward_upstream", counting)
+    statuses = []
+
+    def one_call():
+        c = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
+        try:
+            c.request("POST", LLM_PATH, body=chat(), headers={"Authorization": "Bearer " + server.token, "Content-Type": "application/json"})
+            c.sock.settimeout(0.5)
+            try:
+                statuses.append(c.getresponse().status)       # a 429 comes at once; otherwise nothing comes and we leave
+            except OSError:
+                pass
+        finally:
+            c.close()
+
+    for _ in range(3):      # three waves of PROXY_SLOTS calls, each wave leaves and frees its slots before the next
+        wave = [threading.Thread(target=one_call) for _ in range(relay.PROXY_SLOTS)]
+        for t in wave:
+            t.start()
+        for t in wave:
+            t.join(10)
+        deadline = time.monotonic() + 3
+        while not free_slots(server) and time.monotonic() < deadline:
+            time.sleep(0.05)
+    assert state["peak"] <= 2 * relay.PROXY_SLOTS
+    assert statuses.count(429) == relay.PROXY_SLOTS         # the third wave found the exchanges still alive and was told "busy"
+    deadline = time.monotonic() + 8
+    while state["alive"] and time.monotonic() < deadline:     # they all end at the timeout and give everything back
+        time.sleep(0.05)
+    assert state["alive"] == 0
+    llm_stub.script = None
+    monkeypatch.setattr(relay, "socket", socket)
+    assert call(server, "GET", LLM_MODELS).status == 200      # all slots and all exchange places are back
