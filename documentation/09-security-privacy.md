@@ -44,7 +44,8 @@ There is no analytics, crash reporting or Vox backend. Audio and text go only to
 
 ## Android permissions and access
 
-- `RECORD_AUDIO` for dictation; `INTERNET`; foreground-service permissions; notifications; vibration.
+- `RECORD_AUDIO` for dictation; `INTERNET`; foreground-service permissions; notifications. No vibration, SMS, notification-listener or other sensitive permission is declared (a test, `tests/test_android_install_safety.py`, fails when a declared permission has no use in the code).
+- A sideloaded APK gets two warnings that no code can remove: Android's "Restricted setting" for the accessibility service (Android 13 and newer) and Play Protect's "App blocked" or "unknown app" prompt. The Settings page has an Install help card with the steps; the real fixes are Google Play (closed testing) or an app store such as F-Droid. The service does not set `isAccessibilityTool` (Play Protect blocks apps that set it without being an assistive tool). Details and what is unverified: [specs/p9g2-install-safety.md](specs/p9g2-install-safety.md).
 - The accessibility service reads the focused text field and the current app's package name to insert text. It never reads other screen content on purpose, but `canRetrieveWindowContent` is on because inserting text needs the field node. The bubble does nothing in password fields.
 - `<queries>` for launcher apps is used only to show the Styles list.
 - The WebView allows no file access; the page is loaded from assets and only the `Vox` bridge is exposed.

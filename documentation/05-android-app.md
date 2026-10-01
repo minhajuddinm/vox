@@ -6,7 +6,7 @@ Plain Java (source level 8, no Kotlin, no Gradle, no AndroidX), package `com.min
 
 | Item | Value / purpose |
 |---|---|
-| Permissions | `RECORD_AUDIO`, `INTERNET`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MICROPHONE`, `POST_NOTIFICATIONS`, `VIBRATE` |
+| Permissions | `RECORD_AUDIO`, `INTERNET`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MICROPHONE`, `POST_NOTIFICATIONS` (nothing else: `VIBRATE` was removed because only `View.performHapticFeedback` is used, which needs no permission). `targetSdkVersion` stays 34, the platform the sources compile against; see [specs/p9g2-install-safety.md](specs/p9g2-install-safety.md) |
 | `<queries>` | Lets the Styles page list installed launcher apps |
 | Application | `allowBackup="false"`, `networkSecurityConfig="@xml/network_security_config"` |
 | `MainActivity` | Exported launcher activity (the screens) |
