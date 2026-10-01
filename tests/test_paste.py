@@ -11,6 +11,7 @@ class FakeDeps:
     def __init__(self, foreground="notepad.exe", clip="old"):
         self.foreground, self.clip, self.calls = foreground, clip, []
         self.during_wait = None     # runs while paste_text sleeps after Ctrl+V: the user doing something else
+        self.snapshot, self.restore_error = None, None   # the full clipboard (all formats) taken before our text
 
     def foreground_exe(self):
         self.calls.append("foreground")
@@ -24,6 +25,15 @@ class FakeDeps:
     def clip_set(self, text):
         self.calls.append(("set", text))
         self.clip = text
+
+    def clip_snapshot(self):
+        self.calls.append("snapshot")
+        return self.snapshot
+
+    def clip_restore(self, snapshot):
+        self.calls.append(("restore", snapshot))
+        if self.restore_error:
+            raise self.restore_error
 
     def send_ctrl_v(self):
         self.calls.append("ctrl_v")
@@ -127,6 +137,144 @@ def test_no_target_or_no_current_window_name_means_nothing_to_compare():
 def test_the_clipboard_is_not_kept_unless_asked():
     import vox_core
     assert vox_core.DEFAULT_CONFIG["keep_clipboard"] is False
+
+
+# ---- the whole clipboard is put back, not only its text (R2-M3) ----------------------------------------------------------
+
+def test_the_whole_clipboard_is_restored_from_the_snapshot_taken_before_our_text():
+    d = FakeDeps(clip="old")
+    d.snapshot = object()
+    assert paste.paste_text("Hello.", "notepad.exe", False, deps=d) == "pasted"
+    assert ("restore", d.snapshot) in d.calls
+    assert d.calls.index("snapshot") < d.calls.index(("set", "Hello."))
+    assert ("set", "old") not in d.calls          # not the text-only path
+
+
+def test_a_clipboard_that_held_an_image_is_restored_from_the_snapshot_although_it_has_no_text():
+    d = FakeDeps(clip="")
+    d.snapshot = [(8, b"dib bytes")]
+    paste.paste_text("Hello.", "notepad.exe", False, deps=d)
+    assert ("restore", d.snapshot) in d.calls
+
+
+def test_the_snapshot_is_not_restored_when_the_clipboard_changed_meanwhile():
+    d = FakeDeps(clip="old")
+    d.snapshot = object()
+    d.during_wait = lambda: setattr(d, "clip", "something the user just copied")
+    paste.paste_text("Hello.", "notepad.exe", False, deps=d)
+    assert ("restore", d.snapshot) not in d.calls
+
+
+def test_the_snapshot_is_not_restored_when_the_clipboard_is_kept():
+    d = FakeDeps(clip="old")
+    d.snapshot = object()
+    paste.paste_text("Hello.", "notepad.exe", True, deps=d)
+    assert ("restore", d.snapshot) not in d.calls
+
+
+def test_a_failing_restore_is_logged_and_the_paste_still_counts(caplog):
+    d = FakeDeps(clip="old")
+    d.snapshot, d.restore_error = object(), OSError("clipboard busy")
+    with caplog.at_level(logging.WARNING, logger="vox"):
+        assert paste.paste_text("Hello.", "notepad.exe", False, deps=d) == "pasted"
+    assert any("clipboard" in r.getMessage() for r in caplog.records)
+
+
+# ---- the dictation stays out of Win+V history and the cloud clipboard (R2-M4) --------------------------------------------
+
+class FakeUser32:
+    def __init__(self):
+        self.registered, self.set_calls, self.closed = [], [], 0
+
+    def OpenClipboard(self, hwnd):
+        return 1
+
+    def EmptyClipboard(self):
+        return 1
+
+    def CloseClipboard(self):
+        self.closed += 1
+        return 1
+
+    def RegisterClipboardFormatW(self, name):
+        self.registered.append(name)
+        return 0xC000 + len(self.registered)
+
+    def SetClipboardData(self, fmt, handle):
+        self.set_calls.append((fmt, handle))
+        return handle
+
+    def CreateWindowExA(self, *args):
+        return 1
+
+    def DestroyWindow(self, hwnd):
+        return 1
+
+
+class FakeKernel32:
+    def GlobalFree(self, handle):
+        return 0
+
+
+def test_clip_set_marks_the_text_as_private_and_sets_it_as_unicode_text(monkeypatch):
+    user32 = FakeUser32()
+    monkeypatch.setattr(paste, "_user32", user32)
+    monkeypatch.setattr(paste, "_kernel32", FakeKernel32())
+    sizes = iter(range(100, 200))
+    monkeypatch.setattr(paste, "_global_from_bytes", lambda k, data: next(sizes))
+    paste.SystemDeps().clip_set("hi")
+    assert set(user32.registered) == {"ExcludeClipboardContentFromMonitorProcessing", "CanIncludeInClipboardHistory",
+                                      "CanUploadToCloudClipboard"}
+    formats = [f for f, _ in user32.set_calls]
+    assert 13 in formats and all(0xC001 <= f <= 0xC003 for f in formats if f != 13)
+    assert len(formats) == 4
+    assert user32.closed == 1
+
+
+def test_clip_set_raises_and_closes_the_clipboard_when_the_text_cannot_be_set(monkeypatch):
+    user32 = FakeUser32()
+    user32.SetClipboardData = lambda fmt, handle: None
+    monkeypatch.setattr(paste, "_user32", user32)
+    monkeypatch.setattr(paste, "_kernel32", FakeKernel32())
+    monkeypatch.setattr(paste, "_global_from_bytes", lambda k, data: 5)
+    with pytest.raises(OSError):
+        paste.SystemDeps().clip_set("hi")
+    assert user32.closed == 1
+
+
+# ---- Ctrl+V does not depend on the keyboard layout (R2-M5) ---------------------------------------------------------------
+
+def test_ctrl_v_is_sent_as_a_virtual_key_so_a_non_latin_layout_still_pastes(monkeypatch):
+    import contextlib
+    import sys
+    import types
+    taps = []
+
+    class FakeKeyCode:
+        def __init__(self, vk):
+            self.vk = vk
+
+        @classmethod
+        def from_vk(cls, vk):
+            return cls(vk)
+
+    class FakeController:
+        @contextlib.contextmanager
+        def pressed(self, key):
+            taps.append(("down", key))
+            yield
+            taps.append(("up", key))
+
+        def tap(self, key):
+            taps.append(("tap", key))
+
+    fake = types.ModuleType("pynput")
+    fake.keyboard = types.SimpleNamespace(Controller=FakeController, KeyCode=FakeKeyCode, Key=types.SimpleNamespace(ctrl="ctrl"))
+    monkeypatch.setitem(sys.modules, "pynput", fake)
+    monkeypatch.setattr(paste, "_keyboard", None)
+    paste.SystemDeps().send_ctrl_v()
+    assert [t[0] for t in taps] == ["down", "tap", "up"]
+    assert getattr(taps[1][1], "vk", None) == 0x56
 
 
 def _engine_with(monkeypatch, result, **cfg):
