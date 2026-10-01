@@ -56,7 +56,7 @@ def eng(tmp_path, monkeypatch):
     e.icon, e.overlay = FakeIcon(), None
     e.set_state = e.states.append
     e.sync = type("S", (), {"triggered": 0, "trigger": lambda self: setattr(self, "triggered", self.triggered + 1)})()
-    e.notify = e.messages.append
+    e.notify = lambda m, private=False: e.messages.append(m)
     e.flash = e.flashes.append
     e._rec_lock = engine_mod.threading.Lock()
     e._close_stream = lambda: e.opened.append("closed")

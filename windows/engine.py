@@ -228,8 +228,9 @@ class Engine:
             pass
         os._exit(0)
 
-    def notify(self, msg):
-        log.info("notify: %s", msg)
+    def notify(self, msg, private=False):
+        """A tray balloon. `private` texts (note and meeting titles) are shown but not written to the log."""
+        log.info("notify: %s", "(private text not logged)" if private else msg)
         try:
             self.icon.notify(msg, "Vox")
         except Exception:
@@ -538,7 +539,7 @@ class Engine:
         """Saves a voice note, asks the sync thread to send it and says so."""
         saved = notes.add(text, raw=raw, secs=secs, source=notes.SOURCE_NOTE, device=sync.device_name(self.cfg))
         self.sync.trigger()
-        self.notify("Note saved: " + saved["title"])
+        self.notify("Note saved: " + saved["title"], private=True)
 
     def retry_last(self, *_):
         """Sends again the last recording that could not be sent."""
@@ -758,7 +759,7 @@ class Engine:
                   "organizer": "", "link": ""}
         if self.meeting.start(ev):
             what = f"'{ev['title']}'" if ev else "Meeting"
-            self.notify(f"{what} notes started. Let others know you are recording.")
+            self.notify(f"{what} notes started. Let others know you are recording.", private=True)
             return True
         self.notify(self.meeting.last_error or "Could not start meeting notes")
         return False
@@ -788,7 +789,7 @@ class Engine:
                     if action == "start":
                         self.start_meeting(ev["uid"])
                     else:
-                        self.notify(f"'{ev['title']}' is starting. Tray icon > Start meeting notes, or open Vox.")
+                        self.notify(f"'{ev['title']}' is starting. Tray icon > Start meeting notes, or open Vox.", private=True)
                     break
             except Exception:
                 log.exception("calendar watch failed")

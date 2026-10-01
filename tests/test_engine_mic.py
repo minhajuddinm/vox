@@ -39,7 +39,7 @@ def eng(monkeypatch):
     e.recording, e.listening, e.stream = False, None, None
     e.cfg = {"input_device": "USB Mic"}
     e.messages = []
-    e.notify = e.messages.append
+    e.notify = lambda m, private=False: e.messages.append(m)
     return e
 
 

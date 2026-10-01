@@ -344,7 +344,7 @@ def eng(tmp_path, monkeypatch):
     e = object.__new__(engine_mod.Engine)
     e.cfg = core.load_config()
     e.messages = []
-    e.notify = e.messages.append
+    e.notify = lambda m, private=False: e.messages.append(m)
 
     class FakeHost:
         def __init__(self):

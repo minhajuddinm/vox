@@ -26,7 +26,7 @@ def eng(tmp_path, monkeypatch):
     e.messages, e.pasted, e.states = [], [], []
     e.overlay = None
     e.sync = type("S", (), {"trigger": lambda self: None})()
-    e.notify = e.messages.append
+    e.notify = lambda m, private=False: e.messages.append(m)
     e.set_state = e.states.append
     e.paste = e.pasted.append
     return e
@@ -115,3 +115,40 @@ def test_set_state_survives_a_tray_icon_that_raises(eng):
     del eng.set_state   # the real method
     eng.set_state("rec")
     assert eng.state == "rec"
+
+
+# ---- private balloon texts stay out of the log (R2-M10) -------------------------------------------------------------------
+
+def test_a_note_title_is_shown_in_the_balloon_but_not_written_to_the_log(tmp_path, monkeypatch, caplog):
+    import logging
+    shown = []
+    e = object.__new__(engine_mod.Engine)
+    e.icon = type("I", (), {"notify": lambda self, msg, title: shown.append(msg)})()
+    e.sync = type("S", (), {"trigger": lambda self: None})()
+    e.cfg = {}
+    monkeypatch.setattr(notes, "add", lambda *a, **k: {"title": "Secret plan"})
+    with caplog.at_level(logging.INFO, logger="vox"):
+        e.save_note("Secret plan details", "Secret plan details", 3)
+    assert shown == ["Note saved: Secret plan"]
+    assert "Secret plan" not in caplog.text
+
+
+def test_a_meeting_title_is_not_written_to_the_log_either(monkeypatch, caplog):
+    import logging
+    shown = []
+    e = object.__new__(engine_mod.Engine)
+    e.icon = type("I", (), {"notify": lambda self, msg, title: shown.append(msg)})()
+    e.meeting = type("M", (), {"start": lambda self, ev: True, "last_error": ""})()
+    with caplog.at_level(logging.INFO, logger="vox"):
+        e.start_meeting(manual={"title": "Layoff planning", "attendees": []})
+    assert any("Layoff planning" in m for m in shown)
+    assert "Layoff planning" not in caplog.text
+
+
+def test_an_ordinary_balloon_is_still_logged(caplog):
+    import logging
+    e = object.__new__(engine_mod.Engine)
+    e.icon = type("I", (), {"notify": lambda self, msg, title: None})()
+    with caplog.at_level(logging.INFO, logger="vox"):
+        e.notify("Copied; the window changed")
+    assert "Copied; the window changed" in caplog.text

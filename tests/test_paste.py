@@ -284,7 +284,7 @@ def _engine_with(monkeypatch, result, **cfg):
     import engine as engine_mod
     e = object.__new__(engine_mod.Engine)
     e.cfg, e.target, e.messages = cfg, "notepad.exe", []
-    e.notify = e.messages.append
+    e.notify = lambda m, private=False: e.messages.append(m)
     calls = []
     monkeypatch.setattr(paste, "paste_text", lambda *a, **k: calls.append(a) or result)
     return e, calls

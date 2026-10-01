@@ -39,7 +39,7 @@ def eng(tmp_path, monkeypatch):
     e.icon = FakeIcon()
     e.overlay = object()                 # any overlay at all: the pill exists
     e.sync = type("S", (), {"trigger": lambda self: None})()
-    e.notify = e.messages.append
+    e.notify = lambda m, private=False: e.messages.append(m)
     e._rec_lock = engine_mod.threading.Lock()
     e._close_stream = lambda: None
     monkeypatch.setattr(engine_mod.threading, "Thread", InlineThread)

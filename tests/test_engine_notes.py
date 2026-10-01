@@ -27,7 +27,7 @@ def eng(tmp_path, monkeypatch):
     e.messages, e.pasted, e.states = [], [], []
     e.streaming = None
     e.sync = type("S", (), {"triggered": 0, "trigger": lambda self: setattr(self, "triggered", self.triggered + 1)})()
-    e.notify = e.messages.append
+    e.notify = lambda m, private=False: e.messages.append(m)
     e.set_state = e.states.append
     e.paste = e.pasted.append
     e._rec_lock = engine_mod.threading.Lock()
