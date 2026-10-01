@@ -471,6 +471,7 @@ const V = window.Vox || {   // browser preview fallback
 const TITLES = { home: ["Vox", ""], notes: ["Voice notes", ""], dict: ["Dictionary", ""], styles: ["Styles", ""], settings: ["Settings", ""] };
 const GROQ_URL = "https://api.groq.com/openai/v1";
 let S = null, PAGE = "home";
+let modelsLoaded = false;   // not part of S: voxRefresh() replaces S, and the lists should be fetched once
 const FALLBACK_PRESETS = [{ id: "groq", name: "Groq (free tier)", base_url: GROQ_URL, key_url: "https://console.groq.com/keys", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b" },
   { id: "custom", name: "Your own server (Ollama, Whisper server, ...)", base_url: "", key_url: "" }];
 const presets = () => (S && S.presets && S.presets.length ? S.presets : FALLBACK_PRESETS);
@@ -733,8 +734,8 @@ function renderDict() {
 }
 $("w-add").onclick = () => { const v = $("w-in").value.trim(); if (!v) return; const w = words(); if (!w.includes(v)) w.push(v); $("w-in").value = ""; setDict(w, repls()); renderDict(); };
 $("p-add").onclick = () => { const v = $("p-in").value.trim(); if (!v) return; const p = [...(S.config.people || [])]; if (!p.includes(v)) p.push(v); $("p-in").value = ""; save({ people: p }); renderDict(); };
-$("words").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const w = words(), k = w.indexOf(b.dataset.v); if (k >= 0) { w.splice(k, 1); setDict(w, repls()); } renderDict(); };
-$("people").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const p = [...(S.config.people || [])], k = p.indexOf(b.dataset.v); if (k >= 0) { p.splice(k, 1); save({ people: p }); } renderDict(); };
+$("words").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const w = words(), k = +b.dataset.i; if (!isNaN(k) && k >= 0 && k < w.length) { w.splice(k, 1); setDict(w, repls()); } renderDict(); };
+$("people").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const p = [...(S.config.people || [])], k = +b.dataset.i; if (!isNaN(k) && k >= 0 && k < p.length) { p.splice(k, 1); save({ people: p }); } renderDict(); };
 $("r-add").onclick = () => { const a = $("r-wrong").value.trim(), b = $("r-right").value.trim(); if (!a || !b) return; const r = repls(); r.push([a, b]); $("r-wrong").value = $("r-right").value = ""; setDict(words(), r); renderDict(); toast("Added"); };
 $("repls").onclick = (e) => { const b = e.target.closest("[data-a]"); if (!b) return; const r = repls(), k = r.findIndex(x => x[0] === b.dataset.a && x[1] === b.dataset.b); if (k >= 0) { r.splice(k, 1); setDict(words(), r); } renderDict(); };
 ["w-in", "p-in"].forEach(id => $(id).onkeydown = (e) => { if (e.key === "Enter") $(id.replace("in", "add")).click(); });
@@ -828,7 +829,7 @@ function renderProvider() {
   setVal("stt-url", c.stt_base_url || ""); setVal("stt-key", c.stt_api_key || "");
   setVal("llm-url", c.llm_base_url || ""); setVal("llm-key", c.llm_api_key || "");
   renderProxy();
-  if (!S.modelsLoaded && (c.api_key || !p.key_url || viaRelay())) { S.modelsLoaded = true; refreshModels(); }
+  if (!modelsLoaded && (c.api_key || !p.key_url || viaRelay())) { modelsLoaded = true; refreshModels(); }
 }
 function showModels(role, json) {
   const r = JSON.parse(json), s = $(role + "-status");

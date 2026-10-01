@@ -527,6 +527,7 @@ const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const ICON_DEL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
 const ICON_X = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 let S = null;
+let modelsLoaded = false;   // not part of S: refresh() replaces S every few seconds, and the lists should be fetched once
 const api = () => window.pywebview.api;
 
 async function save(part, msg = "Saved") { Object.assign(S.config, part); await api().save_config(part); toast(msg); }
@@ -844,7 +845,7 @@ function renderProvider() {
   $("llm-url").value = c.llm_base_url || ""; $("llm-key").value = c.llm_api_key || "";
   $("side-foot").innerHTML = esc(viaRelay() ? "My relay" : p.name) + "<br>Speech: " + esc(c.stt_model || "default");
   renderProxy();
-  if (!S.modelsLoaded && serverReady()) { S.modelsLoaded = true; refreshModels(); }
+  if (!modelsLoaded && serverReady()) { modelsLoaded = true; refreshModels(); }
 }
 async function refreshModels() {
   for (const role of ["stt", "llm"]) {
@@ -877,7 +878,7 @@ $("relay-proxy").onchange = async (e) => {
   renderWelcome(); reloadModels(); renderProvider();
 };
 function reloadModels() {   // the model lists come from whichever server is in use now
-  if (serverReady()) { S.modelsLoaded = true; return refreshModels(); }
+  if (serverReady()) { modelsLoaded = true; return refreshModels(); }
   for (const role of ["stt", "llm"]) { $(role + "-models").innerHTML = ""; $(role + "-status").textContent = ""; }
 }
 $("get-key").onclick = () => api().open_url(presetFor($("base-url").value).key_url);
@@ -1400,7 +1401,10 @@ async function refresh() {
   S = await api().get_state();
   renderHome(); renderWelcome(); renderDict(); renderPeople(); renderStyles(); renderSettings();
 }
-window.addEventListener("pywebviewready", () => { refresh(); setInterval(() => { if ($("home").classList.contains("active") && !$("search").value) refresh(); }, 4000); });
+window.addEventListener("pywebviewready", () => { refresh(); setInterval(() => {
+  // not while a "Fix a word" editor is open or has focus: redrawing #history would throw away what is being typed
+  if ($("home").classList.contains("active") && !$("search").value && !document.querySelector("#history .fix-text") && !$("history").contains(document.activeElement)) refresh();
+}, 4000); });
 </script>
 </body>
 </html>
