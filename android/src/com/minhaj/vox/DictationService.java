@@ -10,7 +10,9 @@ import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Build;
@@ -113,6 +115,8 @@ public class DictationService extends Service {
     private volatile ApiClient[] liveClients;
     /** Longest wait for the pieces still being sent after the user stops, before the whole recording is sent instead. */
     private static final long STREAM_WAIT_MS = 120000;
+    /** The saved microphone choice that the "not connected" notice was already shown for (see MicChoice.shouldWarn). */
+    private static volatile String micWarnedFor;
     /** AudioRecord.getMinBufferSize never changes on a device: asked once, off the main thread. */
     private static volatile int minBuf;
     private static long lastWarm;
@@ -323,6 +327,7 @@ public class DictationService extends Service {
         // recording thread (a refusal comes back through failRecording), and the pieces go out from their own thread.
         final StreamingStt streamer = newStream(p);
         stream = streamer;
+        final String micKey = p.micDevice();   // the microphone chosen in Settings ("" = the phone's default)
         final ByteArrayOutputStream data = new ByteArrayOutputStream();
         pcm = data;
         final Timing tm = new Timing(new Timing.Clock() {
@@ -348,6 +353,7 @@ public class DictationService extends Service {
                     failRecording(job, "Microphone unavailable (another app may be using it)");
                     return;
                 }
+                preferMic(rec, micKey);
                 rec.startRecording();
                 while (recording) {
                     int n = rec.read(buf, 0, buf.length);
@@ -557,6 +563,33 @@ public class DictationService extends Service {
     /** A send of this entry failed: when it was a Retry, the entry goes behind the others (and is parked after the third failure). */
     private void retryFailed(PendingQueue.Entry entry) {
         if (pending.onSendFailed(entry.id)) refreshNotification();
+    }
+
+    /** The input devices Android reports now, as the pure MicChoice sees them (no permission is needed to list them). */
+    static List<MicChoice.Candidate> micCandidates(android.content.Context c) {
+        List<MicChoice.Candidate> out = new ArrayList<>();
+        AudioManager am = (AudioManager) c.getSystemService(AUDIO_SERVICE);
+        if (am == null) return out;
+        for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_INPUTS)) {
+            out.add(new MicChoice.Candidate(d.getType(), String.valueOf(d.getProductName()), d));
+        }
+        return out;
+    }
+
+    /**
+     * Points the recorder at the microphone chosen in Settings when it is connected; otherwise the phone's default stays, and
+     * a saved choice that is not connected says so once (a toast), then not again until another choice is saved.
+     */
+    private void preferMic(AudioRecord rec, String micKey) {
+        if (micKey.isEmpty()) { micWarnedFor = null; return; }
+        MicChoice.Candidate c = MicChoice.pick(micKey, micCandidates(this));
+        if (c != null) {
+            micWarnedFor = null;
+            try { rec.setPreferredDevice((AudioDeviceInfo) c.ref); } catch (RuntimeException e) { Log.w("vox", "preferred microphone refused"); }
+        } else if (MicChoice.shouldWarn(micKey, micWarnedFor)) {
+            micWarnedFor = micKey;
+            main.post(() -> Toast.makeText(this, MicChoice.NOT_CONNECTED, Toast.LENGTH_LONG).show());
+        }
     }
 
     /** Goes back to idle, but only for the job that is still current. */

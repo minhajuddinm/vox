@@ -197,6 +197,34 @@ public class MainActivity extends Activity {
             }
         }
 
+        /**
+         * The Microphone row of Settings: {@code {current, options: [{key, label}]}} with the microphones Android reports now
+         * (the saved one is listed as "not connected" when it is not among them). Empty current = the phone's default.
+         */
+        @JavascriptInterface
+        public String getMics() {
+            try {
+                JSONObject o = new JSONObject();
+                JSONArray list = new JSONArray();
+                String cur = prefs.micDevice();
+                boolean seen = cur.isEmpty();
+                for (MicChoice.Option op : MicChoice.options(DictationService.micCandidates(MainActivity.this))) {
+                    list.put(new JSONObject().put("key", op.key).put("label", op.label));
+                    if (op.key.equals(cur)) seen = true;
+                }
+                if (!seen) list.put(new JSONObject().put("key", cur).put("label", MicChoice.labelOfKey(cur) + " (not connected)"));
+                o.put("current", cur);
+                o.put("options", list);
+                return o.toString();
+            } catch (Exception e) {
+                return "{\"current\":\"\",\"options\":[]}";
+            }
+        }
+
+        /** Saves the microphone chosen in Settings (a key from getMics; empty = the phone's default). */
+        @JavascriptInterface
+        public void setMic(String key) { prefs.setMicDevice(key); }
+
         /** The Speed card (Home): medians per stage over the last 50 timed dictations, per model, and the last 10. Local data only. */
         @SuppressWarnings("unchecked")
         @JavascriptInterface

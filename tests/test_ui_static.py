@@ -375,3 +375,29 @@ def test_android_remove_buttons_on_my_words_and_people_use_the_index_the_chips_r
     assert "dataset.v" not in page
     for line in re.findall(r'^\$\("(?:words|people)"\)\.onclick = .*$', page, re.M):
         assert "dataset.i" in line and "isNaN" in line
+
+
+# ---------- M5: the Android microphone choice
+
+def test_android_page_has_the_microphone_row_with_the_windows_wording():
+    page = read(PAGES["android"])
+    assert 'id="mic-device"' in page
+    win = re.search(r'Which microphone Vox listens to\. (.*?) If dictation says it heard nothing, try another\.', WINDOWS_PAGE).group(0)
+    row = re.search(r'Which microphone Vox listens to\. .*? If dictation says it heard nothing, try another\.', page).group(0)
+    assert row == win.replace("The Windows default", "The phone's own microphone")
+    assert '<option value="">Phone default</option>' in page.split("function renderMics(", 1)[1].split("\n}", 1)[0]
+    assert re.search(r'^\$\("mic-device"\)\.onchange = .*V\.setMic\(', page, re.M)
+    # the row is drawn again when Settings is shown (devices come and go) and reads the bridge, not the saved state
+    assert "renderMics()" in page.split("function renderSettings(", 1)[1].split("\n}", 1)[0]
+    assert "V.getMics()" in page.split("function renderMics(", 1)[1].split("\n}", 1)[0]
+
+
+def test_android_bridge_has_getmics_and_setmic_and_the_recorder_prefers_the_choice():
+    main = read(MAIN_ACTIVITY)
+    assert {"getMics", "setMic"} <= js_interface_methods(main)
+    d = os.path.dirname(MAIN_ACTIVITY)
+    svc = read(os.path.join(d, "DictationService.java"))
+    assert "setPreferredDevice(" in svc and "MicChoice.pick(" in svc
+    assert "mic_device" in read(os.path.join(d, "Prefs.java"))
+    # per phone: the key is not one of the profile fields that travel through the relay
+    assert "mic_device" not in read(os.path.join(d, "ProfileMap.java"))
