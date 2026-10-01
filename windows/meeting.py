@@ -663,13 +663,27 @@ def list_meetings():
 
 
 _ID = re.compile(r"[0-9]{8}-[0-9]{6}")   # the folder name of a meeting (see Meeting._start)
+MIN_WORDS_PER_SPEECH_SECOND = 1.5   # normal speech is 2-3; less means pieces were never transcribed (network down, backlog)
+
+
+def _covers_audio(folder, raws, words):
+    """True when the live transcript plausibly holds all the speech in the raw files. They keep speech pieces only,
+    16 kHz int16, so their size is the seconds of speech; the transcript does not say which pieces it has."""
+    seconds = 0.0
+    for n in raws:
+        try:
+            seconds += os.path.getsize(os.path.join(folder, n)) / (SR * 2)
+        except OSError:
+            return False
+    return words > 0 and words >= seconds * MIN_WORDS_PER_SPEECH_SECOND
 
 
 def recover_unfinished(cfg, skip_id=None):
     """Gives a meeting that was cut off (quit, crash, shutdown) a notes file and a meta.json, so it is listed.
 
     Such a folder has the live transcript and the raw call audio but no meta.json, so it was invisible and its audio
-    stayed for ever. The notes are just the live transcript; the audio is removed unless keep_audio is on."""
+    stayed for ever. The notes are just the live transcript. The audio is removed only when that transcript covers it
+    (and keep_audio is off); an empty or partial transcript keeps the audio and the meeting is marked incomplete."""
     base = meetings_dir()
     for d in sorted(os.listdir(base)):
         folder = os.path.join(base, d)
@@ -687,20 +701,26 @@ def recover_unfinished(cfg, skip_id=None):
                 t = int(e.get("t", 0))
                 who = e.get("name") if e.get("name") not in (None, "", "Unknown") else e.get("who", "Others")
                 lines.append(f"[{t // 60:02d}:{t % 60:02d}] {who}: {e['text']}")
+            words = sum(len(e["text"].split()) for e in entries)
+            incomplete = bool(raws) and not _covers_audio(folder, raws, words)
             with open(os.path.join(folder, "notes.md"), "w", encoding="utf-8") as f:
                 f.write("# Unfinished meeting\n\nVox stopped before the notes were written. The live transcript is below.\n\n"
-                        "## Transcript\n\n" + ("\n".join(lines) or "_empty_") + "\n")
+                        + ("Part of the speech was never transcribed. The recorded audio is kept in this meeting's folder.\n\n"
+                           if incomplete else "")
+                        + "## Transcript\n\n" + ("\n".join(lines) or "_empty_") + "\n")
             started = tr.get("started") or datetime.strptime(d, "%Y%m%d-%H%M%S").timestamp()
-            _write_json(os.path.join(folder, "meta.json"), {
-                "id": d, "title": "Unfinished meeting", "started": started, "duration": 0,
-                "words": sum(len(e["text"].split()) for e in entries), "attendees": [], "unfinished": True})
-            if not cfg.get("keep_audio"):
+            meta = {"id": d, "title": "Unfinished meeting", "started": started, "duration": 0,
+                    "words": words, "attendees": [], "unfinished": True}
+            if incomplete:
+                meta["incomplete"] = True   # the raw audio is the only copy of some speech: kept
+            _write_json(os.path.join(folder, "meta.json"), meta)
+            if not cfg.get("keep_audio") and not incomplete:
                 for n in raws:
                     try:
                         os.remove(os.path.join(folder, n))
                     except OSError:
                         pass
-            log.info("meeting %s was cut off; recovered its live transcript", d)
+            log.info("meeting %s was cut off; recovered its live transcript%s", d, " (audio kept: not fully transcribed)" if incomplete else "")
         except Exception:
             log.exception("could not recover meeting %s", d)
 
