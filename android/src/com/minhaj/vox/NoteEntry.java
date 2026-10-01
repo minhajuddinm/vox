@@ -14,9 +14,12 @@ import android.widget.Toast;
  * What voice notes show outside the app window: the "Record note" notification, the "Note saved" notification, and
  * the intent that starts a note (used by that notification, the quick settings tile and the note bubble).
  *
- * Every way of starting a note goes through TrampolineActivity with EXTRA_START and EXTRA_DEST=note, because Android
- * only lets the microphone service start while the app is visible (see TrampolineActivity). Stopping does not need
- * the activity: see DictationService.ACTION_STOP_RECORDING.
+ * Starting a note from outside the app (this notification, the quick settings tile, the note bubble when the service
+ * is not running) goes through TrampolineActivity with EXTRA_START and EXTRA_DEST=note, because Android only lets the
+ * microphone service start while the app is visible (see TrampolineActivity). When the service is already running the
+ * bubbles call DictationService.startRecording directly. Stopping does not need the activity: see
+ * DictationService.ACTION_STOP_RECORDING. A start request while a note is recording stops it; while anything else is
+ * going on it shows "Vox is busy" (DictationService.handleStart).
  */
 final class NoteEntry {
     private static final String CH_ENTRY = "vox_note_entry";

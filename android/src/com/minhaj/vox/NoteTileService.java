@@ -9,7 +9,8 @@ import android.widget.Toast;
 /**
  * The quick settings tile "Voice note": a tap starts a note, and a tap while a note is being recorded stops it.
  * Starting goes through TrampolineActivity like every other entry (see NoteEntry); the tile itself never touches the
- * microphone. The tile looks active while a note is being recorded, as far as it can tell when the panel is opened.
+ * microphone. The tile looks active while a note is being recorded: onStartListening reads the real state, and
+ * DictationService asks the system to call it again (TileService.requestListeningState) whenever the recording starts or ends.
  */
 public class NoteTileService extends TileService {
 

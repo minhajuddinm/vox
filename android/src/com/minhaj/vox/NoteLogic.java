@@ -153,6 +153,20 @@ final class NoteLogic {
         return c.getTimeInMillis() / 1000.0;
     }
 
+    /** What a start request (the trampoline's start intent) does for the service state: see {@link #startAction}. */
+    static final int START = 0, STOP = 1, BUSY = 2;
+
+    /**
+     * What a request to start recording does. {@code state} is DictationService IDLE (0), RECORDING (1) or PROCESSING
+     * (2). Idle: START. A note is being recorded and another note was asked for: STOP (the same button stops it).
+     * Anything else: BUSY (say so, change nothing).
+     */
+    static int startAction(int state, boolean noteJob, boolean wantNote) {
+        if (state == 0) return START;
+        if (state == 1 && noteJob && wantNote) return STOP;
+        return BUSY;
+    }
+
     /** Python's {@code s.strip()}; null counts as "". The store saves the text and the title of a note this way. */
     static String strip(String s) {
         if (s == null) return "";
