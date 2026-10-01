@@ -90,6 +90,55 @@ final class RelayClient implements RelayApi {
         }
     }
 
+    /** The outcome of {@link #listDevices}: the rows for the Devices card, or why there are none. */
+    static final class DeviceList {
+        final boolean ok;
+        /** Plain words, "" when ok. */
+        final String error;
+        /** Empty when not ok. */
+        final List<DevicesView.Row> rows;
+
+        DeviceList(boolean ok, String error, List<DevicesView.Row> rows) {
+            this.ok = ok;
+            this.error = error;
+            this.rows = rows;
+        }
+    }
+
+    /**
+     * The devices that have used the relay as rows for the Devices card (windows/sync.py devices_for_ui). Never throws; a
+     * failure is an empty list and the reason. {@code now} is Unix seconds, {@code device} the name this phone sends
+     * (the row with that name is "this phone"). Makes no request when the settings are unusable.
+     */
+    static DeviceList listDevices(String url, String token, String device, double now) {
+        String err = problem(url, token);
+        if (!err.isEmpty()) return new DeviceList(false, err, new ArrayList<DevicesView.Row>());
+        try {
+            return new DeviceList(true, "", DevicesView.rows(new RelayClient(url, token, device).devices(), now, device));
+        } catch (RelayError e) {
+            return new DeviceList(false, e.message, new ArrayList<DevicesView.Row>());
+        }
+    }
+
+    /** {@code GET /devices}: the relay's device objects ({@code name}, {@code last_seen}, ...), newest first. */
+    List<Map<String, Object>> devices() throws RelayError {
+        Map<String, Object> m;
+        try {
+            m = asMap(call("GET", "/devices", null, null));
+        } catch (RelayError e) {
+            if (e.status == 404) throw new RelayError(404, "This relay is too old to list devices. Update relay.py on it.");
+            throw e;
+        }
+        if (m == null || !(m.get("devices") instanceof List)) throw new RelayError(0, RelayError.NOT_A_RELAY);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Object item : (List<?>) m.get("devices")) {
+            Map<String, Object> d = asMap(item);
+            if (d == null) throw new RelayError(0, RelayError.NOT_A_RELAY);
+            out.add(d);
+        }
+        return out;
+    }
+
     // ------------------------------------------------------------------ RelayApi
 
     @Override

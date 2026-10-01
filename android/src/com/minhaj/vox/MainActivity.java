@@ -564,6 +564,32 @@ public class MainActivity extends Activity {
             }, "vox-sync-test").start();
         }
 
+        /**
+         * The devices that have used the saved relay, answered as callback("{ok, error, devices: [{name, this, state, ago}]}")
+         * (the same answer as the Windows app's get_devices). A failure is an empty list and the reason in {@code error}.
+         */
+        @JavascriptInterface
+        public void getDevices(String callback) {
+            final String url = prefs.relayUrl(), token = prefs.relayToken(), device = prefs.deviceName();
+            new Thread(() -> {
+                RelayClient.DeviceList l = RelayClient.listDevices(url, token, device, System.currentTimeMillis() / 1000.0);
+                JSONObject res = new JSONObject();
+                JSONArray rows = new JSONArray();
+                for (DevicesView.Row r : l.rows) {
+                    JSONObject o = new JSONObject();
+                    put(o, "name", r.name);
+                    put(o, "this", r.thisDevice);
+                    put(o, "state", r.state);
+                    put(o, "ago", r.ago);
+                    rows.put(o);
+                }
+                put(res, "ok", l.ok);
+                put(res, "error", l.error);
+                put(res, "devices", rows);
+                js(callback + "(" + JSONObject.quote(res.toString()) + ")");
+            }, "vox-devices").start();
+        }
+
         private void answerSync(String callback, boolean ok, String message) {
             JSONObject res = new JSONObject();
             put(res, "ok", ok);

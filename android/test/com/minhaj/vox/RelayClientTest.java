@@ -336,6 +336,49 @@ public final class RelayClientTest {
         eq("check: no token", "false/Enter the relay token.", show(RelayClient.check(base, "", "d")));
         eq("check: a token with a space", "false/" + RelayClient.problem(base, "a b"), show(RelayClient.check(base, "a b", "d")));
         eq("check: none of those reached the server", 0, seen.size());
+
+        // ---- devices(): the Devices card (GET /devices, rows from DevicesView)
+        answer(200, "{\"devices\": [{\"name\": \"Pixel 7\", \"first_seen\": 1.5, \"last_seen\": 999990.5, \"requests\": 4, \"login\": \"me@example.com\"},"
+                + " {\"name\": \"Laptop\", \"first_seen\": 1.5, \"last_seen\": 990000, \"requests\": 9, \"login\": \"\"}]}");
+        RelayClient.DeviceList dl = RelayClient.listDevices(base, TOKEN, "Pixel 7", 1000000.0);
+        eq("devices: ok and no error", "true/", dl.ok + "/" + dl.error);
+        eq("devices: asks GET /devices with the token and the device name", "GET /devices/Bearer " + TOKEN + "/Pixel 7",
+                last().method + " " + last().path + "/" + last().headers.get("authorization") + "/" + last().headers.get("x-vox-device"));
+        eq("devices: two rows, this phone marked", "active;true;just now;Pixel 7|recent;false;3 h ago;Laptop|", rowsText(dl.rows));
+        eq("devices: the raw list for callers that want the fields", 2, c.devices().size());
+        answer(200, "{\"devices\": []}");
+        dl = RelayClient.listDevices(base, TOKEN, "Pixel 7", 1000000.0);
+        eq("devices: an empty list is ok", "true/0", dl.ok + "/" + dl.rows.size());
+        for (String junk : new String[]{"{}", "[]", "{\"devices\": \"x\"}", "{\"devices\": [1]}", "{\"devices\": null}", "<html>hi</html>", "null"}) {
+            answer(200, junk);
+            dl = RelayClient.listDevices(base, TOKEN, "d", 1000000.0);
+            eq("devices: " + junk + " is not a relay", "false/That address did not answer like a Vox relay./0", dl.ok + "/" + dl.error + "/" + dl.rows.size());
+        }
+        answer(401, "{\"error\": \"missing or wrong token\"}");
+        dl = RelayClient.listDevices(base, "wrong", "d", 1000000.0);
+        eq("devices: wrong token", "false/The relay refused the token./0", dl.ok + "/" + dl.error + "/" + dl.rows.size());
+        answer(404, "{\"error\": \"not found\"}");
+        dl = RelayClient.listDevices(base, TOKEN, "d", 1000000.0);
+        eq("devices: a relay too old for the list", "false/This relay is too old to list devices. Update relay.py on it./0", dl.ok + "/" + dl.error + "/" + dl.rows.size());
+        answer(500, "{}");
+        eq("devices: a relay that is broken", "false/The relay answered HTTP 500.", show(RelayClient.listDevices(base, TOKEN, "d", 1000000.0)));
+        dl = RelayClient.listDevices(deadUrl, TOKEN, "d", 1000000.0);
+        eq("devices: offline", "false/Cannot reach the relay (is Tailscale running?): ConnectException/0", dl.ok + "/" + dl.error + "/" + dl.rows.size());
+        seen.clear();
+        eq("devices: a bad address is explained without a request", "false/" + Endpoint.error("http://relay.example.com"),
+                show(RelayClient.listDevices("http://relay.example.com", TOKEN, "d", 1000000.0)));
+        eq("devices: no token", "false/Enter the relay token.", show(RelayClient.listDevices(base, "", "d", 1000000.0)));
+        eq("devices: none of those reached the server", 0, seen.size());
+    }
+
+    private static String rowsText(List<DevicesView.Row> rows) {
+        StringBuilder sb = new StringBuilder();
+        for (DevicesView.Row r : rows) sb.append(r.state).append(';').append(r.thisDevice).append(';').append(r.ago).append(';').append(r.name).append('|');
+        return sb.toString();
+    }
+
+    private static String show(RelayClient.DeviceList d) {
+        return d.ok + "/" + d.error;
     }
 
     private static void problems() {
