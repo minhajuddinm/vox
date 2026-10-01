@@ -47,7 +47,8 @@ State machine: `IDLE (0)` -> `RECORDING (1)` -> `PROCESSING (2)` -> `IDLE`. Ever
 - **Gestures:** tap = start (or stop) recording; long press = cancel when busy, otherwise open the settings screen; drag = move. On the note bubble a tap starts a note, or finishes the note being recorded (while a dictation is in progress it says "Finish the dictation first"); on the mic bubble a tap during a note says "Vox is busy with a voice note". A long press cancels only the job that bubble shows; on the other bubble it opens the settings. The note bubble ignores password fields: nothing is typed.
 - **Focus tracking:** on focus, selection and click events it remembers the focused editable node and its package (`editNode`, `editPkg`); it releases held nodes on API < 33.
 - **Password fields:** Vox does not start recording when the remembered field is a password field, and refuses to type into one.
-- **Insertion (`insertText(text, targetPkg)`):**
+- **Result flash:** `onResult` calls `BubbleView.flash(SENT)` when `insertText` returned true and `flash(ERROR)` when the text only reached the clipboard or was refused; `onError` calls `flash(ERROR)` (see [Result flash on the bubble](#result-flash-on-the-bubble)).
+- **Insertion (`insertText(text, targetPkg)`, returns true when the text was typed into the field, false when it was copied to the clipboard instead or refused):**
   1. Find the currently focused input node (fall back to the remembered one). None: copy to clipboard and toast.
   2. Refuse password fields.
   3. If the focused node's package differs from the package the dictation started in ("you switched apps"), copy to the clipboard instead of typing.
@@ -178,3 +179,12 @@ The Dictionary page starts with an **About you** card bound to the `user_context
 ## Recording meter
 
 The record loop in `DictationService.startRecording` reads 40 ms buffers and posts `Pcm.levelFromRms(rms)` to the listener (about 25 updates a second); `BubbleView.setLevel` rises fast (65% new value) and falls slowly (20%). Same curve as Windows.
+
+## Result flash on the bubble
+
+`BubbleView.flash(kind)` with `BubbleView.SENT` or `BubbleView.ERROR` shows, for a moment, the same signal as the pill on Windows ([04-windows-app.md](04-windows-app.md#result-signal-on-the-pill)): a green circle with a check that draws itself (0.7 s), or a red circle that shakes once, with a "!" (1.8 s), and then the normal idle bubble. The service's states are unchanged and the toast keeps the words.
+
+- **Only while idle:** the flash is drawn only when the bubble's state is `IDLE`. `DictationService` posts `onResult` / `onError` before it goes back to idle, and the bubble's `setState(IDLE)` does not cancel the flash; `setState(RECORDING)` and `setState(PROCESSING)` do, so a new recording or a retry replaces it at once.
+- **No animator:** the flash is timed from `SystemClock.uptimeMillis()` and redrawn with `postInvalidateOnAnimation()` while it lasts, so it does not depend on the system's animation-speed setting, and an old flash can never reappear (once its time is up it is forgotten).
+- **Who calls it:** `VoxAccessibilityService.onResult` (SENT when the text was typed, ERROR when it only reached the clipboard) and `onError` (ERROR). A warning that is followed by a result (cleanup fell back to the raw words) calls ERROR and then SENT in the same pass, so the check wins.
+- **Not covered:** if "bubble only while typing" hides the bubble when the field loses focus, the flash is not seen (the toast still is). Only compiled (`android/compile-check.sh`), not run on a device.
