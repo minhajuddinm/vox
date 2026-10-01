@@ -165,6 +165,8 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert core.apply_replacements(f[0], repl) == f[2]
     elif kind == "whisper":
         assert core.whisper_prompt(items(f[0])) == f[1]
+    elif kind == "whisperctx":   # terms, context => the speech-to-text prompt of a piece of a long recording
+        assert core.whisper_prompt_with_context(items(f[0]), f[1]) == f[2]
     elif kind == "terms":
         cfg = {"people": items(f[0]), "dictionary": f[1].split("|") if f[1] else []}
         assert "|".join(core.dictionary_terms(cfg)) == f[2]

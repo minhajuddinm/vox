@@ -50,8 +50,33 @@ public final class ApiClient {
 
     // ------------------------------------------------------------------ STT
 
+    /** One audio file to send: the file, how it is named and typed in the upload, and how long it plays (for the timeout). */
+    public static final class Upload {
+        final File file;
+        final String name, mime;
+        final double seconds;
+
+        Upload(File file, String name, String mime, double seconds) {
+            this.file = file; this.name = name; this.mime = mime; this.seconds = seconds;
+        }
+
+        /** A WAV file written by DictationService.writeWav (a 44 byte header, then 16 kHz 16-bit mono audio). */
+        static Upload wav(File wav) {
+            return new Upload(wav, UploadFormat.fileName(UploadFormat.WAV), UploadFormat.mime(UploadFormat.WAV),
+                    Math.max(0, wav.length() - 44) / 32000.0);
+        }
+    }
+
     public String transcribe(File wav, String model, String language, List<String> terms) throws IOException {
-        String answer = transcribeRaw(wav, model, language, terms);
+        return transcribe(Upload.wav(wav), model, language, terms, "");
+    }
+
+    /**
+     * Speech to text for one upload. The context is the end of the text before this piece when a long recording is sent in
+     * pieces (see {@link #whisperPromptWith}).
+     */
+    public String transcribe(Upload up, String model, String language, List<String> terms, String context) throws IOException {
+        String answer = transcribeRaw(up, model, language, whisperPromptWith(terms, context));
         try {
             return new JSONObject(answer).optString("text", "").trim();
         } catch (Exception e) {
@@ -61,25 +86,74 @@ public final class ApiClient {
 
     /** The upload and the server's answer body, unparsed (the integration test reads it without org.json). Throws ApiException on 4xx/5xx. */
     String transcribeRaw(File wav, String model, String language, List<String> terms) throws IOException {
-        String boundary = "----vox" + System.nanoTime();
-        long size = wav.length();
-        Multipart body = new Multipart(boundary)
-                .field("model", model)
-                .field("response_format", "json")
-                .field("temperature", "0");
-        if (language != null && !language.isEmpty()) body.field("language", language);
-        String prompt = whisperPrompt(terms);
-        if (!prompt.isEmpty()) body.field("prompt", prompt);
-        body.file("file", "audio.wav", "audio/wav", size);
-        HttpURLConnection c = open(base + "/audio/transcriptions");
-        c.setRequestProperty("Content-Type", body.contentType());
-        c.setDoOutput(true);
-        // A known length, not chunked: the relay (and other servers) answer 411 to an upload with no Content-Length.
-        c.setFixedLengthStreamingMode(body.length());
-        try (OutputStream out = c.getOutputStream(); InputStream in = new FileInputStream(wav)) {
-            body.writeTo(out, in);
+        return transcribeRaw(Upload.wav(wav), model, language, whisperPrompt(terms));
+    }
+
+    /**
+     * The upload itself. A connection that cannot be opened is tried once more at once (nothing was sent, so nothing can
+     * happen twice); an answer that does not come is never sent again from here (the callers decide, and through the relay
+     * they do not: it is still working on the first one).
+     */
+    String transcribeRaw(Upload up, String model, String language, String prompt) throws IOException {
+        return connectRetry(() -> {
+            String boundary = "----vox" + System.nanoTime();
+            Multipart body = new Multipart(boundary)
+                    .field("model", model)
+                    .field("response_format", "json")
+                    .field("temperature", "0");
+            if (language != null && !language.isEmpty()) body.field("language", language);
+            if (prompt != null && !prompt.isEmpty()) body.field("prompt", prompt);
+            body.file("file", up.name, up.mime, up.file.length());
+            HttpURLConnection c = open(base + "/audio/transcriptions", Latency.sttReadMs(up.seconds));
+            c.setRequestProperty("Content-Type", body.contentType());
+            c.setDoOutput(true);
+            // A known length, not chunked: the relay (and other servers) answer 411 to an upload with no Content-Length.
+            c.setFixedLengthStreamingMode(body.length());
+            try (OutputStream out = c.getOutputStream(); InputStream in = new FileInputStream(up.file)) {
+                body.writeTo(out, in);
+            }
+            return readBody(c);
+        });
+    }
+
+    /** One try of something that talks to the server. */
+    private interface Call<T> {
+        T run() throws IOException;
+    }
+
+    /** Runs the call; when it fails because the connection could not be opened (see Latency.isConnectFailure), once more at once. */
+    private static <T> T connectRetry(Call<T> call) throws IOException {
+        try {
+            return call.run();
+        } catch (IOException e) {
+            if (!Latency.isConnectFailure(e)) throw e;
+            return call.run();
         }
-        return readBody(c);
+    }
+
+    /**
+     * The prompt of one piece of a long recording: the dictionary terms, then a space and the trimmed end of the text before
+     * it, cut to its last 600 characters (code points, like Python). Same as vox_core.whisper_prompt_with_context (golden
+     * rows "whisperctx"): with no terms the prompt starts with the space.
+     */
+    static String whisperPromptWith(List<String> terms, String context) {
+        String prompt = whisperPrompt(terms);
+        if (context == null || context.isEmpty()) return prompt;
+        String all = prompt + " " + pyStrip(context);
+        int cps = all.codePointCount(0, all.length());
+        return cps <= 600 ? all : all.substring(all.offsetByCodePoints(0, cps - 600));
+    }
+
+    /** Python's str.strip(): removes white space, which differs a little from Java's trim(). */
+    private static String pyStrip(String s) {
+        int a = 0, b = s.length();
+        while (a < b && isPyWhitespace(s.charAt(a))) a++;
+        while (b > a && isPyWhitespace(s.charAt(b - 1))) b--;
+        return s.substring(a, b);
+    }
+
+    private static boolean isPyWhitespace(char c) {
+        return Character.isWhitespace(c) || Character.isSpaceChar(c) || c == '';
     }
 
     /** Whisper uses the prompt as spelling context. Keep it short (the model reads about 224 tokens). */
@@ -101,9 +175,9 @@ public final class ApiClient {
         boolean reason = false;
         try {
             body.put("model", model);
-            body.put("temperature", 0.2);
-            body.put("max_tokens", Math.max(1024, raw.length() * 2));
+            body.put("temperature", 0);   // the same words in, the same words out
             reason = Providers.sendReasoning("auto", base, model);
+            body.put("max_tokens", Latency.maxTokens(raw, reason));
             if (reason) {
                 body.put("reasoning_effort", "low");
                 body.put("include_reasoning", false);
@@ -116,14 +190,18 @@ public final class ApiClient {
             throw new IOException(e);
         }
         JSONObject res;
+        final int readMs = Latency.llmReadMs(Latency.words(raw));
         try {
-            res = postChat(body);
+            res = postChat(body, readMs);
         } catch (ApiException e) {
             if (!reason || (e.code != 400 && e.code != 422)) throw e;
             Providers.rememberRejected(base, model);   // this server does not know the reasoning fields: retry without them
             body.remove("reasoning_effort");
             body.remove("include_reasoning");
-            res = postChat(body);
+            try {
+                body.put("max_tokens", Latency.maxTokens(raw, false));   // no hidden reasoning without those fields
+            } catch (Exception ignored) { }
+            res = postChat(body, readMs);
         }
         String text;
         try {
@@ -376,13 +454,20 @@ public final class ApiClient {
     }
 
     private JSONObject postChat(JSONObject body) throws IOException {
-        HttpURLConnection c = open(base + "/chat/completions");
-        c.setRequestProperty("Content-Type", "application/json");
-        c.setDoOutput(true);
-        try (OutputStream out = c.getOutputStream()) {
-            out.write(body.toString().getBytes(StandardCharsets.UTF_8));
-        }
-        return readJson(c);
+        return postChat(body, 60000);
+    }
+
+    /** One chat request; a connection that cannot be opened is tried once more at once (see connectRetry). */
+    private JSONObject postChat(JSONObject body, int readMs) throws IOException {
+        return connectRetry(() -> {
+            HttpURLConnection c = open(base + "/chat/completions", readMs);
+            c.setRequestProperty("Content-Type", "application/json");
+            c.setDoOutput(true);
+            try (OutputStream out = c.getOutputStream()) {
+                out.write(body.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            return readJson(c);
+        });
     }
 
     private HttpURLConnection get(String url) throws IOException {
@@ -395,13 +480,13 @@ public final class ApiClient {
 
     // ---------------------------------------------------------------- http
 
-    private HttpURLConnection open(String url) throws IOException {
+    private HttpURLConnection open(String url, int readMs) throws IOException {
         String problem = Endpoint.error(base);
         if (problem != null) throw new IOException(problem);
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setRequestMethod("POST");
-        c.setConnectTimeout(15000);
-        c.setReadTimeout(60000);
+        c.setConnectTimeout(Latency.CONNECT_MS);
+        c.setReadTimeout(readMs);
         if (!apiKey.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + apiKey);
         return c;
     }

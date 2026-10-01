@@ -281,6 +281,15 @@ def whisper_prompt(terms):
     return out + "." if out else ""
 
 
+def whisper_prompt_with_context(terms, context=""):
+    """The speech-to-text prompt: the dictionary terms, then the end of the text before this piece (long recordings sent in
+    pieces). Whisper reads the end of the prompt most, so it is the end that is kept. Java twin: ApiClient.whisperPromptWith."""
+    prompt = whisper_prompt(terms)
+    if context:
+        prompt = (prompt + " " + context.strip())[-600:]
+    return prompt
+
+
 def sanitize(text):
     t = re.sub(r"(?s)<think>.*?</think>", "", text or "")
     t = t.replace("<transcript>", "").replace("</transcript>", "").strip()
@@ -601,9 +610,7 @@ def transcribe(cfg, wav_bytes, context=""):
     data = {"model": providers.role_settings(cfg, "stt")[2], "response_format": "json", "temperature": "0"}
     if cfg.get("language"):
         data["language"] = cfg["language"]
-    prompt = whisper_prompt(dictionary_terms(cfg))
-    if context:
-        prompt = (prompt + " " + context.strip())[-600:]   # Whisper reads the end of the prompt most
+    prompt = whisper_prompt_with_context(dictionary_terms(cfg), context)
     if prompt:
         data["prompt"] = prompt
     r = post_with_retry(

@@ -211,6 +211,9 @@ public final class ParityTest {
                 case "whisper":
                     eq(ln, kind, f[1], ApiClient.whisperPrompt(items(f[0], "|")));
                     break;
+                case "whisperctx":   // terms, context => the speech-to-text prompt of a piece of a long recording
+                    eq(ln, kind, f[2], ApiClient.whisperPromptWith(items(f[0], "|"), f[1]));
+                    break;
                 case "terms": {
                     String dict = f[1].replace("|", "\n");
                     String people = f[0].replace("|", "\n");

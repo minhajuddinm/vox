@@ -28,3 +28,5 @@ android/src/com/minhaj/vox/InsertGuard.java
 android/src/com/minhaj/vox/Timing.java
 android/src/com/minhaj/vox/Segmenter.java
 android/src/com/minhaj/vox/StreamingStt.java
+android/src/com/minhaj/vox/Latency.java
+android/src/com/minhaj/vox/UploadFormat.java
