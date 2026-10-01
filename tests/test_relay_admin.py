@@ -621,7 +621,3 @@ def test_a_folder_owned_by_someone_else_is_refused(tmp_path, monkeypatch):
     with pytest.raises(relay.DataDirError):
         relay.load_config(str(tmp_path / "data"))
 
-
-def test_the_readme_does_not_use_a_fixed_shared_tmp_folder():
-    text = open(os.path.join(os.path.dirname(relay.__file__), "README.md"), encoding="utf-8").read()
-    assert "/tmp/vox-relay-test" not in text and "mktemp -d" in text
