@@ -60,18 +60,47 @@ public final class LatencyTest {
         eq("a server answer is not", false, Latency.isConnectFailure(new ApiClient.ApiException(503, "down")));
         eq("null is not", false, Latency.isConnectFailure(null));
 
-        // the cleanup token bound: 2 x the estimated input tokens + 64, with room for the hidden reasoning of gpt-oss
-        eq("bound of nothing", 64, Latency.maxTokens("", false));
-        eq("bound of null", 64, Latency.maxTokens(null, false));
-        eq("bound of one word", 2 * 3 + 64, Latency.maxTokens("hello", false));
-        eq("bound with reasoning", 2 * 3 + 64 + Latency.REASONING_HEADROOM, Latency.maxTokens("hello", true));
+        // the cleanup token bound: 2 x the estimated input tokens + 64, never under a floor of 256, with room for the
+        // hidden reasoning of gpt-oss and of thinking models (they spend tokens in a think block before the answer)
+        eq("bound of nothing is the floor", Latency.MIN_TOKENS, Latency.maxTokens("", false));
+        eq("bound of null is the floor", Latency.MIN_TOKENS, Latency.maxTokens(null, false));
+        eq("floor value", 256, Latency.MIN_TOKENS);
+        eq("bound of one word is the floor", 256, Latency.maxTokens("hello", false));
+        eq("bound of ten short words is the floor", 256, Latency.maxTokens("so I will send the report to you tomorrow", false));
+        eq("bound with reasoning", 256 + Latency.REASONING_HEADROOM, Latency.maxTokens("hello", true));
+        eq("bound with reasoning of nothing", 256 + Latency.REASONING_HEADROOM, Latency.maxTokens("", true));
         String thousand = repeat("lorem ipsum ", 500);   // 1000 words, 6000 characters
         eq("bound of 1000 words", 2 * 3000 + 64, Latency.maxTokens(thousand, false));
-        eq("bound of non-Latin text counts characters", 2 * 100 + 64, Latency.maxTokens(repeat("न", 100), false));
-        eq("a few long words count by characters", 2 * 19 + 64, Latency.maxTokens("extraordinarily incomprehensibilities", false));
-        check(Latency.maxTokens(repeat("word ", 50), false) < Latency.maxTokens(repeat("word ", 500), false), "bound grows with the text");
+        eq("bound of 1000 words with reasoning", 2 * 3000 + 64 + Latency.REASONING_HEADROOM, Latency.maxTokens(thousand, true));
+        eq("bound of non-Latin text counts characters", 2 * 200 + 64, Latency.maxTokens(repeat("न", 200), false));
+        eq("a short non-Latin text gets the floor", 256, Latency.maxTokens(repeat("न", 20), false));
+        eq("a few long words are under the floor", 256, Latency.maxTokens("extraordinarily incomprehensibilities", false));
+        check(Latency.maxTokens(repeat("word ", 150), false) < Latency.maxTokens(repeat("word ", 500), false), "bound grows with the text");
         // the bound is a ceiling several times the real answer: 130 tokens are about 100 English words
         check(Latency.maxTokens(repeat("word ", 100), false) >= 4 * 130, "bound leaves plenty of room for a long answer");
+        check(Latency.maxTokens("hello there", false) >= 200, "a short dictation still has room for a reply that is not just the words");
+
+        // which models may think before they answer (so they get the headroom even when no reasoning field is sent)
+        eq("gpt-oss thinks", true, Latency.mayThink("openai/gpt-oss-20b"));
+        eq("qwen3 thinks", true, Latency.mayThink("qwen3:8b"));
+        eq("qwen/qwen3-32b thinks", true, Latency.mayThink("qwen/qwen3-32b"));
+        eq("deepseek-r1 thinks", true, Latency.mayThink("deepseek-r1:7b"));
+        eq("DeepSeek-R1 distill thinks (any case)", true, Latency.mayThink("DeepSeek-R1-Distill-Llama-70B"));
+        eq("qwq thinks", true, Latency.mayThink("qwq:32b"));
+        eq("a name with thinking thinks", true, Latency.mayThink("some-model-thinking"));
+        eq("a name with reasoner thinks", true, Latency.mayThink("deepseek-reasoner"));
+        eq("llama does not", false, Latency.mayThink("llama-3.3-70b-versatile"));
+        eq("gemma does not", false, Latency.mayThink("gemma2:9b"));
+        eq("empty does not", false, Latency.mayThink(""));
+        eq("null does not", false, Latency.mayThink(null));
+
+        // a reply that stopped because it ran out of tokens is cut off in the middle: not a usable cleanup
+        eq("finish length is cut off", true, Latency.cutOff("length"));
+        eq("finish length in any case", true, Latency.cutOff("LENGTH"));
+        eq("finish stop is fine", false, Latency.cutOff("stop"));
+        eq("finish null is fine", false, Latency.cutOff(null));
+        eq("finish empty is fine", false, Latency.cutOff(""));
+        eq("finish content_filter is not a cut off", false, Latency.cutOff("content_filter"));
 
         // when to warm the connection: not again within 3 s of the last time
         eq("first warm", true, Latency.shouldWarm(0, 1000));

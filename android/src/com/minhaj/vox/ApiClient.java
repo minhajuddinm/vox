@@ -183,7 +183,7 @@ public final class ApiClient {
             body.put("model", model);
             body.put("temperature", 0);   // the same words in, the same words out
             reason = Providers.sendReasoning("auto", base, model);
-            body.put("max_tokens", Latency.maxTokens(raw, reason));
+            body.put("max_tokens", Latency.maxTokens(raw, reason || Latency.mayThink(model)));
             if (reason) {
                 body.put("reasoning_effort", "low");
                 body.put("include_reasoning", false);
@@ -205,16 +205,21 @@ public final class ApiClient {
             body.remove("reasoning_effort");
             body.remove("include_reasoning");
             try {
-                body.put("max_tokens", Latency.maxTokens(raw, false));   // no hidden reasoning without those fields
+                body.put("max_tokens", Latency.maxTokens(raw, Latency.mayThink(model)));   // gpt-oss and the like still think by default
             } catch (Exception ignored) { }
             res = postChat(body, readMs);
         }
         String text;
+        boolean cut;
         try {
-            text = res.getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content", "");
+            JSONObject choice = res.getJSONArray("choices").getJSONObject(0);
+            text = choice.getJSONObject("message").optString("content", "");
+            cut = Latency.cutOff(choice.optString("finish_reason", ""));
         } catch (Exception e) {
             throw new IOException("Unexpected cleanup response");
         }
+        // ran out of tokens (often inside a think block): cut off in the middle, so the caller types the words as spoken
+        if (cut) throw new IOException("Cleanup was cut off (token limit)");
         return sanitize(Providers.stripThink(text));
     }
 
