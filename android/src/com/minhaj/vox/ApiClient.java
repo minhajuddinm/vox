@@ -269,9 +269,16 @@ public final class ApiClient {
         return cleanTagged(text, MAX_RULES);
     }
 
+    private static final Pattern OWN_TAGS = Pattern.compile("(?i)</?(?:about_speaker|my_cleanup_rules)>");
+
     private static String cleanTagged(String text, int cap) {
         if (text == null) return "";
-        String t = text.replace("\r\n", "\n").replace('\r', '\n').replaceAll("(?i)</?(?:about_speaker|my_cleanup_rules)>", "").trim();
+        String t = text.replace("\r\n", "\n").replace('\r', '\n');
+        for (String before = null; !t.equals(before); ) {   // until nothing changes: "<my_cleanup<my_cleanup_rules>_rules>" leaves a live tag after one pass
+            before = t;
+            t = OWN_TAGS.matcher(t).replaceAll("");
+        }
+        t = t.trim();
         if (t.length() > cap) t = t.substring(0, cap).trim();
         return t;
     }

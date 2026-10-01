@@ -331,9 +331,15 @@ _OWN_TAGS = re.compile(r"(?i)</?(?:about_speaker|my_cleanup_rules)>")
 
 def clean_context(text, cap=MAX_CONTEXT):
     """The user's "about you" text made safe to put in the prompt: line endings normalised, our own prompt tags
-    removed (so the text cannot close or fake a block), trimmed and capped."""
+    removed (so the text cannot close or fake a block), trimmed and capped. The removal repeats until nothing changes:
+    "<my_cleanup<my_cleanup_rules>_rules>" would otherwise leave a live tag after one pass."""
     t = (text or "").replace("\r\n", "\n").replace("\r", "\n")
-    return _OWN_TAGS.sub("", t).strip()[:cap].strip()
+    while True:
+        stripped = _OWN_TAGS.sub("", t)
+        if stripped == t:
+            break
+        t = stripped
+    return t.strip()[:cap].strip()
 
 
 def clean_rules(text):
