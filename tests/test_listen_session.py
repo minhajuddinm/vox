@@ -265,3 +265,45 @@ def test_a_session_and_its_buffer_round_trip(tmp_path):
     again = session.ListenSession("note"); again.start()
     segs = again.feed(session.load_pcm(b.path)) + again.stop()
     assert [g.pcm for g in segs] == [g.pcm for g in live] and b"".join(g.pcm for g in segs).endswith(tone(2))
+
+
+# ------------------------------------------------------------------ chunks for the cleanup at the end
+def sentences(n, start=0):
+    return " ".join("This is sentence number %d." % i for i in range(start, start + n))
+
+
+def put_back(chunks):
+    return "".join(joiner + text for joiner, text in chunks)
+
+
+def test_a_short_text_is_one_chunk_and_nothing_is_nothing():
+    assert session.chunk_text("Hello there.") == [("", "Hello there.")]
+    assert session.chunk_text("") == [] and session.chunk_text("  \n\n ") == []
+
+
+def test_chunks_are_cut_at_paragraph_breaks_when_they_fit_and_hold_every_word():
+    text = "\n\n".join(sentences(30, i * 30) for i in range(5))        # 5 paragraphs of 150 words
+    chunks = session.chunk_text(text, max_words=400)
+    assert [len(t.split()) for _, t in chunks] == [300, 300, 150]        # two paragraphs fit in a chunk
+    assert chunks[0][0] == "" and all(j == "\n\n" for j, _ in chunks[1:])
+    assert put_back(chunks) == text
+
+
+def test_a_long_paragraph_is_cut_at_sentence_ends_and_put_back_with_a_space():
+    text = sentences(100)                                                # one paragraph, 500 words
+    chunks = session.chunk_text(text, max_words=200)
+    assert [len(t.split()) for _, t in chunks] == [200, 200, 100]
+    assert [j for j, _ in chunks] == ["", " ", " "] and all(t.endswith(".") for _, t in chunks)
+    assert put_back(chunks) == text
+
+
+def test_text_without_any_full_stop_is_cut_by_words_and_loses_nothing():
+    text = " ".join("w%d" % i for i in range(450))
+    chunks = session.chunk_text(text, max_words=100)
+    assert [len(t.split()) for _, t in chunks] == [100, 100, 100, 100, 50]
+    assert put_back(chunks) == text
+
+
+def test_the_default_chunk_size_is_a_few_hundred_words():
+    assert 200 <= session.CHUNK_WORDS <= 500
+    assert len(session.chunk_text(sentences(100))) == 2                  # 500 words

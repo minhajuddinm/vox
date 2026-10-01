@@ -23,7 +23,17 @@ def test_stages_of_a_full_dictation():
 def test_stage_keys_and_order_are_fixed():
     assert list(Timing().stages()) == list(timing.STAGES) == ["start", "rec", "stt", "llm", "insert", "total"]
     assert list(timing.MARKS) == ["key_down", "rec_start", "key_up", "stt_start", "stt_done", "llm_start",
-                                  "llm_done", "inserted"]
+                                  "llm_done", "inserted", "seg_end", "seg_text"]
+
+
+def test_keep_listening_marks_do_not_change_the_stages():
+    """seg_end and seg_text time one piece of a keep-listening session (Windows only, no Android twin); they are
+    kept apart from the dictation stages."""
+    t = full()
+    t.mark("seg_end", 5000)
+    t.mark("seg_text", 5700)
+    assert t.stages() == full().stages()
+    assert t.get("seg_text") - t.get("seg_end") == 700
 
 
 def test_skipped_cleanup_gives_llm_zero_and_insert_from_stt_done():

@@ -16,6 +16,7 @@ import vox_core as core
 TARGETS = ("note", "type")
 WARN_SECONDS = 55 * 60       # the pill warns from here
 MAX_SECONDS = 60 * 60        # the session ends itself here
+CHUNK_WORDS = 350            # the cleanup at the end of a note works on pieces of about this many words
 _BYTES_PER_SECOND = core.SAMPLE_RATE * 2
 _STOP = re.compile(r"[\s,]*\bstop,?\s+listening[\s.!?,;:]*$", re.I)
 
@@ -139,6 +140,28 @@ class ListenSession:
     def _settle(self):
         if self.state == "stopping" and self._closed and len(self._texts) >= self._next_id:
             self.state = "idle"
+
+
+def chunk_text(text, max_words=CHUNK_WORDS):
+    """The transcript cut for the cleanup at the end of a note: [(joiner, chunk)], where joiner is what goes before the
+    chunk when the cleaned chunks are put back together ("" for the first). Cuts fall at paragraph breaks, else at
+    sentence ends, else (no punctuation at all) after `max_words` words; every word is in exactly one chunk."""
+    chunks = []   # [joiner, text, words]
+    for para in re.split(r"\n\s*\n", text.strip()):
+        joiner = "\n\n"
+        para = para.strip()
+        fits = len(para.split()) <= max_words
+        for sentence in [para] if fits else re.split(r"(?<=[.!?])\s+", para):
+            words = sentence.split()
+            for i in range(0, len(words), max_words):
+                piece = words[i:i + max_words]
+                if chunks and chunks[-1][2] + len(piece) <= max_words:
+                    chunks[-1][1] += joiner + " ".join(piece)
+                    chunks[-1][2] += len(piece)
+                else:
+                    chunks.append([joiner, " ".join(piece), len(piece)])
+                joiner = " "
+    return [(j if i else "", t) for i, (j, t, _) in enumerate(chunks)]
 
 
 # ------------------------------------------------------------ crash-safe buffer

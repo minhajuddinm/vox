@@ -47,3 +47,7 @@ def test_a_flash_wins_over_the_meeting_timer_and_the_timer_returns_after():
 
 def test_recording_and_busy_win_over_the_meeting_timer():
     assert mode("rec", meeting=True) == "rec" and mode("busy", meeting=True) == "busy"
+
+
+def test_the_pill_clock_shows_minutes_and_adds_hours_only_when_needed():
+    assert [om.pill_clock(s) for s in (0, 5.9, 65, 3599, 3600, 3725)] == ["0:00", "0:05", "1:05", "59:59", "1:00:00", "1:02:05"]
