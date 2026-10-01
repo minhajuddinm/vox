@@ -30,6 +30,8 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0022](0022-sync-client-dirty-flag-and-cursor.md) | Sync client: a dirty flag per note and the relay's cursor | Accepted |
 | [0023](0023-profile-sync-three-way-merge.md) | Profile sync: fixed fields, field-by-field merge, keys only by choice | Accepted |
 | [0024](0024-stream-long-dictations-in-pieces.md) | Long dictations are transcribed in pieces while the user speaks | Accepted |
+| [0028](0028-shared-ui-parts-are-generated-into-both-pages.md) | Shared UI parts are generated into both pages | Accepted |
+| [0029](0029-paste-checks-the-window-clipboard-default-off.md) | Paste checks the window; the clipboard default is off | Accepted |
 
 ## Template
 
