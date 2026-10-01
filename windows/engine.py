@@ -422,12 +422,36 @@ class Engine:
 
     def _open_mic(self, callback):
         """Starts the microphone (the chosen one when it is connected); `callback` gets every block. Raises on failure."""
-        device = audio_devices.input_index(self.cfg.get("input_device"))
-        if self.cfg.get("input_device") and device is None:
+        name = self.cfg.get("input_device")
+        device = audio_devices.input_index(name)
+        if name and device is None and self._refresh_audio():   # plugged in after Vox started?
+            device = audio_devices.input_index(name)
+        if name and device is None:
             self.notify("Your chosen microphone is not connected. Using the Windows default one.")
+        try:
+            self._start_stream(device, callback)
+        except sd.PortAudioError:
+            if not self._refresh_audio():   # a replugged microphone has a new number
+                raise
+            self._start_stream(audio_devices.input_index(name), callback)
+
+    def _start_stream(self, device, callback):
         self.stream = sd.InputStream(samplerate=core.SAMPLE_RATE, channels=1, dtype="int16",
                                      device=device, callback=callback)
         self.stream.start()
+
+    def _refresh_audio(self):
+        """PortAudio lists the devices once, when it starts. Starts it again so a microphone plugged in later shows up.
+        Only while none of our streams is open; True when it was done."""
+        if self.recording or self.listening:
+            return False
+        try:
+            sd._terminate()
+            sd._initialize()
+        except Exception:
+            log.exception("could not refresh the audio device list")
+            return False
+        return True
 
     def _audio(self, indata, frames, t, status):
         self.chunks.append(bytes(indata))
