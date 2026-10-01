@@ -15,6 +15,7 @@ import uuid
 import vox_core as core
 
 SOURCE_NOTE = "voice note"
+ID_RE = re.compile(r"[0-9a-f]{32}")
 USE_FTS = True   # tests switch it off to exercise the LIKE fallback
 
 _SCHEMA = """
@@ -217,9 +218,17 @@ def mark_synced(nid, sent_updated_at, seq):
         con.execute("UPDATE notes SET dirty = 0, seq = ? WHERE id = ? AND updated_at = ?", (int(seq), nid, sent_updated_at))
 
 
+def valid_id(nid):
+    """True for a note id as Vox makes them (32 lowercase hex characters, the rule of relay.py): an id from the relay
+    ends up in the page and in URLs, so nothing else is taken."""
+    return isinstance(nid, str) and ID_RE.fullmatch(nid) is not None
+
+
 def apply_remote(note):
     """Merges one note (or delete marker) received from the relay: the newer `updated_at` wins.
-    Returns True when the local copy changed."""
+    Returns True when the local copy changed. A note with an id that is not 32 hex characters is ignored."""
+    if not isinstance(note, dict) or not valid_id(note.get("id")):
+        return False
     with contextlib.closing(_connect()) as con, con:
         cur = con.execute("SELECT updated_at FROM notes WHERE id = ?", (note["id"],)).fetchone()
         if cur is None and note.get("deleted"):

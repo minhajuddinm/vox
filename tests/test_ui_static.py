@@ -308,3 +308,13 @@ def test_the_windows_page_has_the_note_shortcut_row():
     assert "api().set_note_hotkey(" in html and "api().note_hotkey_problem(" in html
     app = read(UI_APP)
     assert "def set_note_hotkey(" in app and "def note_hotkey_problem(" in app
+
+
+# ---------- review round F3: stale lists, notes autosave, note ids
+
+WINDOWS_PAGE = read(PAGES["windows"])
+
+
+def test_note_ids_are_escaped_in_the_windows_page():
+    assert 'data-id="${n.id}"' not in WINDOWS_PAGE
+    assert 'data-id="${esc(n.id)}"' in WINDOWS_PAGE

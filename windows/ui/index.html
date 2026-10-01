@@ -534,7 +534,7 @@ async function save(part, msg = "Saved") { Object.assign(S.config, part); await 
 // ---- voice notes
 async function renderVoiceNotes() {
   const list = await api().notes_list($("vn-q").value.trim(), $("vn-period").value, "");
-  $("vn-list").innerHTML = list.length ? list.map(n => `<div class="card" data-id="${n.id}" style="margin-bottom:10px">
+  $("vn-list").innerHTML = list.length ? list.map(n => `<div class="card" data-id="${esc(n.id)}" style="margin-bottom:10px">
       <div class="row"><b class="grow">${esc(n.title || "Untitled")}</b><span style="color:var(--muted);font-size:12px">${esc(new Date(n.created_at * 1000).toLocaleString())}${n.secs ? " · " + Math.round(n.secs) + " s" : ""}</span></div>
       <div class="vn-text" style="white-space:pre-wrap;margin:8px 0">${esc(n.text)}</div>
       <div class="row"><button class="btn ghost" data-act="copy">Copy</button><button class="btn ghost" data-act="edit">Edit</button><button class="btn ghost" data-act="del" style="color:var(--danger)">Delete</button></div>
