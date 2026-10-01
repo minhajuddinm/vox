@@ -250,6 +250,9 @@ public class DictationService extends Service {
     /** @param tapAtMs SystemClock.elapsedRealtime() of the user's tap, or 0 when unknown (only used for the log) */
     public synchronized void startRecording(String pkg, String label, String dest, final long tapAtMs) {
         if (state != IDLE) return;
+        // Set before the early error returns below: onError picks the bubble from targetDest (noteJob()), so an
+        // error for this request must not flash the previous job's bubble.
+        targetDest = DEST_NOTE.equals(dest) ? DEST_NOTE : DEST_DICTATION;
         Prefs p = new Prefs(this);
         String problem = Endpoint.error(p.role(Providers.STT)[0]);
         if (problem == null) problem = Endpoint.error(p.role(Providers.LLM)[0]);
