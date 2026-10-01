@@ -279,3 +279,12 @@ def test_android_page_has_the_always_show_bubble_setting_and_the_battery_prompt(
     assert "openBattery" in js_interface_methods(read(MAIN_ACTIVITY))
     svc = read(os.path.join(ROOT, "android", "src", "com", "minhaj", "vox", "VoxAccessibilityService.java"))
     assert "BubbleLogic.shouldShow(" in svc and "BubbleLogic.clamp(" in svc   # the service uses the pure rules
+
+
+def test_android_service_brings_the_note_bubble_up_for_a_note_in_progress():
+    """G1: the note bubble follows NoteBubbleLogic.visible (not only the note_bubble switch), holds for the result flash, and draws a timer."""
+    d = os.path.join(ROOT, "android", "src", "com", "minhaj", "vox")
+    svc = read(os.path.join(d, "VoxAccessibilityService.java"))
+    assert "NoteBubbleLogic.visible(noteOn, noteRec, noteSaving)" in svc
+    assert "isNoteRecording()" in svc and "flashNote(BubbleView.SENT)" in svc and "flashNote(BubbleView.ERROR)" in svc
+    assert "NoteBubbleLogic.timer(" in read(os.path.join(d, "BubbleView.java"))

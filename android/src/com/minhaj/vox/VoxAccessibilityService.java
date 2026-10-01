@@ -33,8 +33,10 @@ import java.io.File;
 
 /**
  * Owns the floating bubbles (accessibility overlays, so no "draw over apps" permission is needed): the mic bubble,
- * which tracks the focused text field and inserts the final text into it, and the optional voice note bubble, which
- * is always on screen while "note_bubble" is on and starts or stops a note.
+ * which tracks the focused text field and inserts the final text into it, and the voice note bubble, which starts or
+ * stops a note. The note bubble is always on screen while "note_bubble" is on; otherwise it appears by itself while a
+ * note is being recorded or saved (started from the bubble, the notification, the tile or the app), shows the time,
+ * stops and saves on a tap, flashes the result and goes ({@link NoteBubbleLogic}).
  *
  * Keeping the bubble there: {@link BubbleLogic} holds the rules (visibility, position clamp, what to do about a bubble
  * whose window is gone). They are applied on every window change, on screen on, unlock, rotation and when the service
@@ -51,6 +53,9 @@ public class VoxAccessibilityService extends AccessibilityService
     private Floating dictation;
     /** The voice note bubble: on screen whenever "note_bubble" is on, whatever is focused. */
     private Floating noteBubble;
+
+    /** SystemClock.elapsedRealtime() until which the note bubble stays up to show the check or the ! of a finished note. */
+    private long noteFlashUntil;
 
     private AccessibilityNodeInfo editNode;
     private String editPkg;
@@ -86,6 +91,8 @@ public class VoxAccessibilityService extends AccessibilityService
         DictationService.setNoteListener(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         createBubbles();
+        DictationService svc = DictationService.instance;
+        if (svc != null) onState(svc.getState());   // connected during a recording: show it
         refreshVisibility(true, "service connected");
         main.removeCallbacks(watchdog);
         main.postDelayed(watchdog, BubbleLogic.WATCHDOG_MS);
@@ -279,10 +286,14 @@ public class VoxAccessibilityService extends AccessibilityService
         boolean wantMic = busy || BubbleLogic.shouldShow(onlyTyping, always, field, screenOn, serviceReady);
         dictation.apply(wantMic, OverlayDiag.micKind(wantMic, busy, onlyTyping, field, always, screenOn),
                 OverlayDiag.micReason(busy, onlyTyping, field, always, screenOn), rebuild, why);
-        boolean noteOn = p.noteBubble();   // independent of the focused field and of only_typing
-        boolean wantNote = noteOn && serviceReady && screenOn;
+        // independent of the focused field and of only_typing; a note in progress brings the bubble up even when the switch is off
+        boolean noteOn = p.noteBubble();
+        boolean noteRec = svc != null && svc.isNoteRecording();
+        boolean noteSaving = svc != null && svc.getState() == DictationService.PROCESSING && svc.isNoteJob()
+                || SystemClock.elapsedRealtime() < noteFlashUntil;   // the check or ! of the finished note counts as saving
+        boolean wantNote = NoteBubbleLogic.visible(noteOn, noteRec, noteSaving) && serviceReady && screenOn;
         noteBubble.apply(wantNote, wantNote ? OverlayDiag.OVERLAY_ADD : OverlayDiag.OVERLAY_REMOVE,
-                !noteOn ? "voice note bubble is off" : !screenOn ? "screen is off" : "voice note bubble is on", rebuild, why);
+                !screenOn ? "screen is off" : noteOn ? "voice note bubble is on" : wantNote ? "a voice note is in progress" : "voice note bubble is off", rebuild, why);
     }
 
     /** The size of the screen in the current orientation. */
@@ -587,7 +598,17 @@ public class VoxAccessibilityService extends AccessibilityService
     /** A voice note was saved: the note bubble (not the mic bubble) shows the green check. A failed save arrives as onError. */
     @Override
     public void onNoteSaved(String id, String title) {
-        if (noteBubble != null) noteBubble.view.flash(BubbleView.SENT);
+        flashNote(BubbleView.SENT);
+    }
+
+    /** Flashes the note bubble, which stays up for the flash even when it is not the always-on one, then goes. */
+    private void flashNote(int kind) {
+        if (noteBubble == null) return;
+        long ms = BubbleView.flashMs(kind);
+        noteFlashUntil = SystemClock.elapsedRealtime() + ms + 100;
+        noteBubble.view.flash(kind);
+        refreshVisibility();
+        main.postDelayed(this::refreshVisibility, ms + 150);
     }
 
     @Override
@@ -595,8 +616,8 @@ public class VoxAccessibilityService extends AccessibilityService
         toast(message);
         // A warning that still ends in a result (cleanup fell back to the raw words) is followed by onResult,
         // whose flash replaces this one. A failed voice note flashes the note bubble, the one that shows that job.
-        Floating f = noteJob() ? noteBubble : dictation;
-        if (f != null) f.view.flash(BubbleView.ERROR);
+        if (noteJob()) { flashNote(BubbleView.ERROR); return; }
+        if (dictation != null) dictation.view.flash(BubbleView.ERROR);
     }
 
     // ------------------------------------------------------------ insertion
