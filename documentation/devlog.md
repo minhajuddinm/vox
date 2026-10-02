@@ -16,6 +16,11 @@ Chronological notes on how the improvement series was made, what was found, and 
 **Merge.** The 17 commits were fast-forwarded into the fork's `main` (old `main` tagged `pre-improvements`), then opened and merged upstream as PR 1 (`cb3f679`) by the user (a collaborator on the repository), with the original author's agreement. The fork was archived afterwards.
 **Documentation.** This folder was written by reading every source file, then checked by `documentation/tools/check_docs.py` (see [decisions/0014-documentation-checked-in-ci.md](decisions/0014-documentation-checked-in-ci.md)).
 Later the same day: PR 2 (the documentation folder) was merged upstream as `de839c8`. Added `documentation/tools/docs_todo.py` (maps changed files to the pages that describe them, tested in `tests/test_docs_todo.py`) and the project skill `vox-doc-sync`, so the documentation is synced at the end of every session ([decisions/0015-sync-docs-every-session.md](decisions/0015-sync-docs-every-session.md)). The tool was tried on its own branch: it listed the three new files and the pages to update.
+## 2026-10-02, spoken-number golden coverage (issue 36)
+Added ten synthetic fidelity rows: accepted AM time, percentage, comma-grouped thousand, ordinal and pound-symbol formatting, each with a rejected wrong-number or missing-currency counterpart. No Python or Java behavior changed.
+Python 3.13/macOS: 714 parity cases passed; full suite 2053 passed and 45 skipped (2093 collected on this platform). Documentation checker reported OK.
+Two workflow version-stamping tests first failed with BSD sed, then passed in the full run with GNU sed on PATH. The existing pytest generator-deprecation warning remains. No JDK 17/Android jar was available, so Java and real-device checks were not run.
+
 ## 2026-10-01, clipboard history setting (branch fix/clipboard-history)
 New setting `clipboard_history` (default true) lets a dictation into Win+V history; `paste.clip_set(text, history)` sets only `CanUploadToCloudClipboard` = 0 then (always), all three markers when off; the old text put back stays marked private; tests use a faked Win32, the real clipboard was not touched.
 ## 2026-10-01, standalone relay programs (branch feat/relay-exe)

@@ -25,6 +25,8 @@ Put the API key in the window's Settings, or in `%APPDATA%\Vox\config.json` (it 
 
 ## Tests
 
+The spoken-number golden addition was checked on Python 3.13/macOS: 2093 tests collected, 2053 passed and 45 skipped, including 714 passing parity cases. Collection varies by platform. GNU sed was on PATH for the Linux-workflow version-stamping tests. Java validation was not run locally (JDK 17 and `ANDROID_JAR` unavailable); the historical results below were not re-run on Windows or Android.
+
 | Suite | Command | Covers |
 |---|---|---|
 | Python | `python -m pytest -q` (from the repo root) | Every test runs with its own empty profile folders (`tests/conftest.py`), and one that touches the real Vox profile fails with `test touched the real profile`. 2158 tests collected at the time of writing (`python -m pytest --collect-only -q`): `tests/test_*.py`. On Windows 2151 pass and 7 are skipped (the seven POSIX file-permission and owner tests in `test_relay_admin.py`, which run in CI on Linux and have not been run anywhere yet); 704 of the 2158 are the shared golden cases in `test_parity.py`; the total includes `tests/test_ui_static.py`, the text-only checks of the two HTML pages |
