@@ -70,6 +70,8 @@ windows/                Windows app (Python) and its installer scripts
 | `windows/listen.py` | Keep listening, running part: `Listening` takes the microphone audio through a `ListenSession`, turns each piece into text in the background (`streaming.piece_text`) and ends in one cleaned note (Note target) or typed pieces (Type target, only in the app it started in); marks `seg_end` and `seg_text` per piece. |
 | `windows/paste.py` | `paste_text`: pastes into the focused app only if the window is still the one the dictation started in, and restores the old clipboard (all copyable formats) only if it still holds our text; the dictation is set with the exclude-from-history markers. The real Win32, clipboard and key calls are in `SystemDeps`; tests pass their own. |
 | `windows/streaming.py` | Sends the finished parts of a long recording to speech-to-text while the user is still speaking (worker thread, falls back to the whole recording). |
+| `windows/autolearn.py` | Learn from my corrections, pure rules (no I/O): `detect` (find the typed text again in the field by its first and last words, compare it with `suggest_corrections`, keep only fixes that look like corrections: `looks_like_fix`), `learn` (what to add to the dictionary, capped), the `learned_log` helpers (`apply_learned`, `remove_learned`) and `Watch`, the state machine of one watch (3 minutes at most, ends when the text is sent or gone or the app changes, final check on the last snapshot). Java twins: `AutoLearn.java`, `AutoLearnWatch.java`. |
+| `windows/correction_watch.py` | Learn from my corrections, Windows side: after a paste, a daemon thread reads the focused control's text through UI Automation (`UiaProvider`, the .NET UIAutomationClient through pythonnet) every 2 s while the watch runs and the pasted-into window is in front, feeds `autolearn.Watch` and saves what it learns (`Watcher`). `arm()` is the engine's hook. |
 | `windows/improve.py` | Pure core of "Improve my cleanup" (no network): picks the history pairs to send, estimates the cost, builds the request, reads and caps the answer (`parse_proposal`), applies the accepted items to the config with versions and `revert`, and lists the cleanups that lost words. |
 | `windows/timing.py` | Pure timing core (stdlib): `Timing` marks (`key_down` ... `inserted`) become the six stage durations (`start`, `rec`, `stt`, `llm`, `insert`, `total`); `median`, `p90`, `biggest`, `format_ms`, `summarize` over the newest N history entries, `by_model` (medians per voice and cleanup model pair) and `speed_view` (everything the Speed card shows, from the history). Local only, nothing is sent. Java twin `Timing.java`. |
 | `windows/ui/index.html` | The main window's screens: Home, Notes (meetings), Dictionary, Styles, Settings. One file with CSS and JavaScript. |
@@ -119,6 +121,8 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/Endpoint.java` | Server address rules (which hosts may use plain http). |
 | `android/src/com/minhaj/vox/Pcm.java` | Silence gate for raw 16-bit audio. |
 | `android/src/com/minhaj/vox/Corrections.java` | Suggests dictionary entries from a user's fix to a dictation. |
+| `android/src/com/minhaj/vox/AutoLearn.java` | Pure Java twin of `windows/autolearn.py` (detect, learn, the learned log); golden kinds `autocorrect` and `autolearn`. |
+| `android/src/com/minhaj/vox/AutoLearnWatch.java` | Pure Java twin of `autolearn.Watch`: the watch after Vox typed, with an injectable clock; `AUTO_LEARN_WINDOW_S` = 180, `SETTLE_MS` = 1500. |
 | `android/src/com/minhaj/vox/PendingQueue.java` | Pure queue of the unsent recordings of `DictationService` (one entry and file per failed recording, oldest first, at most 5, 7-day age rule, file-name format, which in-flight job a cancel may discard, and `sweepUploads`, the deleter of old `vox-up-*` temp upload files). |
 | `android/src/com/minhaj/vox/NoteLogic.java` | Pure voice-note rules shared with `windows/notes.py`: automatic title, search words and string, which side wins a sync merge, tag clean-up, push batch size. |
 | `android/src/com/minhaj/vox/Note.java` | Plain value class for one voice note (or delete marker): the columns of the notes table. No Android or JSON classes, so the sync code and its tests can use it. |
@@ -162,6 +166,10 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_secret.py` | DPAPI wrapper and how `config.json` stores the key. |
 | `tests/test_robustness.py` | HTTP retry policy and the silence gate. |
 | `tests/test_suggest_corrections.py` | Dictionary suggestions from user fixes. |
+| `tests/test_autolearn.py` | Learn from my corrections, pure rules: detect, the similarity rules, learn and its cap, the learned log, and the watch with a fake clock (179 s still watching, 181 s ended, sent, span gone, app changed, re-arm); the window constant equals the Java one. |
+| `tests/test_correction_watch.py` | The Windows watcher with a fake desktop (no UI Automation, no window): a fix is learned and announced privately, a fix just before Send counts, another window is never read, password controls, the once-only log line, no text in the log, the setting, the thread runs only while armed. |
+| `tests/test_engine_autolearn.py` | The engine arms the watch after a real paste only (skipped where the Windows runtime packages are missing). |
+| `tests/test_ui_autolearn.py` | The Learn from my corrections switch and the Recently learned list on both pages, the Android service config and description, the settings that stay on the device, and the Windows bridge `learned_remove`. |
 | `tests/test_spoken_commands.py` | Spoken "new line" and the cleanup-failure result. |
 | `tests/test_audio_devices.py` | Microphone name resolution. |
 | `tests/test_parity.py` | Runs `spec/golden.txt` against the Python helpers. |
@@ -231,6 +239,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/StreamingSttTest.java` | `StreamingStt` with a fake server: order and context, the first piece going out before the recording ends, only the tail left after, failure, slow server, silent and hallucinated pieces, cancel. |
 | `android/test/com/minhaj/vox/LatencyTest.java` | The timeout and token rules of `Latency`, the connect-failure classification and the `UploadFormat` rule. |
 | `android/test/com/minhaj/vox/CorrectionsTest.java` | Correction suggestions. |
+| `android/test/com/minhaj/vox/AutoLearnTest.java` | `AutoLearn` and `AutoLearnWatch`, mirroring `tests/test_autolearn.py`. |
 | `android/test/com/minhaj/vox/PendingQueueTest.java` | The unsent-recordings queue: oldest-first order, cap drops the oldest, cancel rules (live recording and Retry discard nothing, only a fresh queued entry), remove on success, age purge, file names. |
 | `android/test/com/minhaj/vox/DevicesViewTest.java` | `DevicesView` beyond the golden rows: order, entries that are not objects, unusable times, the Android header spelling of a name, age rounding. |
 | `android/test/com/minhaj/vox/NoteLogicTest.java` | Note rules beyond the golden rows: Python-style whitespace and `strip`, search words, tag clean-up and its cap, null inputs, merge edge cases. |
@@ -342,8 +351,10 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p7f-relay-proxy.md` | Spec for P7f: the relay as the AI server (proxy routes, upstream settings, the apps' switch). |
 | `documentation/specs/p2b-stream-long-dictations.md` | Spec for P2b: send long recordings in pieces while speaking. |
 | `documentation/decisions/0036-fuzzy-dictionary-guesses-only-for-long-terms.md` | ADR: the one-letter dictionary guess only for terms of 7+ letters; a short name keeps the case fix. |
+| `documentation/decisions/0037-auto-learn-reads-the-field-through-ui-automation-with-pythonnet.md` | Learn from my corrections: a short watch of the typed field, UI Automation through pythonnet, a final check before the text goes. |
 | `documentation/decisions/0035-sideload-warnings-are-explained-not-engineered-away.md` | ADR: explain the Play Protect and Restricted setting warnings in the app; no `isAccessibilityTool`, targetSdk stays 34, minimum permissions. |
 | `documentation/specs/p9h-android-mic-choice.md` | Spec for the Android Microphone setting: what was built, why Bluetooth is not offered yet and the device checklist (not run on a phone). |
+| `documentation/specs/p9i-auto-learn.md` | Spec for Learn from my corrections (both apps): what was built, what works where, the limits and the device checklist (not run on a desktop or phone). |
 | `documentation/specs/p9g2-install-safety.md` | Spec for part 3 branch G task G2: the Install help card, the permission clean-up, why targetSdk stays 34, what a sideloaded APK cannot avoid, the unverified list. |
 | `documentation/specs/p9e-keep-listening.md` | Spec for part 3 branch E: keep listening (Note and Type targets, stop phrase, note shortcut, crash-safe buffer and recovery), the checklist that needs no phone, what was not verified, Android out of scope. |
 | `documentation/specs/p9f-improve-my-cleanup.md` | Spec for part 3 branch F: the Improve my cleanup card, what one run sends, the proposal, apply and revert, `my_cleanup_rules` in the prompt and the profile sync, the checklist, known limits. |

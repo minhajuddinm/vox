@@ -9,6 +9,7 @@ State of the code, honestly. Update this page when you fix or discover something
 | Issue | Detail |
 |---|---|
 | `ACTION_SET_TEXT` rewrites the whole field (Android) | `VoxAccessibilityService.insertText` sets the complete new text, so rich text formatting can be lost and typing during insertion can race. The clipboard-paste path is only a fallback. |
+| Learn from my corrections never run for real | UI Automation (Windows) and the text-changed events (Android) are tested only with fakes; which apps expose their text, the timings and the messages need the checklist in [specs/p9i-auto-learn.md](specs/p9i-auto-learn.md). Terminals teach nothing; Electron apps only with their accessibility mode on; a fix to someone else's text inside the span Vox typed is learned too. |
 | Microphone setting is ignored by meeting notes (Windows) | `meeting.py` records the default microphone through `soundcard`; only dictation uses `input_device`. |
 | Failed Windows dictation audio lives in memory only | `Engine.pending` is lost when Vox quits (Android keeps a file until sent or cancelled). |
 | Spoken "new line" false positives | When cleanup did not run, a phrase like "a new line of code" becomes a line break. This is a deliberate trade-off. |

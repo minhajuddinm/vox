@@ -42,6 +42,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0034](0034-devices-list-is-the-relays-own-list-asked-on-a-switch-or-a-press.md) | The devices list is the relay's own list, asked only on a switch or a press | Accepted |
 | [0035](0035-sideload-warnings-are-explained-not-engineered-away.md) | Sideload warnings are explained in the app, not engineered away | Accepted |
 | [0036](0036-fuzzy-dictionary-guesses-only-for-long-terms.md) | The fuzzy dictionary guesses a spelling only for terms of 7+ letters | Accepted |
+| [0037](0037-auto-learn-reads-the-field-through-ui-automation-with-pythonnet.md) | Learn from my corrections: a short watch of the typed field, UI Automation through pythonnet, a final check before the text goes | Accepted (not run on a real desktop or phone) |
 
 ## Template
 
