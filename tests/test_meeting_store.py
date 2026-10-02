@@ -241,3 +241,81 @@ def test_every_sample_of_every_block_ends_up_in_a_frame_or_the_remainder(meeting
         assert all(len(f) == mt.FRAME for f in got) and len(rest) < mt.FRAME
         frames += got
     assert np.array_equal(np.concatenate(frames + [rest]), np.concatenate(blocks))
+
+
+
+# ---- issue 49, Windows: a normal stop keeps audio the transcript does not cover; titles stay out of the log --------------
+def _finished_meeting(mt, monkeypatch, entries, seconds, cfg=None):
+    m = mt.Meeting(lambda: dict({"final_pass": False}, **(cfg or {})))
+    m.id, m.started = "20261002-090000", 1759395600.0
+    m.event = {"title": "Secret merger talk", "attendees": []}
+    m.entries = entries
+    raw = os.path.join(m.folder(), "you.raw")
+    with open(raw, "wb") as f:
+        f.write(b"\x01\x00" * int(16000 * seconds))
+    m.sources = [FakeSource("You", raw)]
+    monkeypatch.setattr(m, "_notes", lambda cfg, transcript: "# T\n\nok")
+    monkeypatch.setattr(m, "attribute_speakers", lambda: None)
+    return m, raw
+
+
+def test_a_stop_whose_transcript_misses_most_of_the_speech_keeps_the_audio(meeting_mod, monkeypatch, tmp_path):
+    mt = meeting_mod
+    monkeypatch.setattr(mt, "notes_export_dir", lambda cfg: str(tmp_path))
+    m, raw = _finished_meeting(mt, monkeypatch, [{"t": 5, "who": "You", "text": "hello"}], 120)
+    m._finish()
+    assert os.path.getsize(raw) == 120 * 32000
+    meta = [x for x in mt.list_meetings() if x["id"] == m.id][0]
+    assert meta["incomplete"] is True
+    assert "never transcribed" in mt.read_notes(m.id)
+
+
+def test_a_stop_whose_transcript_covers_the_speech_removes_the_audio(meeting_mod, monkeypatch, tmp_path):
+    mt = meeting_mod
+    monkeypatch.setattr(mt, "notes_export_dir", lambda cfg: str(tmp_path))
+    words = " ".join(["word"] * 200)
+    m, raw = _finished_meeting(mt, monkeypatch, [{"t": 5, "who": "You", "text": words}], 60)
+    m._finish()
+    assert not os.path.exists(raw)
+    assert "incomplete" not in [x for x in mt.list_meetings() if x["id"] == m.id][0]
+
+
+def test_keep_audio_still_keeps_it(meeting_mod, monkeypatch, tmp_path):
+    mt = meeting_mod
+    monkeypatch.setattr(mt, "notes_export_dir", lambda cfg: str(tmp_path))
+    m, raw = _finished_meeting(mt, monkeypatch, [{"t": 5, "who": "You", "text": " ".join(["w"] * 200)}], 60,
+                               {"keep_audio": True})
+    m._finish()
+    assert os.path.exists(raw)
+
+
+def test_the_meeting_title_and_export_path_are_not_logged(meeting_mod, monkeypatch, tmp_path, caplog):
+    import logging
+    mt = meeting_mod
+    monkeypatch.setattr(mt, "notes_export_dir", lambda cfg: str(tmp_path))
+    m, _ = _finished_meeting(mt, monkeypatch, [{"t": 5, "who": "You", "text": " ".join(["w"] * 200)}], 60)
+    with caplog.at_level(logging.INFO):
+        m._finish()
+    assert "Secret merger" not in caplog.text and str(tmp_path) not in caplog.text
+    assert "exported" in caplog.text and m.id in caplog.text
+
+
+def test_a_failed_export_logs_only_the_kind_of_error(meeting_mod, monkeypatch, caplog):
+    import logging
+    mt = meeting_mod
+
+    def denied(cfg):
+        raise PermissionError("C:\\Users\\me\\Documents\\Vox Notes\\Secret merger talk.md")
+
+    monkeypatch.setattr(mt, "notes_export_dir", denied)
+    m, _ = _finished_meeting(mt, monkeypatch, [{"t": 5, "who": "You", "text": " ".join(["w"] * 200)}], 60)
+    with caplog.at_level(logging.INFO):
+        m._finish()
+    assert "Secret merger" not in caplog.text and "PermissionError" in caplog.text and "not exported" in caplog.text
+
+
+def test_the_start_line_does_not_carry_the_title(meeting_mod):
+    import inspect
+    src = inspect.getsource(meeting_mod.Meeting._start)
+    call = src.split("log.info", 1)[1].split("sc.default_microphone()", 1)[0]
+    assert '"title"' not in call and "self.id" in call

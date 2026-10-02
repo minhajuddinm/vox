@@ -325,8 +325,8 @@ class Meeting:
         self.worker = threading.Thread(target=self._transcribe_loop, daemon=True, name="meeting-stt")
         self.worker.start()
         try:
-            log.info("meeting %s started (%s); mic=%s speaker=%s", self.id, (event or {}).get("title", "no event"),
-                     sc.default_microphone().name, sc.default_speaker().name)
+            log.info("meeting %s started (%s); mic=%s speaker=%s", self.id, "calendar event" if event else "no event",
+                     sc.default_microphone().name, sc.default_speaker().name)   # never the title: it can be private
         except Exception:
             pass
         return True
@@ -589,6 +589,11 @@ class Meeting:
                 self.attribute_speakers()
                 self._save_transcript()
             transcript = self.transcript_text()
+            words = sum(len(e["text"].split()) for e in self.entries)
+            # The same rule as recover_unfinished: when the transcript does not cover the recorded speech (network down,
+            # a failed final pass), the raw audio is the only copy of some of it, so it is kept and the meeting marked.
+            raws = [os.path.basename(s.raw_path) for s in self.sources if os.path.exists(s.raw_path)]
+            incomplete = bool(raws) and not _covers_audio(self.folder(), raws, words)
             self.stage = "Writing notes"
             if transcript:
                 try:
@@ -609,12 +614,15 @@ class Meeting:
             header = f"*{when:%A %d %B %Y, %H:%M} · {max(1, round(duration / 60))} min · {who}*\n\n"
             body = notes.replace(m.group(0), m.group(0) + "\n\n" + header, 1) if m else header + notes
             body = re.sub(r"\n{3,}", "\n\n", body)
+            if incomplete:
+                body = body.rstrip() + "\n\n" + INCOMPLETE_NOTE
             full = body.rstrip() + "\n\n## Transcript\n\n" + (transcript or "_empty_") + "\n"
             with open(os.path.join(self.folder(), "notes.md"), "w", encoding="utf-8") as f:
                 f.write(full)
-            meta = {"id": self.id, "title": title, "started": self.started, "duration": duration,
-                    "words": sum(len(e["text"].split()) for e in self.entries),
+            meta = {"id": self.id, "title": title, "started": self.started, "duration": duration, "words": words,
                     "attendees": (self.event or {}).get("attendees", [])}
+            if incomplete:
+                meta["incomplete"] = True
             meta_path = os.path.join(self.folder(), "meta.json")
             _write_json(meta_path, meta)   # first: the meeting is listed even when the copy in Documents fails
             try:
@@ -623,17 +631,18 @@ class Meeting:
                     f.write(full)
                 meta["export"] = export
             except Exception as e:   # e.g. Controlled Folder Access on Documents: the notes stay in the Vox folder
-                log.exception("could not export the notes")
+                log.warning("could not export the notes of meeting %s (%s)", self.id, type(e).__name__)   # the path holds the title
                 meta["export_error"] = type(e).__name__
-                export = "(not exported)"
+                export = ""
             _write_json(meta_path, meta)
-            if not cfg.get("keep_audio"):
+            if not cfg.get("keep_audio") and not incomplete:
                 for s in self.sources:
                     try:
                         os.remove(s.raw_path)
                     except OSError:
                         pass
-            log.info("meeting %s saved to %s (%s lines)", self.id, export, len(self.entries))
+            log.info("meeting %s saved, %s (%s lines%s)", self.id, "exported" if export else "not exported",
+                     len(self.entries), "; audio kept: not fully transcribed" if incomplete else "")
         except Exception:
             log.exception("finishing meeting failed")
         finally:
@@ -663,6 +672,8 @@ def list_meetings():
 
 
 _ID = re.compile(r"[0-9]{8}-[0-9]{6}")   # the folder name of a meeting (see Meeting._start)
+INCOMPLETE_NOTE = ("Part of the speech was never transcribed. The recorded audio is kept in this meeting's folder "
+                   "(you.raw, others.raw: 16 kHz mono 16-bit PCM).")
 MIN_WORDS_PER_SPEECH_SECOND = 1.5   # normal speech is 2-3; less means pieces were never transcribed (network down, backlog)
 
 
