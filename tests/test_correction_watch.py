@@ -40,6 +40,7 @@ TYPED = "send it to Minhaj today"
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr(core, "_config_unread", False)   # an earlier test may leave "unreadable" set
     core.save_config(dict(core.DEFAULT_CONFIG, dictionary=["LoomXR"]))
     desk, clock, said = FakeDesktop(), Clock(), []
     w = cw.Watcher(desk, notify=lambda m, private=False: said.append((m, private)), clock=clock)
