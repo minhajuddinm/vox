@@ -33,7 +33,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 RELAY_VERSION = "0.2"
-MAX_CLOCK_AHEAD = 86400    # seconds a note time may be ahead of the relay clock
+MAX_CLOCK_AHEAD = 86400    # seconds a note time may be ahead of the relay clock before the note is refused (a clock in milliseconds)
+MAX_CLOCK_SKEW = 5         # seconds a stored `updated_at` may be ahead of the relay clock: a fast phone clock is cut back to this
+RECENT_WRITE = 300         # seconds: a write made this recently (relay clock) replaces a note that is stored ahead of the clock
 MAX_BODY = 1_000_000        # bytes accepted in one request
 MAX_TEXT = 100_000          # characters kept per text field
 MAX_TAGS = 20
@@ -201,12 +203,24 @@ class RelayStore:
         with self._lock, contextlib.closing(self._connect()) as con, con:
             return self._store_note(con, note)
 
-    def _store_note(self, con, note):
-        """The body of `upsert_note` on an open connection (the caller holds the lock and the transaction)."""
+    def _store_note(self, con, note, bound=True):
+        """The body of `upsert_note` on an open connection (the caller holds the lock and the transaction).
+        The stored time is never more than MAX_CLOCK_SKEW ahead of the relay clock (a phone with a fast clock is cut back).
+        A stored note that is ahead by more than that anyway (a row written before there was a bound) must not pin the note
+        for ever: a write made in the last RECENT_WRITE seconds by the RELAY clock replaces it, a delete marker included, and
+        its time is raised above the stored one so that every device that holds the old version takes the new one.
+        `bound=False` (the management page's delete, which is the relay's own act) keeps the time as given."""
+        now = time.time()
+        if bound:
+            note = dict(note, updated_at=min(note["updated_at"], now + MAX_CLOCK_SKEW))
         cur = con.execute("SELECT * FROM notes WHERE id = ?", (note["id"],)).fetchone()
         if cur is not None:
             old = self._row(cur)
-            if old["updated_at"] > note["updated_at"] or all(old[k] == note[k] for k in NOTE_FIELDS):
+            if old["updated_at"] > now + MAX_CLOCK_SKEW and note["updated_at"] >= now - RECENT_WRITE:
+                if all(old[k] == note[k] for k in NOTE_FIELDS if k != "updated_at"):
+                    return old, False   # the same content again (a retry): nothing to change
+                note["updated_at"] = max(note["updated_at"], old["updated_at"] + 0.001)
+            elif old["updated_at"] > note["updated_at"] or all(old[k] == note[k] for k in NOTE_FIELDS):
                 return old, False   # an older or identical write: keep what we have, no new sequence number
         con.execute("INSERT OR REPLACE INTO notes (id, source, title, text, raw, created_at, updated_at, secs, device, tags, deleted) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -231,9 +245,10 @@ class RelayStore:
             if r is None:
                 return None
             old = self._row(r)
-            # later than the stored time too, or a note stamped ahead of this clock (a fast phone) would "win" over its own delete
+            # The relay's own act, so the relay clock wins: the marker is later than the stored time too, or a note stamped ahead
+            # of this clock (a fast phone) would "win" over its own delete. clean_note is not used: it would refuse far-ahead times.
             stamp = max(float(updated_at or 0), time.time(), old["updated_at"] + 0.001)
-            return self._store_note(con, clean_note(dict(old, deleted=True, updated_at=stamp)))
+            return self._store_note(con, dict(old, title="", text="", raw="", tags=[], deleted=True, updated_at=stamp), bound=False)
 
     def changes(self, since=0, limit=200):
         """Notes and delete markers written after sequence number `since`, oldest first."""
