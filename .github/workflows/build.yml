@@ -38,6 +38,48 @@ jobs:
       - name: Relay tests (standard library only)
         run: python -m pytest -q -p no:cacheprovider tests/test_relay.py tests/test_relay_admin.py tests/test_relay_proxy.py
 
+  relay-exe:
+    # Standalone relay programs (no Python needed to run them): relay/relay.py frozen with PyInstaller --onefile.
+    # Each one is started once and asked /health before it is uploaded; a binary that does not answer fails the job.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: vox-relay-windows-x64, file: vox-relay-windows-x64.exe }
+          - { os: ubuntu-latest, name: vox-relay-linux-x64, file: vox-relay-linux-x64 }
+          - { os: ubuntu-24.04-arm, name: vox-relay-linux-arm64, file: vox-relay-linux-arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: { python-version: '3.13' }
+      - name: Build ${{ matrix.file }}
+        shell: bash
+        run: |
+          pip install pyinstaller==6.22.3
+          pyinstaller --noconfirm --clean --onefile --console --name "${{ matrix.name }}"             --distpath relay-dist --workpath relay-build --specpath relay-build             --exclude-module tkinter --exclude-module _tkinter --exclude-module unittest --exclude-module pydoc             --exclude-module xmlrpc --exclude-module turtle --exclude-module idlelib --exclude-module lib2to3             relay/relay.py
+          ls -l relay-dist
+      - name: Smoke test (--help, then start on 127.0.0.1, ask /health with the token, stop)
+        shell: bash
+        run: python tools/relay_smoke.py "relay-dist/${{ matrix.file }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: "${{ matrix.name }}", path: "relay-dist/${{ matrix.file }}", if-no-files-found: error }
+
+  relay-sums:
+    needs: relay-exe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { path: relay-bin, pattern: 'vox-relay-*', merge-multiple: true }
+      - name: SHA256SUMS.txt for the three relay programs
+        working-directory: relay-bin
+        run: |
+          test "$(ls vox-relay-* | wc -l)" = 3
+          sha256sum vox-relay-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: SHA256SUMS, path: relay-bin/SHA256SUMS.txt, if-no-files-found: error }
+
   windows:
     needs: tests
     runs-on: windows-latest
@@ -134,7 +176,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [tests, relay, windows, android]
+    needs: [tests, relay, relay-exe, relay-sums, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -146,7 +188,13 @@ jobs:
           files: |
             out/VoxSetup.exe
             out/Vox.apk
+            out/vox-relay-windows-x64.exe
+            out/vox-relay-linux-x64
+            out/vox-relay-linux-arm64
+            out/SHA256SUMS.txt
+          fail_on_unmatched_files: true
           body: |
             **Android:** download `Vox.apk` on your phone and open it. See the README for the one-time setup.
+            **Relay without Python:** `vox-relay-windows-x64.exe`, `vox-relay-linux-x64` and `vox-relay-linux-arm64` (Raspberry Pi 5, 64-bit OS) run the relay by themselves; check them against `SHA256SUMS.txt`. On Linux run `chmod +x` first. See relay/README.md.
             **Windows:** download `VoxSetup.exe` and run it. Windows SmartScreen may warn because the installer is not code-signed: click *More info* > *Run anyway*.
             On first start Vox asks you to choose an AI provider (Groq is the default and has a free tier: https://console.groq.com/keys) and paste your own key. Each person uses their own key and their own limits.

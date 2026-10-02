@@ -7,6 +7,9 @@ Wants=network-online.target
 # Copy relay.py to /opt/vox-relay/relay.py first. The data (relay.json with the token, relay.db) lives in
 # /var/lib/vox-relay, owned by a throw-away user that systemd creates (DynamicUser).
 ExecStart=/usr/bin/python3 /opt/vox-relay/relay.py --data-dir /var/lib/vox-relay
+# Standalone program instead of Python (see relay/README.md, "Standalone relay (no Python)"): put the downloaded file at
+# /opt/vox-relay/vox-relay, run chmod +x on it, and use this line instead of the one above:
+# ExecStart=/opt/vox-relay/vox-relay --data-dir /var/lib/vox-relay
 DynamicUser=yes
 StateDirectory=vox-relay
 StateDirectoryMode=0700

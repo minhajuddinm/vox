@@ -41,7 +41,7 @@ windows/                Windows app (Python) and its installer scripts
 
 | Path | What it is |
 |---|---|
-| `.github/workflows/build.yml` | Jobs `tests` (pytest and the documentation checker), `windows` (PyInstaller + Inno Setup), `android` (Java tests + APK), `release` (on tags `v*`), plus `relay` (relay tests on Python 3.9 and 3.13, x86 and arm64). Runs on pull requests (without `windows` and `release`), on tag push or manually. See [10-build-test-release.md](10-build-test-release.md). |
+| `.github/workflows/build.yml` | Jobs `tests` (pytest and the documentation checker), `windows` (PyInstaller + Inno Setup), `android` (Java tests + APK), `release` (on tags `v*`), plus `relay` (relay tests on Python 3.9 and 3.13, x86 and arm64), `relay-exe` (standalone relay programs for Windows, Linux x64 and Linux arm64, each smoke-tested) and `relay-sums` (`SHA256SUMS.txt`). Runs on pull requests (without `windows` and `release`), on tag push or manually. See [10-build-test-release.md](10-build-test-release.md). |
 | `.github/ISSUE_TEMPLATE/bug_report.yml` | Issue form for a bug (part, version, system, provider, steps, logs with personal text removed). |
 | `.github/ISSUE_TEMPLATE/feature_request.yml` | Issue form for a feature idea (problem, idea, what it would send or store). |
 | `.github/ISSUE_TEMPLATE/device_test.yml` | Issue form for the result of a device checklist from `documentation/specs/` (phone, PC or relay), step by step. |
@@ -363,6 +363,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tools/bench_cleanup.py` | The cleanup benchmark: runs the app's real cleanup call over the corpus for one or several models and prints a table; saves the results under `%APPDATA%\Vox\bench\`. Run by hand, never in CI. |
 | `tools/bench_metrics.py` | The benchmark's pure metrics (`recall`, `added_rate`, `length_ratio`, `term_hits`, `structure_only`, `percentile`, `score`, `summarize`); they read words the way the fidelity guard does. |
 | `tools/bench/corpus.jsonl` | 45 synthetic transcripts (chat, long, filler-heavy, enumerations, Hinglish, numbers, commands, names from a made-up About you) with style, dictionary terms and the terms the answer must spell exactly. No real person's data. |
+| `tools/relay_smoke.py` | Smoke test for a standalone relay binary, run by the `relay-exe` CI job: `--help` exits 0, start on `127.0.0.1` with a temp data folder and `--show-token`, `/health` answers 401 without and 200 with the token, stop. Standard library only. |
 | `tools/sync_ui.py` | Writes the `ui-shared` blocks into `windows/ui/index.html` and `android/assets/index.html` between the `ui-shared:css` and `ui-shared:js` marker comments; `--check` verifies. |
 | `tools/sync_ui.py` | Writes the `ui-shared` blocks into `windows/ui/index.html` and `android/assets/index.html` between the `ui-shared:css`, `ui-shared:js` and `ui-shared:steps` marker comments (the last one is HTML made from `ui-shared/relay-steps.txt`); `--check` verifies. |
 | `documentation/tools/check_docs.py` | The documentation checker (tree, config keys, links, ADR index). |

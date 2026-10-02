@@ -73,6 +73,40 @@ tailscale serve --bg 8765
 ```
 The token is in `%APPDATA%\VoxRelay\relay.json`. The relay only runs while Vox is running, so a PC that is asleep or switched off cannot be reached; for an always-on relay use a Raspberry Pi as above. Do not run `python relay.py` and the tray item on the same port at the same time: Vox notices a busy port and does not start a second relay.
 
+## Standalone relay (no Python)
+
+Every build of the repository (and every release) also has the relay as a program of its own, so a machine needs no Python. It is the same `relay.py`, frozen with PyInstaller (`--onefile`), and takes the same options (`--data-dir`, `--port`, `--owner`, `--show-token`).
+
+| Machine | File |
+|---|---|
+| Raspberry Pi 5 with the 64-bit Raspberry Pi OS (and other 64-bit ARM Linux) | `vox-relay-linux-arm64` |
+| Linux PC or server, 64-bit Intel or AMD | `vox-relay-linux-x64` |
+| Windows 10 or 11, 64-bit | `vox-relay-windows-x64.exe` |
+
+Get it from a release (tag builds) or from the **Actions** tab: open a run of the `build` workflow and download the artifact with the file's name; each is a zip with the one file in it. `SHA256SUMS.txt` (artifact `SHA256SUMS`) lists the checksums; compare with `sha256sum vox-relay-*` (Linux) or `Get-FileHash` (Windows).
+
+On Linux the downloaded file is not executable (a zip does not keep the mark), so:
+```
+chmod +x vox-relay-linux-arm64
+./vox-relay-linux-arm64 --data-dir /tmp/vox-relay-test --show-token
+```
+On Windows run `vox-relay-windows-x64.exe --show-token` in a terminal (SmartScreen may warn: the file is not code-signed). It starts a little slower than `python relay.py` because it unpacks itself first.
+
+**As the systemd service** use the same unit file and the same steps as above, with the file in place of Python and `relay.py`:
+```
+sudo mkdir -p /opt/vox-relay
+sudo cp vox-relay-linux-arm64 /opt/vox-relay/vox-relay
+sudo chmod 755 /opt/vox-relay/vox-relay
+sudo cp vox-relay.service /etc/systemd/system/
+sudo systemctl edit --full vox-relay    # use the commented ExecStart line instead of the Python one:
+                                        # ExecStart=/opt/vox-relay/vox-relay --data-dir /var/lib/vox-relay
+sudo systemctl daemon-reload
+sudo systemctl enable --now vox-relay
+```
+The unit file keeps the Python `ExecStart` as it was; the standalone line is in it as a comment. To update, replace `/opt/vox-relay/vox-relay` and `sudo systemctl restart vox-relay`.
+
+**Not verified on a real machine.** CI builds each file and, on the kind of machine it was built for (Windows, x64 Linux, arm64 Linux), starts it on `127.0.0.1` and asks `/health` with its token. Nobody has yet run the arm64 file on a real Raspberry Pi, run it under the systemd unit (the unit's hardening could get in the way of a program that unpacks itself into a temporary folder; it has a private `/tmp`, which should be enough, but that is untested) or reached it through `tailscale serve`. Until that is tested, treat the standalone file as untried on a Pi. If it does not start, `journalctl -u vox-relay` says why.
+
 ## Things to know
 
 - Anyone who has the token and can reach the relay can read every note and the profile. Keep the token private; the Maintenance tab can make a new one at any time (all devices then need it).
