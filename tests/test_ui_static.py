@@ -310,6 +310,16 @@ def test_the_windows_page_has_the_note_shortcut_row():
     assert "def set_note_hotkey(" in app and "def note_hotkey_problem(" in app
 
 
+def test_the_windows_page_has_the_clipboard_history_switch_in_privacy_and_saves_it():
+    """Dictations may stay in Windows clipboard history (Win+V): a switch in Privacy, on unless the saved value is false."""
+    html = read(PAGES["windows"])
+    privacy = html[html.index("<h2>Privacy</h2>"):]
+    assert 'id="clip-history"' in privacy.split("<h2>", 2)[1]
+    assert "Keep dictations in Windows clipboard history (Win+V)" in html
+    assert '$("clip-history").checked = c.clipboard_history !== false' in html
+    assert '$("clip-history").onchange = (e) => save({ clipboard_history: e.target.checked })' in html
+
+
 # ---------- review round F3: stale lists, notes autosave, note ids
 
 WINDOWS_PAGE = read(PAGES["windows"])
