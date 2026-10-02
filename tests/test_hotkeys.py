@@ -124,3 +124,20 @@ def test_tap_or_hold(style, held, command, action):
 def test_space_cannot_be_used_when_it_is_part_of_a_custom_dictation_shortcut():
     out = hotkeys.check(defaults(hotkey=["ctrl", "space"], note_hotkey=""))
     assert out["hands_free_hotkey"][0] is None and "Space" in out["hands_free_hotkey"][1]
+
+
+def test_the_window_bridge_saves_a_good_shortcut_normalised_and_refuses_a_clash(tmp_path, monkeypatch):
+    ui_app = pytest.importorskip("ui_app")
+    import vox_core as core
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    api = object.__new__(ui_app.Api)
+    assert api.set_shortcut("copy_last_hotkey", " Shift + Alt + X ") == {"value": "alt+shift+x", "label": "Alt + Shift + X", "problem": ""}
+    assert core.load_config()["copy_last_hotkey"] == "alt+shift+x"
+    bad = api.set_shortcut("command_hotkey", "ctrl+cmd")              # the dictation shortcut itself
+    assert bad["problem"] and core.load_config()["command_hotkey"] == ""
+    assert api.set_shortcut("paste_last_hotkey", "") == {"value": "", "label": "", "problem": ""}
+    assert core.load_config()["paste_last_hotkey"] == ""
+    assert api.set_shortcut("hotkey", "ctrl+alt")["problem"]          # only the extra shortcuts go through here
+    assert api.shortcut_problems() == {n: "" for n in hotkeys.SHORTCUTS}
+    api.set_note_hotkey("alt+shift+x")                                    # the note shortcut wins over the copy-last one
+    assert "note shortcut" in api.shortcut_problems()["copy_last_hotkey"]

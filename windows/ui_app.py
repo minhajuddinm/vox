@@ -10,6 +10,7 @@ import pyperclip
 import webview
 
 import audio_devices
+import hotkeys
 import improve
 import meeting
 import notes
@@ -187,6 +188,23 @@ class Api:
         dictation shortcut changes too: the engine ignores a note shortcut that holds it."""
         cfg = core.load_config()
         return session.parse_note_hotkey(cfg.get("note_hotkey") if text is None else text, cfg.get("hotkey"))[1]
+
+    def set_shortcut(self, name, text):
+        """Saves one of the extra shortcuts (hotkeys.SHORTCUTS: hands-free, paste last, copy last, edit by voice) as
+        {"value", "label", "problem"}: the normalised text ("" is off) and its label, or why it was refused (then
+        nothing is saved and the value is empty). Judged together with the other shortcuts as they are saved."""
+        if name not in hotkeys.SHORTCUTS:
+            return {"value": "", "label": "", "problem": "Unknown shortcut."}
+        cfg = core.load_config()
+        cfg[name] = text if isinstance(text, str) else ""
+        chord, problem = hotkeys.check(cfg)[name]
+        if not problem:
+            self.save_config({name: chord.text if chord else ""})
+        return {"value": chord.text if chord else "", "label": chord.label if chord else "", "problem": problem}
+
+    def shortcut_problems(self):
+        """{setting: why the engine does not use it ("" when it is fine or off)} for the extra shortcuts as saved."""
+        return {name: problem for name, (_, problem) in hotkeys.check(core.load_config()).items()}
 
     def check_key(self, key, base_url=None):
         """True/False when the server answers; None when it cannot be reached or the address is refused."""
