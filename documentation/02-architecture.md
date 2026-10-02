@@ -55,7 +55,16 @@ Threads in the engine process:
 | `_watch_config` | `Engine.run` | reloads `config.json` when its mtime changes (not while recording) |
 | `_watch_calendar` | `Engine.run` | reminds or auto-starts meeting notes |
 | `control` | `Engine.run` | localhost HTTP server for the window |
-| Meeting threads | `Meeting.start` | one recorder per source (You, Others), one STT worker, one finisher |
+| Meeting threads | `Meeting.start` | one recorder per source (You, Others), one STT worker (`meeting-stt`), one finisher (`meeting-finish`) |
+| `vox-stream` | `StreamingStt.start` | sends the finished pieces of a long recording to speech to text while it is spoken |
+| `vox-warm` | `core.warm` | opens the connections to the speech and cleanup servers when a recording starts |
+| `vox-last` | `Engine.insert_last` | paste last or copy last dictation (it may wait for Shift and Alt to come up) |
+| `vox-listen-feed`, `vox-listen-stt`, `vox-listen-type` | `Listening.start` | keep listening: cut the audio at pauses, transcribe the pieces, type them (Type target) |
+| `vox-autolearn` | `correction_watch.Watcher` | Learn from my corrections: reads the focused control every 2 s for up to 3 minutes after a paste |
+| `vox-sync` | `sync.SyncWorker.start` | syncs voice notes and the profile with the relay |
+| `overlay-watch` | `Engine.run` | `Engine.check_overlay` every second: the pill's heartbeat and stuck states |
+| `improve` | `Engine.run` | `_watch_improve`: the weekly reminder for Improve my cleanup (a tray message only) |
+| `relay-watch` | `RelayHost.start` | waits for the relay child process and reports an early exit |
 
 Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording) -> `busy` (sending) -> `idle`. `hands_free` is a flag on `rec`. `Engine.pending` holds `(pcm, exe)` of a dictation that failed to send. A dictation's end is also signalled on the pill for a moment (`Engine.flash`: a green check or a red !) without changing `Engine.state`; see [04-windows-app.md](04-windows-app.md#result-signal-on-the-pill).
 
@@ -65,7 +74,7 @@ Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording)
  hotkey down -> start(): check endpoint/key, remember foreground exe, start the StreamingStt worker,
                 open the server connections (core.warm), open mic stream (chosen device)
                 while recording: _audio feeds the level meter and the worker; the worker sends finished pieces
-                (pauses, at least 12 s) of a LONG recording to speech-to-text (streaming.py)
+                (cut at the first pause after 6 s, at the latest 20 s; a recording under about 7 s goes whole) to speech-to-text (streaming.py)
  hotkey up   -> stop():  atomically leave recording
                   too short (< 0.4 s)?  -> idle
                   silent (peak < 655)?  -> notify "did not hear anything (loudest sound N)"
@@ -74,7 +83,9 @@ Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording)
            otherwise                                                        -> core.process_detailed(whole pcm)
               transcribe (Whisper)  -> silence-hallucination filter
               cleanup (chat model)  -> looks_valid guard  (fallback: raw text + spoken commands, with sentence-start capitals when the guard rejected it)
-              apply_replacements (dictionary "wrong => right")
+              (code app: spoken formatters and symbols, codemode.py)
+              apply_replacements (dictionary "wrong => right"), fuzzy_dictionary, snippets
+              lists from spoken cues and pause paragraphs (structure.py; not in a code app)
            -> paste (Ctrl+V), history line (unless keep_history is off)
               or, in note mode (tray / Voice notes page): save to notes.db and ask the sync worker to send it
            on error: keep (pcm, exe, note) in Engine.pending, notify, tray "Retry last dictation"
@@ -96,7 +107,7 @@ Details: [04-windows-app.md](04-windows-app.md), [06-pipeline.md](06-pipeline.md
 - **`DictationService`** (`android/src/com/minhaj/vox/DictationService.java`): foreground service with the microphone type. Android only allows it to start from a visible activity, so the bubble uses `TrampolineActivity` (an invisible activity that stays up only until the service is in the foreground and recording, at most 1500 ms) when the service is not running yet. The service starts recording itself from the extras of that start intent. It records, uploads, cleans up, and reports through the static `Listener`.
 - **`VoxAccessibilityService`**: draws the bubble as an accessibility overlay (no "draw over apps" permission), tracks the focused editable field and its package, and inserts the result. It is the `Listener` of the service.
 - **`MainActivity`**: a `WebView` showing `android/assets/index.html`. The page calls Java through the `Vox` JavaScript interface (`Bridge`) to read/save settings, test the key, list apps, and so on.
-- **`Prefs`**: the store for settings and dictation history (SharedPreferences file `vox`). Voice notes have their own SQLite database, `NotesStore` (`notes.db`; not used by the app yet, see [05-android-app.md](05-android-app.md)).
+- **`Prefs`**: the store for settings and dictation history (SharedPreferences file `vox`). Voice notes have their own SQLite database, `NotesStore` (`notes.db`; used by note mode and the Notes page, see [05-android-app.md](05-android-app.md)).
 
 States of `DictationService`: `IDLE` -> `RECORDING` -> `PROCESSING` -> `IDLE`. A monotonically increasing `jobId` makes every result and state change conditional on the job still being current, so a cancelled or replaced dictation cannot touch state or insert text.
 
@@ -132,8 +143,14 @@ The same functions exist in both languages:
 | Tag clean-up (quotes removed, trim, no empties, no repeats) | `notes._tags` | `NoteLogic.cleanTags` (not in the golden file; see [12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md)) |
 | Device name on the relay and on notes (typed name trimmed and cut at 60 characters, counted as code points) | `sync.device_name` | `NoteLogic.deviceName` (the fallback when no name is typed, computer name or phone model, is not shared) |
 | Whether cleanup runs (off, `raw` style, phrase shorter than `cleanup_min_words`) | `clean_min_words`, `needs_cleanup` | `ApiClient.cleanMinWords`, `ApiClient.needsCleanup` |
+| The dictionary's spelling pass on the final text | `fuzzy_dictionary` | `Terms.fuzzy` |
+| Lists from spoken cues (paragraph breaks at pauses are Windows only) | `structure.format_structure` | `Structure.format` |
+| Snippets (a spoken phrase types saved text) | `snippets.apply_snippets`, `clean_snippets` | `Snippets.apply`, `Snippets.clean` |
+| Learn from my corrections: finding the fixes and adding them to the dictionary (the watch itself differs: UI Automation on Windows, accessibility events on Android) | `autolearn.detect`, `autolearn.learn` | `AutoLearn.detect`, `AutoLearn.learn` |
+| The Speed card's numbers (median, slowest 1 in 10, per model, the whole view) | `timing.speed_view` and the `timing_*` helpers | `Timing.speedView` and the same helpers |
+| Whether a failed request is sent again; whether a relay refusal is permanent; the pause finder that cuts a long recording | `retryable`, `SyncError.permanent`, `Segmenter` | `ApiClient.retryable`, `RelayApi.RelayError.permanent`, `Segmenter` |
 
-`spec/golden.txt` holds expected results for the prompt (with and without About you, by strength), spelling hint, sanitize, looks_valid, replacement, terms, spoken-command, silence-phrase, About-you, cleanup-strength, guard-fallback, model-classification, meter-level, cleanup-gate, voice-note title and search-string, note-sync winner, profile-merge, profile-field and device-name rows (the others have their own test on each side); `tests/test_parity.py` and `android/test/.../ParityTest.java` both run it. See [decisions/0007-shared-golden-file.md](decisions/0007-shared-golden-file.md).
+`spec/golden.txt` holds expected results for the prompt (with and without About you, by strength), spelling hint, sanitize, looks_valid, replacement, terms, spoken-command, silence-phrase, About-you, cleanup-strength, guard-fallback, model-classification, meter-level, cleanup-gate, voice-note title and search-string, note-sync winner, profile-merge, profile-field, device-name, structure, snippet, auto-learn, fuzzy-dictionary, timing, retry, private-host and Android bubble rows (the full list of kinds is in [06-pipeline.md](06-pipeline.md); a few rules have their own test on each side instead); `tests/test_parity.py` and `android/test/.../ParityTest.java` both run it. See [decisions/0007-shared-golden-file.md](decisions/0007-shared-golden-file.md).
 
 ## External services
 
@@ -156,6 +173,11 @@ There is no telemetry and no Vox backend.
 | `windows/sync.py` | Windows sync client (notes and profile) and its background worker |
 | `windows/streaming.py` | Sends the finished pieces of a long recording while the user speaks |
 | `windows/relay_host.py` | Starts and stops the relay as a child process of the engine (tray item "Run relay on this PC") |
+| `windows/timing.py`, `Timing.java` | The timing of each dictation and the Speed card's numbers |
+| `windows/structure.py`, `windows/codemode.py`, `windows/snippets.py` (and `Structure.java`, `Snippets.java`) | Lists from spoken cues, code mode (Windows), snippets: all after the cleanup, never sent to it |
+| `windows/hotkeys.py`, `windows/command.py` | Shortcut rules (tap or hold, hands-free, paste and copy last, conflicts) and edit by voice |
+| `windows/autolearn.py`, `windows/correction_watch.py` (and `AutoLearn.java`, `AutoLearnWatch.java`) | Learn from my corrections |
+| `windows/overlay_guard.py`, `windows/overlay_mode.py` | Keeping the pill on screen; what the pill shows |
 | `relay/relay.py` | The optional relay server with a management web page; runs on a PC, Linux box or Raspberry Pi, or inside `Vox.exe --relay` |
 
 Sync in one line (the Android client, `SyncEngine` run by `SyncWorker`, does the same in the same order): the engine's `SyncWorker` sends changed notes to the relay (`PUT /notes/{id}`), fetches what changed elsewhere (`GET /changes`), then merges the shared profile settings; notes and settings always work without the relay. Details: [14-relay.md](14-relay.md), [decisions/0022-sync-client-dirty-flag-and-cursor.md](decisions/0022-sync-client-dirty-flag-and-cursor.md).
