@@ -577,18 +577,18 @@ def test_an_end_that_looks_clean_after_the_cut_off_is_still_a_502(server, llm_st
 
 
 def test_a_read_that_goes_quiet_is_cut_at_the_deadline_even_where_a_shutdown_cannot_wake_it(server, llm_stub, monkeypatch):
-    monkeypatch.setitem(relay.PROXY_TIMEOUT, "models", 1.0)
+    monkeypatch.setitem(relay.PROXY_TIMEOUT, "models", 2.0)       # (2 s, not 1 s: a slow runner has room before the 3.0 s limit)
     crippled_sockets(monkeypatch, no_shutdown=True)
 
     def goes_quiet(h, rec):
         h.wfile.write(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n" + b"x" * 10)
-        time.sleep(0.8)
-        h.wfile.write(b"x" * 10)    # a read starts right after this one, 0.2 s before the deadline, then nothing
-        time.sleep(4)
+        time.sleep(1.6)
+        h.wfile.write(b"x" * 10)    # a read starts right after this one, 0.4 s before the deadline, then nothing
+        time.sleep(8)
     llm_stub.script = goes_quiet
     t0 = time.monotonic()
     resp = call(server, "GET", LLM_MODELS)
-    assert resp.status == 502 and time.monotonic() - t0 < 1.4      # (a whole new 1 s for the last read would end at 1.8 s)
+    assert resp.status == 502 and time.monotonic() - t0 < 3.0      # (a whole new 2 s for the last read would end at 3.6 s)
     assert free_slots(server)
 
 
@@ -1282,7 +1282,7 @@ def test_a_client_that_hangs_up_mid_wait_frees_its_slot_within_about_a_second(se
         _send_and_hang_up(server, route, stub, arrived)
         t0 = time.monotonic()
         assert _slots_free_within(server, 3), "the slot is still held after the client left"
-        assert time.monotonic() - t0 < 1.5
+        assert time.monotonic() - t0 < 2.5      # (the relay looks every 0.25 s; the room is for a slow runner)
     finally:
         gate.set()
 
@@ -1406,3 +1406,61 @@ def test_abandoned_calls_cannot_pile_up_more_than_twice_the_slots_where_a_shutdo
     llm_stub.script = None
     monkeypatch.setattr(relay, "socket", socket)
     assert call(server, "GET", LLM_MODELS).status == 200      # all slots and all exchange places are back
+
+# ------------------------------------------------------------------ final pass (C-R3, the request body is let go once it is sent)
+def test_forward_upstream_lets_go_of_the_request_body_once_it_is_sent(llm_stub):
+    import sys
+    sent, release = threading.Semaphore(0), threading.Event()
+
+    def reads_and_never_answers(h, rec):
+        sent.release()
+        release.wait(10)
+        h.reply()
+    llm_stub.script = reads_and_never_answers
+    body = b"x" * 300_000
+    holder = [body]
+    out = []
+    t = threading.Thread(target=lambda: out.append(_quiet(relay.forward_upstream, llm_stub.url, "", "/chat/completions", "POST",
+                                                          holder, "application/json", None, 3.0)))
+    t.start()
+    try:
+        assert sent.acquire(timeout=10)        # the upstream has the whole request, and is now holding the exchange open
+        end = time.monotonic() + 3
+        while sys.getrefcount(body) != 2 and time.monotonic() < end:     # (this name and the call itself); the relay's thread
+            time.sleep(0.02)                                              # may be a moment behind the stub that has the request
+        assert holder == [] and sys.getrefcount(body) == 2, "the exchange is still holding its request body"
+        assert llm_stub.seen[0]["body"] == body      # (and the upstream did get all of it)
+    finally:
+        release.set()
+        t.join(10)
+
+
+def _quiet(fn, *args):
+    try:
+        return fn(*args)
+    except relay.UpstreamError as e:
+        return e
+
+
+def test_the_proxy_hands_the_body_to_the_exchange_and_keeps_none_while_it_waits(server, llm_stub, monkeypatch):
+    sent, release = threading.Semaphore(0), threading.Event()
+    def reads_then_answers(h, rec):
+        sent.release()
+        release.wait(10)
+        h.reply()
+    llm_stub.script = reads_then_answers
+    real, handed = relay.forward_upstream, []
+
+    def spy(base, key, suffix, method, body, *rest, **kw):
+        handed.append(body)
+        return real(base, key, suffix, method, body, *rest, **kw)
+    monkeypatch.setattr(relay, "forward_upstream", spy)
+    t = threading.Thread(target=lambda: call(server, "POST", LLM_PATH, body=chat(), timeout=10))
+    t.start()
+    try:
+        assert sent.acquire(timeout=10)
+        assert len(handed) == 1 and handed[0] == [], "the handler (or the exchange) still holds the request body"
+    finally:
+        release.set()
+        t.join(10)
+

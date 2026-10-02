@@ -56,6 +56,12 @@ public final class StreamingSttTest {
         final String[] answers;
         final CountDownLatch gate;   // when set, every call waits for it
         final CountDownLatch called = new CountDownLatch(1);
+        final CountDownLatch aborted = new CountDownLatch(1);   // counted down when the sender cuts the request in flight
+
+        @Override
+        public void abort() {
+            aborted.countDown();
+        }
 
         Fake(int failOn, CountDownLatch gate, String... answers) {
             this.failOn = failOn; this.gate = gate; this.answers = answers;
@@ -174,6 +180,41 @@ public final class StreamingSttTest {
         sm.cancel();
         hold.countDown();
         check("a job cancelled with a piece out gives null", sm.finish(2000) == null);
+
+        // cancel with a piece in flight to a server that never answers (a silent socket): the request is cut, and finish()
+        // returns at once instead of holding the caller's single worker thread for the whole read timeout
+        CountDownLatch silent = new CountDownLatch(1);   // never counted down: abort() does not wake this fake, like a dead socket
+        Fake dead = new Fake(0, silent);
+        StreamingStt sd = run(dead, cat(tone(13), silence(1), tone(3)), 3200);
+        check("a piece is out to the silent server", dead.called.await(10, TimeUnit.SECONDS));
+        final String[] result = {"not returned"};
+        final long[] tookMs = {-1};
+        Thread waiter = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                long t0 = System.nanoTime();
+                String r = sd.finish(60000);
+                tookMs[0] = (System.nanoTime() - t0) / 1000000L;
+                result[0] = r == null ? "null" : r;
+            }
+        });
+        waiter.start();
+        Thread.sleep(200);                                   // finish() is now waiting on the piece
+        sd.cancel();
+        waiter.join(5000);
+        check("finish returns after a cancel while a piece is out", !waiter.isAlive());
+        eq("and hands back nothing", "null", result[0]);
+        check("promptly, not after the read timeout", tookMs[0] >= 0 && tookMs[0] < 3000);
+        check("the request in flight was cut", dead.aborted.await(5, TimeUnit.SECONDS));
+        silent.countDown();   // let the stuck fake end
+
+        // a cancel that comes before any piece is out does not need to cut anything, and a second cancel is harmless
+        Fake idle = new Fake(0, null);
+        StreamingStt si = new StreamingStt(idle, new Segmenter());
+        si.start();
+        si.cancel();
+        si.cancel();
+        check("a cancelled idle stream gives null", si.finish(1000) == null);
 
         System.out.println("OK: " + checks + " checks passed");
     }

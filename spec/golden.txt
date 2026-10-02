@@ -758,3 +758,56 @@ privatehost	example.com	false
 privatehost	1.2.3.4.5	false
 privatehost	evil.ts.net.example.com	false
 privatehost		false
+# more spoken-number formats for the guard (issue #36): clock times, percentages, thousands, ordinals, ages, currency words, years, digit runs; each pair that must pass has a wrong-number or dropped-symbol pair that must fail
+fidelity	light	the show starts at nine fifteen a m	The show starts at 9:15 AM.	true
+fidelity	light	the show starts at nine fifteen a m	The show starts at 9:45 AM.	false
+fidelity	light	the battery is at seventy five percent	The battery is at 75%.	true
+fidelity	light	the battery is at seventy five percent	The battery is at 57%.	false
+fidelity	light	the battery is at seventy five percent	The battery is at 75.	false
+fidelity	light	we sold ten thousand units	We sold 10,000 units.	true
+fidelity	light	we sold ten thousand units	We sold 10,001 units.	false
+fidelity	light	i live on the second floor	I live on the 2nd floor.	true
+fidelity	light	i live on the second floor	I live on the 3rd floor.	false
+fidelity	light	she is thirty five years old	She is 35 years old.	true
+fidelity	light	she is thirty five years old	She is 53 years old.	false
+fidelity	light	it costs fifty pounds	It costs £50.	true
+fidelity	light	it costs fifty pounds	It costs 50.	false
+fidelity	light	it costs fifty pounds	It costs £15.	false
+fidelity	light	i counted a hundred and five sheep today	I counted 105 sheep today.	true
+fidelity	light	i counted a hundred and five sheep today	I counted 150 sheep today.	false
+fidelity	light	the ratio is one point five to one	The ratio is 1.5 to 1.	true
+fidelity	light	the ratio is one point five to one	The ratio is 1.6 to 1.	false
+fidelity	light	it happened in nineteen ninety nine	It happened in 1999.	true
+fidelity	light	it happened in nineteen ninety nine	It happened in 1989.	false
+fidelity	light	in twenty twenty six we will launch	In 2062 we will launch.	false
+fidelity	light	in twenty twenty six we will launch	In 2026 we will launch.	true
+fidelity	light	my pin is one two three four	My pin is 1234.	true
+fidelity	light	my pin is one two three four	My pin is 1243.	false
+fidelity	light	fifty percent of the team agreed	50% of the team agreed.	true
+fidelity	light	fifty percent of the team agreed	15% of the team agreed.	false
+fidelity	light	fifty percent of the team agreed	50 of the team agreed.	false
+fidelity	light	it is twenty twenty five now	It is 2025 now.	true
+fidelity	light	the flight is at six forty five a m	The flight is at 6:45 AM.	true
+fidelity	light	the flight is at six forty five a m	The flight is at 6:54 AM.	false
+fidelity	light	call me at nine one one	Call me at 911.	true
+fidelity	light	call me at nine one one	Call me at 119.	false
+fidelity	light	the answer is forty two	The answer is 42.	true
+fidelity	light	the answer is forty two	The answer is 24.	false
+fidelity	light	the build is number one hundred and five	The build is number 105.	true
+fidelity	light	i need a hundred and five copies	I need 105 copies.	true
+# word_recall of the same formats (3 decimals)
+recall	nine fifteen a m	9:15 AM	1.000
+recall	seventy five percent	75%	1.000
+recall	seventy five percent	75	0.500
+recall	ten thousand	10,000	1.000
+recall	second floor	2nd floor	1.000
+recall	fifty pounds	£50	1.000
+recall	fifty pounds	50	0.500
+recall	a hundred and five	105	1.000
+recall	one point five	1.5	1.000
+recall	one point five	1.6	0.000
+recall	nineteen ninety nine	1999	1.000
+recall	twenty twenty six	2026	1.000
+recall	one two three four	1234	1.000
+recall	fifty percent	50%	1.000
+recall	fifty percent	15%	0.000
