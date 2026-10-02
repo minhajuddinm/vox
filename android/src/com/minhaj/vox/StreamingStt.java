@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Transcribes a long recording piece by piece while it is still being recorded: the Android twin of windows/streaming.py.
@@ -27,6 +28,12 @@ final class StreamingStt {
     /** Sends one piece of 16-bit mono 16 kHz audio to speech-to-text; returns its text ("" when there is none). */
     interface Transcriber {
         String transcribe(byte[] pcm, String context) throws IOException;
+
+        /**
+         * Cuts the request in flight so that {@link #transcribe} fails at once, and refuses the next one. Called once, from
+         * another thread than the one inside transcribe (a cancel, or a finish that ran out of time). Default: nothing to cut.
+         */
+        default void abort() { }
     }
 
     private static final byte[] END = new byte[0];   // compared by identity: "the recording is over"
@@ -36,6 +43,7 @@ final class StreamingStt {
     private final LinkedBlockingQueue<byte[]> queue = new LinkedBlockingQueue<>();
     private final CountDownLatch done = new CountDownLatch(1);
     private final List<String> texts = new ArrayList<>();
+    private final AtomicBoolean cut = new AtomicBoolean();   // the in-flight request is cut once
     private volatile boolean cancelled;
     private volatile int pieces;
     private volatile String error = "";
@@ -60,10 +68,23 @@ final class StreamingStt {
         queue.add(copy);
     }
 
-    /** Stops the worker; whatever it has is thrown away. */
+    /**
+     * Stops the worker; whatever it has is thrown away. The piece in flight is cut (so the worker ends), and a {@link #finish}
+     * that is waiting for it returns at once: the caller's own worker thread must not stay blocked on a request nobody wants.
+     */
     void cancel() {
         cancelled = true;
         queue.add(END);
+        done.countDown();
+        cutInFlight();
+    }
+
+    /** Aborts the request in flight, once, on a thread of its own (cutting a connection must not happen on the caller's thread). */
+    private void cutInFlight() {
+        if (!cut.compareAndSet(false, true)) return;
+        Thread t = new Thread(transcriber::abort, "vox-stream-abort");
+        t.setDaemon(true);
+        t.start();
     }
 
     int pieces() { return pieces; }
@@ -87,6 +108,7 @@ final class StreamingStt {
         if (!finished) {
             cancelled = true;
             error = "timed out";
+            cutInFlight();   // the caller sends the whole recording instead: the stuck piece must not keep its connection
         }
         if (cancelled || !error.isEmpty() || pieces == 0) return null;   // a cancelled job has no text to hand over
         StringBuilder b = new StringBuilder();
@@ -118,6 +140,7 @@ final class StreamingStt {
     }
 
     private void send(byte[] pcm) throws IOException {
+        if (cancelled) throw new IOException("cancelled");   // a cancel came while earlier pieces were being sent: no new request
         pieces++;
         if (Pcm.isSilent(pcm)) return;   // a piece of pure silence has nothing to say
         String text = transcriber.transcribe(pcm, context());

@@ -409,19 +409,50 @@ public class DictationService extends Service {
     private StreamingStt newStream(final Prefs p) {
         final File dir = getCacheDir();
         // The settings are read on the sending thread, with the piece: nothing is parsed on the main thread.
-        StreamingStt s = new StreamingStt((piece, context) -> {
+        StreamingStt s = new StreamingStt(new PieceSender(p, dir), new Segmenter());
+        s.start();
+        return s;
+    }
+
+    /**
+     * Sends the pieces of one recording. It remembers the client of the piece in flight, so a cancel can cut that request
+     * ({@link ApiClient#abort}); a piece that starts after the cancel is refused. (The service's own {@code liveClients}
+     * hold the clients of the final send; these are the ones the pieces use.)
+     */
+    private static final class PieceSender implements StreamingStt.Transcriber {
+        private final Prefs p;
+        private final File dir;
+        private volatile ApiClient active;
+        private volatile boolean aborted;
+
+        PieceSender(Prefs p, File dir) {
+            this.p = p;
+            this.dir = dir;
+        }
+
+        @Override
+        public String transcribe(byte[] piece, String context) throws IOException {
+            if (aborted) throw new IOException("cancelled");
             String[] stt = p.role(Providers.STT);
             List<String> terms = p.dictionaryTerms();
             ApiClient api = new ApiClient(stt[1], stt[0]);
+            active = api;
+            if (aborted) api.abort();   // the cancel came between the check above and the client being published
             ApiClient.Upload up = AudioUpload.fromPcm(dir, piece, api.m4aAllowed());
             try {
                 return api.transcribe(up, p.sttModel(), p.language(), terms, context);
             } finally {
                 up.release();
+                active = null;
             }
-        }, new Segmenter());
-        s.start();
-        return s;
+        }
+
+        @Override
+        public void abort() {
+            aborted = true;
+            ApiClient a = active;
+            if (a != null) a.abort();
+        }
     }
 
     /**
