@@ -396,7 +396,35 @@ class Engine:
         """The time of the key event being handled (it may have waited in the queue), else now."""
         return self.event_t if self.event_t is not None else time.time()
 
+    _hook_held = frozenset()   # keys down as the keyboard hook saw them (hook thread only), for the Start-menu tap
+
+    def _win_chord_held(self, keys):
+        """True when `keys` hold Win and the dictation shortcut, or an edit shortcut that has Win in it."""
+        if not any(keys & KEY_ALIASES["cmd"]):
+            return False
+        if self.hotkey and all(keys & group for group in self.hotkey):
+            return True
+        c = self.chords.get("command_hotkey") if getattr(self, "chords", None) else None
+        return bool(c) and "cmd" in c.mods and self._mods_in(keys, c.mods)
+
+    @staticmethod
+    def _mods_in(keys, mods):
+        return all(keys & KEY_ALIASES[m] for m in mods)
+
+    def _hook_tap(self, key, down):
+        """Inside the keyboard hook, while Win is still down: when this key completes a shortcut that holds Win, an
+        unassigned key is tapped so that Windows does not open the Start menu when Win comes up. On the hotkey thread
+        the tap could come after Win was already released (a slow microphone start in front of it). Never raises."""
+        try:
+            before = self._win_chord_held(self._hook_held)
+            self._hook_held = self._hook_held | {key} if down else self._hook_held - {key}
+            if down and not before and self._win_chord_held(self._hook_held):
+                self.kb.tap(keyboard.KeyCode.from_vk(0xE8))
+        except Exception:
+            log.exception("start-menu tap failed")
+
     def on_press(self, key):
+        self._hook_tap(key, True)
         q = self._hotkey_q
         if q is not None:
             q.put((True, key, time.time()))
@@ -407,6 +435,7 @@ class Engine:
             self._hotkey_failed()
 
     def on_release(self, key):
+        self._hook_tap(key, False)
         q = self._hotkey_q
         if q is not None:
             q.put((False, key, time.time()))
@@ -527,9 +556,7 @@ class Engine:
             self.insert_last(copy_only=True)
 
     def on_combo_down(self):
-        if any(self.pressed & KEY_ALIASES["cmd"]):
-            # Tap an unassigned key so Windows does not open the Start menu when Win is released.
-            self.kb.tap(keyboard.KeyCode.from_vk(0xE8))
+        # The tap that keeps the Start menu closed is sent in the hook (_hook_tap), not here.
         if self.busy:
             return
         now = self._now()
@@ -595,10 +622,7 @@ class Engine:
 
     def on_command_down(self):
         """The edit-by-voice keys are all down: the recording becomes (or starts as) an instruction."""
-        c = self.chords.get("command_hotkey")
-        if c and "cmd" in c.mods:
-            self.kb.tap(keyboard.KeyCode.from_vk(0xE8))   # no Start menu when Win comes up
-        if self.busy or self.listening:
+        if self.busy or self.listening:   # (the Start-menu tap was sent in the hook: _hook_tap)
             return
         now = self._now()
         if self.recording:

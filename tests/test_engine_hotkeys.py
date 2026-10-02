@@ -151,7 +151,7 @@ def test_space_alone_or_a_repeat_does_nothing_and_is_not_remembered(eng):
 def test_the_hands_free_shortcut_waits_while_busy_or_listening(eng):
     eng.busy = True
     down(eng, Key.ctrl_l, Key.cmd, SPACE)
-    assert eng.calls == ["no-start-menu"]
+    assert eng.calls == []                    # the hotkey thread sends no Start-menu tap: the hook does (final fixes)
 
 
 # ------------------------------------------------------------------ Esc
@@ -306,12 +306,51 @@ def test_with_the_hotkey_thread_the_hook_only_queues_the_key(eng):
     eng.on_press(Key.ctrl_l)
     eng.on_press(Key.cmd)
     eng.on_release(Key.cmd)
-    assert eng.calls == [] and eng.pressed == set()                   # nothing ran inside the hook
+    assert eng.calls == ["no-start-menu"] and eng.pressed == set()    # only the Start-menu tap ran inside the hook
     items = [eng._hotkey_q.get_nowait() for _ in range(3)]
     assert [(d, k) for d, k, _ in items] == [(True, Key.ctrl_l), (True, Key.cmd), (False, Key.cmd)]
     for d, k, t in items:
         (eng._on_press if d else eng._on_release)(k, t)
     assert eng.calls[-1] == "cancel"                                  # handled later, with the times of the events
+
+
+class RecordingQueue(queue.Queue):
+    def __init__(self, calls):
+        super().__init__()
+        self.calls = calls
+
+    def put(self, item, *a, **k):
+        self.calls.append("queued")
+        super().put(item, *a, **k)
+
+
+def test_the_start_menu_tap_is_sent_inside_the_hook_before_the_key_is_queued(eng):
+    """Final fixes (windows 6): the tap used to run on the hotkey thread, so a busy thread let Win come up first and the
+    Start menu opened. Now it is sent inside the hook, while Win is still down, before the key is even queued."""
+    eng._hotkey_q = RecordingQueue(eng.calls)
+    eng.on_press(Key.ctrl_l)
+    eng.on_press(Key.cmd)
+    assert eng.calls == ["queued", "no-start-menu", "queued"] and eng.pressed == set()
+    eng.on_press(Key.cmd)                                             # key repeat: no second tap
+    eng.on_release(Key.cmd)
+    assert eng.calls.count("no-start-menu") == 1
+    eng.on_press(Key.cmd)                                             # pressed again: a new tap
+    assert eng.calls.count("no-start-menu") == 2
+    while not eng._hotkey_q.empty():                                  # the hotkey thread adds no tap of its own
+        d, k, t = eng._hotkey_q.get_nowait()
+        (eng._on_press if d else eng._on_release)(k, t)
+    assert eng.calls.count("no-start-menu") == 2
+
+
+def test_the_edit_shortcut_with_win_taps_in_the_hook_and_one_without_win_does_not(eng):
+    configure(eng, command_hotkey="shift+cmd", paste_last_hotkey="", hotkey=["ctrl_r"])
+    eng.hotkey = [engine_mod.KEY_ALIASES["ctrl_r"]]
+    eng._hotkey_q = RecordingQueue(eng.calls)
+    eng.on_press(Key.ctrl_r)
+    assert "no-start-menu" not in eng.calls
+    eng.on_press(Key.shift)
+    eng.on_press(Key.cmd)
+    assert eng.calls[-2:] == ["no-start-menu", "queued"]
 
 
 def test_the_hotkey_thread_survives_a_failing_handler(eng, monkeypatch):
