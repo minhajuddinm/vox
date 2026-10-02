@@ -54,13 +54,21 @@ def test_the_pages_call_the_remove_bridges_that_exist():
 
 
 def test_the_accessibility_service_gets_text_changes_and_says_so():
-    assert "typeViewTextChanged" in read(ANDROID, "res", "xml", "accessibility_config.xml")
+    # Final fixes (android 3): text changes are asked for only while a watch runs, never in the static config, so typing in
+    # other apps does not wake Vox when auto-learn is off or no watch is armed.
+    assert "typeViewTextChanged" not in read(ANDROID, "res", "xml", "accessibility_config.xml")
     strings = read(ANDROID, "res", "values", "strings.xml")
     assert "for up to 3 minutes after Vox types, or until you send it" in strings and "password fields are never read" in strings
     svc = read(ANDROID, "src", "com", "minhaj", "vox", "VoxAccessibilityService.java")
     assert "if (typed) armLearning(targetPkg, text);" in svc
     assert "e.isPassword() || src.isPassword()" in svc
     assert 'Log.i("vox", "auto-learn: learned " + added.size() + " corrections")' in svc
+    arm = svc[svc.index("private void armLearning("):svc.index("private void endLearning(")]
+    end = svc[svc.index("private void endLearning("):svc.index("private void onTextChanged(")]
+    changed = svc[svc.index("private void onTextChanged("):svc.index("private void learnTick(")]
+    assert "textEvents(true)" in arm and arm.index("autoLearn()") < arm.index("textEvents(true)")
+    assert "textEvents(false)" in end
+    assert "autoLearn()" in changed       # the setting turned off while a watch runs: nothing more is read
 
 
 def test_learned_settings_stay_on_the_device():

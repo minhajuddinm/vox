@@ -1,6 +1,7 @@
 package com.minhaj.vox;
 
 import android.accessibilityservice.AccessibilityService;
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.ClipData;
 import android.content.BroadcastReceiver;
 import android.content.ClipboardManager;
@@ -739,6 +740,7 @@ public class VoxAccessibilityService extends AccessibilityService
         main.removeCallbacks(learnTimeout);
         setLearnNode(null);
         learned(learnWatch.arm(pkg, text));
+        if (learnWatch.app() != null) textEvents(true);
         main.postDelayed(learnTimeout, AutoLearnWatch.AUTO_LEARN_WINDOW_S * 1000L + 500);
     }
 
@@ -746,12 +748,31 @@ public class VoxAccessibilityService extends AccessibilityService
     private void endLearning() {
         main.removeCallbacks(learnCheck);
         main.removeCallbacks(learnTimeout);
+        textEvents(false);
         if (learnWatch != null) learned(learnWatch.end());
         setLearnNode(null);
     }
 
+    /**
+     * Text-change events are asked for only while a watch runs (accessibility_config.xml does not list them): typing in
+     * any app with no watch, or with auto-learn off, never reaches Vox.
+     */
+    private void textEvents(boolean on) {
+        try {
+            AccessibilityServiceInfo info = getServiceInfo();
+            if (info == null) return;
+            int flag = AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED;
+            int types = on ? info.eventTypes | flag : info.eventTypes & ~flag;
+            if (types == info.eventTypes) return;
+            info.eventTypes = types;
+            setServiceInfo(info);
+        } catch (Exception ignored) {   // the service is going away: nothing to switch off
+        }
+    }
+
     private void onTextChanged(AccessibilityEvent e) {
-        if (learnWatch == null || learnWatch.app() == null) return;   // no watch: nothing to do, keep the service cheap
+        if (learnWatch == null || learnWatch.app() == null) { textEvents(false); return; }   // no watch: keep the service cheap
+        if (!new Prefs(this).autoLearn()) { endLearning(); return; }   // switched off while a watch ran: read nothing more
         CharSequence p = e.getPackageName();
         if (p == null) return;
         if (!p.toString().equals(learnWatch.app())) {   // typing in another app: the watch is over
