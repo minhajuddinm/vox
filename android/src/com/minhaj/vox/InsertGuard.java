@@ -22,6 +22,16 @@ public final class InsertGuard {
         return hasListener ? ROUTE_TYPE : ROUTE_CLIPBOARD;
     }
 
+    /**
+     * What to tell the user when the cleanup step failed and the words are used as spoken, or null for nothing. A job that
+     * is no longer current was cancelled (or replaced) while it was cleaning: nothing is typed or saved, so nothing is said.
+     */
+    public static String cleanupNotice(boolean current, boolean cleanupFailed, boolean note) {
+        if (!current || !cleanupFailed) return null;
+        return note ? "Cleanup did not work, so Vox saved your words as spoken"
+                : "Cleanup did not work, so Vox typed your words as spoken";
+    }
+
     /** The toast when the text was copied because nothing could type it. */
     public static String noListenerMessage() {
         return "Vox could not type (accessibility is off). Text copied to clipboard.";

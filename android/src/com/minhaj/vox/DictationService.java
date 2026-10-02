@@ -730,10 +730,9 @@ public class DictationService extends Service {
                 }
             }
             if (!cleaned) out = rejected ? ApiClient.fallbackText(out) : ApiClient.applySpokenCommands(out);
-            if (cleanupFailed) {
-                postError(note ? "Cleanup did not work, so Vox saved your words as spoken"
-                        : "Cleanup did not work, so Vox typed your words as spoken");
-            }
+            // A cancel during the cleanup makes it throw (the request was aborted): that is not a failure to report.
+            String notice = InsertGuard.cleanupNotice(isCurrent(job), cleanupFailed, note);
+            if (notice != null) postError(notice);
             out = Terms.fuzzy(ApiClient.applyReplacements(out, p.replacements()), p.dictionaryTerms());   // as Windows: replacements, then the dictionary's spellings
             if (!isCurrent(job)) return;
             if (note) {
