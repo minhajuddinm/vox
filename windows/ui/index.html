@@ -372,6 +372,7 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="setting"><div><div class="t">AI cleanup</div><div class="d">Removes fillers, applies self-corrections, fixes punctuation and formats lists.</div></div><label class="switch"><input type="checkbox" id="cleanup"><span></span></label></div>
       <div class="setting"><div><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases are pasted as spoken, which is faster. Enter 1 to clean up everything (1 to 20).</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" style="width:76px"></div>
       <div class="setting"><div><div class="t">Cleanup strength</div><div class="d">Light keeps every word you said and only fixes punctuation, capitals, spelling and paragraphs. Standard also removes fillers (um, you know) and false starts. If the cleanup lost words, Vox types your words as spoken instead.</div></div><select id="cleanup-strength"><option value="light">Light</option><option value="standard">Standard</option></select></div>
+      <div class="setting"><div><div class="t">Lists and paragraphs</div><div class="d">Auto turns a list you say (first, second; point one, point two; bullet point; pehla, doosra) into a list and starts a new paragraph where you paused for a while in a long dictation. Lists only skips the paragraphs. Off keeps the text flat. Saying commas never makes a list.</div></div><select id="structure"><option value="off">Off</option><option value="auto">Auto</option><option value="lists">Lists only</option></select></div>
     </div>
     <div class="card list" id="improve-card" style="margin-top:10px">
       <div class="setting"><div><div class="t">Improve my cleanup</div><div class="d">Once in a while, a stronger AI model reads your recent dictations (what you said and what Vox typed) and suggests dictionary words, replacements and cleanup rules for you to accept or reject. Nothing is sent until you press Run once and confirm, and nothing changes until you press Apply. Every change can be reverted. About you is only ever suggested to, never changed.</div></div></div>
@@ -443,6 +444,8 @@ function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add
 // Dictionary lines: "word" is a term, "wrong => right" is a replacement.
 function dictRepls(lines) { return (lines || []).filter(l => l.includes("=>")).map(l => l.split("=>").map(s => s.trim())); }
 function dictLines(terms, repl) { return [...terms, ...repl.map(([w, r]) => `${w} => ${r}`)]; }
+// "Lists and paragraphs": off, auto or lists; anything else is auto (structure.py structure_mode, Structure.mode).
+function structureMode(v) { const s = String(v ?? "").trim().toLowerCase(); return ["off", "auto", "lists"].includes(s) ? s : "auto"; }
 function aboutCount() {
   const n = $("about").value.length, s = $("about-status");
   s.className = "status" + (n > ABOUT_MAX ? " bad" : "");
@@ -786,6 +789,7 @@ function renderSettings() {
   $("cleanup").checked = c.cleanup !== false;
   $("cleanup-min").value = c.cleanup_min_words || 3;
   $("cleanup-strength").value = c.cleanup_strength === "standard" ? "standard" : "light";
+  $("structure").value = structureMode(c.structure);
   $("note-hotkey").value = c.note_hotkey || ""; noteHotkeyStatus();
   if (document.activeElement !== $("improve-model")) $("improve-model").value = c.improve_model || "";
   $("improve-days").value = String(c.improve_days ?? 7);
@@ -920,6 +924,7 @@ $("mic").onchange = (e) => save({ input_device: e.target.value }, e.target.value
 $("cleanup").onchange = (e) => save({ cleanup: e.target.checked });
 $("cleanup-min").onchange = (e) => { const v = parseInt(e.target.value, 10), n = isNaN(v) ? 3 : Math.max(1, Math.min(20, v)); e.target.value = n; save({ cleanup_min_words: n }); };
 $("cleanup-strength").onchange = (e) => save({ cleanup_strength: e.target.value });
+$("structure").onchange = (e) => save({ structure: structureMode(e.target.value) });
 $("stream-stt").onchange = (e) => save({ stream_stt: e.target.checked });
 $("autostart").onchange = async (e) => { S.autostart = await api().set_autostart(e.target.checked); e.target.checked = S.autostart; toast(S.autostart ? "Vox will start with Windows" : "Autostart off"); };
 $("stt").onchange = (e) => save({ stt_model: e.target.value.trim() });

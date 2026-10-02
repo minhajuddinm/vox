@@ -397,6 +397,12 @@ public final class ParityTest {
                 case "fuzzydict":   // terms, text, the text with the dictionary's spellings applied
                     eq(ln, kind, f[2], Terms.fuzzy(f[1], items(f[0], "|")));
                     break;
+                case "structure":   // mode, style, text, the text with a spoken list written as one
+                    eq(ln, kind, f[3], Structure.format(f[2], f[0], f[1]));
+                    break;
+                case "promptstructure":   // structure, style, terms, app, About you, strength, rules => the cleanup prompt
+                    eq(ln, kind, f[7], ApiClient.systemPrompt(f[1], items(f[2], "|"), f[3], f[4], f[5], f[6], f[0]));
+                    break;
                 case "notebubble":   // persistent switch, note recording, note being saved, expected
                     eq(ln, kind, f[3], NoteBubbleLogic.visible(f[0].equals("true"), f[1].equals("true"), f[2].equals("true")) ? "true" : "false");
                     break;

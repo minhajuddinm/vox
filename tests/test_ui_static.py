@@ -208,6 +208,16 @@ def test_cleanup_strength_row_and_use_raw_button_exist(page):
     assert "data-raw=" in html and "Use raw" in html
 
 
+@pytest.mark.parametrize("page", list(PAGES))
+def test_lists_and_paragraphs_row_exists(page):
+    """Settings, Voice & audio: "Lists and paragraphs" with Off, Auto and Lists only, saved as `structure`."""
+    html = read(PAGES[page])
+    select = re.search(r'<select[^>]*id="structure"[^>]*>(.*?)</select>', html, re.S)
+    assert select and re.findall(r'value="(\w+)"', select.group(1)) == ["off", "auto", "lists"]
+    assert "Lists only" in select.group(1) and "Lists and paragraphs" in html
+    assert '$("structure").value = structureMode(c.structure)' in html and "save({ structure: " in html
+
+
 # ---------- the checkers themselves: they must fire on the mistakes they exist for ----------
 
 def test_checker_catches_a_swapped_id():

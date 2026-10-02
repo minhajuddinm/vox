@@ -100,6 +100,8 @@ public final class Prefs {
     public String cleanupMinWords() { return sp.getString("cleanup_min_words", "3"); }
     /** The setting "Cleanup strength": "light" (the default: keep every spoken word) or "standard" (fillers and false starts may go). */
     public String cleanupStrength() { return Fidelity.cleanStrength(sp.getString("cleanup_strength", "")); }
+    /** The setting "Lists and paragraphs": off, auto (the default) or lists (Structure.mode). Per device, not synced. */
+    public String structure() { return Structure.mode(sp.getString("structure", "")); }
     public boolean onlyWhenTyping() { return sp.getBoolean("only_typing", true); }
     /** "Always show the bubble": the mic bubble stays on screen and ignores "only_typing". Per device, not synced. */
     public boolean alwaysShowBubble() { return sp.getBoolean("always_show_bubble", false); }

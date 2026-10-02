@@ -241,6 +241,7 @@ nav button.on .pill { background:var(--accent-soft); }
     <div class="item"><div class="grow"><div class="t">AI cleanup</div><div class="d">Removes fillers, fixes punctuation, applies corrections</div></div><label class="switch"><input type="checkbox" id="cleanup"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases are typed as spoken, which is faster. 1 cleans up everything (1 to 20)</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" inputmode="numeric" style="width:76px"></div>
     <div class="item"><div class="grow"><div class="t">Cleanup strength</div><div class="d">Light keeps every word you said and only fixes punctuation, capitals, spelling and paragraphs. Standard also removes fillers and false starts. If the cleanup lost words, Vox types them as spoken</div></div><select class="inline" id="cleanup-strength"><option value="light">Light</option><option value="standard">Standard</option></select></div>
+    <div class="item"><div class="grow"><div class="t">Lists and paragraphs</div><div class="d">Auto and Lists only turn a list you say (first, second; point one, point two; bullet point; pehla, doosra) into a list. Off keeps the text flat. Saying commas never makes a list</div></div><select class="inline" id="structure"><option value="off">Off</option><option value="auto">Auto</option><option value="lists">Lists only</option></select></div>
   </div>
 
   <h2>Privacy</h2>
@@ -349,6 +350,8 @@ function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add
 // Dictionary lines: "word" is a term, "wrong => right" is a replacement.
 function dictRepls(lines) { return (lines || []).filter(l => l.includes("=>")).map(l => l.split("=>").map(s => s.trim())); }
 function dictLines(terms, repl) { return [...terms, ...repl.map(([w, r]) => `${w} => ${r}`)]; }
+// "Lists and paragraphs": off, auto or lists; anything else is auto (structure.py structure_mode, Structure.mode).
+function structureMode(v) { const s = String(v ?? "").trim().toLowerCase(); return ["off", "auto", "lists"].includes(s) ? s : "auto"; }
 function aboutCount() {
   const n = $("about").value.length, s = $("about-status");
   s.className = "status" + (n > ABOUT_MAX ? " bad" : "");
@@ -773,6 +776,7 @@ function renderSettings() {
   $("always-show").checked = !!c.always_show_bubble;
   $("cleanup-min").value = c.cleanup_min_words || 3;
   $("cleanup-strength").value = c.cleanup_strength === "standard" ? "standard" : "light";
+  $("structure").value = structureMode(c.structure);
   $("keep-history").checked = c.keep_history !== false;
   $("note-bubble").checked = !!c.note_bubble; $("note-notification").checked = !!c.note_notification;
   $("language").value = c.language || ""; $("service").checked = S.service;
@@ -925,6 +929,7 @@ $("note-notification").onchange = (e) => save({ note_notification: e.target.chec
 $("open-about").onclick = () => go("dict");
 $("keep-history").onchange = (e) => save({ keep_history: e.target.checked }, "Saved");
 $("cleanup-strength").onchange = (e) => save({ cleanup_strength: e.target.value }, "Saved");
+$("structure").onchange = (e) => save({ structure: structureMode(e.target.value) }, "Saved");
 $("language").onchange = (e) => save({ language: e.target.value }, "Saved");
 $("mic-device").onchange = (e) => { V.setMic(e.target.value); toast(e.target.value ? "Microphone changed" : "Using the phone's own microphone"); };
 $("service").onchange = (e) => V.setService(e.target.checked);

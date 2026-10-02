@@ -7,6 +7,8 @@ function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add
 // Dictionary lines: "word" is a term, "wrong => right" is a replacement.
 function dictRepls(lines) { return (lines || []).filter(l => l.includes("=>")).map(l => l.split("=>").map(s => s.trim())); }
 function dictLines(terms, repl) { return [...terms, ...repl.map(([w, r]) => `${w} => ${r}`)]; }
+// "Lists and paragraphs": off, auto or lists; anything else is auto (structure.py structure_mode, Structure.mode).
+function structureMode(v) { const s = String(v ?? "").trim().toLowerCase(); return ["off", "auto", "lists"].includes(s) ? s : "auto"; }
 function aboutCount() {
   const n = $("about").value.length, s = $("about-status");
   s.className = "status" + (n > ABOUT_MAX ? " bad" : "");

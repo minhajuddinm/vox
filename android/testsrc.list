@@ -38,3 +38,4 @@ android/src/com/minhaj/vox/BubbleLogic.java
 android/src/com/minhaj/vox/NoteBubbleLogic.java
 android/src/com/minhaj/vox/HintGuard.java
 android/src/com/minhaj/vox/MicChoice.java
+android/src/com/minhaj/vox/Structure.java

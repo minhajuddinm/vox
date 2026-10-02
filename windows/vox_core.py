@@ -20,6 +20,7 @@ import requests
 
 import providers
 import secret
+import structure as structure_mod
 
 log = logging.getLogger("vox")
 
@@ -68,6 +69,7 @@ DEFAULT_CONFIG = {
     "cleanup": True,
     "cleanup_min_words": 3,
     "cleanup_strength": "light",
+    "structure": "auto",
     "listen_target": "note",
     "note_hotkey": "ctrl+alt+n",
     "keep_history": True,
@@ -446,15 +448,29 @@ STRENGTH_TEXT = {
 _PARAGRAPHS = ("Start a new paragraph (a blank line) at a clear change of topic and about every five sentences in a long "
                "text.")
 _LISTS = 'Use "- " bullets only where the speaker enumerates items, and keep every spoken word (first, second, then) in them.'
-STRUCTURE_BY_STYLE = {
-    "casual": "Keep it flat: no lists and no blank lines unless the speaker says new line or new paragraph.",
-    "neutral": _PARAGRAPHS + ' Make a "- " list only when the speaker clearly counts items ("first", "second", "third"), keeping those words.',
-    "formal": _PARAGRAPHS + " " + _LISTS,
-    "notes": _PARAGRAPHS + ' Use "- " bullets for items the speaker enumerates, keeping every spoken word.',
+_FLAT = "Keep it flat: no lists and no blank lines unless the speaker says new line or new paragraph."
+LIST_BY_STYLE = {   # the list sentence of each style that may have lists
+    "neutral": 'Make a "- " list only when the speaker clearly counts items ("first", "second", "third"), keeping those words.',
+    "formal": _LISTS,
+    "notes": 'Use "- " bullets for items the speaker enumerates, keeping every spoken word.',
 }
-STRUCTURE_BY_STYLE["very_casual"] = STRUCTURE_BY_STYLE["casual"]
-STRUCTURE_BY_STYLE["email"] = STRUCTURE_BY_STYLE["formal"]
+LIST_BY_STYLE["email"] = LIST_BY_STYLE["formal"]
+STRUCTURE_BY_STYLE = {s: _PARAGRAPHS + " " + rule for s, rule in LIST_BY_STYLE.items()}   # "Lists and paragraphs": Auto
+STRUCTURE_BY_STYLE["casual"] = STRUCTURE_BY_STYLE["very_casual"] = _FLAT
+NO_PARAGRAPHS = "No blank lines unless the speaker says new paragraph."
 STRUCTURE_TAIL = " Never reorder or regroup what was said."
+
+
+def structure_rule(style, structure="auto"):
+    """The structure sentence of the prompt for a style and the "Lists and paragraphs" setting: Auto is the style's own
+    rule, Lists only its list sentence without paragraph breaks, Off is flat with no lists. Twin: ApiClient.structureFor."""
+    mode = structure_mod.structure_mode(structure)
+    key = style if style in STRUCTURE_BY_STYLE else "neutral"
+    if mode == "off" or key not in LIST_BY_STYLE:
+        return _FLAT
+    if mode == "lists":
+        return LIST_BY_STYLE[key] + " " + NO_PARAGRAPHS
+    return STRUCTURE_BY_STYLE[key]
 EXAMPLES = (   # the output has exactly the words of the input (list markers and punctuation do not count)
     ("hey can you send me the invoice for march when you get a chance thanks",
      "Hey, can you send me the invoice for March when you get a chance? Thanks."),
@@ -471,10 +487,13 @@ EXAMPLES = (   # the output has exactly the words of the input (list markers and
 )
 
 
-def system_prompt(style, terms, app_label, context="", strength="light", rules=""):
+def system_prompt(style, terms, app_label, context="", strength="light", rules="", structure="auto"):
     """The cleanup prompt. The fixed role comes first, then About you (it changes rarely), so a provider can cache the
-    prefix; there is nothing time-dependent, so the same inputs always give the same bytes. Java twin: ApiClient.systemPrompt."""
+    prefix; there is nothing time-dependent, so the same inputs always give the same bytes. `structure` is the "Lists and
+    paragraphs" setting: Off also drops the list example, Lists only the paragraph example. Java twin: ApiClient.systemPrompt."""
     style = (style or "").lower()
+    mode = structure_mod.structure_mode(structure)
+    examples = [ex for k, ex in enumerate(EXAMPLES) if not (mode == "off" and k == 2) and not (mode == "lists" and k == 1)]
     parts = [ROLE_TEXT]
     ctx, rules = clean_context(context), clean_rules(rules)
     if ctx:
@@ -490,14 +509,14 @@ def system_prompt(style, terms, app_label, context="", strength="light", rules="
         "- " + STRENGTH_TEXT[clean_strength(strength)],
         *(["- " + RULES_TEXT + "\n<my_cleanup_rules>\n" + rules + "\n</my_cleanup_rules>"] if rules else []),
         "- Keep the speaker's wording, language (including mixed languages) and meaning. Do not add content.",
-        "- " + STRUCTURE_BY_STYLE.get(style, STRUCTURE_BY_STYLE["neutral"]) + STRUCTURE_TAIL,
+        "- " + structure_rule(style, mode) + STRUCTURE_TAIL,
         "- Spoken commands: \"new line\" = line break, \"new paragraph\" = blank line, spoken punctuation "
         "names (comma, period, question mark, colon) become the symbol.",
         "- Write numbers, dates, times, money, emails and URLs in standard written form.",
         "- Style: " + STYLE_TEXT.get(style, "neutral. Standard capitalization and punctuation."),
     ]))
     parts.append("Examples (the output has the same words as the input):\n\n"
-                 + "\n\n".join("Input: " + src + "\nOutput:\n" + out for src, out in EXAMPLES))
+                 + "\n\n".join("Input: " + src + "\nOutput:\n" + out for src, out in examples))
     text = "\n\n".join(parts) + "\n"
     if app_label:
         text += f"\nThe text will be typed into the app: {app_label}.\n"
@@ -1112,26 +1131,63 @@ def timing_info(cfg):
     return out
 
 
+_stt_local = threading.local()   # the segment times of this thread's last transcribe (see last_segments)
+
+
+def last_segments():
+    """The segments ({"start", "end", "text"}, seconds) of the last transcribe on this thread, or None when that answer had
+    none (plain json asked for, a server without them, or something unreadable in them). Used for paragraph breaks."""
+    return getattr(_stt_local, "segments", None)
+
+
+def wants_segments(cfg, model):
+    """True when the speech request asks for segment times (verbose_json): "Lists and paragraphs" is Auto (pause-based
+    paragraphs) and the model is a Whisper model (other models, such as gpt-4o-transcribe, only answer json)."""
+    return structure_mod.structure_mode(cfg.get("structure")) == "auto" and "whisper" in (model or "").lower()
+
+
+def _segments_of(res):
+    segs = res.get("segments") if isinstance(res, dict) else None
+    if not isinstance(segs, list) or not segs:
+        return None
+    try:
+        return [{"start": float(s["start"]), "end": float(s["end"]), "text": str(s.get("text") or "").strip()} for s in segs]
+    except (TypeError, ValueError, KeyError, AttributeError):
+        return None
+
+
 def transcribe(cfg, wav_bytes, context=""):
-    """Speech to text. `context` is the end of the text before this piece (long recordings sent in pieces)."""
-    data = {"model": providers.role_settings(cfg, "stt")[2], "response_format": "json", "temperature": "0"}
+    """Speech to text. `context` is the end of the text before this piece (long recordings sent in pieces). The segment
+    times of the answer are kept for last_segments (see wants_segments); a server that refuses verbose_json with a 400 is
+    asked again for plain json."""
+    _stt_local.segments = None
+    model = providers.role_settings(cfg, "stt")[2]
+    data = {"model": model, "response_format": "verbose_json" if wants_segments(cfg, model) else "json", "temperature": "0"}
     if cfg.get("language"):
         data["language"] = cfg["language"]
     prompt = whisper_prompt_with_context(dictionary_terms(cfg), context)
     if prompt:
         data["prompt"] = prompt
-    r = post_with_retry(
-        f"{api_base(cfg, 'stt')}/audio/transcriptions",
-        headers=auth_headers(cfg, "stt"),
-        data=data,
-        files={"file": ("audio.wav", wav_bytes, "audio/wav")},
-        timeout=60,
-        via_relay=providers.uses_relay(cfg),
-    )
+
+    def send():
+        return post_with_retry(
+            f"{api_base(cfg, 'stt')}/audio/transcriptions",
+            headers=auth_headers(cfg, "stt"),
+            data=data,
+            files={"file": ("audio.wav", wav_bytes, "audio/wav")},
+            timeout=60,
+            via_relay=providers.uses_relay(cfg),
+        )
+    r = send()
+    if r.status_code == 400 and data["response_format"] == "verbose_json":
+        data = dict(data, response_format="json")
+        r = send()
     res = check_response(r, providers.uses_relay(cfg))
     text = res.get("text", "") if isinstance(res, dict) else None
     if not isinstance(text, str):   # a null, a number or a list: keep the recording for Retry instead of losing it
         raise ApiError(0, "The speech server sent an answer Vox could not read")
+    if data["response_format"] == "verbose_json":
+        _stt_local.segments = _segments_of(res)
     return text.strip()
 
 
@@ -1198,7 +1254,7 @@ def cleanup(cfg, raw, style, app_label):
         "messages": [
             {"role": "system",
              "content": system_prompt(style, dictionary_terms(cfg), app_label, cfg.get("user_context", ""),
-                                  cfg.get("cleanup_strength"), cfg.get("my_cleanup_rules", ""))},
+                                  cfg.get("cleanup_strength"), cfg.get("my_cleanup_rules", ""), cfg.get("structure"))},
             {"role": "user", "content": f"<transcript>\n{raw}\n</transcript>"},
         ],
     }
@@ -1230,14 +1286,17 @@ def process_detailed(cfg, pcm_bytes, exe, app_label):
     Result.fidelity_fallback says the fidelity guard rejected the cleanup answer (see fallback_text).
     """
     _mark("stt_start")
+    segments = None
     try:
         if len(pcm_bytes) > MAX_UPLOAD_BYTES:
-            raw = _transcribe_in_pieces(cfg, pcm_bytes)
+            raw = _transcribe_in_pieces(cfg, pcm_bytes)   # pieces: their times do not line up, so no paragraph breaks
         else:
+            _stt_local.segments = None
             raw = transcribe(cfg, pcm_to_wav(pcm_bytes))
+            segments = last_segments()
     finally:
         _mark("stt_done")
-    return process_text(cfg, raw, exe, app_label)
+    return process_text(cfg, raw, exe, app_label, segments)
 
 
 def clean_min_words(value):
@@ -1255,8 +1314,10 @@ def needs_cleanup(raw, style, enabled, min_words):
     return len((raw or "").split()) >= clean_min_words(min_words)
 
 
-def process_text(cfg, raw, exe, app_label):
-    """Everything after speech to text: silence phrases, style, cleanup, spoken commands, replacements."""
+def process_text(cfg, raw, exe, app_label, segments=None):
+    """Everything after speech to text: silence phrases, style, cleanup and its fidelity guard, spoken commands,
+    replacements, the dictionary's spellings, then lists and paragraphs (structure.py) on whatever text came out (cleaned,
+    fallback or raw). `segments` are the speech server's segment times (paragraph breaks at long pauses), or None."""
     if not raw or is_silence_hallucination(raw):
         return Result("", "", False, "")
     style = style_for(cfg, exe)
@@ -1279,7 +1340,18 @@ def process_text(cfg, raw, exe, app_label):
     if not cleaned:
         out = fallback_text(out) if rejected else apply_spoken_commands(out)
     out = fuzzy_dictionary(apply_replacements(out, replacements(cfg)), dictionary_terms(cfg))
+    out = apply_structure(cfg, out, style, segments)
     return Result(raw, out, cleaned, error, rejected)
+
+
+def apply_structure(cfg, text, style, segments=None):
+    """Lists from spoken cues, then (when no list was made) paragraph breaks at long pauses: only with "Lists and
+    paragraphs" on Auto, a style that is not casual, very casual or raw, and segment times."""
+    mode = structure_mod.structure_mode(cfg.get("structure"))
+    out = structure_mod.format_structure(text, mode, style)
+    if out == text and mode == "auto" and style not in structure_mod.FLAT_STYLES + ("raw",) and segments:
+        out = structure_mod.add_paragraphs(out, segments)
+    return out
 
 
 def process(cfg, pcm_bytes, exe, app_label):
