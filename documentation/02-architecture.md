@@ -47,7 +47,8 @@ Threads in the engine process:
 | Thread | Started by | Job |
 |---|---|---|
 | main | `Engine.run` | Tk `mainloop` of the overlay pill (Tk must own the main thread) |
-| pynput listener | `Engine.run` | key press/release -> `on_press` / `on_release` -> hold-to-talk logic |
+| pynput listener | `Engine.run` | key press/release -> `on_press` / `on_release`, which only queue the key (the hook must answer quickly) |
+| vox-hotkey | `Engine.run` | `_hotkey_loop`: the queued keys in order -> `_on_press` / `_on_release` -> hold-to-talk, shortcuts, opening the microphone ([decision 0037](decisions/0037-esc-cancels-and-the-hook-only-queues-keys.md)) |
 | pystray | `icon.run_detached()` | tray icon and menu |
 | sounddevice callback | `Engine.start` | appends 16 kHz mono int16 chunks, updates `level` |
 | `_process` | `Engine.stop` / `retry_last` | sends the audio, pastes the text, saves history |

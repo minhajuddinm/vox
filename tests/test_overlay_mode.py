@@ -27,6 +27,13 @@ def test_an_expired_flash_shows_nothing():
     assert mode(kind="error", until=NOW - 1) is None
 
 
+def test_a_flash_always_expires_even_with_a_bogus_far_deadline():
+    """No deadline can keep the check or the ! up for longer than MAX_FLASH_SECONDS from now."""
+    assert mode(kind="sent", until=NOW + 3600) is None
+    assert mode(kind="error", until=float("inf"), meeting=True) == "meet"
+    assert mode(kind="error", until=NOW + om.MAX_FLASH_SECONDS) == "error"
+
+
 def test_no_kind_means_no_flash_even_with_a_future_deadline():
     assert mode(kind="", until=NOW + 5) is None
 

@@ -42,6 +42,10 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0034](0034-devices-list-is-the-relays-own-list-asked-on-a-switch-or-a-press.md) | The devices list is the relay's own list, asked only on a switch or a press | Accepted |
 | [0035](0035-sideload-warnings-are-explained-not-engineered-away.md) | Sideload warnings are explained in the app, not engineered away | Accepted |
 | [0036](0036-fuzzy-dictionary-guesses-only-for-long-terms.md) | The fuzzy dictionary guesses a spelling only for terms of 7+ letters | Accepted |
+| [0037](0037-esc-cancels-and-the-hook-only-queues-keys.md) | Esc cancels a keep-listening session; the keyboard hook only queues keys | Accepted |
+| [0038](0038-text-structure-from-spoken-cues-and-code-mode-without-the-ai.md) | Lists come only from spoken cues, after the cleanup; code apps get rules, not the AI cleanup | Accepted (not run on real speech) |
+| [0039](0039-auto-learn-reads-the-field-through-ui-automation-with-pythonnet.md) | Learn from my corrections: a short watch of the typed field, UI Automation through pythonnet, a final check before the text goes | Accepted (not run on a real desktop or phone) |
+| [0040](0040-the-relay-stores-the-sent-note-time-and-orders-by-a-bounded-copy.md) | The relay stores the sent note time and orders writes by a bounded copy of it | Accepted (tested against the real relay with in-memory devices, not on a real relay or phone) |
 
 ## Template
 

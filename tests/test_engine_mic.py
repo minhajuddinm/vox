@@ -81,3 +81,51 @@ def test_the_device_list_is_not_reset_while_a_recording_is_open(eng, monkeypatch
     monkeypatch.setattr(engine_mod.audio_devices, "input_index", lambda name, sd_=None: None)
     eng._open_mic(lambda *a: None)
     assert sd.terminated == 0 and sd.initialized == 0
+
+
+# ---- issue 49, Windows 3: a missing microphone must not restart PortAudio for every dictation ----------------------------
+def test_a_missing_microphone_restarts_portaudio_at_most_once_in_a_while_and_says_so_once(eng, monkeypatch):
+    sd = FakeSd()
+    monkeypatch.setattr(engine_mod, "sd", sd)
+    monkeypatch.setattr(engine_mod.audio_devices, "input_index", lambda name, sd_=None: None)
+    for _ in range(5):
+        eng._open_mic(lambda *a: None)
+    assert sd.initialized == 1 and sd.terminated == 1               # not once per dictation
+    assert sd.opened == [None] * 5 and len(eng.messages) == 1         # the default microphone, one notice
+    eng._audio_refresh_t -= engine_mod.AUDIO_REFRESH_SECONDS + 1      # later on: it may look again
+    eng._open_mic(lambda *a: None)
+    assert sd.initialized == 2 and len(eng.messages) == 1
+
+
+def test_the_notice_comes_again_after_the_microphone_was_back(eng, monkeypatch):
+    sd = FakeSd()
+    present = {"yes": False}
+    monkeypatch.setattr(engine_mod, "sd", sd)
+    monkeypatch.setattr(engine_mod.audio_devices, "input_index", lambda name, sd_=None: 4 if present["yes"] else None)
+    eng._open_mic(lambda *a: None)
+    present["yes"] = True
+    eng._open_mic(lambda *a: None)
+    present["yes"] = False
+    eng._open_mic(lambda *a: None)
+    assert len(eng.messages) == 2
+
+
+def test_a_failing_chosen_microphone_falls_back_to_the_default_when_portaudio_was_just_restarted(eng, monkeypatch):
+    sd = FakeSd(fail_first=True)
+    monkeypatch.setattr(engine_mod, "sd", sd)
+    monkeypatch.setattr(engine_mod.audio_devices, "input_index", lambda name, sd_=None: 7)
+    eng._audio_refresh_t = engine_mod.time.monotonic()                 # restarted a moment ago
+    eng._open_mic(lambda *a: None)
+    assert sd.opened == [7, None] and sd.initialized == 0
+    assert len(eng.messages) == 1 and "not connected" in eng.messages[0]
+
+
+def test_the_microphone_is_opened_on_the_hotkey_thread_not_in_the_keyboard_hook(eng, monkeypatch):
+    import queue
+    eng._hotkey_q = queue.Queue()
+    eng.pressed, eng.combo_was_down, eng.note_hotkey = set(), False, None
+    eng.hotkey = [engine_mod.KEY_ALIASES["cmd"]]
+    opened = []
+    monkeypatch.setattr(eng, "on_combo_down", lambda: opened.append("mic"), raising=False)
+    eng.on_press(engine_mod.keyboard.Key.cmd)                          # what the hook runs
+    assert opened == [] and eng._hotkey_q.qsize() == 1

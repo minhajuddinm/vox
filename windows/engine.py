@@ -3,6 +3,7 @@ import ctypes
 import json
 import logging
 import os
+import queue
 import secrets
 import subprocess
 import sys
@@ -17,10 +18,14 @@ import sounddevice as sd
 from pynput import keyboard
 
 import audio_devices
+import command as command_mod
+import hotkeys
+import correction_watch
 import listen as listen_mod
 import improve
 import logo
 import notes
+import overlay_guard
 import paste as paste_mod
 import relay_host
 import session as session_mod
@@ -36,11 +41,15 @@ log = logging.getLogger("vox")
 
 MIN_SECONDS = 0.4
 MAX_SECONDS = 360
-TAP_SECONDS = 0.3       # a press shorter than this is a tap
+TAP_SECONDS = hotkeys.HOLD_SECONDS   # a press shorter than this is a tap
 DOUBLE_TAP_GAP = 0.5    # second tap within this starts keep listening
+STALE_GAP = 2.0         # no key event for this long: the keys we think are held are checked against the keyboard (R2-M2)
+COMMAND_JOIN_SECONDS = 1.0   # the edit-by-voice key may join a dictation shortcut press this long after it went down
+AUDIO_REFRESH_SECONDS = 30   # PortAudio's device list is rebuilt at most this often (issue 49, Windows 3)
 # How long the pill shows a green check / a red ! (see Engine.flash). Keep equal to BubbleView.SENT_MS / ERROR_MS
 # in android/src/com/minhaj/vox/BubbleView.java (tests/test_flash_constants.py checks it).
 FLASH_SECONDS = {"sent": 0.7, "error": 1.8}
+STUCK_MARGIN = 60       # a recording this long past its longest limit (hands-free) means the audio callback stopped
 
 KEY_ALIASES = {
     "ctrl": {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r},
@@ -70,6 +79,17 @@ def key_vk(key):
     """Windows virtual-key code of a pynput key (a letter, digit or F key), or None. The code, not the char: with
     Ctrl held the char of N is a control character, and it changes between the press and the release."""
     return getattr(key, "vk", None) or getattr(getattr(key, "value", None), "vk", None)
+
+
+def key_is_down(key):
+    """Whether the keyboard says `key` is held now (GetAsyncKeyState). True when it cannot tell, so nothing is dropped."""
+    vk = key_vk(key)
+    if not vk:
+        return True
+    try:
+        return bool(ctypes.windll.user32.GetAsyncKeyState(vk) & 0x8000)
+    except Exception:
+        return True
 
 
 def calendar_action(ev, cfg, now):
@@ -110,12 +130,27 @@ class Engine:
     listening = None   # the listen.Listening of the keep-listening session in progress (also while it saves); None when none
     note_hotkey = None   # the session.NoteHotkey of the note shortcut; None when it is off or unusable
     note_key_down = False   # its main key is held (a key repeat must not toggle again)
+    state_since = 0.0   # time.monotonic() when set_state last ran (the overlay watchdog's stuck-state check)
+    chords = {}          # setting -> hotkeys.Chord of the extra shortcuts that are usable (hotkeys.check)
+    chord_keys_down = frozenset()   # the extra shortcuts whose main key is held (a key repeat must not fire again)
+    command_mode = False    # the recording in progress is an instruction for edit by voice
+    command_was_down = False
+    latched_t = 0.0      # when a tap latched hands-free dictation (hotkey_style hold_or_tap); 0 when it did not
+    last_text = ""       # the last dictated text (paste-last and copy-last shortcuts); memory only
+    event_t = None       # time.time() of the key event being handled (it may wait in the hotkey queue)
+    last_key_t = 0.0     # time of the key event before it
+    key_state = None     # key -> held now? (tests); None: key_is_down
+    _hotkey_q = None     # key events wait here for the hotkey thread; None: handled at once (tests)
+    _audio_refresh_t = float("-inf")
+    _mic_missing_told = ""   # the chosen microphone we already said is missing
+    _told_elevated = False
 
     def __init__(self):
         self.cfg = core.load_config()
         self.cfg_mtime = self._mtime()
         self.hotkey = self._hotkey()
         self.note_hotkey = self._note_hotkey()
+        self.chords = self._chords()
         self.pressed = set()
         self.recording = False
         self.busy = False
@@ -126,6 +161,7 @@ class Engine:
         self.target = ""
         self.started_at = 0.0
         self.state = "idle"   # read by the overlay: idle | rec | busy | listen
+        self.state_since = time.monotonic()
         self.level = 0.0
         self.overlay = None
         self.flash_kind = ""
@@ -182,6 +218,15 @@ class Engine:
             log.warning("note shortcut %r is off: %s", self.cfg.get("note_hotkey"), problem)
         return hk
 
+    def _chords(self):
+        out = {}
+        for name, (chord, problem) in hotkeys.check(self.cfg).items():
+            if problem:
+                log.warning("%s %r is off: %s", name, self.cfg.get(name), problem)
+            elif chord:
+                out[name] = chord
+        return out
+
     def reload_if_changed(self):
         m = self._mtime()
         if m != self.cfg_mtime:
@@ -189,6 +234,7 @@ class Engine:
             self.cfg = core.load_config()
             self.hotkey = self._hotkey()
             self.note_hotkey = self._note_hotkey()
+            self.chords = self._chords()
             log.info("settings reloaded, hotkey=%s", self.cfg.get("hotkey"))
             self.sync.trigger()   # a changed profile setting goes to the relay; a run with nothing new changes nothing
 
@@ -237,6 +283,7 @@ class Engine:
             pass
 
     def set_state(self, name):
+        self.state_since = time.monotonic()
         self.state = name
         if name != "rec":
             self.level = 0.0
@@ -277,6 +324,41 @@ class Engine:
         self.cfg[key] = value
         return True
 
+    # ------------------------------------------------------- overlay watchdog
+    def _watch_overlay(self):
+        stuck, dumped = overlay_guard.StuckWatch(), False
+        while True:
+            time.sleep(1.0)
+            try:
+                dumped = self.check_overlay(time.monotonic(), stuck, dumped)
+            except Exception:
+                log.exception("overlay watchdog failed")
+
+    def check_overlay(self, now, stuck, dumped):
+        """Once a second (daemon thread): logs every thread's stack once when the pill's Tk tick has not run for
+        STALL_SECONDS while not idle, and ends a state that no longer matches the engine's flags (overlay_guard).
+        Returns whether the current stall was already dumped."""
+        ov, state = self.overlay, self.state
+        last_tick = getattr(ov, "last_tick", 0.0) if ov is not None else 0.0
+        if overlay_guard.tick_stalled(last_tick, now, state != "idle"):
+            if not dumped:
+                log.warning("overlay tick has not run for %.1f s (state %s); threads:\n%s", now - last_tick, state,
+                            overlay_guard.thread_dump())
+            dumped = True
+        else:
+            dumped = False
+        since = self.state_since
+        ok = overlay_guard.state_consistent(state, self.recording, self.busy, self.listening, now - since,
+                                            MAX_SECONDS * 3 + STUCK_MARGIN)
+        if stuck.update(state, since, ok, now) and self.state_since == since:
+            log.warning("state %r stuck for %.0f s (recording=%s busy=%s listening=%s): ending it", state, now - since,
+                        self.recording, self.busy, self.listening is not None)
+            if state == "rec" and self.recording:
+                self.stop()   # the audio callback stopped calling: end it as its time limit would
+            else:
+                self.set_state("idle")
+        return dumped
+
     # ----------------------------------------------------------------- relay
     def start_relay(self):
         self.relay.port = relay_host.port_from(self.cfg)
@@ -293,23 +375,87 @@ class Engine:
             self.relay.stop()
 
     # --------------------------------------------------------------- hotkey
-    # Hold the shortcut to talk, release to insert.
-    # Double-tap it to keep listening (a note, or text typed as you pause, see listen.py); double-tap again, Esc or the
-    # stop phrase ends it.
+    # Hold the shortcut to talk, release to insert. A quick tap: thrown away (hotkey_style classic) or hands-free
+    # dictation until the next press (hold_or_tap). Double-tap it to keep listening (a note, or text typed as you pause,
+    # see listen.py); double-tap again or say the stop phrase to end it and keep what was said. Esc cancels a recording
+    # or a listening session without sending anything more. The extra shortcuts (hotkeys.py): hands-free, paste last,
+    # copy last, edit by voice.
+    # pynput calls on_press/on_release inside Windows' keyboard hook, which must answer quickly (LowLevelHooksTimeout,
+    # R2-M1): they only queue the key, and the "vox-hotkey" thread does the work (opening the microphone can be slow).
     def combo_down(self):
         return all(self.pressed & group for group in self.hotkey)
 
+    def _mods_down(self, mods):
+        return all(self.pressed & KEY_ALIASES[m] for m in mods)
+
+    def _command_down(self):
+        c = self.chords.get("command_hotkey")
+        return bool(c) and self._mods_down(c.mods)
+
+    def _now(self):
+        """The time of the key event being handled (it may have waited in the queue), else now."""
+        return self.event_t if self.event_t is not None else time.time()
+
+    _hook_held = frozenset()   # keys down as the keyboard hook saw them (hook thread only), for the Start-menu tap
+
+    def _win_chord_held(self, keys):
+        """True when `keys` hold Win and the dictation shortcut, or an edit shortcut that has Win in it."""
+        if not any(keys & KEY_ALIASES["cmd"]):
+            return False
+        if self.hotkey and all(keys & group for group in self.hotkey):
+            return True
+        c = self.chords.get("command_hotkey") if getattr(self, "chords", None) else None
+        return bool(c) and "cmd" in c.mods and self._mods_in(keys, c.mods)
+
+    @staticmethod
+    def _mods_in(keys, mods):
+        return all(keys & KEY_ALIASES[m] for m in mods)
+
+    def _hook_tap(self, key, down):
+        """Inside the keyboard hook, while Win is still down: when this key completes a shortcut that holds Win, an
+        unassigned key is tapped so that Windows does not open the Start menu when Win comes up. On the hotkey thread
+        the tap could come after Win was already released (a slow microphone start in front of it). Never raises."""
+        try:
+            before = self._win_chord_held(self._hook_held)
+            self._hook_held = self._hook_held | {key} if down else self._hook_held - {key}
+            if down and not before and self._win_chord_held(self._hook_held):
+                self.kb.tap(keyboard.KeyCode.from_vk(0xE8))
+        except Exception:
+            log.exception("start-menu tap failed")
+
     def on_press(self, key):
+        self._hook_tap(key, True)
+        q = self._hotkey_q
+        if q is not None:
+            q.put((True, key, time.time()))
+            return
         try:
             self._on_press(key)
         except Exception:   # pynput stops the listener when a handler raises: keep the hotkey alive
             self._hotkey_failed()
 
     def on_release(self, key):
+        self._hook_tap(key, False)
+        q = self._hotkey_q
+        if q is not None:
+            q.put((False, key, time.time()))
+            return
         try:
             self._on_release(key)
         except Exception:
             self._hotkey_failed()
+
+    def _hotkey_loop(self):
+        """The hotkey thread: handles the queued key events in order, never inside the keyboard hook."""
+        while True:
+            down, key, t = self._hotkey_q.get()
+            try:
+                if down:
+                    self._on_press(key, t)
+                else:
+                    self._on_release(key, t)
+            except Exception:
+                self._hotkey_failed()
 
     def _hotkey_failed(self):
         log.exception("hotkey handler failed")
@@ -319,41 +465,101 @@ class Engine:
         except Exception:
             log.exception("could not close the microphone after a hotkey failure")
 
-    def _on_press(self, key):
-        hk = self.note_hotkey
-        if hk and key_vk(key) == hk.vk:   # the note shortcut's main key: never kept in `pressed` (its char varies)
-            if not self.note_key_down and all(self.pressed & KEY_ALIASES[m] for m in hk.mods):
-                self.note_key_down = True
-                self.toggle_note_listening()
+    def _check_gap(self):
+        """Key-ups can get lost (Win+L locks the PC before the keys come up, a secure desktop, a sleeping PC), and a key
+        left in `pressed` would complete the shortcut later by itself (R2-M2). After a quiet spell longer than STALE_GAP
+        (a key that is really held repeats, so it sends events) the keys are checked against the keyboard."""
+        t = self._now()
+        last, self.last_key_t = self.last_key_t, t
+        if not last or t - last <= STALE_GAP:
             return
-        self.pressed.add(key)
-        if key == keyboard.Key.esc and self.listening:
-            self.stop_listening()   # ends it and saves what was said: audio is never thrown away
+        held = self.key_state or key_is_down
+        stale = {k for k in self.pressed if not held(k)}
+        if not stale:
             return
-        if key == keyboard.Key.esc and self.recording and self.hands_free:
-            self.cancel()
-            return
-        if self.combo_down() and not self.combo_was_down:
-            self.combo_was_down = True
-            self.on_combo_down()
-
-    def _on_release(self, key):
-        hk = self.note_hotkey
-        if hk and key_vk(key) == hk.vk:
-            self.note_key_down = False
-            return
-        self.pressed.discard(key)
+        log.info("hotkey: %d key(s) were not really held after a pause, forgotten", len(stale))
+        self.pressed -= stale
+        self.note_key_down, self.chord_keys_down = False, frozenset()
         if self.combo_was_down and not self.combo_down():
             self.combo_was_down = False
             self.on_combo_up()
+        if self.command_was_down and not self._command_down():
+            self.command_was_down = False
+            self.on_command_up()
+
+    def _keyed(self, vk):
+        """The shortcuts with a main key whose key is `vk`: [(setting, chord)] (the note shortcut is "note_hotkey")."""
+        if not vk:
+            return []
+        out = [("note_hotkey", self.note_hotkey)] if self.note_hotkey and self.note_hotkey.vk == vk else []
+        return out + [(n, c) for n, c in self.chords.items() if c.vk is not None and c.vk == vk]
+
+    def _on_press(self, key, t=None):
+        self.event_t = time.time() if t is None else t
+        try:
+            self._check_gap()
+            keyed = self._keyed(key_vk(key))
+            if keyed:   # the main key of a shortcut: never kept in `pressed` (its char varies with the modifiers)
+                for name, chord in keyed:
+                    if self._mods_down(chord.mods):
+                        self._shortcut(name)
+                        break
+                return
+            self.pressed.add(key)
+            if key == keyboard.Key.esc and (self.listening or self.recording):
+                self.cancel_any()
+                return
+            if self.combo_down() and not self.combo_was_down:
+                self.combo_was_down = True
+                self.on_combo_down()
+            if self._command_down() and not self.command_was_down:
+                self.command_was_down = True
+                self.on_command_down()
+        finally:
+            self.event_t = None
+
+    def _on_release(self, key, t=None):
+        self.event_t = time.time() if t is None else t
+        try:
+            self._check_gap()
+            keyed = self._keyed(key_vk(key))
+            if keyed:
+                if any(n == "note_hotkey" for n, _ in keyed):
+                    self.note_key_down = False
+                self.chord_keys_down = self.chord_keys_down - {n for n, _ in keyed}
+                return
+            self.pressed.discard(key)
+            if self.combo_was_down and not self.combo_down():
+                self.combo_was_down = False
+                self.on_combo_up()
+            if self.command_was_down and not self._command_down():
+                self.command_was_down = False
+                self.on_command_up()
+        finally:
+            self.event_t = None
+
+    def _shortcut(self, name):
+        """A shortcut with a main key went down with its modifiers. A key repeat does nothing."""
+        if name == "note_hotkey":
+            if not self.note_key_down:
+                self.note_key_down = True
+                self.toggle_note_listening()
+            return
+        if name in self.chord_keys_down:
+            return
+        self.chord_keys_down = self.chord_keys_down | {name}
+        if name == "hands_free_hotkey":
+            self.on_hands_free()
+        elif name == "paste_last_hotkey":
+            self.insert_last(copy_only=False)
+        elif name == "copy_last_hotkey":
+            self.insert_last(copy_only=True)
 
     def on_combo_down(self):
-        if any(self.pressed & KEY_ALIASES["cmd"]):
-            # Tap an unassigned key so Windows does not open the Start menu when Win is released.
-            self.kb.tap(keyboard.KeyCode.from_vk(0xE8))
+        # The tap that keeps the Start menu closed is sent in the hook (_hook_tap), not here.
         if self.busy:
             return
-        now = time.time()
+        now = self._now()
         if self.listening:   # one press could be part of another shortcut (Ctrl+Win+arrows): ending takes a double press
             if now - self.last_tap_t < DOUBLE_TAP_GAP:
                 self.last_tap_t = 0.0
@@ -362,6 +568,12 @@ class Engine:
                 self.last_tap_t = now
             return
         if self.recording and self.hands_free:
+            if self.latched_t and now - self.latched_t < DOUBLE_TAP_GAP and not self.note_mode:
+                # hold_or_tap: the tap that latched was the first of a double press, so keep listening instead
+                self.latched_t = self.last_tap_t = 0.0
+                self.cancel()
+                self.start_listening()
+                return
             self.hands_free = False
             self.stop()
             return
@@ -377,11 +589,101 @@ class Engine:
     def on_combo_up(self):
         if not self.recording or self.hands_free:
             return
-        if time.time() - self.press_t < TAP_SECONDS:
-            self.last_tap_t = time.time()   # a tap: wait for a possible second tap
-            self.cancel()
-        else:
+        now = self._now()
+        action = hotkeys.tap_action(hotkeys.style(self.cfg), now - self.press_t, self.command_mode)
+        if action == "stop":
             self.stop()
+            return
+        self.last_tap_t = now   # a tap: wait for a possible second tap
+        if action == "latch":
+            self.hands_free, self.latched_t = True, now   # keeps recording until the next press (the pill shows a square)
+            log.info("hands-free dictation (tap)")
+        else:
+            self.cancel()
+
+    def on_hands_free(self):
+        """The hands-free shortcut (off by default; for example Ctrl+Win+H): starts hands-free dictation, latches the dictation that the
+        held Ctrl+Win just started, or ends a hands-free one (what was said is sent)."""
+        if self.busy or self.listening:
+            return
+        if self.recording:
+            if self.hands_free:
+                self.hands_free = False
+                self.stop()
+            elif not self.command_mode:
+                self.hands_free = True
+                log.info("hands-free dictation (shortcut)")
+            return
+        if self.combo_was_down:   # the held dictation keys already did their part: they just ended a dictation
+            return
+        self.start()
+        if self.recording:
+            self.hands_free = True
+
+    def on_command_down(self):
+        """The edit-by-voice keys are all down: the recording becomes (or starts as) an instruction."""
+        if self.busy or self.listening:   # (the Start-menu tap was sent in the hook: _hook_tap)
+            return
+        now = self._now()
+        if self.recording:
+            if not (self.hands_free or self.note_mode or self.command_mode) and now - self.press_t < COMMAND_JOIN_SECONDS:
+                self.command_mode = True
+            return
+        self.press_t = now
+        self.start()
+        if self.recording:
+            self.command_mode = True
+
+    def on_command_up(self):
+        if self.recording and self.command_mode:
+            self.stop()
+
+    def cancel_any(self):
+        """Esc: cancels the recording, or the listening session, without sending anything more. No flash: the pill
+        simply goes away."""
+        if self.listening:
+            if not self.busy:
+                self.listening.cancel()
+            return
+        if self.recording:
+            self.cancel()
+            log.info("recording cancelled (Esc)")
+
+    # ------------------------------------------------------- last dictation
+    def last_dictation(self):
+        """The text of the last dictation: from memory, else the newest history entry (when history is kept)."""
+        if self.last_text:
+            return self.last_text
+        if not self.cfg.get("keep_history", True):
+            return ""
+        try:
+            for h in reversed(core.read_history()):
+                if isinstance(h, dict) and isinstance(h.get("text"), str) and h["text"].strip():
+                    return h["text"]
+        except Exception:
+            log.exception("could not read the history for the last dictation")
+        return ""
+
+    def insert_last(self, copy_only=False):
+        """The paste-last and copy-last shortcuts. In a thread: the paste waits for the shortcut's keys to come up."""
+        threading.Thread(target=self._insert_last, args=(copy_only,), daemon=True, name="vox-last").start()
+
+    def _insert_last(self, copy_only):
+        text = self.last_dictation()
+        if not text:
+            self.notify("Nothing to paste yet: dictate something first.")
+            return
+        try:
+            if copy_only:
+                paste_mod.SystemDeps().clip_set(text, self.cfg.get("clipboard_history", True))
+                self.notify("Your last dictation is on the clipboard.")
+                return
+            if paste_mod.paste_text(text, "", self.cfg.get("keep_clipboard", False),
+                                    clipboard_history=self.cfg.get("clipboard_history", True)) == paste_mod.BLOCKED:
+                self._say_elevated()
+        except Exception:
+            log.exception("could not insert the last dictation")
+            self.notify("Vox could not use the clipboard (another program has it open). Try again.")
 
     # ------------------------------------------------------------ recording
     def start(self):
@@ -392,6 +694,7 @@ class Engine:
         self.target = foreground_app()
         self.chunks = []
         self.started_at = time.time()
+        self.command_mode, self.latched_t = False, 0.0
         self.streaming = streaming.StreamingStt(self.cfg) if self.cfg.get("stream_stt", True) else None
         if self.streaming:
             self.streaming.start()
@@ -428,13 +731,25 @@ class Engine:
         if name and device is None and self._refresh_audio():   # plugged in after Vox started?
             device = audio_devices.input_index(name)
         if name and device is None:
-            self.notify("Your chosen microphone is not connected. Using the Windows default one.")
+            self._mic_missing(name)
+        elif name:
+            self._mic_missing_told = ""   # it is back: say so again the next time it goes missing
         try:
             self._start_stream(device, callback)
         except sd.PortAudioError:
-            if not self._refresh_audio():   # a replugged microphone has a new number
+            if self._refresh_audio():   # a replugged microphone has a new number
+                self._start_stream(audio_devices.input_index(name), callback)
+            elif device is not None:    # the list cannot be refreshed now: the Windows default microphone
+                self._mic_missing(name)
+                self._start_stream(None, callback)
+            else:
                 raise
-            self._start_stream(audio_devices.input_index(name), callback)
+
+    def _mic_missing(self, name):
+        """Says once (until the microphone is back) that the chosen microphone is not there."""
+        if self._mic_missing_told != name:
+            self._mic_missing_told = name
+            self.notify("Your chosen microphone is not connected. Using the Windows default one.")
 
     def _start_stream(self, device, callback):
         self.stream = sd.InputStream(samplerate=core.SAMPLE_RATE, channels=1, dtype="int16",
@@ -443,9 +758,12 @@ class Engine:
 
     def _refresh_audio(self):
         """PortAudio lists the devices once, when it starts. Starts it again so a microphone plugged in later shows up.
-        Only while none of our streams is open; True when it was done."""
-        if self.recording or self.listening:
+        Only while none of our streams is open, and at most once every AUDIO_REFRESH_SECONDS (restarting PortAudio takes
+        time, and a missing microphone would otherwise restart it for every dictation); True when it was done."""
+        now = time.monotonic()
+        if self.recording or self.listening or now - self._audio_refresh_t < AUDIO_REFRESH_SECONDS:
             return False
+        self._audio_refresh_t = now
         try:
             sd._terminate()
             sd._initialize()
@@ -484,7 +802,8 @@ class Engine:
 
     def cancel(self):
         """Discard the current recording."""
-        self.note_mode = False
+        self.note_mode = self.command_mode = False
+        self.latched_t = 0.0
         if self._end_recording():
             self.timing = None
             self._drop_streaming()
@@ -499,10 +818,15 @@ class Engine:
         if not self._end_recording():
             return
         note, self.note_mode = self.note_mode, False
+        command, self.command_mode = self.command_mode, False
+        self.latched_t = 0.0
         streamer, self.streaming = self.streaming, None
         tm, self.timing = self.timing, None
         if tm:
             tm.mark("key_up")
+        if command and streamer:   # an instruction is short: sent whole
+            streamer.cancel()
+            streamer = None
         pcm = b"".join(self.chunks)
         if len(pcm) < core.SAMPLE_RATE * 2 * MIN_SECONDS:
             if streamer:
@@ -518,6 +842,9 @@ class Engine:
             return
         self.busy = True
         self.set_state("busy")
+        if command:
+            threading.Thread(target=self._process_command, args=(pcm, self.target), daemon=True).start()
+            return
         threading.Thread(target=self._process, args=(pcm, self.target, note, streamer, tm), daemon=True).start()
 
     def toggle_note(self, *_):
@@ -554,6 +881,7 @@ class Engine:
         secs = len(pcm) / (core.SAMPLE_RATE * 2)
         keep = " Your recording is kept: tray icon > Retry last dictation."
         delivered = False   # the text was pasted or the note saved: nothing left to retry
+        pieces = 0          # pieces sent to speech-to-text in the background (streaming.py)
         try:
             label = "" if note else exe
             with core.timing_scope(tm):   # the network steps mark stt_start/stt_done and llm_start/llm_done on tm
@@ -561,12 +889,15 @@ class Engine:
                     if tm:
                         tm.mark("stt_start")   # only the last piece is still to be sent
                     raw_streamed = streamer.finish()   # None: not cut into pieces, or it failed
+                    if raw_streamed is not None:
+                        pieces = getattr(streamer, "pieces", 0)
+                        log.info("streaming: %d pieces, %d sent while speaking", pieces, getattr(streamer, "early", 0))
                     if tm and raw_streamed is not None:
                         tm.mark("stt_done")
                 else:
                     raw_streamed = None
-                if raw_streamed is not None:
-                    res = core.process_text(self.cfg, raw_streamed, label, label)
+                if raw_streamed is not None:   # with the pieces' segment times, so pauses still make paragraphs
+                    res = core.process_text(self.cfg, raw_streamed, label, label, segments=getattr(streamer, "segments", None))
                 else:
                     res = core.process_detailed(self.cfg, pcm, label, label)
             raw, text = res.raw, res.text
@@ -581,6 +912,7 @@ class Engine:
                 delivered = True
                 outcome = "sent"
             elif text:
+                self.last_text = text   # for the paste-last and copy-last shortcuts (memory only)
                 try:
                     outcome = "sent" if self.paste(text) else "error"   # the pill reflects the paste only
                     delivered = True
@@ -599,7 +931,8 @@ class Engine:
                             **({"fidelity_fallback": True} if res.fidelity_fallback else {}),
                         }
                         if tm:   # where the time went, kept with the dictation (local only, see the Speed card)
-                            entry["timing"] = tm.entry(**core.timing_info(self.cfg))
+                            entry["timing"] = tm.entry(**core.timing_info(self.cfg), pieces=pieces,
+                                                       upload=core.upload_format(self.cfg))
                         core.add_history(entry)
                     except Exception:   # the text already landed: log it, never flash error over "sent"
                         log.exception("could not save the history entry")
@@ -643,11 +976,71 @@ class Engine:
         # paste.py checks the window is still the one the dictation started in, sends Ctrl+V, and restores the
         # old clipboard only when keep_clipboard is off and the clipboard still holds our text. Every dictation goes
         # through here (hold-to-talk, the keep-listening Type target, a recovered session), so clipboard_history applies to all.
-        if paste_mod.paste_text(text, self.target, self.cfg.get("keep_clipboard", False),
-                                clipboard_history=self.cfg.get("clipboard_history", True)) == paste_mod.COPIED:
+        result = paste_mod.paste_text(text, self.target, self.cfg.get("keep_clipboard", False),
+                                      clipboard_history=self.cfg.get("clipboard_history", True))
+        if result == paste_mod.COPIED:
             self.notify("Copied; the window changed")
             return False
+        if result == paste_mod.BLOCKED:
+            self._say_elevated()
+            return False
+        correction_watch.arm(text, self.cfg, self.notify)   # Learn from my corrections: watch this field for the user's fixes
         return True
+
+    def _say_elevated(self):
+        """The window in front runs as administrator and Vox does not (R2-M6): Windows drops keys sent to it, so the
+        text was only put on the clipboard. The long explanation once, a short line after that."""
+        if self._told_elevated:
+            self.notify("Copied: the window runs as administrator. Press Ctrl+V.")
+            return
+        self._told_elevated = True
+        self.notify("The window in front runs as administrator, so Windows does not let Vox paste into it. Your text "
+                    "is on the clipboard: press Ctrl+V.")
+
+    def _process_command(self, pcm, exe):
+        """Edit by voice (command_hotkey, experimental): the selected text and the spoken instruction go to the cleanup
+        server, and the answer is pasted over the selection. On any failure the selection is left as it was."""
+        try:
+            selection, problem = paste_mod.copy_selection(exe)
+            if problem:
+                self.notify(problem)
+                self.flash("error")
+                return
+            instruction = core.transcribe(self.cfg, core.upload_audio(self.cfg, pcm))
+            if not instruction or core.is_silence_hallucination(instruction):
+                self.notify("Vox did not hear what to change. Your text is unchanged.")
+                self.flash("error")
+                return
+            edited = command_mod.edit(self.cfg, selection, instruction)
+            result = paste_mod.paste_text(edited, exe, self.cfg.get("keep_clipboard", False),
+                                          clipboard_history=self.cfg.get("clipboard_history", True))
+            if result == paste_mod.PASTED:
+                log.info("edit by voice: applied (%d -> %d characters)", len(selection), len(edited))
+                self.flash("sent")
+                return
+            if result == paste_mod.BLOCKED:
+                self._say_elevated()
+            else:
+                self.notify("The window changed, so the edited text is only on the clipboard.")
+            self.flash("error")
+        except command_mod.Refused as e:
+            log.info("edit by voice: refused (%s)", e)
+            self.notify("Edit not applied: %s. Your text is unchanged." % e)
+            self.flash("error")
+        except core.ApiError as e:
+            log.error("edit by voice: api error %s", e.code)
+            self.notify("Edit not applied (%s). Your text is unchanged." % str(e)[:120])
+            self.flash("error")
+        except requests.RequestException as e:
+            self.notify("Edit not applied (network error: %s). Your text is unchanged." % type(e).__name__)
+            self.flash("error")
+        except Exception as e:
+            log.exception("edit by voice failed")
+            self.notify("Edit not applied (%s). Your text is unchanged." % type(e).__name__)
+            self.flash("error")
+        finally:
+            self.busy = False
+            self.set_state("idle")
 
     # ------------------------------------------------------------ keep listening
     # The session (listen.py) does the work; these are the engine's side: the microphone, the pill state, the setting.
@@ -883,6 +1276,8 @@ class Engine:
             recover_unfinished(self.cfg)   # a meeting cut off by a quit or a crash gets its live transcript back
         except Exception:
             log.exception("could not recover unfinished meetings")
+        self._hotkey_q = queue.Queue()   # from here on the hook only queues the keys (R2-M1)
+        threading.Thread(target=self._hotkey_loop, daemon=True, name="vox-hotkey").start()
         listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
         listener.daemon = True
         listener.start()
@@ -890,6 +1285,7 @@ class Engine:
         threading.Thread(target=self._serve, daemon=True, name="control").start()
         threading.Thread(target=self._watch_calendar, daemon=True, name="calendar").start()
         threading.Thread(target=self._watch_improve, daemon=True, name="improve").start()
+        threading.Thread(target=self._watch_overlay, daemon=True, name="overlay-watch").start()
         self.sync.start()
         self.icon.run_detached()
         log.info("engine started, hotkey=%s", self.cfg.get("hotkey"))

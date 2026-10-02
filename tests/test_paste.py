@@ -13,6 +13,8 @@ class FakeDeps:
         self.during_wait = None     # runs while paste_text sleeps after Ctrl+V: the user doing something else
         self.snapshot, self.restore_error = None, None   # the full clipboard (all formats) taken before our text
         self.history = []           # the `history` argument of every clip_set call
+        self.elevated, self.vox_elevated = False, False   # the window in front / Vox itself runs as administrator
+        self.selection, self.seq = None, 1                # what Ctrl+C copies (None: nothing selected); clipboard counter
 
     def foreground_exe(self):
         self.calls.append("foreground")
@@ -39,6 +41,23 @@ class FakeDeps:
 
     def send_ctrl_v(self):
         self.calls.append("ctrl_v")
+
+    def send_ctrl_shift_v(self):
+        self.calls.append("ctrl_shift_v")
+
+    def send_ctrl_c(self):
+        self.calls.append("ctrl_c")
+        if self.selection is not None:
+            self.clip, self.seq = self.selection, self.seq + 1
+
+    def clip_sequence(self):
+        return self.seq
+
+    def foreground_elevated(self):
+        return self.elevated
+
+    def self_elevated(self):
+        return self.vox_elevated
 
     def wait_modifiers_released(self):
         self.calls.append("modifiers")
@@ -357,3 +376,239 @@ def test_the_engine_passes_clipboard_history_off_to_every_paste(monkeypatch):
     e, calls = _engine_with(monkeypatch, "pasted", clipboard_history=False)
     e.paste("Hello.")
     assert calls == [("Hello.", "notepad.exe", False, {"clipboard_history": False})]
+
+
+# ---- terminals paste with Ctrl+Shift+V (task B2) --------------------------------------------------------------------------
+@pytest.mark.parametrize("exe", ["WindowsTerminal.exe", "wt.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "conhost.exe",
+                                 "alacritty.exe", "wezterm-gui.exe", "mintty.exe", "putty.exe"])
+def test_a_terminal_gets_ctrl_shift_v(exe):
+    assert paste.paste_chord(exe) == ("ctrl", "shift", "v")
+    d = FakeDeps(foreground=exe.lower())
+    assert paste.paste_text("ls -la", exe.lower(), False, deps=d) == "pasted"
+    assert "ctrl_shift_v" in d.calls and "ctrl_v" not in d.calls
+
+
+@pytest.mark.parametrize("exe", ["notepad.exe", "code.exe", "chrome.exe", "", None])
+def test_everything_else_gets_ctrl_v(exe):
+    assert paste.paste_chord(exe) == ("ctrl", "v")
+
+
+def test_the_chord_follows_the_window_in_front_when_no_target_was_captured():
+    d = FakeDeps(foreground="windowsterminal.exe")
+    paste.paste_text("hi", "", False, deps=d)                          # paste-last: any window
+    assert "ctrl_shift_v" in d.calls
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, s):
+        self.now += s
+
+
+def test_the_wait_for_held_keys_ends_when_they_come_up():
+    clock, states = FakeClock(), iter([True, True, True, False])
+    assert paste.wait_released(lambda: next(states), clock, clock.sleep, limit=2.0) is True
+    assert abs(clock.now - 0.06) < 1e-9                               # three short sleeps
+
+
+def test_the_wait_for_held_keys_is_bounded():
+    clock = FakeClock()
+    assert paste.wait_released(lambda: True, clock, clock.sleep, limit=0.4) is False
+    assert 0.4 <= clock.now <= 0.42
+
+
+def test_keys_already_up_do_not_wait_at_all():
+    clock = FakeClock()
+    assert paste.wait_released(lambda: False, clock, clock.sleep, limit=2.0) is True and clock.now == 0.0
+
+
+# ---- issue 49, Windows 5: no clipboard snapshot when it is not going to be restored ----------------------------------------
+def test_with_keep_clipboard_on_the_old_clipboard_is_never_read():
+    d = FakeDeps(clip="old")
+    d.clip_get = lambda: d.calls.append("read") or d.clip
+    paste.paste_text("Hello.", "notepad.exe", True, deps=d)
+    assert "snapshot" not in d.calls and d.calls.count("read") == 0
+
+
+def test_with_keep_clipboard_off_the_snapshot_is_still_taken():
+    d = FakeDeps(clip="old")
+    paste.paste_text("Hello.", "notepad.exe", False, deps=d)
+    assert "snapshot" in d.calls
+
+
+class SnapUser32(FakeUser32):
+    def __init__(self, formats):
+        super().__init__()
+        self.formats = formats   # [(fmt, size)]
+
+    def EnumClipboardFormats(self, fmt):
+        ids = [f for f, _ in self.formats]
+        if fmt == 0:
+            return ids[0] if ids else 0
+        i = ids.index(fmt)
+        return ids[i + 1] if i + 1 < len(ids) else 0
+
+    def GetClipboardData(self, fmt):
+        return fmt   # the handle is the format number
+
+
+class SnapKernel32(FakeKernel32):
+    def __init__(self, sizes):
+        self.sizes = sizes
+
+    def GlobalSize(self, handle):
+        return self.sizes[handle]
+
+
+def test_a_format_over_the_size_limit_is_left_out_and_logged(monkeypatch, caplog):
+    formats = [(13, 10), (0xC123, paste.CLIP_FORMAT_LIMIT + 1), (8, 20)]
+    monkeypatch.setattr(paste, "_user32", SnapUser32(formats))
+    monkeypatch.setattr(paste, "_kernel32", SnapKernel32(dict(formats)))
+    read = []
+    monkeypatch.setattr(paste, "_read_global", lambda handle, size: read.append(handle) or b"x" * size)
+    with caplog.at_level(logging.INFO, logger="vox"):
+        snap = paste.SystemDeps().clip_snapshot()
+    assert [f for f, _ in snap] == [13, 8] and 0xC123 not in read      # never even read
+    assert any("too big" in r.getMessage() for r in caplog.records)
+
+
+def test_a_clipboard_over_the_total_limit_gives_no_snapshot(monkeypatch):
+    big = paste.CLIP_FORMAT_LIMIT
+    formats = [(0xC001, big), (0xC002, big), (0xC003, big), (0xC004, big), (0xC005, big)]
+    monkeypatch.setattr(paste, "_user32", SnapUser32(formats))
+    monkeypatch.setattr(paste, "_kernel32", SnapKernel32(dict(formats)))
+    monkeypatch.setattr(paste, "_read_global", lambda handle, size: b"")
+    assert paste.SystemDeps().clip_snapshot() is None
+
+
+# ---- R2-M6: a window that runs as administrator ------------------------------------------------------------------------
+def test_an_elevated_window_gets_the_text_on_the_clipboard_and_no_keys():
+    d = FakeDeps(clip="old")
+    d.elevated = True
+    assert paste.paste_text("Hello.", "notepad.exe", False, deps=d) == "blocked"
+    assert "ctrl_v" not in d.calls and d.clip == "Hello."
+
+
+def test_an_elevated_vox_pastes_into_an_elevated_window_and_unknown_means_paste():
+    d = FakeDeps()
+    d.elevated, d.vox_elevated = True, True
+    assert paste.paste_text("Hello.", "notepad.exe", False, deps=d) == "pasted"
+    d = FakeDeps()
+    d.elevated = None                                                  # cannot tell: as before
+    assert paste.paste_text("Hello.", "notepad.exe", False, deps=d) == "pasted"
+
+
+def test_a_failing_elevation_check_does_not_stop_the_paste():
+    d = FakeDeps()
+
+    def boom():
+        raise OSError("access denied")
+
+    d.foreground_elevated = boom
+    assert paste.paste_text("Hello.", "notepad.exe", False, deps=d) == "pasted"
+
+
+# ---- edit by voice: copying the selection ----------------------------------------------------------------------------
+def test_copy_selection_reads_the_selection_and_puts_the_old_clipboard_back():
+    d = FakeDeps(clip="old")
+    d.selection = "the selected words"
+    d.snapshot = [(13, b"old")]
+    assert paste.copy_selection("notepad.exe", deps=d) == ("the selected words", "")
+    assert d.calls.index("modifiers") < d.calls.index("ctrl_c")
+    assert ("restore", d.snapshot) in d.calls
+
+
+def test_copy_selection_without_a_snapshot_puts_old_text_back():
+    d = FakeDeps(clip="old")
+    d.selection = "sel"
+    assert paste.copy_selection("notepad.exe", deps=d)[0] == "sel"
+    assert d.clip == "old"
+
+
+def test_nothing_selected_means_the_clipboard_never_changed_and_nothing_is_restored():
+    d = FakeDeps(clip="old")
+    d.sleep = lambda s: None
+    text, problem = paste.copy_selection("notepad.exe", deps=d)
+    assert text is None and "Select" in problem
+    assert not any(isinstance(c, tuple) and c[0] == "restore" for c in d.calls)
+
+
+def test_copy_selection_refuses_a_terminal_a_changed_window_and_an_elevated_one():
+    d = FakeDeps(foreground="windowsterminal.exe")
+    d.selection = "x"
+    assert paste.copy_selection("windowsterminal.exe", deps=d)[0] is None and "ctrl_c" not in d.calls
+    d = FakeDeps(foreground="chrome.exe")
+    assert "changed" in paste.copy_selection("notepad.exe", deps=d)[1]
+    d = FakeDeps()
+    d.elevated = True
+    assert "administrator" in paste.copy_selection("notepad.exe", deps=d)[1]
+
+
+@pytest.mark.parametrize("exe", ["Code.exe", "devenv.exe", "sublime_text.exe", "idea64.exe", "pycharm64.exe", "cursor.exe"])
+@pytest.mark.parametrize("line", ["    count = count + 1\n", "int x = 0;\r\n"])
+def test_an_editor_that_copies_the_whole_line_on_an_empty_selection_counts_as_nothing_selected(exe, line):
+    """Final fixes (windows 3): with nothing selected these editors copy the current line and its line break; editing
+    that and pasting it at the caret garbled the line."""
+    d = FakeDeps(foreground=exe, clip="old")
+    d.selection = line
+    d.snapshot = [(13, b"old")]
+    text, problem = paste.copy_selection(exe, deps=d)
+    assert text is None and "Select" in problem and "line" in problem
+    assert ("restore", d.snapshot) in d.calls                       # the old clipboard is back
+
+
+def test_a_real_selection_in_an_editor_still_works():
+    for sel in ("count = count + 1", "a\nb\n", "first line\nsecond line"):
+        d = FakeDeps(foreground="Code.exe", clip="old")
+        d.selection = sel
+        assert paste.copy_selection("Code.exe", deps=d) == (sel, "")
+    d = FakeDeps(foreground="notepad.exe", clip="old")          # an app that does not copy lines: a whole line is a selection
+    d.selection = "one whole line\r\n"
+    assert paste.copy_selection("notepad.exe", deps=d) == ("one whole line\r\n", "")
+
+
+def test_a_selection_of_only_spaces_is_no_selection():
+    d = FakeDeps(clip="old")
+    d.selection = "   "
+    assert paste.copy_selection("notepad.exe", deps=d)[0] is None
+
+
+def test_ctrl_shift_v_and_ctrl_c_are_sent_as_virtual_keys(monkeypatch):
+    import contextlib
+    import sys
+    import types
+    taps = []
+
+    class FakeKeyCode:
+        def __init__(self, vk):
+            self.vk = vk
+
+        @classmethod
+        def from_vk(cls, vk):
+            return cls(vk)
+
+    class FakeController:
+        @contextlib.contextmanager
+        def pressed(self, key):
+            taps.append(("down", key))
+            yield
+            taps.append(("up", key))
+
+        def tap(self, key):
+            taps.append(("tap", getattr(key, "vk", key)))
+
+    fake = types.ModuleType("pynput")
+    fake.keyboard = types.SimpleNamespace(Controller=FakeController, KeyCode=FakeKeyCode,
+                                          Key=types.SimpleNamespace(ctrl="ctrl", shift="shift"))
+    monkeypatch.setitem(sys.modules, "pynput", fake)
+    monkeypatch.setattr(paste, "_keyboard", None)
+    paste.SystemDeps().send_ctrl_shift_v()
+    assert taps == [("down", "ctrl"), ("down", "shift"), ("tap", 0x56), ("up", "shift"), ("up", "ctrl")]
+    taps.clear()
+    paste.SystemDeps().send_ctrl_c()
+    assert taps == [("down", "ctrl"), ("tap", 0x43), ("up", "ctrl")]

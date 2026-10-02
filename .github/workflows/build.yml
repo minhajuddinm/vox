@@ -110,6 +110,7 @@ jobs:
             --hidden-import pystray._win32 --hidden-import pynput.keyboard._win32 --hidden-import pynput.mouse._win32 `
             --paths ../relay --hidden-import relay `
             --collect-data soundcard --collect-data tzdata --collect-submodules recurring_ical_events `
+            --hidden-import soundfile --collect-binaries _soundfile_data --collect-data _soundfile_data `
             --exclude-module PIL._avif --exclude-module PIL.AvifImagePlugin --exclude-module PIL._webp --exclude-module PIL.WebPImagePlugin `
             vox_app.py
       - name: Build installer

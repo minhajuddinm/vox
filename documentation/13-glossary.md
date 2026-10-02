@@ -17,12 +17,17 @@
 | Fuzzy dictionary pass | The step after `apply_replacements` that puts a single-word term of 5+ letters right when the text has it in another case, and a term of 7+ letters also when the text has it one letter off (`fuzzy_dictionary`, `Terms.fuzzy`); words on the `COMMON_WORDS` stoplist are never changed. |
 | Benchmark | `tools/bench_cleanup.py`: a hand-run developer tool that scores a cleanup model on a 45-row synthetic corpus (latency, word recall, added words, guard pass, term accuracy); local only, not in CI. |
 | Raw transcript | The Whisper text before cleanup. Used as the fallback when cleanup fails. |
-| Style | Tone for cleanup: `formal`, `casual`, `very_casual`, `neutral`, or `raw` (no cleanup). Chosen per app. |
+| Style | Tone for cleanup: `formal`, `casual`, `very_casual`, `neutral`, or `raw` (no cleanup). Chosen per app. On Windows a per-app style can also be `code` (code mode in that app). |
+| Cue (list cue) | A spoken word that starts a list item: an ordinal in sequence (first, second; pehla, doosra), point/item/step/number one, or a bullet word (bullet point, next point). The list pass (`structure.py`, `Structure.java`) removes it and writes the item on its own line. |
+| Code mode | Windows only: in an editor or terminal (`code_apps`) or an app with the style `code`, spoken formatters (camel case, snake case, ...) and symbols (open paren, equals equals, ...) become code (`codemode.py`, [15-code-mode.md](15-code-mode.md)). |
+| Snippet | A trigger phrase and the text it types (`snippets` setting, `snippets.py`, `Snippets.java`); put in after the cleanup. |
 | App label | The name given to the cleanup model: exe name on Windows, app display name on Android. Never a window title. |
 | Term | A word or name in the dictionary that helps spelling (a plain dictionary line, or the right side of a replacement). |
 | Replacement | A `wrong => right` dictionary line applied to the final text. |
 | People | Extra dictionary terms for names. |
-| Keep listening | Windows session started by double-tapping the shortcut (or the note shortcut or the tray): audio cut at pauses into pieces and turned into text while you speak; target Note (one cleaned note at the end) or Type (each piece typed into the app it started in); a double press, the stop phrase, Esc, the tray, the note shortcut or the 60 minute limit ends it and saves. Android has none. |
+| Keep listening | Windows session started by double-tapping the shortcut (or the note shortcut or the tray): audio cut at pauses into pieces and turned into text while you speak; target Note (one cleaned note at the end) or Type (each piece typed into the app it started in); a double press, the stop phrase, the tray, the note shortcut or the 60 minute limit ends it and saves; Esc cancels it (no note). Android has none. |
+| Hands-free dictation | Windows: a dictation that keeps recording after the keys are let go, until the next press (the pill shows a stop square): from the hands-free shortcut (`hands_free_hotkey`, off by default), a tap with `hotkey_style` Hold or tap, or a voice note. |
+| Edit by voice | Windows, experimental (`command_hotkey`): select text, hold the shortcut, say what to change; the selection and the instruction go to the cleanup server and the answer replaces the selection after a guard. |
 | Listening target | `listen_target`: `note` or `type`, what keep listening does with the text. |
 | Note shortcut | `note_hotkey` (default Ctrl+Alt+N): a second shortcut that starts and stops a keep-listening session with the target Note. |
 | Piece | One utterance of a keep-listening session (3 to 20 s) or of a long dictation; each is one speech-to-text request. |

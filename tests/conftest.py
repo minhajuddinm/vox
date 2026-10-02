@@ -97,3 +97,16 @@ def route_posts_through_requests(request, monkeypatch):
     except Exception:   # relay-only runs (CI) have no Windows packages
         return
     monkeypatch.setattr(vox_core, "_post", lambda url, **kw: vox_core.requests.post(url, **kw))
+
+
+@pytest.fixture(autouse=True)
+def no_real_ui_automation(monkeypatch):
+    """No test reads the real desktop: the auto-learn watcher (correction_watch.py) gets no UI Automation provider unless
+    a test gives it a fake one."""
+    try:
+        import correction_watch
+    except Exception:   # relay-only runs (CI) have no Windows packages
+        return
+    monkeypatch.setattr(correction_watch, "make_provider", lambda: None)
+    monkeypatch.setattr(correction_watch, "_watcher", None)
+    monkeypatch.setattr(correction_watch, "_tried", False)

@@ -343,6 +343,7 @@ public final class RelayIntegrationTest {
             keysStayHome(a);
             t = pagingToNewPhone(relay, a, t);
             wrongToken(relay, a, t);
+            fastClockStillConverges(a, b);
             ok = true;
         } catch (Failure f) {
             System.err.println("FAIL " + f.getMessage());
@@ -566,5 +567,37 @@ public final class RelayIntegrationTest {
         eq("401: the note is still waiting", true, x.note(id(3)).dirty);
         eq("401: the cursor did not move", "0", x.store.getMeta("relay_cursor", "0"));
         eq("401: nothing reached the relay", null, onRelay(a, id(3)));
+    }
+
+    /**
+     * Final fixes (relay-docs 1): phone A's clock is an hour fast. B edits A's note, then deletes it: A takes both. The
+     * relay keeps A's own time for the note (a smaller one would make A ignore every later change for good) and raises
+     * B's winning writes above it.
+     */
+    private static void fastClockStillConverges(Phone a, Phone b) throws Exception {
+        double now = System.currentTimeMillis() / 1000.0;
+        a.store.add(id(4000), "written on the fast phone", now + 3600);
+        eq("fast: a sends its note", "1/0//", outcome(a.sync()).substring(0, 5));
+        b.sync();
+        eq("fast: b has it", "written on the fast phone", b.note(id(4000)).text);
+        Note nb = b.note(id(4000));
+        nb.text = "edited on b";
+        nb.updatedAt = now + 30;
+        nb.dirty = true;
+        eq("fast: b's later edit is stored", 1, b.sync().pushed);
+        a.sync();
+        eq("fast: a takes b's edit", "edited on b", a.note(id(4000)).text);
+        nb = b.note(id(4000));
+        nb.deleted = true;
+        nb.title = "";
+        nb.text = "";
+        nb.raw = "";
+        nb.tags = new ArrayList<>();
+        nb.updatedAt = now + 40;
+        nb.dirty = true;
+        eq("fast: b's delete is stored", 1, b.sync().pushed);
+        a.sync();
+        eq("fast: a takes the delete", true, a.note(id(4000)).deleted);
+        eq("fast: a and b agree on the time", b.note(id(4000)).updatedAt, a.note(id(4000)).updatedAt);
     }
 }

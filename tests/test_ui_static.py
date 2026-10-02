@@ -32,8 +32,11 @@ DYNAMIC_LOOKUPS = {
         'role + "-models"': ["stt-models", "llm-models"],
         '"test-" + role': ["test-stt", "test-llm"],
         # The two `for (const ... of [["stt-url", ...], ...])` loops over the per-role override fields.
-        "id": ["stt-url", "stt-key", "llm-url", "llm-key"],
-        'id + "-status"': ["stt-url-status", "llm-url-status"],
+        # ... and the extra shortcuts' rows (SHORTCUTS: renderSettings, shortcutStatus and their onchange loop).
+        "id": ["stt-url", "stt-key", "llm-url", "llm-key", "hands-free-hotkey", "paste-last-hotkey", "copy-last-hotkey",
+               "command-hotkey"],
+        'id + "-status"': ["stt-url-status", "llm-url-status", "hands-free-hotkey-status", "paste-last-hotkey-status",
+                           "copy-last-hotkey-status", "command-hotkey-status"],
     },
     "android": {
         'role + "-status"': ["stt-status", "llm-status"],
@@ -206,6 +209,16 @@ def test_cleanup_strength_row_and_use_raw_button_exist(page):
     assert select and re.findall(r'value="(\w+)"', select.group(1)) == ["light", "standard"]
     assert '$("cleanup-strength").value = ' in html and "cleanup_strength" in html
     assert "data-raw=" in html and "Use raw" in html
+
+
+@pytest.mark.parametrize("page", list(PAGES))
+def test_lists_and_paragraphs_row_exists(page):
+    """Settings, Voice & audio: "Lists and paragraphs" with Off, Auto and Lists only, saved as `structure`."""
+    html = read(PAGES[page])
+    select = re.search(r'<select[^>]*id="structure"[^>]*>(.*?)</select>', html, re.S)
+    assert select and re.findall(r'value="(\w+)"', select.group(1)) == ["off", "auto", "lists"]
+    assert "Lists only" in select.group(1) and "Lists and paragraphs" in html
+    assert '$("structure").value = structureMode(c.structure)' in html and "save({ structure: " in html
 
 
 # ---------- the checkers themselves: they must fire on the mistakes they exist for ----------

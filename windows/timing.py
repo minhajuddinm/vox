@@ -61,10 +61,17 @@ class Timing:
             "total": _span(m.get("key_up"), m.get("inserted")),
         }
 
-    def entry(self, stt_model="", llm_model="", provider="", relay=False):
-        """What goes into the history and into `summarize`."""
-        return {"stages": self.stages(), "stt_model": stt_model, "llm_model": llm_model, "provider": provider,
-                "relay": bool(relay)}
+    def entry(self, stt_model="", llm_model="", provider="", relay=False, pieces=0, upload=""):
+        """What goes into the history and into `summarize`. Windows also records, when there is something to say,
+        `pieces` (the recording went to speech-to-text in that many pieces while it was spoken, streaming.py) and
+        `upload` (the audio format sent: "flac" or "wav"); the Android app and the Speed card ignore both."""
+        out = {"stages": self.stages(), "stt_model": stt_model, "llm_model": llm_model, "provider": provider,
+               "relay": bool(relay)}
+        if pieces:
+            out["pieces"] = int(pieces)
+        if upload:
+            out["upload"] = upload
+        return out
 
 
 def median(values):

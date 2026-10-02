@@ -92,6 +92,10 @@ public final class Prefs {
     public String dictionaryRaw() { return sp.getString("dictionary", DEFAULT_DICTIONARY); }
     public String peopleRaw() { return sp.getString("people", ""); }
     public String appStylesRaw() { return sp.getString("app_styles", DEFAULT_APP_STYLES); }
+    /** The snippets ({trigger: text}) as stored: their JSON text, "{}" when none. Synced with the profile. */
+    public String snippetsRaw() { return sp.getString("snippets", "{}"); }
+    /** The snippets, cleaned (Snippets.clean: at most 50, 2,000 characters each). */
+    public Map<String, String> snippets() { return ProfileMap.snippetsOf(snippetsRaw()); }
     public String defaultStyle() { return nonEmpty(sp.getString("default_style", ""), "neutral"); }
     /** When false, nothing dictated is saved on the phone. */
     public boolean keepHistory() { return sp.getBoolean("keep_history", true); }
@@ -100,6 +104,8 @@ public final class Prefs {
     public String cleanupMinWords() { return sp.getString("cleanup_min_words", "3"); }
     /** The setting "Cleanup strength": "light" (the default: keep every spoken word) or "standard" (fillers and false starts may go). */
     public String cleanupStrength() { return Fidelity.cleanStrength(sp.getString("cleanup_strength", "")); }
+    /** The setting "Lists and paragraphs": off, auto (the default) or lists (Structure.mode). Per device, not synced. */
+    public String structure() { return Structure.mode(sp.getString("structure", "")); }
     public boolean onlyWhenTyping() { return sp.getBoolean("only_typing", true); }
     /** "Always show the bubble": the mic bubble stays on screen and ignores "only_typing". Per device, not synced. */
     public boolean alwaysShowBubble() { return sp.getBoolean("always_show_bubble", false); }
@@ -111,6 +117,34 @@ public final class Prefs {
     public int noteBubbleY() { return sp.getInt("note_bubble_y", -1); }
     /** Keep a "Record note" notification in the shade (off by default). */
     public boolean noteNotification() { return sp.getBoolean("note_notification", false); }
+    /** "Learn from my corrections" (auto_learn): on unless turned off. Kept on this phone only (not in the synced profile). */
+    public boolean autoLearn() { return sp.getBoolean("auto_learn", true); }
+    /** The "Recently learned" list (learned_log) as stored JSON, oldest first. Kept on this phone only. */
+    public String learnedLogRaw() { return sp.getString("learned_log", "[]"); }
+
+    /** The dictionary is read, changed and written back as one string: one writer at a time for the learned corrections. */
+    private static final Object LEARN_LOCK = new Object();
+
+    /**
+     * Adds corrections the user made in text Vox typed (Learn from my corrections) to the dictionary, as the "Fix a word"
+     * flow does: "wrong => right" lines, plus the right word when it looks like a name, and records them in learned_log.
+     * Returns the pairs really added (none when they are known already or the dictionary is full).
+     */
+    public List<String[]> learnCorrections(List<String[]> pairs) {
+        synchronized (LEARN_LOCK) {
+            AutoLearn.Applied a = AutoLearn.applyLearned(dictionaryRaw(), learnedLogRaw(), pairs, System.currentTimeMillis() / 1000.0);
+            if (!a.added.isEmpty()) sp.edit().putString("dictionary", a.dictionary).putString("learned_log", a.log).apply();
+            return a.added;
+        }
+    }
+
+    /** Removes the "Recently learned" entry made at t and the dictionary lines it added. */
+    public void removeLearned(double t) {
+        synchronized (LEARN_LOCK) {
+            String[] r = AutoLearn.removeLearned(dictionaryRaw(), learnedLogRaw(), t);
+            sp.edit().putString("dictionary", r[0]).putString("learned_log", r[1]).apply();
+        }
+    }
 
     public SharedPreferences.Editor edit() { return sp.edit(); }
 
@@ -129,6 +163,7 @@ public final class Prefs {
         m.put("cleanup", cleanupEnabled());
         m.put("language", language());
         m.put("my_cleanup_rules", myCleanupRules());
+        m.put("snippets", snippetsRaw());
         m.put("provider", provider());
         m.put("base_url", baseUrl());
         m.put("stt_base_url", raw("stt_base_url"));

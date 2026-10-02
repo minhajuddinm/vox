@@ -154,7 +154,11 @@ public class MainActivity extends Activity {
                 cfg.put("cleanup", prefs.cleanupEnabled());
                 cfg.put("cleanup_min_words", ApiClient.cleanMinWords(prefs.cleanupMinWords()));
                 cfg.put("cleanup_strength", prefs.cleanupStrength());
+                cfg.put("structure", prefs.structure());
+                cfg.put("snippets", new JSONObject(prefs.snippets()));
                 cfg.put("keep_history", prefs.keepHistory());
+                cfg.put("auto_learn", prefs.autoLearn());
+                cfg.put("learned_log", new JSONArray(PlainJson.stringify(AutoLearn.learnedLog(prefs.learnedLogRaw()))));
                 cfg.put("only_typing", prefs.onlyWhenTyping());
                 cfg.put("always_show_bubble", prefs.alwaysShowBubble());
                 cfg.put("note_bubble", prefs.noteBubble());
@@ -252,7 +256,10 @@ public class MainActivity extends Activity {
                 if (c.has("cleanup")) e.putBoolean("cleanup", c.getBoolean("cleanup"));
                 if (c.has("cleanup_min_words")) e.putString("cleanup_min_words", String.valueOf(ApiClient.cleanMinWords(c.getString("cleanup_min_words"))));
                 if (c.has("cleanup_strength")) e.putString("cleanup_strength", Fidelity.cleanStrength(c.getString("cleanup_strength")));
+                if (c.has("structure")) e.putString("structure", Structure.mode(c.getString("structure")));
+                if (c.has("snippets")) e.putString("snippets", PlainJson.stringify(ProfileMap.snippetsOf(c.getJSONObject("snippets").toString())));
                 if (c.has("keep_history")) e.putBoolean("keep_history", c.getBoolean("keep_history"));
+                if (c.has("auto_learn")) e.putBoolean("auto_learn", c.getBoolean("auto_learn"));
                 if (c.has("only_typing")) e.putBoolean("only_typing", c.getBoolean("only_typing"));
                 if (c.has("always_show_bubble")) e.putBoolean("always_show_bubble", c.getBoolean("always_show_bubble"));
                 if (c.has("note_bubble")) e.putBoolean("note_bubble", c.getBoolean("note_bubble"));
@@ -449,6 +456,24 @@ public class MainActivity extends Activity {
                 arr.put(new JSONArray().put(p[0]).put(p[1]));
             }
             return arr.toString();
+        }
+
+        /**
+         * Removes the "Recently learned" entry made at t (Learn from my corrections) and the dictionary lines it added.
+         * Answers {"dictionary": [lines], "learned_log": [...]} as saved, for the page.
+         */
+        @JavascriptInterface
+        public String learnedRemove(String t) {
+            try {
+                prefs.removeLearned(Double.parseDouble(t));
+                SyncWorker.kick(MainActivity.this);   // the dictionary is part of the synced profile
+            } catch (RuntimeException ignored) { }
+            try {
+                return new JSONObject().put("dictionary", lines(prefs.dictionaryRaw()))
+                        .put("learned_log", new JSONArray(PlainJson.stringify(AutoLearn.learnedLog(prefs.learnedLogRaw())))).toString();
+            } catch (Exception e) {
+                return "{\"dictionary\":[],\"learned_log\":[]}";
+            }
         }
 
         /** Empty when the server address is acceptable, otherwise the reason it is not. */

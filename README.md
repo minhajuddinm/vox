@@ -22,19 +22,24 @@ Vox was written by Muhammad Minhajuddin ([minhajuddinm](https://github.com/minha
 - **Your choice of provider.** Presets for Groq (free tier), OpenAI, OpenRouter, Together AI, Mistral, Ollama, LM Studio and a Speaches / faster-whisper server, or any OpenAI-compatible address. Speech and cleanup can use different servers and keys. The model list comes from the server, and a **Test** button checks each one.
 - **Tone per app.** Formal, Neutral, Casual, Very casual or Raw (no cleanup), chosen by the app you type in.
 - **Personal dictionary.** Your words, people's names and `wrong => right` replacements. Vox puts a one-word term back in your spelling when the text has it in another case (five letters or more) or one letter off (seven letters or more).
+- **Learn from my corrections.** Fix a word in the text Vox just typed (within 3 minutes, before you send it) and Vox adds the fix to your dictionary, with a message saying so. Works in fields that show their text to the system (Notepad, Word, browsers, most Android apps), not in terminals. Only the changed words are kept; a Recently learned list on the Dictionary page undoes one. On by default; switch in Settings, Privacy.
 - **About you.** A short text about yourself (names, jargon, languages you mix) that the cleanup model reads first.
-- **Spoken commands.** "new line", "new paragraph", "comma", "question mark"; spoken lists become lists.
+- **Spoken commands.** "new line", "new paragraph", "comma", "question mark".
+- **Lists and paragraphs.** Say "first ... second ...", "point one ... point two", "bullet point ..." or "pehla ... doosra ..." and Vox writes a numbered or bulleted list, keeping every other word; commas alone never make a list. On Windows a long pause starts a new paragraph in a long dictation. Off, Auto or Lists only in Settings.
+- **Snippets.** Say a phrase such as "my email" or "my signature" and Vox types the text you saved for it. The saved text is added after the cleanup, so it is never sent to the cleanup server.
 - **Nothing is lost.** A failed dictation is kept and can be retried. A silent recording is not uploaded.
 - **History and a Speed card.** Search, copy and fix past dictations; see where the time of a dictation goes. Timings stay on the device.
 - **Optional relay (self-hosted).** A one-file server you run on a Raspberry Pi or any PC on your own Tailscale network. It syncs voice notes and your profile (About you, dictionary, people) between devices, and can act as the AI server so your provider key lives only on the relay. See [relay/README.md](relay/README.md).
 
 ### Windows only
 
+- **Code mode.** In code editors and terminals, "camel case user name" types `userName`, "snake case max retries" `max_retries`, "open paren" `(`, "equals equals" `==`, and what you say there is not sent to the AI cleanup unless you choose it ([the whole table](documentation/15-code-mode.md)).
 - **Keep listening.** Double-tap the shortcut and talk for up to 60 minutes. **Note** (default) saves one cleaned note at the end; **Type** types each piece into the app you started in. A second shortcut (Ctrl + Alt + N) starts and stops a note.
 - **Voice notes.** Record a note that is saved to a searchable list instead of being typed.
 - **Meeting notes (beta).** Records your microphone and the PC's audio, shows a live transcript, answers questions about the meeting, and writes a summary with decisions and action items. Optional Google Calendar or ICS link.
 - **Improve my cleanup.** A stronger model reads some of your saved dictations and suggests dictionary words and cleanup rules. It sends nothing until you press **Run once** and then **Send**, and you pick what to keep.
-- Microphone choice, API key protected by your Windows login (DPAPI), paste only into the window you started in, and a tray item to run the relay on the PC.
+- **Shortcuts.** Hold or tap (a quick tap starts hands-free dictation, if you choose it), an optional hands-free shortcut (off by default; for example Ctrl + Win + H), Esc to cancel, Shift + Alt + Z to paste your last dictation again, an optional copy-last shortcut, and **edit by voice** (experimental, off by default: select text, hold a shortcut, say what to change).
+- Microphone choice, API key protected by your Windows login (DPAPI), paste only into the window you started in (Ctrl + Shift + V in terminals), uploads while you speak and FLAC to Groq and OpenAI, and a tray item to run the relay on the PC.
 
 ### Android only
 
@@ -75,6 +80,7 @@ The Windows app and the earlier Android app have been used on real devices, but 
 - **Keep listening and Improve my cleanup have not run with a real microphone or model.** Checklists: [p9e](documentation/specs/p9e-keep-listening.md), [p9f](documentation/specs/p9f-improve-my-cleanup.md).
 - **The new cleanup prompt and the word check have not been measured on a real model.** The thresholds were tuned on written examples ([p9a](documentation/specs/p9a-cleanup-keeps-my-words.md)).
 - **The relay has not run on a real Raspberry Pi or over Tailscale**, and the Windows build that runs the relay (`Vox.exe --relay`) has not been built and started yet. Its tests run on Linux x86 and arm64 in CI.
+- **Lists, code mode and snippets have only been tested on text**, not on real speech, in a real editor or on a phone; how Whisper writes the spoken cues and symbol names on real speech is unconfirmed.
 - **Meeting notes are beta** and have no automated tests.
 - The Windows installer is not code-signed, and the Android APK is installed from a file, so both get warnings (see [Install](#install)).
 - On Android the API keys, relay token and history are stored unencrypted inside the app's private storage.
@@ -121,7 +127,9 @@ To update, install the new `Vox.apk` over the old one. If Android refuses the up
 | What | How |
 |---|---|
 | Dictate | Click into a text box, **hold Ctrl + Win**, speak, **release**. The text is pasted about a second later |
-| Keep listening | **Double-tap Ctrl + Win** and speak. Double-tap again, say "stop listening" or press **Esc** to end it and save |
+| Keep listening | **Double-tap Ctrl + Win** and speak. Double-tap again or say "stop listening" to end it and save; **Esc** cancels it without saving |
+| Hands-free dictation | Settings, "A quick tap of the dictation shortcut": Hold or tap (a tap starts, the next press sends), or set a hands-free shortcut in Settings (off by default; for example Ctrl + Win + H). **Esc** cancels any recording |
+| Paste the last dictation again | **Shift + Alt + Z** |
 | Voice note | **Ctrl + Alt + N** to start, again to stop; or the tray menu |
 | Open the window | Double-click the tray icon, or search **Vox** in the Start menu |
 
@@ -163,6 +171,8 @@ Short version (the full page is [documentation/09-security-privacy.md](documenta
 - **No Vox server, no analytics, no accounts.** Nothing is sent to the developers.
 - **Your audio** goes to the speech server you chose. **The text** of what you said, your About you text, dictionary, people and the name of the app you are typing in go to the cleanup server you chose. The dictionary and people also go to the speech server as a spelling hint. Never the window title.
 - **The relay** gets data only if you switch it on: voice notes and your profile for sync; audio and text in transit if you use it as the AI server. API keys go there only if you turn on a separate switch (off by default).
+- **Learn from my corrections** (both apps, **on by default**; Settings, Privacy): for up to 3 minutes after Vox types, it reads the text of the focused field in that window or app (up to 20,000 characters, in memory only; password fields never) to learn the words you fix. Only the fixed words are kept, in your dictionary, which goes to your speech and cleanup servers as hints and to your relay when sync is on.
+- **Edit by voice** (Windows, experimental, off by default) sends the selected text and your instruction to the cleanup server. Vox copies the selection with Ctrl+C, so Windows clipboard history (and the cloud clipboard, if Windows clipboard sync is on) can keep it.
 - **Improve my cleanup** (Windows) is the only feature that sends saved dictations, and only after you press **Run once** and **Send**.
 - **On your PC:** settings, history and notes are in `%APPDATA%\Vox` and `Documents\Vox Notes`, as plain files; the API keys are protected by DPAPI. Keep-listening audio is written to `%APPDATA%\Vox\listen` while it runs and stays there after a crash until you recover or delete it.
 - **On Android:** keys, relay token and history are in the app's private storage, unencrypted.

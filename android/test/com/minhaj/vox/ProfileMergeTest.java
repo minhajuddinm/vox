@@ -116,7 +116,7 @@ public final class ProfileMergeTest {
 
         // the field lists are exactly those of windows/sync.py (PROFILE_FIELDS, PROFILE_KEY_FIELDS); the profilefields
         // golden rows pin the same thing against the Python side
-        eq("shared fields", list("user_context", "dictionary", "people", "default_style", "cleanup", "language", "my_cleanup_rules"),
+        eq("shared fields", list("user_context", "dictionary", "people", "default_style", "cleanup", "language", "my_cleanup_rules", "snippets"),
                 new ArrayList<>(ProfileMerge.SHARED_FIELDS));
         eq("key fields", list("provider", "base_url", "stt_base_url", "llm_base_url", "stt_model", "llm_model",
                 "llm_reasoning", "api_key", "stt_api_key", "llm_api_key"), new ArrayList<>(ProfileMerge.KEY_FIELDS));

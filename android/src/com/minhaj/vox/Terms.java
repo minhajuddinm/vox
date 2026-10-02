@@ -96,6 +96,11 @@ final class Terms {
         "tiger tired toast toggle topic torch trace tribe trick trunk tutor twist ultra uncle unite unity " +
         "upset vague valid vital vowel wagon weird whale wheat wider wound wrist youth ";
     private static final Set<String> COMMON_WORDS = new HashSet<>(Arrays.asList(COMMON.trim().split(" ")));
+
+    /** True for a lowercase word on the COMMON list (AutoLearn's ordinary words use it too). */
+    static boolean isCommonWord(String lower) {
+        return COMMON_WORDS.contains(lower);
+    }
     private static final Pattern WORD = Pattern.compile("[\\p{L}\\p{N}_]+");
 
     /**

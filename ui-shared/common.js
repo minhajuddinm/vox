@@ -7,6 +7,36 @@ function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add
 // Dictionary lines: "word" is a term, "wrong => right" is a replacement.
 function dictRepls(lines) { return (lines || []).filter(l => l.includes("=>")).map(l => l.split("=>").map(s => s.trim())); }
 function dictLines(terms, repl) { return [...terms, ...repl.map(([w, r]) => `${w} => ${r}`)]; }
+// Snippets ({trigger: text}): the same caps as snippets.py and Snippets.java, which clean the setting again when they use it.
+const SNIP_MAX = 50, SNIP_TEXT_MAX = 2000, SNIP_TRIGGER_MAX = 100, SNIP_TOTAL_MAX = 20000;
+// Bytes a text takes in the relay's profile (JSON with ASCII escapes: 6 for a letter outside ASCII, 12 for an emoji), as
+// snippets.wire_size and Snippets.wireSize count them for SNIP_TOTAL_MAX.
+function snipWireSize(s) {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); n += '"\\\n\r\t\b\f'.includes(s[i]) ? 2 : (c >= 32 && c <= 126 ? 1 : 6); }
+  return n;
+}
+// {ok, map, msg}: the snippets with this one added (a trigger already there, case ignored, gets the new text, at the end).
+function snippetsAdd(map, trigger, text) {
+  const t = String(trigger ?? "").replace(/[ \t\r\n]+/g, " ").trim(), x = String(text ?? "").replace(/\r\n?/g, "\n");
+  if (!t || !x.trim()) return { ok: false, map, msg: "Type the phrase and the text it stands for" };
+  if (t.length > SNIP_TRIGGER_MAX) return { ok: false, map, msg: `The phrase can be up to ${SNIP_TRIGGER_MAX} characters` };
+  if (!/[\p{L}\p{N}\p{M}]/u.test(t)) return { ok: false, map, msg: "The phrase needs at least one letter or digit" };
+  const out = {};
+  for (const [k, v] of Object.entries(map || {})) if (k.toLowerCase() !== t.toLowerCase()) out[k] = v;
+  if (Object.keys(out).length >= SNIP_MAX) return { ok: false, map, msg: `Up to ${SNIP_MAX} snippets` };
+  const cut = [...x].length > SNIP_TEXT_MAX;
+  out[t] = cut ? [...x].slice(0, SNIP_TEXT_MAX).join("") : x;
+  let total = 0;
+  for (const [k, v] of Object.entries(out)) total += snipWireSize(k) + snipWireSize(v);
+  if (total > SNIP_TOTAL_MAX) return { ok: false, map, msg: "Not added: too much snippet text to sync (letters outside A-Z count six times). Remove or shorten a snippet first" };
+  return { ok: true, map: out, msg: cut ? `Added, cut to ${SNIP_TEXT_MAX.toLocaleString("en-US")} characters` : "Added" };
+}
+function snippetsRemove(map, trigger) { const out = {}; for (const [k, v] of Object.entries(map || {})) if (k !== trigger) out[k] = v; return out; }
+// One line of a saved text for the list: line breaks shown as " / ", cut at 80 characters.
+function snippetPreview(text) { const s = String(text ?? "").replace(/\n+/g, " / "); return s.length > 80 ? s.slice(0, 79) + "…" : s; }
+// "Lists and paragraphs": off, auto or lists; anything else is auto (structure.py structure_mode, Structure.mode).
+function structureMode(v) { const s = String(v ?? "").trim().toLowerCase(); return ["off", "auto", "lists"].includes(s) ? s : "auto"; }
 function aboutCount() {
   const n = $("about").value.length, s = $("about-status");
   s.className = "status" + (n > ABOUT_MAX ? " bad" : "");
@@ -84,4 +114,14 @@ function relayCheckRows(r) {
     ["Token", r.token_ok ? "Accepted" : r.reachable ? "Refused" : "Not checked", r.token_ok ? "ok" : r.reachable ? "bad" : "dim"]];
   if (r.ok && r.device_name) rows.push(["This device", r.device_name, ""]);
   return rows;
+}
+// Learn from my corrections (setting auto_learn). One text for the switch on both pages.
+const AUTO_LEARN_TEXT = "On by default. For up to 3 minutes after Vox types, or until you send it, Vox reads the text of the focused field in that app (up to 20,000 characters; it can be another field there) to notice when you fix a word, and adds the fix to your dictionary. Only the changed words are kept; numbers and swaps of everyday words are not learned. Your dictionary goes to your speech and cleanup servers as spelling hints and, with sync on, to your relay. Password fields are never read.";
+// The "Recently learned" list of the Dictionary page from learned_log ({t, wrong, right, word}, oldest first): newest first,
+// at most 20. Each Remove button carries data-unlearn = the entry's t; the page asks its bridge to remove that entry and the
+// dictionary lines it added.
+function learnedHtml(log) {
+  const rows = (Array.isArray(log) ? log : []).filter(e => e && typeof e.wrong === "string" && typeof e.right === "string").slice(-20).reverse();
+  if (!rows.length) return '<div class="dempty">Nothing learned yet. Fix a word in text Vox just typed and the fix shows up here.</div>';
+  return rows.map(e => `<div class="lrow"><span class="lw">${esc(e.wrong)}<i>→</i><b>${esc(e.right)}</b></span><span class="la">${esc(agoText(e.t))}</span><button class="btn ghost" data-unlearn="${esc(String(e.t))}">Remove</button></div>`).join("");
 }

@@ -117,7 +117,7 @@ def test_a_failure_hands_back_to_the_normal_path():
 
 def test_silent_pieces_are_skipped_and_hallucinated_ones_dropped():
     stt = FakeStt()
-    s, text = run(stt, silence(13) + silence(1) + tone(13) + silence(1) + tone(2))
+    s, text = run(stt, silence(13) + silence(1) + tone(13) + silence(1) + tone(2), segmenter=core.Segmenter())   # 12-28 s pieces
     assert text == "piece1 piece2" and len(stt.calls) == 2 and s.pieces == 3
     hallucination = lambda cfg, wav, context="": "Thank you."   # noqa: E731
     s2, text2 = run(hallucination, tone(13) + silence(1) + tone(3))
@@ -154,6 +154,47 @@ def test_feed_never_blocks_or_raises_after_cancel():
     s.start()
     s.cancel()
     s.feed(b"\x00\x00" * 100)
+
+
+# ------------------------------------------------- final fixes (windows 1): segment times through the pieces
+SENT1 = " ".join(["one"] * 34) + " end."
+SENT2 = " ".join(["two"] * 34) + " end."
+
+
+class SegStt:
+    """A speech server that answers with segment times (as transcribe keeps them for last_segments): one segment per
+    piece, from 0.5 s to 5 s of the piece."""
+    def __init__(self, texts):
+        self.texts, self.n = list(texts), 0
+
+    def __call__(self, cfg, wav, context=""):
+        text = self.texts[self.n]
+        self.n += 1
+        core._stt_local.segments = [{"start": 0.5, "end": 5.0, "text": text}]
+        return text
+
+
+def test_the_pieces_keep_their_segment_times_shifted_by_where_each_piece_starts():
+    s, text = run(SegStt([SENT1, SENT2]), tone(13) + silence(1.5) + tone(5), block=3200)
+    assert text == SENT1 + " " + SENT2 and s.pieces == 2
+    first, second = s.segments
+    assert first["start"] == 0.5 and second["text"] == SENT2
+    assert second["start"] > first["end"] + 1.2                 # the pause between the pieces is still there
+    assert abs(second["start"] - (s.piece_starts[1] + 0.5)) < 1e-6 and s.piece_starts[0] == 0.0
+
+
+def test_a_streamed_dictation_gets_its_paragraph_break_at_the_pause():
+    s, text = run(SegStt([SENT1, SENT2]), tone(13) + silence(1.5) + tone(5), block=3200)
+    cfg = {"cleanup": False, "default_style": "neutral", "structure": "auto"}
+    out = core.process_text(cfg, text, "notepad.exe", "notepad.exe", s.segments).text
+    parts = out.split("\n\n")
+    assert len(parts) == 2 and parts[0].lower().startswith("one") and parts[1].lower().startswith("two")
+    assert "\n" not in core.process_text(cfg, text, "notepad.exe", "notepad.exe").text      # without the times: one block
+
+
+def test_segments_are_none_when_a_piece_with_text_had_none():
+    s, text = run(FakeStt(), tone(13) + silence(1) + tone(5))
+    assert text == "piece1 piece2" and s.segments is None
 
 
 # ------------------------------------------------- the text half of the pipeline
@@ -201,3 +242,35 @@ def test_piece_text_skips_silence_and_hallucinations():
 def test_piece_text_uses_the_real_transcribe_by_default(monkeypatch):
     monkeypatch.setattr(core, "transcribe", lambda cfg, wav, context="": "from core")
     assert streaming.piece_text({}, tone(1), "") == "from core"
+
+
+# ------------------------------------------------- every recording longer than about 8 s (task B4)
+def test_a_nine_second_recording_with_a_pause_is_sent_in_pieces_while_speaking():
+    stt = FakeStt()
+    s, text = run(stt, tone(5) + silence(1) + tone(3))
+    assert text == "piece1 piece2" and s.pieces == 2
+
+
+def test_the_pieces_are_six_to_twenty_seconds():
+    seg = streaming.StreamingStt({}).seg
+    assert seg.min_bytes == 6 * RATE * 2 and seg.max_bytes == 20 * RATE * 2
+
+
+def test_pieces_cut_before_the_end_count_as_sent_while_speaking():
+    import time as _time
+    stt = FakeStt()
+    s = streaming.StreamingStt({}, transcribe=stt)
+    s.start()
+    s.feed(tone(7) + silence(1))
+    deadline = _time.time() + 5
+    while s.pieces < 1 and _time.time() < deadline:
+        _time.sleep(0.01)
+    s.feed(tone(3))
+    assert s.finish(timeout=10) == "piece1 piece2"
+    assert s.early == 1 and s.pieces == 2                              # only the last piece waited for the key-up
+
+
+def test_a_short_dictation_is_still_one_upload():
+    stt = FakeStt()
+    s, text = run(stt, tone(4) + silence(0.5) + tone(2))
+    assert text is None and stt.calls == []

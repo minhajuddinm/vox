@@ -59,6 +59,7 @@ windows/                Windows app (Python) and its installer scripts
 | `windows/secret.py` | Windows DPAPI protection for the API key stored in `config.json`. |
 | `windows/audio_devices.py` | Lists microphones and resolves the chosen one by name. |
 | `windows/overlay_mode.py` | Pure function `overlay_mode(...)`: which picture the pill shows (rec, busy, sent, error, meet, or hidden); no Tk, unit tested. |
+| `windows/overlay_guard.py` | Pure checks that keep the pill on screen: is a re-assert due, is its rectangle on a monitor, what is wrong with the window (`problems`), the log text (`describe`), a rate limit, the Tk-tick stall check, the thread dump, and the stuck-state check (`state_consistent`, `StuckWatch`); no Tk, no Win32, unit tested. |
 | `windows/overlay.py` | The small recording pill (Tk window, click-through, never takes focus); also shows the green check / red ! after a dictation. |
 | `windows/logo.py` | Draws the tray icons and generates `windows/vox.ico`. |
 | `windows/ui_app.py` | The main window's Python side: pywebview window and the `Api` class the page calls. |
@@ -68,8 +69,15 @@ windows/                Windows app (Python) and its installer scripts
 | `windows/relay_host.py` | Runs the relay as a child process of the engine (`Vox.exe --relay`): the command line, start and stop, a hidden window, and a Windows job object so the child never outlives Vox. |
 | `windows/session.py` | Keep listening, pure part (no hardware): `ListenSession` (utterances cut at pauses, texts back in any order, stop phrase, 60 minute limit), `same_target` (type only into the chosen window) and `SessionBuffer` (audio appended to a file, left-over sessions listed for recovery). |
 | `windows/listen.py` | Keep listening, running part: `Listening` takes the microphone audio through a `ListenSession`, turns each piece into text in the background (`streaming.piece_text`) and ends in one cleaned note (Note target) or typed pieces (Type target, only in the app it started in); marks `seg_end` and `seg_text` per piece. |
-| `windows/paste.py` | `paste_text`: pastes into the focused app only if the window is still the one the dictation started in, and restores the old clipboard (all copyable formats) only if it still holds our text; the dictation is set with the exclude-from-history markers. The real Win32, clipboard and key calls are in `SystemDeps`; tests pass their own. |
+| `windows/paste.py` | `paste_text`: pastes into the focused app only if the window is still the one the dictation started in (Ctrl+Shift+V in a terminal, Ctrl+V elsewhere; only copied when the window runs as administrator and Vox does not), and restores the old clipboard (all copyable formats, read only when it will be restored) only if it still holds our text; the dictation is set with the exclude-from-history markers. `copy_selection` copies the selected text for edit by voice. The real Win32, clipboard and key calls are in `SystemDeps`; tests pass their own. |
+| `windows/hotkeys.py` | The extra shortcuts, pure: parse (`hands_free_hotkey`, `paste_last_hotkey`, `copy_last_hotkey`, `command_hotkey`), the conflict rules against the dictation and note shortcuts (`check`), `hotkey_style` and the tap-or-hold rule (`tap_action`). |
+| `windows/command.py` | Edit by voice (experimental): the strict prompt, the request to the cleanup server and the guard that refuses an empty, unchanged or far too long or short answer. |
 | `windows/streaming.py` | Sends the finished parts of a long recording to speech-to-text while the user is still speaking (worker thread, falls back to the whole recording). |
+| `windows/structure.py` | Lists from spoken cues (`format_structure`: ordinals, point/item/step/number one, Hindi ordinals, bullet cues; never commas) and paragraph breaks at long pauses (`add_paragraphs`, Windows only, from the speech server's segment times). Pure; Java twin `Structure.java` (lists only), golden kind `structure`. |
+| `windows/codemode.py` | Code mode (Windows only): spoken formatters (camel case, snake case, ...) and the spoken symbol table, `is_code_app` (the `code_apps`, `code_mode` settings and the per-app style `code`). Pure. Table: [15-code-mode.md](15-code-mode.md). |
+| `windows/snippets.py` | Snippets: `clean_snippets` (caps), `apply_snippets` (a trigger phrase becomes its saved text, after the cleanup), `unexpand` (what Improve my cleanup sends). Pure; Java twin `Snippets.java`, golden kind `snippets`. |
+| `windows/autolearn.py` | Learn from my corrections, pure rules (no I/O): `detect` (find the typed text again in the field by its first and last words, compare it with `suggest_corrections`, keep only fixes that look like corrections: `looks_like_fix`), `learn` (what to add to the dictionary, capped), the `learned_log` helpers (`apply_learned`, `remove_learned`) and `Watch`, the state machine of one watch (3 minutes at most, ends when the text is sent or gone or the app changes, final check on the last snapshot). Java twins: `AutoLearn.java`, `AutoLearnWatch.java`. |
+| `windows/correction_watch.py` | Learn from my corrections, Windows side: after a paste, a daemon thread reads the focused control's text through UI Automation (`UiaProvider`, the .NET UIAutomationClient through pythonnet) every 2 s while the watch runs and the pasted-into window is in front, feeds `autolearn.Watch` and saves what it learns (`Watcher`). `arm()` is the engine's hook. |
 | `windows/improve.py` | Pure core of "Improve my cleanup" (no network): picks the history pairs to send, estimates the cost, builds the request, reads and caps the answer (`parse_proposal`), applies the accepted items to the config with versions and `revert`, and lists the cleanups that lost words. |
 | `windows/timing.py` | Pure timing core (stdlib): `Timing` marks (`key_down` ... `inserted`) become the six stage durations (`start`, `rec`, `stt`, `llm`, `insert`, `total`); `median`, `p90`, `biggest`, `format_ms`, `summarize` over the newest N history entries, `by_model` (medians per voice and cleanup model pair) and `speed_view` (everything the Speed card shows, from the history). Local only, nothing is sent. Java twin `Timing.java`. |
 | `windows/ui/index.html` | The main window's screens: Home, Notes (meetings), Dictionary, Styles, Settings. One file with CSS and JavaScript. |
@@ -104,6 +112,8 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/Timing.java` | Pure Java twin of `windows/timing.py` (marks, stages, median, p90, biggest stage, "1.4 s" text, summary, `byModel`, `speedView` for the Speed card, `historyMap` the keys of a history row's timing); pinned by the `timing_*` rows of `spec/golden.txt`. |
 | `android/src/com/minhaj/vox/Segmenter.java` | Pure Java twin of `Segmenter` in `windows/vox_core.py`: cuts a recording that is still going on into pieces at pauses (12 s minimum, 28 s maximum, 0.6 s pause); the `segcuts` golden rows prove it cuts where Windows does, whatever the block size. |
 | `android/src/com/minhaj/vox/StreamingStt.java` | Pure Java twin of `windows/streaming.py`: a worker thread cuts the audio with `Segmenter` and sends each piece to speech to text (with the end of the text before it as context) while the user is still talking; `finish` returns the text, or null when the caller should send the whole recording. The server call is a `Transcriber` callback, so it is tested with a fake. |
+| `android/src/com/minhaj/vox/Structure.java` | Pure Java twin of `format_structure` in `windows/structure.py`: lists from spoken cues after the cleanup (golden rows `structure`); no paragraph breaks on the phone. |
+| `android/src/com/minhaj/vox/Snippets.java` | Pure Java twin of `windows/snippets.py`: `clean` (caps) and `apply` (golden rows `snippets`); `ProfileMap` syncs the setting. |
 | `android/src/com/minhaj/vox/Latency.java` | Pure latency rules: 5 s connect timeout, speech and cleanup read timeouts that grow with the audio and the words, which failures count as "never reached the server" (the fast retry), the cleanup `max_tokens` bound (floor of 256, headroom for thinking models, the cut-off check), and when to warm the connection again. |
 | `android/src/com/minhaj/vox/UploadFormat.java` | Pure rule for the audio container of an upload (WAV under 4 s, m4a from 4 s), its type and file name, and when an encoded file is used. |
 | `android/src/com/minhaj/vox/AudioUpload.java` | Makes the uploaded file: encodes the 16 kHz PCM as AAC in an m4a file (`MediaCodec` and `MediaMuxer`, 64 kbit/s) when `UploadFormat` says so, and falls back to the WAV on any encoder failure. Android classes, so it is only compile-checked here. |
@@ -119,6 +129,8 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/Endpoint.java` | Server address rules (which hosts may use plain http). |
 | `android/src/com/minhaj/vox/Pcm.java` | Silence gate for raw 16-bit audio. |
 | `android/src/com/minhaj/vox/Corrections.java` | Suggests dictionary entries from a user's fix to a dictation. |
+| `android/src/com/minhaj/vox/AutoLearn.java` | Pure Java twin of `windows/autolearn.py` (detect, learn, the learned log); golden kinds `autocorrect` and `autolearn`. |
+| `android/src/com/minhaj/vox/AutoLearnWatch.java` | Pure Java twin of `autolearn.Watch`: the watch after Vox typed, with an injectable clock; `AUTO_LEARN_WINDOW_S` = 180, `SETTLE_MS` = 1500. |
 | `android/src/com/minhaj/vox/PendingQueue.java` | Pure queue of the unsent recordings of `DictationService` (one entry and file per failed recording, oldest first, at most 5, 7-day age rule, file-name format, which in-flight job a cancel may discard, and `sweepUploads`, the deleter of old `vox-up-*` temp upload files). |
 | `android/src/com/minhaj/vox/NoteLogic.java` | Pure voice-note rules shared with `windows/notes.py`: automatic title, search words and string, which side wins a sync merge, tag clean-up, push batch size. |
 | `android/src/com/minhaj/vox/Note.java` | Plain value class for one voice note (or delete marker): the columns of the notes table. No Android or JSON classes, so the sync code and its tests can use it. |
@@ -162,6 +174,10 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_secret.py` | DPAPI wrapper and how `config.json` stores the key. |
 | `tests/test_robustness.py` | HTTP retry policy and the silence gate. |
 | `tests/test_suggest_corrections.py` | Dictionary suggestions from user fixes. |
+| `tests/test_autolearn.py` | Learn from my corrections, pure rules: detect, the similarity rules, learn and its cap, the learned log, and the watch with a fake clock (179 s still watching, 181 s ended, sent, span gone, app changed, re-arm); the window constant equals the Java one. |
+| `tests/test_correction_watch.py` | The Windows watcher with a fake desktop (no UI Automation, no window): a fix is learned and announced privately, a fix just before Send counts, another window is never read, password controls, the once-only log line, no text in the log, the setting, the thread runs only while armed. |
+| `tests/test_engine_autolearn.py` | The engine arms the watch after a real paste only (skipped where the Windows runtime packages are missing). |
+| `tests/test_ui_autolearn.py` | The Learn from my corrections switch and the Recently learned list on both pages, the Android service config and description, the settings that stay on the device, and the Windows bridge `learned_remove`. |
 | `tests/test_spoken_commands.py` | Spoken "new line" and the cleanup-failure result. |
 | `tests/test_audio_devices.py` | Microphone name resolution. |
 | `tests/test_parity.py` | Runs `spec/golden.txt` against the Python helpers. |
@@ -187,11 +203,17 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_relay_proxy.py` | The relay's proxy routes against a stand-in upstream server that records what it receives: fixed URL and path tricks, headers and keys (the relay token never goes on, the upstream key never comes back), size limits, 411/413/429/502/503, slots and timeouts. |
 | `tests/test_sync.py` | The Windows sync client against a real relay: two devices, edits, deletes, conflicts, failures, notes the relay refuses for good, upgrade of old databases. |
 | `tests/test_sync_profile.py` | Profile sync between two devices through a real relay: merge rules, keys switch, races. |
-| `tests/test_streaming.py` | The pause finder (`Segmenter`), the streaming worker, and the text half of the pipeline. |
+| `tests/test_streaming.py` | The pause finder (`Segmenter`), the streaming worker (6 to 20 s pieces, pieces sent while speaking), and the text half of the pipeline. |
+| `tests/test_upload_format.py` | FLAC or WAV for the speech upload: the choice rule, the file name sent, the 18-minute fallback in pieces, and a lossless FLAC round trip (only where `soundfile` is installed). |
+| `tests/test_structure.py` | Lists and paragraphs: the cue rules, prose that stays prose, idempotence over every golden row, the order around the fidelity guard, the prompt per setting, `verbose_json` segments and the pause breaks. |
+| `tests/test_codemode.py` | Code mode: every formatter and symbol, formatters with symbols, whole words only, which apps, the pipeline (no AI cleanup by default, the code prompt), the help box and [15-code-mode.md](15-code-mode.md) list the whole table. |
+| `tests/test_snippets.py` | Snippets: matching, caps, the order (after the cleanup, before lists), never sent to the cleanup or the Improve run, the profile field, both Dictionary pages. |
 | `tests/test_listen_session.py` | The keep-listening session, the same-window rule and the crash-safe audio buffer (temp folder, no hardware). |
 | `tests/test_listen.py` | The running session with the speech calls and the window replaced: Note and Type targets, stop phrase, limit, window change, failed pieces, recovery, latency marks. |
 | `tests/test_engine_listen.py` | The engine side: double press, Esc, tray entries, the `listen_target` setting, microphone errors, recovery. |
 | `tests/test_note_hotkey.py` | The note shortcut: the pure parse and duplicate rule, and the window bridge that saves it. |
+| `tests/test_hotkeys.py` | The extra shortcuts (`hotkeys.py`): parse, conflicts and duplicates, the style setting, the tap-or-hold rule, and the window bridge (`set_shortcut`, `shortcut_problems`). |
+| `tests/test_engine_hotkeys.py` | The engine's shortcuts through `_on_press`/`_on_release`: classic and hold-or-tap, the hands-free shortcut, Esc cancel, paste and copy last, edit by voice, stale keys after a pause (R2-M2), the hotkey thread (R2-M1), and what a dictation leaves behind (last text, timing fields). |
 | `tests/test_improve.py` | The pure improvement core with a fake provider: transcript selection and budget, request, tolerant parsing and caps, apply and revert (revert keeps rules written later), About you never applied, the fidelity report. |
 | `tests/test_improve_card.py` | The Improve my cleanup card: preview and confirm sentence, versions, reminder rule, the one server call, the window bridge (nothing is sent before the confirmed numbers) and the tray reminder. |
 | `tests/test_ui_improve.py` | The card's ids and place on the Windows page, that only the confirm button runs it, and its two renderers (escaping). |
@@ -209,10 +231,14 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_hostile_note_id.py` | A note id from the relay that is not 32 hex characters is ignored, in `apply_remote` and in a sync. |
 | `tests/test_engine_notes.py` | The engine's voice-note mode (skipped where the Windows runtime packages are missing). |
 | `tests/test_engine_flash.py` | The pill's "sent" and "error" signal: `Engine.flash` timing, expiry, what cancels it, no flash without a pill, and which events raise which one (skipped where the Windows runtime packages are missing). |
-| `tests/test_overlay_mode.py` | Every branch of `overlay_mode` (flash over the meeting timer, flash only while idle). |
+| `tests/test_overlay_mode.py` | Every branch of `overlay_mode` (flash over the meeting timer, flash only while idle, a flash never longer than 5 s). |
+| `tests/test_overlay_guard.py` | `overlay_guard`: on-screen check across monitors, problem names, rebuild rule, rate limit, stall check, thread dump, stuck states. |
+| `tests/test_overlay_keep_up.py` | The pill's re-assert, repair log, rebuild limits and focus hand-back, with every Win32 call and the Tk window faked (no window is created). |
+| `tests/test_engine_watchdog.py` | `Engine.check_overlay`: the thread dump on a stalled Tk tick and the reset of a stuck state (needs the Windows runtime packages). |
 | `tests/test_flash_constants.py` | Drift guard: `BubbleView.SENT_MS` / `ERROR_MS` equal `FLASH_SECONDS` in `engine.py`. |
 | `tests/test_engine_mic.py` | `Engine._open_mic` refreshes PortAudio's device list once when a chosen microphone is missing or fails to open (skipped without the Windows packages). |
-| `tests/test_paste.py` | `paste_text` with injected fakes (window unchanged or changed, clipboard snapshot and restore rules, the exclude-from-history markers, Ctrl+V as a virtual key) and the engine's "Copied; the window changed" notice. |
+| `tests/test_paste.py` | `paste_text` with injected fakes (window unchanged or changed, clipboard snapshot and restore rules, no snapshot while the clipboard is kept, one format over the size limit left out, the exclude-from-history markers, Ctrl+V and Ctrl+Shift+V as virtual keys, terminals, elevated windows, the bounded modifier wait), `copy_selection`, and the engine's "Copied; the window changed" notice. |
+| `tests/test_command.py` | Edit by voice: the strict request, the guard, the answer clean-up, and the engine flow with a fake server and clipboard (the selection is left alone on any failure). |
 | `tests/test_docs_todo.py` | The path-to-page rules of `documentation/tools/docs_todo.py`. |
 | `tests/test_ui_shared.py` | `tools/sync_ui.py --check` passes on the committed pages and fails when a generated block is edited by hand (on temp copies). |
 | `tests/test_ui_static.py` | Static checks of both HTML pages: every looked-up id exists, no duplicate ids, every bridge call (`api().NAME`, `V.NAME(`) names a real method of `Api` / `MainActivity.Bridge`. |
@@ -227,10 +253,13 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/PcmTest.java` | Silence gate. |
 | `android/test/com/minhaj/vox/TimingTest.java` | The Java timing core: stages, skipped cleanup, clock, summary rules, per-model medians, `speedView` from history rows. |
 | `android/test/com/minhaj/vox/SegmenterTest.java` | `Segmenter` beyond the golden rows: nothing lost, the same pieces for any block size, reuse after `rest()`. |
+| `android/test/com/minhaj/vox/StructureTest.java` | `Structure` beyond the golden rows: twice changes nothing on every row, the setting, every other word kept in order. |
+| `android/test/com/minhaj/vox/SnippetsTest.java` | `Snippets` beyond the golden rows: the caps (code points), the stored JSON form in `ProfileMap`, the profile field and the blank-map merge rule. |
 | `android/test/com/minhaj/vox/M4aFallbackTest.java` | A stand-in server that cannot read m4a (415, 422) or refuses everything (400), or fails (500): the upload is resent as WAV once, the server is remembered only when the WAV got through, a WAV upload or a 500 is not retried. |
 | `android/test/com/minhaj/vox/StreamingSttTest.java` | `StreamingStt` with a fake server: order and context, the first piece going out before the recording ends, only the tail left after, failure, slow server, silent and hallucinated pieces, cancel. |
 | `android/test/com/minhaj/vox/LatencyTest.java` | The timeout and token rules of `Latency`, the connect-failure classification and the `UploadFormat` rule. |
 | `android/test/com/minhaj/vox/CorrectionsTest.java` | Correction suggestions. |
+| `android/test/com/minhaj/vox/AutoLearnTest.java` | `AutoLearn` and `AutoLearnWatch`, mirroring `tests/test_autolearn.py`. |
 | `android/test/com/minhaj/vox/PendingQueueTest.java` | The unsent-recordings queue: oldest-first order, cap drops the oldest, cancel rules (live recording and Retry discard nothing, only a fresh queued entry), remove on success, age purge, file names. |
 | `android/test/com/minhaj/vox/DevicesViewTest.java` | `DevicesView` beyond the golden rows: order, entries that are not objects, unusable times, the Android header spelling of a name, age rounding. |
 | `android/test/com/minhaj/vox/NoteLogicTest.java` | Note rules beyond the golden rows: Python-style whitespace and `strip`, search words, tag clean-up and its cap, null inputs, merge edge cases. |
@@ -293,6 +322,7 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/12-known-issues-and-roadmap.md` | Open problems and plans. |
 | `documentation/13-glossary.md` | Terms. |
 | `documentation/14-relay.md` | The relay server: what it is, protocol, rules, what is not built. |
+| `documentation/15-code-mode.md` | Code mode (Windows): when it is on, the formatters and the whole symbol table, what it does not do. |
 | `documentation/devlog.md` | Chronological development log. |
 | `documentation/decisions/README.md` | Index of architecture decision records and the template. |
 | `documentation/decisions/0001-openai-compatible-api-groq-default.md` | ADR: OpenAI-compatible API, Groq default. |
@@ -342,8 +372,13 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p7f-relay-proxy.md` | Spec for P7f: the relay as the AI server (proxy routes, upstream settings, the apps' switch). |
 | `documentation/specs/p2b-stream-long-dictations.md` | Spec for P2b: send long recordings in pieces while speaking. |
 | `documentation/decisions/0036-fuzzy-dictionary-guesses-only-for-long-terms.md` | ADR: the one-letter dictionary guess only for terms of 7+ letters; a short name keeps the case fix. |
+| `documentation/decisions/0037-esc-cancels-and-the-hook-only-queues-keys.md` | ADR: Esc cancels a keep-listening session (a session of 30 s or more keeps its audio for Recover); the pynput hook only queues keys for a hotkey thread. |
+| `documentation/decisions/0038-text-structure-from-spoken-cues-and-code-mode-without-the-ai.md` | ADR: lists only from spoken cues (never commas), after the cleanup and its guard; code apps get rules, not the AI cleanup, by default. |
+| `documentation/decisions/0039-auto-learn-reads-the-field-through-ui-automation-with-pythonnet.md` | Learn from my corrections: a short watch of the typed field, UI Automation through pythonnet, a final check before the text goes. |
+| `documentation/decisions/0040-the-relay-stores-the-sent-note-time-and-orders-by-a-bounded-copy.md` | The relay stores the sent note time and orders writes by a bounded copy of it (`order_at`), so a fast-clock device still converges. |
 | `documentation/decisions/0035-sideload-warnings-are-explained-not-engineered-away.md` | ADR: explain the Play Protect and Restricted setting warnings in the app; no `isAccessibilityTool`, targetSdk stays 34, minimum permissions. |
 | `documentation/specs/p9h-android-mic-choice.md` | Spec for the Android Microphone setting: what was built, why Bluetooth is not offered yet and the device checklist (not run on a phone). |
+| `documentation/specs/p9i-auto-learn.md` | Spec for Learn from my corrections (both apps): what was built, what works where, the limits and the device checklist (not run on a desktop or phone). |
 | `documentation/specs/p9g2-install-safety.md` | Spec for part 3 branch G task G2: the Install help card, the permission clean-up, why targetSdk stays 34, what a sideloaded APK cannot avoid, the unverified list. |
 | `documentation/specs/p9e-keep-listening.md` | Spec for part 3 branch E: keep listening (Note and Type targets, stop phrase, note shortcut, crash-safe buffer and recovery), the checklist that needs no phone, what was not verified, Android out of scope. |
 | `documentation/specs/p9f-improve-my-cleanup.md` | Spec for part 3 branch F: the Improve my cleanup card, what one run sends, the proposal, apply and revert, `my_cleanup_rules` in the prompt and the profile sync, the checklist, known limits. |

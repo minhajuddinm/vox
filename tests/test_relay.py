@@ -222,10 +222,10 @@ def test_data_survives_a_restart(tmp_path):
 # ------------------------------------------------------------------ medium round M4 (C-R1, C-R2)
 def test_deleting_a_note_stamped_in_the_future_really_deletes_it(cl):
     n = note("ahead of the relay clock", updated_at=time.time() + 60)    # a phone whose clock runs a minute fast
-    cl.call("PUT", "/notes/" + n["id"], n)
+    stored = cl.call("PUT", "/notes/" + n["id"], n)[1]["note"]      # cut back to the relay clock plus a few seconds
     st, out = cl.call("DELETE", "/notes/" + n["id"])
     assert st == 200 and out["note"]["deleted"] is True and out["applied"] is True
-    assert out["note"]["updated_at"] > n["updated_at"]
+    assert out["note"]["updated_at"] > stored["updated_at"]
     assert cl.call("GET", "/notes/" + n["id"])[0] == 404
 
 
@@ -259,3 +259,107 @@ def test_a_malformed_content_length_is_a_400_at_once_and_reads_nothing_more(serv
             f"Content-Length: {length}\r\n\r\n")
     status = _raw_request(server, head, b"x" * 65536)     # the client keeps its side open: the answer must not wait for EOF
     assert " 400 " in status
+
+
+# ------------------------------------------------------------------ final review (Relay-CI 1, Relay-CI 2): a wrong clock must not pin a note
+def _legacy_ahead(srv, n, ahead):
+    """Writes a note straight into the database with a time `ahead` seconds in the future: what an older relay (with no bound
+    on the stored time) could have kept."""
+    import sqlite3
+    st, out = Client(srv).call("PUT", "/notes/" + n["id"], dict(n, updated_at=time.time()))
+    assert st == 200
+    con = sqlite3.connect(srv.store.path)
+    with con:
+        con.execute("UPDATE notes SET updated_at = ?, created_at = ?, order_at = NULL WHERE id = ?",
+                    (time.time() + ahead, time.time() + ahead, n["id"]))
+    con.close()
+
+
+def test_a_fast_phone_time_is_stored_as_sent_so_the_phone_agrees_with_the_relay(cl):
+    """Final fixes (relay-docs 1): the phone keeps its own time for the note; a smaller stored time would make it ignore
+    every later change from the other devices. The time only decides the order cut back (see the tests below)."""
+    n = note("fast clock", updated_at=time.time() + 3600)
+    st, out = cl.call("PUT", "/notes/" + n["id"], n)
+    assert st == 200 and out["applied"] is True
+    assert out["note"]["updated_at"] == n["updated_at"] and "order_at" not in out["note"]
+    assert "order_at" not in cl.call("GET", "/changes?since=0")[1]["notes"][0]
+
+
+def test_a_write_that_wins_over_a_fast_phone_is_raised_above_its_time(cl, monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(relay, "time", clock)
+    n = note("from the fast phone", updated_at=time.time() + 3600)
+    cl.call("PUT", "/notes/" + n["id"], n)
+    clock.offset = 30
+    st, out = cl.call("PUT", "/notes/" + n["id"], dict(n, text="from the laptop", updated_at=time.time() + 30))
+    assert out["applied"] is True and out["note"]["updated_at"] > n["updated_at"]     # the phone will take it
+    stale = dict(n, text="an older edit from the laptop", updated_at=time.time() - 10)
+    st, out = cl.call("PUT", "/notes/" + n["id"], stale)
+    assert out["applied"] is False and out["note"]["text"] == "from the laptop"
+
+
+class _Clock:
+    """`relay.time` with the clock moved on by `offset` seconds (everything else is the real module)."""
+    offset = 0.0
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+    def time(self):
+        return time.time() + self.offset
+
+
+def test_a_device_delete_or_edit_beats_a_note_from_a_fast_phone(cl, monkeypatch):
+    """Sync path: devices delete with PUT and a marker of their own time. The phone's clock is 5 minutes fast."""
+    clock = _Clock()
+    monkeypatch.setattr(relay, "time", clock)
+    keep, gone = note("kept", updated_at=time.time() + 300), note("deleted", updated_at=time.time() + 300)
+    first = [cl.call("PUT", "/notes/" + n["id"], n)[1] for n in (keep, gone)]
+    assert all(o["applied"] for o in first)
+    clock.offset = 30        # half a minute later, by the right clock of the laptop
+    st, out = cl.call("PUT", "/notes/" + gone["id"], dict(gone, text="", title="", raw="", tags=[], deleted=True, updated_at=time.time() + 30))
+    assert st == 200 and out["applied"] is True and out["note"]["deleted"] is True
+    assert cl.call("GET", "/notes/" + gone["id"])[0] == 404
+    st, out = cl.call("PUT", "/notes/" + keep["id"], dict(keep, text="edited on the laptop", updated_at=time.time() + 30))
+    assert st == 200 and out["applied"] is True and cl.call("GET", "/notes/" + keep["id"])[1]["text"] == "edited on the laptop"
+
+
+def test_an_old_offline_delete_still_loses_to_a_newer_edit(cl):
+    """The relay clock only wins for what is recent: an old marker is not a reason to throw away a later edit."""
+    n = note("edited later", updated_at=time.time() - 10)
+    cl.call("PUT", "/notes/" + n["id"], n)
+    out = cl.call("PUT", "/notes/" + n["id"], dict(n, text="", deleted=True, updated_at=time.time() - 5000))[1]
+    assert out["applied"] is False and out["note"]["deleted"] is False
+
+
+def test_a_note_stored_a_week_ahead_can_still_be_deleted_and_overwritten(server):
+    c = Client(server)
+    a, b = note("stuck a"), note("stuck b")
+    _legacy_ahead(server, a, 7 * 86400)
+    _legacy_ahead(server, b, 7 * 86400)
+    st, out = c.call("DELETE", "/notes/" + a["id"])            # the management page
+    assert st == 200 and out["applied"] is True and out["note"]["deleted"] is True
+    assert c.call("GET", "/notes/" + a["id"])[0] == 404
+    st, out = c.call("PUT", "/notes/" + b["id"], dict(b, text="fixed", updated_at=time.time()))      # a device edit
+    assert st == 200 and out["applied"] is True and out["note"]["text"] == "fixed"
+    assert out["note"]["updated_at"] > time.time() + 6 * 86400    # raised above the old time: every device takes it
+
+
+def test_a_database_of_an_older_relay_gets_the_order_column_and_keeps_its_notes(tmp_path):
+    import sqlite3
+    path = str(tmp_path / "old.db")
+    con = sqlite3.connect(path)
+    with con:
+        con.execute("CREATE TABLE notes (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, "
+                    "source TEXT NOT NULL DEFAULT 'voice note', title TEXT NOT NULL DEFAULT '', text TEXT NOT NULL DEFAULT '', "
+                    "raw TEXT NOT NULL DEFAULT '', created_at REAL NOT NULL, updated_at REAL NOT NULL, "
+                    "secs REAL NOT NULL DEFAULT 0, device TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '[]', "
+                    "deleted INTEGER NOT NULL DEFAULT 0)")
+        n = note("kept from before")
+        con.execute("INSERT INTO notes (id, title, text, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    (n["id"], n["title"], n["text"], n["created_at"], n["updated_at"]))
+    con.close()
+    store = relay.RelayStore(path)
+    assert store.get_note(n["id"])["text"] == "kept from before"
+    stored, applied = store.upsert_note(dict(n, text="edited", updated_at=n["updated_at"] + 1))
+    assert applied and stored["text"] == "edited" and "order_at" not in stored

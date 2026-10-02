@@ -89,12 +89,12 @@ def run(host, audio, target="note", cfg=NOCLEAN, focus=None, **kw):
 
 # ------------------------------------------------------------------ Note target
 def test_a_note_session_sends_each_piece_with_context_and_saves_one_note_at_the_end(monkeypatch):
-    stt = Script(["first thing.", "second thing.", "third thing."])
+    stt = Script(["red thing.", "green thing.", "blue thing."])   # (not first/second/third: those would make a list)
     monkeypatch.setattr(core, "transcribe", stt)
     host = Host()
     run(host, utterances(3))
-    assert stt.contexts == ["", "first thing.", "first thing. second thing."]
-    assert host.notes == [("first thing. second thing. third thing.", "first thing. second thing. third thing.")]
+    assert stt.contexts == ["", "red thing.", "red thing. green thing."]
+    assert host.notes == [("red thing. green thing. blue thing.", "red thing. green thing. blue thing.")]
     assert host.pasted == [] and host.mic_closed >= 1
     assert host.states == ["busy", "idle"] and host.flashes == ["sent"]
 
@@ -378,3 +378,55 @@ def test_a_session_that_lost_its_microphone_does_not_remove_the_recovery_file(mo
     lis.start()          # nothing is replayed: the saved audio was not read in time
     assert lis.done.wait(20)
     assert removed == []
+
+
+# ------------------------------------------------------------------ Esc: cancel (task B1)
+def test_cancel_sends_nothing_more_saves_no_note_and_shows_no_flash(monkeypatch, tmp_path):
+    box = {}
+    stt = Script(["first thing.", "second thing.", "third thing."], hooks={1: lambda: box["lis"].cancel()})
+    monkeypatch.setattr(core, "transcribe", stt)
+    host = Host()
+    buf = session.SessionBuffer(str(tmp_path), "note")
+    lis = box["lis"] = listen.Listening(host, NOCLEAN, "note", buffer=buf, focus=lambda: "notepad.exe")
+    lis.start()
+    audio = utterances(3)
+    for i in range(0, len(audio), 3200):
+        lis.audio(audio[i:i + 3200], 0, 0, None)
+    lis.stop()
+    assert lis.done.wait(20)
+    assert len(stt.contexts) == 1                                     # the piece in flight; nothing after it
+    assert host.notes == [] and host.flashes == [] and host.states[-1] == "idle"
+    assert any("cancelled" in m.lower() for m in host.messages)
+    assert not os.path.exists(buf.path)                               # a short session leaves nothing behind
+
+
+def test_a_long_cancelled_session_keeps_its_audio_for_recovery(monkeypatch, tmp_path):
+    box = {}
+    monkeypatch.setattr(listen, "CANCEL_KEEP_SECONDS", 1)
+    monkeypatch.setattr(core, "transcribe", Script(["first thing."], hooks={1: lambda: box["lis"].cancel()}))
+    host = Host()
+    buf = session.SessionBuffer(str(tmp_path), "note")
+    lis = box["lis"] = listen.Listening(host, NOCLEAN, "note", buffer=buf, focus=lambda: "notepad.exe")
+    lis.start()
+    audio = utterances(2)
+    for i in range(0, len(audio), 3200):
+        lis.audio(audio[i:i + 3200], 0, 0, None)
+    lis.stop()
+    assert lis.done.wait(20)
+    assert host.notes == [] and session.recoverable(str(tmp_path))[0]["path"] == buf.path
+    assert any("kept" in m for m in host.messages)
+
+
+def test_a_cancelled_type_session_types_nothing_more(monkeypatch):
+    box = {}
+    monkeypatch.setattr(core, "transcribe", Script(["first thing here.", "second thing here."],
+                                                   hooks={1: lambda: box["lis"].cancel()}))
+    host = Host()
+    lis = box["lis"] = listen.Listening(host, NOCLEAN, "type", focus=lambda: "notepad.exe")
+    lis.start()
+    audio = utterances(2)
+    for i in range(0, len(audio), 3200):
+        lis.audio(audio[i:i + 3200], 0, 0, None)
+    lis.stop()
+    assert lis.done.wait(20)
+    assert host.pasted == [] and host.notes == []

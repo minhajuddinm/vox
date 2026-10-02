@@ -1,6 +1,7 @@
 package com.minhaj.vox;
 
 import android.accessibilityservice.AccessibilityService;
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.ClipData;
 import android.content.BroadcastReceiver;
 import android.content.ClipboardManager;
@@ -30,6 +31,7 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Toast;
 
 import java.io.File;
+import java.util.List;
 
 /**
  * Owns the floating bubbles (accessibility overlays, so no "draw over apps" permission is needed): the mic bubble,
@@ -42,6 +44,10 @@ import java.io.File;
  * whose window is gone). They are applied on every window change, on screen on, unlock, rotation and when the service
  * connects, and by a watchdog every 30 seconds while the service is alive. A saved position is clamped to the current
  * screen. "Always show the bubble" (always_show_bubble) ignores only_typing.
+ *
+ * Learn from my corrections (auto_learn): after Vox typed into a field, {@link AutoLearnWatch} watches that field for up
+ * to three minutes or until the text is sent, reading its text on its text-changed events (never a password field), and
+ * the fixes the user makes go into the dictionary. Text-changed events are ignored while no watch runs.
  */
 public class VoxAccessibilityService extends AccessibilityService
         implements DictationService.Listener, DictationService.NoteListener {
@@ -64,6 +70,13 @@ public class VoxAccessibilityService extends AccessibilityService
     /** True from onServiceConnected to onUnbind: no bubble is added outside that time. */
     private boolean serviceReady;
     private boolean screenOn = true;
+    /** Learn from my corrections: the watch after Vox typed (null until the service connects) and the field last seen changing. */
+    private AutoLearnWatch learnWatch;
+    private AccessibilityNodeInfo learnNode;
+    /** Looks at the field again once it has been quiet for AutoLearnWatch.SETTLE_MS (no more events may come). */
+    private final Runnable learnCheck = this::learnTick;
+    /** Ends the watch when its time is up, learning from the last text seen. */
+    private final Runnable learnTimeout = this::endLearning;
     /** Looks at the bubbles every BubbleLogic.WATCHDOG_MS while the service is alive. */
     private final Runnable watchdog = new Runnable() {
         @Override
@@ -89,6 +102,7 @@ public class VoxAccessibilityService extends AccessibilityService
         registerDiagReceiver();
         DictationService.setListener(this);
         DictationService.setNoteListener(this);
+        learnWatch = new AutoLearnWatch(SystemClock::elapsedRealtime);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         createBubbles();
         DictationService svc = DictationService.instance;
@@ -111,6 +125,7 @@ public class VoxAccessibilityService extends AccessibilityService
     @Override
     public boolean onUnbind(Intent intent) {
         diag(OverlayDiag.SERVICE_UNBOUND, "");
+        endLearning();
         stopWatching();
         removeBubbles("service unbound");
         instance = null;
@@ -122,6 +137,7 @@ public class VoxAccessibilityService extends AccessibilityService
     @Override
     public void onDestroy() {
         diag(OverlayDiag.SERVICE_DESTROYED, "");
+        endLearning();
         stopWatching();
         removeBubbles("service destroyed");
         instance = null;
@@ -233,6 +249,11 @@ public class VoxAccessibilityService extends AccessibilityService
         int type = e.getEventType();
         CharSequence cls = e.getClassName();
         if (cls != null && cls.toString().endsWith("TrampolineActivity")) return;
+        if (type == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
+            onTextChanged(e);
+            return;
+        }
+        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) learnFocusMoved();
         if (type == AccessibilityEvent.TYPE_VIEW_FOCUSED
                 || type == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED
                 || type == AccessibilityEvent.TYPE_VIEW_CLICKED) {
@@ -591,6 +612,7 @@ public class VoxAccessibilityService extends AccessibilityService
     @Override
     public void onResult(String text, String targetPkg) {
         boolean typed = insertText(text, targetPkg);
+        if (typed) armLearning(targetPkg, text);
         // Only dictations end here (a note is saved, not typed), so this is the mic bubble.
         if (dictation != null) dictation.view.flash(typed ? BubbleView.SENT : BubbleView.ERROR);   // ERROR: it only reached the clipboard
     }
@@ -706,6 +728,121 @@ public class VoxAccessibilityService extends AccessibilityService
             toast("This app blocked typing. Text copied to clipboard.");
         }
         return pasted;
+    }
+
+    // ------------------------------------------------------------ learn from my corrections
+
+    /** Vox just typed text into pkg's focused field: watch it for the user's fixes (a watch still running ends first). */
+    private void armLearning(String pkg, String text) {
+        if (learnWatch == null) return;
+        if (!new Prefs(this).autoLearn()) { endLearning(); return; }
+        main.removeCallbacks(learnCheck);
+        main.removeCallbacks(learnTimeout);
+        setLearnNode(null);
+        learned(learnWatch.arm(pkg, text));
+        if (learnWatch.app() != null) textEvents(true);
+        main.postDelayed(learnTimeout, AutoLearnWatch.AUTO_LEARN_WINDOW_S * 1000L + 500);
+    }
+
+    /** Ends the watch (learning from the last text seen) and forgets the field. */
+    private void endLearning() {
+        main.removeCallbacks(learnCheck);
+        main.removeCallbacks(learnTimeout);
+        textEvents(false);
+        if (learnWatch != null) learned(learnWatch.end());
+        setLearnNode(null);
+    }
+
+    /**
+     * Text-change events are asked for only while a watch runs (accessibility_config.xml does not list them): typing in
+     * any app with no watch, or with auto-learn off, never reaches Vox.
+     */
+    private void textEvents(boolean on) {
+        try {
+            AccessibilityServiceInfo info = getServiceInfo();
+            if (info == null) return;
+            int flag = AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED;
+            int types = on ? info.eventTypes | flag : info.eventTypes & ~flag;
+            if (types == info.eventTypes) return;
+            info.eventTypes = types;
+            setServiceInfo(info);
+        } catch (Exception ignored) {   // the service is going away: nothing to switch off
+        }
+    }
+
+    private void onTextChanged(AccessibilityEvent e) {
+        if (learnWatch == null || learnWatch.app() == null) { textEvents(false); return; }   // no watch: keep the service cheap
+        if (!new Prefs(this).autoLearn()) { endLearning(); return; }   // switched off while a watch ran: read nothing more
+        CharSequence p = e.getPackageName();
+        if (p == null) return;
+        if (!p.toString().equals(learnWatch.app())) {   // typing in another app: the watch is over
+            endLearning();
+            return;
+        }
+        AccessibilityNodeInfo src = e.getSource();
+        if (src == null) return;
+        if (e.isPassword() || src.isPassword()) {   // never read a password field
+            endLearning();
+            return;
+        }
+        setLearnNode(src);
+        learned(learnWatch.observe(p.toString(), fieldText(src)));
+        if (learnWatch.app() == null) { endLearning(); return; }
+        main.removeCallbacks(learnCheck);
+        main.postDelayed(learnCheck, AutoLearnWatch.SETTLE_MS + 100);
+    }
+
+    /** The field has been quiet for a moment: look at it once more (the text the user left there is analysed). */
+    private void learnTick() {
+        if (learnWatch == null || learnWatch.app() == null) return;
+        AccessibilityNodeInfo n = learnNode;
+        if (n == null || !n.refresh() || n.isPassword()) { endLearning(); return; }
+        CharSequence p = n.getPackageName();
+        learned(learnWatch.observe(p == null ? null : p.toString(), fieldText(n)));
+        if (learnWatch.app() == null) endLearning();
+    }
+
+    /** A window changed: when the input focus is now in another app, the watch is over. */
+    private void learnFocusMoved() {
+        if (learnWatch == null || learnWatch.app() == null) return;
+        AccessibilityNodeInfo f = null;
+        try { f = findFocus(AccessibilityNodeInfo.FOCUS_INPUT); } catch (Exception ignored) { }
+        CharSequence p = f == null ? null : f.getPackageName();
+        if (p != null && !p.toString().equals(learnWatch.app())) endLearning();
+    }
+
+    /** The field's whole text: "" when it is empty or shows only its placeholder, null when it is too long to read. */
+    private static String fieldText(AccessibilityNodeInfo n) {
+        CharSequence cs = n.getText();
+        if (cs == null) return "";
+        if (cs.length() > AutoLearn.MAX_TEXT) return null;
+        String t = cs.toString();
+        boolean flagged = Build.VERSION.SDK_INT >= 26 && n.isShowingHintText();
+        CharSequence hint = Build.VERSION.SDK_INT >= 26 ? n.getHintText() : null;
+        return HintGuard.isPlaceholder(t, hint, flagged, n.getContentDescription()) ? "" : t;
+    }
+
+    @SuppressWarnings("deprecation")
+    private void setLearnNode(AccessibilityNodeInfo n) {
+        AccessibilityNodeInfo old = learnNode;
+        learnNode = n;
+        if (old != null && old != n && old != editNode && Build.VERSION.SDK_INT < 33) {
+            try { old.recycle(); } catch (Exception ignored) { }
+        }
+    }
+
+    /** Adds the corrections found to the dictionary and says so. Only the count goes to the log, never the words. */
+    private void learned(List<String[]> pairs) {
+        if (pairs == null || pairs.isEmpty()) return;
+        Prefs p = new Prefs(this);
+        if (!p.autoLearn()) return;
+        List<String[]> added = p.learnCorrections(pairs);
+        if (added.isEmpty()) return;
+        Log.i("vox", "auto-learn: learned " + added.size() + " corrections");
+        StringBuilder sb = new StringBuilder("Learned: ");
+        for (int i = 0; i < added.size(); i++) sb.append(i == 0 ? "" : "; ").append(added.get(i)[0]).append(" -> ").append(added.get(i)[1]);
+        toast(sb.toString());
+        SyncWorker.kick(this);   // the dictionary is part of the synced profile
     }
 
     private void copyToClipboard(String t) {

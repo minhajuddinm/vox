@@ -4,6 +4,10 @@ short green check ("sent") or red ! ("error") when a dictation ends.
 The window never takes focus and ignores the mouse, so pasting still goes to the app you were typing in.
 Tk runs on the main thread and polls the shared state; other threads only set `state`, `level` and the flash
 (`flash_kind` and its expiry `flash_until`; overlay_mode.py decides what shows).
+
+While the pill is visible it is re-asserted every half second (put back on top, re-placed when the work area changed)
+and checked; a window Windows keeps off the screen (hidden, minimised, cloaked, off every monitor) is rebuilt. The
+checks are pure functions in overlay_guard.py; documentation/11-logs-and-diagnostics.md explains the log lines.
 """
 import logging
 import math
@@ -12,6 +16,7 @@ import sys
 import time
 import tkinter as tk
 
+import overlay_guard as guard
 import vox_core as core
 from overlay_mode import overlay_mode, pill_clock
 
@@ -27,52 +32,151 @@ FPS_MS = 33               # about 30 frames a second is plenty for a meter
 SAMPLE_MS = 80            # one meter bar per 80 ms of voice (about a syllable)
 log = logging.getLogger("vox.overlay")
 
-
-def _hwnd(root):
-    return int(root.wm_frame(), 16)
-
-
-def _win32_setup(root):
-    """No focus, no taskbar button, click-through, always on top."""
-    import ctypes
-    GWL_EXSTYLE = -20
-    WS_EX_TOPMOST, WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE, WS_EX_TRANSPARENT = 0x8, 0x80, 0x08000000, 0x20
-    hwnd = _hwnd(root)
-    user32 = ctypes.windll.user32
-    style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-    user32.SetWindowLongW(hwnd, GWL_EXSTYLE,
-                          style | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT)
-    log.info("overlay hwnd=%s exstyle before=%#x after=%#x", hwnd, style, user32.GetWindowLongW(hwnd, GWL_EXSTYLE))
+WIN = sys.platform == "win32"
+GWL_EXSTYLE = -20
+HWND_TOPMOST = -1
+SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE, SWP_SHOWWINDOW = 0x1, 0x2, 0x10, 0x40
+SW_HIDE, SW_SHOWNOACTIVATE = 0, 4
+DWMWA_CLOAKED = 14
+_API = None
+_failures = guard.RateLimit(60.0)   # one warning a minute for each Win32 call that keeps failing
 
 
-def _show(root, visible):
-    """Show or hide without ever activating (stealing focus from) the window."""
-    if sys.platform != "win32":
-        if visible:
-            root.deiconify()
-        else:
-            root.withdraw()
-        return
-    import ctypes
-    user32 = ctypes.windll.user32
-    hwnd = _hwnd(root)
-    if visible:
-        SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE, SWP_SHOWWINDOW = 0x1, 0x2, 0x10, 0x40
-        user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW)
-        user32.ShowWindow(hwnd, 4)  # SW_SHOWNOACTIVATE
-    else:
-        user32.ShowWindow(hwnd, 0)  # SW_HIDE
-
-
-def _work_area(root):
-    """Screen area above the taskbar, in Tk pixels."""
-    if sys.platform == "win32":
+def _api():
+    """The user32 and dwmapi functions the pill uses, with argument and result types (a handle is 64 bits; without
+    types ctypes passes ints as C ints and nobody looks at the BOOL result). On private WinDLL objects so the types do
+    not change ctypes.windll.user32 for the rest of Vox; use_last_error so a failure is logged with its code."""
+    global _API
+    if _API is None:
         import ctypes
-        from ctypes import wintypes
-        r = wintypes.RECT()
-        ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(r), 0)  # SPI_GETWORKAREA
-        return r.left, r.top, r.right, r.bottom
-    return 0, 0, root.winfo_screenwidth(), root.winfo_screenheight()
+        import types
+        from ctypes import wintypes as w
+
+        def fn(dll, name, restype, *argtypes):
+            f = getattr(dll, name)
+            f.restype, f.argtypes = restype, argtypes
+            return f
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", w.DWORD), ("rcMonitor", w.RECT), ("rcWork", w.RECT), ("dwFlags", w.DWORD)]
+
+        u = ctypes.WinDLL("user32", use_last_error=True)
+        enum_proc = ctypes.WINFUNCTYPE(w.BOOL, w.HMONITOR, w.HDC, ctypes.POINTER(w.RECT), w.LPARAM)
+        i = ctypes.c_int
+        api = types.SimpleNamespace(
+            ctypes=ctypes, RECT=w.RECT, DWORD=w.DWORD, MONITORINFO=MONITORINFO, MONITORENUMPROC=enum_proc,
+            GetWindowLongW=fn(u, "GetWindowLongW", w.LONG, w.HWND, i),
+            SetWindowLongW=fn(u, "SetWindowLongW", w.LONG, w.HWND, i, w.LONG),
+            SetWindowPos=fn(u, "SetWindowPos", w.BOOL, w.HWND, w.HWND, i, i, i, i, w.UINT),
+            ShowWindow=fn(u, "ShowWindow", w.BOOL, w.HWND, i),   # returns the previous visibility, not success
+            IsWindowVisible=fn(u, "IsWindowVisible", w.BOOL, w.HWND),
+            IsIconic=fn(u, "IsIconic", w.BOOL, w.HWND),
+            GetWindowRect=fn(u, "GetWindowRect", w.BOOL, w.HWND, ctypes.POINTER(w.RECT)),
+            GetForegroundWindow=fn(u, "GetForegroundWindow", w.HWND),
+            SetForegroundWindow=fn(u, "SetForegroundWindow", w.BOOL, w.HWND),
+            EnumDisplayMonitors=fn(u, "EnumDisplayMonitors", w.BOOL, w.HDC, ctypes.POINTER(w.RECT), enum_proc, w.LPARAM),
+            GetMonitorInfoW=fn(u, "GetMonitorInfoW", w.BOOL, w.HMONITOR, ctypes.POINTER(MONITORINFO)),
+            SystemParametersInfoW=fn(u, "SystemParametersInfoW", w.BOOL, w.UINT, w.UINT, ctypes.c_void_p, w.UINT),
+            DwmGetWindowAttribute=None)
+        try:
+            api.DwmGetWindowAttribute = fn(ctypes.WinDLL("dwmapi"), "DwmGetWindowAttribute", ctypes.c_long, w.HWND,
+                                           w.DWORD, ctypes.c_void_p, w.DWORD)
+        except (OSError, AttributeError):
+            pass
+        _API = api
+    return _API
+
+
+def _check(ok, what):
+    """`ok` as a bool; a failure is logged (with the Windows error code) at most once a minute per call."""
+    if not ok:
+        err = _api().ctypes.get_last_error()
+        if _failures.allow(what, time.monotonic()):
+            log.warning("overlay: %s failed (Windows error %d; %d more since the last warning)", what, err,
+                        _failures.held_back(what))
+    return bool(ok)
+
+
+def _rect(r):
+    return (r.left, r.top, r.right, r.bottom)
+
+
+def _hwnd(win):
+    return int(win.wm_frame(), 16)
+
+
+def _win32_setup(win):
+    """No focus, no taskbar button, click-through, always on top. Returns the window handle."""
+    api = _api()
+    hwnd = _hwnd(win)
+    style = api.GetWindowLongW(hwnd, GWL_EXSTYLE)
+    api.ctypes.set_last_error(0)
+    if not api.SetWindowLongW(hwnd, GWL_EXSTYLE, style | guard.WS_EX_TOPMOST | guard.STYLE_BITS):
+        _check(api.ctypes.get_last_error() == 0, "SetWindowLongW")   # 0 can be a real old style: only an error code fails
+    log.info("overlay hwnd=%s exstyle before=%#x after=%#x", hwnd, style & 0xFFFFFFFF,
+             api.GetWindowLongW(hwnd, GWL_EXSTYLE) & 0xFFFFFFFF)
+    return hwnd
+
+
+def _raise(hwnd):
+    """Puts the pill on top of the other topmost windows and shows it, without activating it."""
+    _check(_api().SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW),
+           "SetWindowPos")
+
+
+def _show(win, visible):
+    """Show or hide without ever activating (stealing focus from) the window."""
+    if not WIN:
+        if visible:
+            win.deiconify()
+        else:
+            win.withdraw()
+        return
+    hwnd = _hwnd(win)
+    if visible:
+        _raise(hwnd)
+        _api().ShowWindow(hwnd, SW_SHOWNOACTIVATE)
+    else:
+        _api().ShowWindow(hwnd, SW_HIDE)
+
+
+def _work_area(win):
+    """Screen area above the taskbar (main monitor), in Tk pixels."""
+    if WIN:
+        api = _api()
+        r = api.RECT()
+        if _check(api.SystemParametersInfoW(0x30, 0, api.ctypes.byref(r), 0), "SystemParametersInfoW"):  # SPI_GETWORKAREA
+            return _rect(r)
+    return 0, 0, win.winfo_screenwidth(), win.winfo_screenheight()
+
+
+def _probe(hwnd):
+    """What Windows says about the pill window, as overlay_guard reads it; None for what could not be read."""
+    api = _api()
+    ct = api.ctypes
+    r = api.RECT()
+    rect = _rect(r) if _check(api.GetWindowRect(hwnd, ct.byref(r)), "GetWindowRect") else None
+    monitors, works = [], []
+
+    def each(hmon, hdc, lprc, data):
+        mi = api.MONITORINFO()
+        mi.cbSize = ct.sizeof(mi)
+        if api.GetMonitorInfoW(hmon, ct.byref(mi)):
+            monitors.append(_rect(mi.rcMonitor))
+            works.append(_rect(mi.rcWork))
+        return True
+
+    _check(api.EnumDisplayMonitors(None, None, api.MONITORENUMPROC(each), 0), "EnumDisplayMonitors")
+    cloaked = None
+    if api.DwmGetWindowAttribute is not None:
+        v = api.DWORD()
+        if api.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, ct.byref(v), ct.sizeof(v)) == 0:
+            cloaked = v.value
+    ct.set_last_error(0)
+    style = api.GetWindowLongW(hwnd, GWL_EXSTYLE)
+    style = None if style == 0 and ct.get_last_error() else style & 0xFFFFFFFF
+    return {"hwnd": hwnd, "visible": bool(api.IsWindowVisible(hwnd)), "iconic": bool(api.IsIconic(hwnd)),
+            "cloaked": cloaked, "rect": rect, "monitors": monitors, "work": works, "exstyle": style}
 
 
 class Overlay:
@@ -81,31 +185,23 @@ class Overlay:
     def __init__(self, app):
         self.app = app  # needs .state ("idle" | "rec" | "busy" | "listen"), .level (0..1), .flash_kind ("sent" | "error" | ""),
         #                 .flash_until and .listening (the running keep-listening session or None)
-        self.root = tk.Tk()
+        self.root = tk.Tk()   # never shown: it owns the Tk loop; the pill is a Toplevel so it can be rebuilt
         self.root.withdraw()
+        self.root.report_callback_exception = self._report
         self.scale = self.root.winfo_fpixels("1i") / 96.0
         s = self.scale
         self.w, self.h = int(132 * s), int(38 * s)
-
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
-        self.root.configure(bg=KEY)
-        try:
-            self.root.attributes("-transparentcolor", KEY)
-        except tk.TclError:
-            pass
         self.visible = False
-
-        self.canvas = tk.Canvas(self.root, width=self.w, height=self.h, bg=KEY, highlightthickness=0, bd=0)
-        self.canvas.pack()
-        self._place()
-        self.root.deiconify()
-        self.root.update_idletasks()
-        if sys.platform == "win32":
-            _win32_setup(self.root)
-        _show(self.root, False)
-        self.root.report_callback_exception = self._report
-        log.info("overlay ready %sx%s scale=%.2f geometry=%s", self.w, self.h, self.scale, self.root.geometry())
+        self.win = self.canvas = self.hwnd = None
+        self.area = None            # the work area the pill was last placed in
+        self.asserted = 0.0         # time.monotonic() of the last re-assert
+        self.last_state = None      # what the previous tick showed
+        self.rebuilds = 0           # rebuilds since the pill was last shown
+        self.rebuild_limit = guard.RateLimit(guard.REBUILD_SECONDS)
+        self.repair_log = guard.RateLimit(60.0)
+        self.last_tick = time.monotonic()   # heartbeat, read by the engine's watchdog thread
+        self._build()
+        log.info("overlay ready %sx%s scale=%.2f geometry=%s", self.w, self.h, self.scale, self.win.geometry())
 
         self.t = 0.0
         self.smooth = 0.0
@@ -115,6 +211,30 @@ class Overlay:
         self.phase = [random.random() * math.tau for _ in range(self.N_BARS)]
         self._shape()
         self.root.after(FPS_MS, self._tick)
+
+    def _build(self):
+        """Creates the pill window (hidden) and drops the old one, if any. A new window gets a new handle and lands on
+        the current virtual desktop."""
+        win = tk.Toplevel(self.root)
+        win.withdraw()
+        win.overrideredirect(True)
+        win.attributes("-topmost", True)
+        win.configure(bg=KEY)
+        try:
+            win.attributes("-transparentcolor", KEY)
+        except tk.TclError:
+            pass
+        canvas = tk.Canvas(win, width=self.w, height=self.h, bg=KEY, highlightthickness=0, bd=0)
+        canvas.pack()
+        old, self.win, self.canvas = self.win, win, canvas
+        self._place()
+        win.deiconify()
+        win.update_idletasks()
+        if WIN:
+            self.hwnd = _win32_setup(win)
+        _show(win, False)
+        if old is not None:
+            old.destroy()
 
     def _shape(self):
         """The check mark and the "!" never change size: their coordinates are worked out when the pill's width is set,
@@ -135,10 +255,64 @@ class Overlay:
             self._place()
 
     def _place(self):
-        left, top, right, bottom = _work_area(self.root)
+        self.area = left, top, right, bottom = _work_area(self.win)
         x = left + (right - left - self.w) // 2
         y = bottom - self.h - int(18 * self.scale)
-        self.root.geometry(f"{self.w}x{self.h}+{x}+{y}")
+        self.win.geometry(f"{self.w}x{self.h}+{x}+{y}")
+
+    # ------------------------------------------------------- staying on screen
+    def _keep_up(self, state, now):
+        """Every tick while the pill is wanted: a full re-assert when a recording, a listening session or meeting
+        notes start (even if the pill was already up), else a cheap one every ASSERT_SECONDS."""
+        entered = state in guard.FORCE_STATES and state != self.last_state
+        if entered or guard.assert_due(now, self.asserted):
+            self._assert(state, now, force=entered)
+
+    def _look(self, hwnd):
+        p = _probe(hwnd)
+        p["tk_mapped"] = bool(self.win.winfo_ismapped())   # Tk draws only a mapped window
+        return p
+
+    def _assert(self, state, now, force=False):
+        """Checks the pill window, puts it back on top (re-placed when the work area changed) and repairs what was
+        wrong, logged at INFO with the facts; a window still off the screen after that is rebuilt."""
+        self.asserted = now
+        hwnd = _hwnd(self.win)
+        before = self._look(hwnd)
+        found = guard.problems(before)
+        if hwnd != self.hwnd:
+            found.append("new window")   # Tk made a new frame window: our extended styles are not on it
+        if hwnd != self.hwnd or "style lost" in found:
+            self.hwnd = _win32_setup(self.win)
+        if force or found or _work_area(self.win) != self.area:
+            self._place()
+        _raise(hwnd)
+        if force or found:
+            _api().ShowWindow(hwnd, SW_SHOWNOACTIVATE)
+        if not found:
+            return
+        left = guard.problems(self._look(hwnd))
+        key = tuple(found)
+        if self.repair_log.allow(key, now):
+            log.info("overlay repair: %s; after: %s; %s (%d like this held back)", ", ".join(found),
+                     ", ".join(left) or "fixed", guard.describe(before, self.area, state), self.repair_log.held_back(key))
+        bad = guard.needs_rebuild(left)
+        if bad and self.rebuilds < guard.MAX_REBUILDS and self.rebuild_limit.allow("rebuild", now):
+            self._rebuild(state, bad)
+
+    def _rebuild(self, state, why):
+        """A new pill window in place of one Windows keeps off the screen; it never keeps the focus."""
+        self.rebuilds += 1
+        api = _api()
+        fg, old = api.GetForegroundWindow(), self.hwnd
+        self._build()
+        _show(self.win, True)
+        if fg and api.GetForegroundWindow() == self.hwnd:   # the new window took the focus: give it back
+            api.SetForegroundWindow(fg)
+            log.warning("overlay rebuild took the focus; gave it back")
+        p = self._look(self.hwnd)
+        log.info("overlay rebuilt (%s): hwnd %s -> %s; now: %s; %s", ", ".join(why), old, self.hwnd,
+                 ", ".join(guard.problems(p)) or "ok", guard.describe(p, self.area, state))
 
     # ------------------------------------------------------------- drawing
     def _pill(self, fill, outline):
@@ -216,10 +390,11 @@ class Overlay:
     # ---------------------------------------------------------------- loop
     def _tick(self):
         try:
+            now = self.last_tick = time.monotonic()
             self.t += FPS_MS / 1000
             meeting = getattr(self.app, "meeting", None)
             # Precedence (flash over the meeting timer, flash only while idle) lives in overlay_mode, which is tested.
-            state = overlay_mode(self.app.state, self.app.flash_kind, self.app.flash_until, time.monotonic(),
+            state = overlay_mode(self.app.state, self.app.flash_kind, self.app.flash_until, now,
                                  meeting is not None and meeting.active)
             want = state is not None
             if want:
@@ -228,12 +403,16 @@ class Overlay:
                 self._place()
                 self.hist.reset()
                 self.smooth = 0.0
-                _show(self.root, True)
+                self.rebuilds = 0
+                _show(self.win, True)
                 self.visible = True
                 log.info("overlay shown (%s)", state)
             elif not want and self.visible:
-                _show(self.root, False)
+                _show(self.win, False)
                 self.visible = False
+            if want and WIN:
+                self._keep_up(state, now)
+            self.last_state = state
             if self.visible:
                 self.canvas.delete("all")
                 self._pill(BG, EDGE)
