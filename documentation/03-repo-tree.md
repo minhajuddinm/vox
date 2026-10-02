@@ -59,6 +59,7 @@ windows/                Windows app (Python) and its installer scripts
 | `windows/secret.py` | Windows DPAPI protection for the API key stored in `config.json`. |
 | `windows/audio_devices.py` | Lists microphones and resolves the chosen one by name. |
 | `windows/overlay_mode.py` | Pure function `overlay_mode(...)`: which picture the pill shows (rec, busy, sent, error, meet, or hidden); no Tk, unit tested. |
+| `windows/overlay_guard.py` | Pure checks that keep the pill on screen: is a re-assert due, is its rectangle on a monitor, what is wrong with the window (`problems`), the log text (`describe`), a rate limit, the Tk-tick stall check, the thread dump, and the stuck-state check (`state_consistent`, `StuckWatch`); no Tk, no Win32, unit tested. |
 | `windows/overlay.py` | The small recording pill (Tk window, click-through, never takes focus); also shows the green check / red ! after a dictation. |
 | `windows/logo.py` | Draws the tray icons and generates `windows/vox.ico`. |
 | `windows/ui_app.py` | The main window's Python side: pywebview window and the `Api` class the page calls. |
@@ -209,7 +210,10 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_hostile_note_id.py` | A note id from the relay that is not 32 hex characters is ignored, in `apply_remote` and in a sync. |
 | `tests/test_engine_notes.py` | The engine's voice-note mode (skipped where the Windows runtime packages are missing). |
 | `tests/test_engine_flash.py` | The pill's "sent" and "error" signal: `Engine.flash` timing, expiry, what cancels it, no flash without a pill, and which events raise which one (skipped where the Windows runtime packages are missing). |
-| `tests/test_overlay_mode.py` | Every branch of `overlay_mode` (flash over the meeting timer, flash only while idle). |
+| `tests/test_overlay_mode.py` | Every branch of `overlay_mode` (flash over the meeting timer, flash only while idle, a flash never longer than 5 s). |
+| `tests/test_overlay_guard.py` | `overlay_guard`: on-screen check across monitors, problem names, rebuild rule, rate limit, stall check, thread dump, stuck states. |
+| `tests/test_overlay_keep_up.py` | The pill's re-assert, repair log, rebuild limits and focus hand-back, with every Win32 call and the Tk window faked (no window is created). |
+| `tests/test_engine_watchdog.py` | `Engine.check_overlay`: the thread dump on a stalled Tk tick and the reset of a stuck state (needs the Windows runtime packages). |
 | `tests/test_flash_constants.py` | Drift guard: `BubbleView.SENT_MS` / `ERROR_MS` equal `FLASH_SECONDS` in `engine.py`. |
 | `tests/test_engine_mic.py` | `Engine._open_mic` refreshes PortAudio's device list once when a chosen microphone is missing or fails to open (skipped without the Windows packages). |
 | `tests/test_paste.py` | `paste_text` with injected fakes (window unchanged or changed, clipboard snapshot and restore rules, the exclude-from-history markers, Ctrl+V as a virtual key) and the engine's "Copied; the window changed" notice. |

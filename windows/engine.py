@@ -21,6 +21,7 @@ import listen as listen_mod
 import improve
 import logo
 import notes
+import overlay_guard
 import paste as paste_mod
 import relay_host
 import session as session_mod
@@ -41,6 +42,7 @@ DOUBLE_TAP_GAP = 0.5    # second tap within this starts keep listening
 # How long the pill shows a green check / a red ! (see Engine.flash). Keep equal to BubbleView.SENT_MS / ERROR_MS
 # in android/src/com/minhaj/vox/BubbleView.java (tests/test_flash_constants.py checks it).
 FLASH_SECONDS = {"sent": 0.7, "error": 1.8}
+STUCK_MARGIN = 60       # a recording this long past its longest limit (hands-free) means the audio callback stopped
 
 KEY_ALIASES = {
     "ctrl": {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r},
@@ -110,6 +112,7 @@ class Engine:
     listening = None   # the listen.Listening of the keep-listening session in progress (also while it saves); None when none
     note_hotkey = None   # the session.NoteHotkey of the note shortcut; None when it is off or unusable
     note_key_down = False   # its main key is held (a key repeat must not toggle again)
+    state_since = 0.0   # time.monotonic() when set_state last ran (the overlay watchdog's stuck-state check)
 
     def __init__(self):
         self.cfg = core.load_config()
@@ -126,6 +129,7 @@ class Engine:
         self.target = ""
         self.started_at = 0.0
         self.state = "idle"   # read by the overlay: idle | rec | busy | listen
+        self.state_since = time.monotonic()
         self.level = 0.0
         self.overlay = None
         self.flash_kind = ""
@@ -237,6 +241,7 @@ class Engine:
             pass
 
     def set_state(self, name):
+        self.state_since = time.monotonic()
         self.state = name
         if name != "rec":
             self.level = 0.0
@@ -276,6 +281,41 @@ class Engine:
             return False
         self.cfg[key] = value
         return True
+
+    # ------------------------------------------------------- overlay watchdog
+    def _watch_overlay(self):
+        stuck, dumped = overlay_guard.StuckWatch(), False
+        while True:
+            time.sleep(1.0)
+            try:
+                dumped = self.check_overlay(time.monotonic(), stuck, dumped)
+            except Exception:
+                log.exception("overlay watchdog failed")
+
+    def check_overlay(self, now, stuck, dumped):
+        """Once a second (daemon thread): logs every thread's stack once when the pill's Tk tick has not run for
+        STALL_SECONDS while not idle, and ends a state that no longer matches the engine's flags (overlay_guard).
+        Returns whether the current stall was already dumped."""
+        ov, state = self.overlay, self.state
+        last_tick = getattr(ov, "last_tick", 0.0) if ov is not None else 0.0
+        if overlay_guard.tick_stalled(last_tick, now, state != "idle"):
+            if not dumped:
+                log.warning("overlay tick has not run for %.1f s (state %s); threads:\n%s", now - last_tick, state,
+                            overlay_guard.thread_dump())
+            dumped = True
+        else:
+            dumped = False
+        since = self.state_since
+        ok = overlay_guard.state_consistent(state, self.recording, self.busy, self.listening, now - since,
+                                            MAX_SECONDS * 3 + STUCK_MARGIN)
+        if stuck.update(state, since, ok, now) and self.state_since == since:
+            log.warning("state %r stuck for %.0f s (recording=%s busy=%s listening=%s): ending it", state, now - since,
+                        self.recording, self.busy, self.listening is not None)
+            if state == "rec" and self.recording:
+                self.stop()   # the audio callback stopped calling: end it as its time limit would
+            else:
+                self.set_state("idle")
+        return dumped
 
     # ----------------------------------------------------------------- relay
     def start_relay(self):
@@ -890,6 +930,7 @@ class Engine:
         threading.Thread(target=self._serve, daemon=True, name="control").start()
         threading.Thread(target=self._watch_calendar, daemon=True, name="calendar").start()
         threading.Thread(target=self._watch_improve, daemon=True, name="improve").start()
+        threading.Thread(target=self._watch_overlay, daemon=True, name="overlay-watch").start()
         self.sync.start()
         self.icon.run_detached()
         log.info("engine started, hotkey=%s", self.cfg.get("hotkey"))
