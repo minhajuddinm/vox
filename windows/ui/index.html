@@ -221,6 +221,9 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
 .qa .a { margin-top: 4px; line-height: 1.55; }
 #toast { position: fixed; bottom: 22px; left: 50%; transform: translate(-50%, 20px); background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 999px; font-size: 13px; opacity: 0; transition: .2s; pointer-events: none; }
 #toast.on { opacity: 1; transform: translate(-50%, 0); }
+.code-help summary { cursor: pointer; font-size: 13px; }
+.code-table { border-collapse: collapse; margin: 8px 0; width: 100%; }
+.code-table th, .code-table td { padding: 3px 8px; text-align: left; font-size: 12px; border-bottom: 1px solid var(--line); }
 </style>
 </head>
 <body>
@@ -385,6 +388,13 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="setting"><div><div class="t">Applied changes</div><div class="d">Revert undoes that change and every later one.</div></div></div>
       <div id="improve-versions" style="padding:0 18px 12px"></div>
       <div class="setting"><div><div class="t">Remind me weekly</div><div class="d">A message from the tray icon once a week. It only reminds you: it never runs by itself and never sends anything.</div></div><label class="switch"><input type="checkbox" id="improve-remind"><span></span></label></div>
+    </div>
+
+    <div class="card list" id="code-card" style="margin-top:10px">
+      <div class="setting"><div><div class="t">Code mode</div><div class="d">In the code apps below, and in any app whose style is Code, spoken formatters and symbols become code: camel case user name types userName, open paren types (. No lists are made there. Off types into code apps like into any other app.</div></div><select id="code-mode"><option value="auto">Auto</option><option value="off">Off</option></select></div>
+      <div class="setting"><div><div class="t">Cleanup in code apps</div><div class="d">Rules only never sends what you say in a code app to the AI cleanup, so nothing is rewritten. AI cleanup sends it with an instruction to keep identifiers, symbols and casing exactly as spoken.</div></div><select id="code-cleanup"><option value="rules">Rules only</option><option value="llm">AI cleanup</option></select></div>
+      <div class="setting"><div><div class="t">Code apps</div><div class="d">Program names (exe), separated by commas. Common editors and terminals are listed to start with.</div></div><textarea id="code-apps" rows="3" style="width:280px" spellcheck="false"></textarea></div>
+      <div style="padding:4px 18px 12px"><details class="code-help" id="code-help"><summary>What to say in a code app</summary><p class="d">Say a formatter, then the words: they are joined until you say a symbol, the word then, or stop. Symbols are whole words, so dotted or tabby are never touched. Words in your Dictionary keep their spelling.</p><table class="code-table"><tr><th>Say</th><th>Types</th></tr><tr><td>camel case user name</td><td><code>userName</code></td></tr><tr><td>snake case max retries</td><td><code>max_retries</code></td></tr><tr><td>pascal case http client</td><td><code>HttpClient</code></td></tr><tr><td>kebab case my component</td><td><code>my-component</code></td></tr><tr><td>constant case api key</td><td><code>API_KEY</code></td></tr><tr><td>dotted case foo bar</td><td><code>foo.bar</code></td></tr><tr><td>all caps hello</td><td><code>HELLO</code></td></tr><tr><td>no space foo bar</td><td><code>foobar</code></td></tr></table><table class="code-table"><tr><th>Say</th><th>Types</th></tr><tr><td>open paren</td><td><code>(</code></td></tr><tr><td>open parenthesis</td><td><code>(</code></td></tr><tr><td>close paren</td><td><code>)</code></td></tr><tr><td>close parenthesis</td><td><code>)</code></td></tr><tr><td>open bracket</td><td><code>[</code></td></tr><tr><td>close bracket</td><td><code>]</code></td></tr><tr><td>open brace</td><td><code>{</code></td></tr><tr><td>close brace</td><td><code>}</code></td></tr><tr><td>open angle</td><td><code>&lt;</code></td></tr><tr><td>close angle</td><td><code>&gt;</code></td></tr><tr><td>equals</td><td><code>=</code></td></tr><tr><td>equals equals</td><td><code>==</code></td></tr><tr><td>not equals</td><td><code>!=</code></td></tr><tr><td>less than</td><td><code>&lt;</code></td></tr><tr><td>greater than</td><td><code>&gt;</code></td></tr><tr><td>plus equals</td><td><code>+=</code></td></tr><tr><td>arrow</td><td><code>-&gt;</code></td></tr><tr><td>fat arrow</td><td><code>=&gt;</code></td></tr><tr><td>dot</td><td><code>.</code></td></tr><tr><td>comma</td><td><code>,</code></td></tr><tr><td>semicolon</td><td><code>;</code></td></tr><tr><td>colon</td><td><code>:</code></td></tr><tr><td>double colon</td><td><code>::</code></td></tr><tr><td>underscore</td><td><code>_</code></td></tr><tr><td>dash</td><td><code>-</code></td></tr><tr><td>slash</td><td><code>/</code></td></tr><tr><td>backslash</td><td><code>\</code></td></tr><tr><td>quote</td><td><code>&quot;</code></td></tr><tr><td>single quote</td><td><code>&#x27;</code></td></tr><tr><td>backtick</td><td><code>`</code></td></tr><tr><td>pipe</td><td><code>|</code></td></tr><tr><td>ampersand</td><td><code>&amp;</code></td></tr><tr><td>hash</td><td><code>#</code></td></tr><tr><td>at sign</td><td><code>@</code></td></tr><tr><td>dollar sign</td><td><code>$</code></td></tr><tr><td>percent</td><td><code>%</code></td></tr><tr><td>star</td><td><code>*</code></td></tr><tr><td>plus</td><td><code>+</code></td></tr><tr><td>minus</td><td><code>-</code></td></tr><tr><td>tilde</td><td><code>~</code></td></tr><tr><td>new line</td><td><code>line break</code></td></tr><tr><td>tab</td><td><code>tab</code></td></tr></table></details></div>
     </div>
 
     <h2>Privacy</h2>
@@ -594,7 +604,9 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = async () => {
   if (b.dataset.page === "settings") { loadDevices(); loadImprove(); }
 });
 
-function styleOptions(sel, value) { sel.innerHTML = STYLES.map(([v, l]) => `<option value="${v}">${l}</option>`).join(""); sel.value = value || "neutral"; }
+// Per app, Windows also offers "Code": spoken formatters and symbols in any app (codemode.py), whatever Code apps lists.
+const APP_STYLES = [...STYLES, ["code", "Code (spoken symbols)"]];
+function styleOptions(sel, value, list = STYLES) { sel.innerHTML = list.map(([v, l]) => `<option value="${v}">${l}</option>`).join(""); sel.value = value || "neutral"; }
 function fmt(n) { return n >= 10000 ? (n / 1000).toFixed(1) + "k" : n.toLocaleString(); }
 
 let welcomeSeq = 0;
@@ -749,11 +761,11 @@ $("repls").onclick = async (e) => { const b = e.target.closest("[data-r]"); if (
 // ---------- styles
 function renderStyles() {
   styleOptions($("default-style"), S.config.default_style);
-  styleOptions($("new-style"), "casual");
+  styleOptions($("new-style"), "casual", APP_STYLES);
   const m = S.config.app_styles || {};
   const rows = Object.keys(m).sort();
   $("app-styles").innerHTML = rows.length ? rows.map(a => `<tr><td>${esc(a.replace(/\.exe$/i, ""))} <span class="style-tag">${esc(a)}</span></td>
-    <td style="width:200px"><select data-app="${esc(a)}">${STYLES.map(([v, l]) => `<option value="${v}" ${m[a] === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
+    <td style="width:200px"><select data-app="${esc(a)}">${APP_STYLES.map(([v, l]) => `<option value="${v}" ${m[a] === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>
     <td style="width:40px"><button class="icon-btn" data-rm="${esc(a)}">${ICON_DEL}</button></td></tr>`).join("") : '<tr><td class="empty">No apps yet.</td></tr>';
   const availableApps = S.apps.filter(a => !m[a]);
   $("new-app").innerHTML = availableApps.map(a => `<option value="${esc(a)}">${esc(a.replace(/\.exe$/i, ""))}</option>`).join("") + `<option value="">-- Select app --</option><option value="__other__">Other...</option>`;
@@ -790,6 +802,9 @@ function renderSettings() {
   $("cleanup-min").value = c.cleanup_min_words || 3;
   $("cleanup-strength").value = c.cleanup_strength === "standard" ? "standard" : "light";
   $("structure").value = structureMode(c.structure);
+  $("code-mode").value = c.code_mode === "off" ? "off" : "auto";
+  $("code-cleanup").value = c.code_cleanup === "llm" ? "llm" : "rules";
+  if (document.activeElement !== $("code-apps")) $("code-apps").value = (c.code_apps || []).join(", ");
   $("note-hotkey").value = c.note_hotkey || ""; noteHotkeyStatus();
   if (document.activeElement !== $("improve-model")) $("improve-model").value = c.improve_model || "";
   $("improve-days").value = String(c.improve_days ?? 7);
@@ -925,6 +940,11 @@ $("cleanup").onchange = (e) => save({ cleanup: e.target.checked });
 $("cleanup-min").onchange = (e) => { const v = parseInt(e.target.value, 10), n = isNaN(v) ? 3 : Math.max(1, Math.min(20, v)); e.target.value = n; save({ cleanup_min_words: n }); };
 $("cleanup-strength").onchange = (e) => save({ cleanup_strength: e.target.value });
 $("structure").onchange = (e) => save({ structure: structureMode(e.target.value) });
+$("code-mode").onchange = (e) => save({ code_mode: e.target.value === "off" ? "off" : "auto" });
+$("code-cleanup").onchange = (e) => save({ code_cleanup: e.target.value === "llm" ? "llm" : "rules" });
+$("code-apps").onchange = (e) => save({ code_apps: codeAppList(e.target.value) });
+// The Code apps box: names separated by commas or lines, trimmed, without repeats (case is ignored).
+function codeAppList(text) { const seen = new Set(); return String(text || "").split(/[,\n]/).map(s => s.trim()).filter(s => s && !seen.has(s.toLowerCase()) && seen.add(s.toLowerCase())); }
 $("stream-stt").onchange = (e) => save({ stream_stt: e.target.checked });
 $("autostart").onchange = async (e) => { S.autostart = await api().set_autostart(e.target.checked); e.target.checked = S.autostart; toast(S.autostart ? "Vox will start with Windows" : "Autostart off"); };
 $("stt").onchange = (e) => save({ stt_model: e.target.value.trim() });

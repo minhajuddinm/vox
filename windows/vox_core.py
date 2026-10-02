@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 
 import requests
 
+import codemode
 import providers
 import secret
 import structure as structure_mod
@@ -70,6 +71,9 @@ DEFAULT_CONFIG = {
     "cleanup_min_words": 3,
     "cleanup_strength": "light",
     "structure": "auto",
+    "code_mode": "auto",
+    "code_apps": list(codemode.CODE_APPS),
+    "code_cleanup": "rules",
     "listen_target": "note",
     "note_hotkey": "ctrl+alt+n",
     "keep_history": True,
@@ -168,7 +172,7 @@ def _fix_types(cfg):
         if isinstance(default, list):
             if not isinstance(v, list):
                 cfg[k] = list(default)
-            elif k in ("dictionary", "people", "hotkey"):
+            elif k in ("dictionary", "people", "hotkey", "code_apps"):
                 cfg[k] = [x for x in v if isinstance(x, str)]
         elif isinstance(default, dict):
             if not isinstance(v, dict):
@@ -404,6 +408,9 @@ STYLE_TEXT = {
     "formal": "formal. Complete sentences, standard capitalization and punctuation, no slang, no emoji.",
     "casual": "casual. Natural conversational punctuation. Short messages may skip the final period.",
     "very_casual": "very casual, like a text message. Lowercase is fine, minimal punctuation, no final period.",
+    "code": "code. The text is typed into a code editor or terminal: keep identifiers, symbols and casing exactly as spoken, "
+            "including spoken symbol and formatter names (open paren, dot, camel case); never add prose, quotes or a final "
+            "period.",   # Windows only (code mode with "AI cleanup" chosen for code apps)
 }
 
 
@@ -456,7 +463,7 @@ LIST_BY_STYLE = {   # the list sentence of each style that may have lists
 }
 LIST_BY_STYLE["email"] = LIST_BY_STYLE["formal"]
 STRUCTURE_BY_STYLE = {s: _PARAGRAPHS + " " + rule for s, rule in LIST_BY_STYLE.items()}   # "Lists and paragraphs": Auto
-STRUCTURE_BY_STYLE["casual"] = STRUCTURE_BY_STYLE["very_casual"] = _FLAT
+STRUCTURE_BY_STYLE["casual"] = STRUCTURE_BY_STYLE["very_casual"] = STRUCTURE_BY_STYLE["code"] = _FLAT
 NO_PARAGRAPHS = "No blank lines unless the speaker says new paragraph."
 STRUCTURE_TAIL = " Never reorder or regroup what was said."
 
@@ -1321,11 +1328,13 @@ def process_text(cfg, raw, exe, app_label, segments=None):
     if not raw or is_silence_hallucination(raw):
         return Result("", "", False, "")
     style = style_for(cfg, exe)
+    code = codemode.is_code_app(cfg, exe, style)   # an editor or terminal: spoken formatters and symbols, no lists
     out, cleaned, error, rejected = raw, False, "", False
-    if needs_cleanup(raw, style, cfg.get("cleanup", True), cfg.get("cleanup_min_words", 3)):
+    wanted = needs_cleanup(raw, style, cfg.get("cleanup", True), cfg.get("cleanup_min_words", 3))
+    if wanted and not (code and codemode.code_cleanup(cfg.get("code_cleanup")) == "rules"):
         _mark("llm_start")
         try:
-            c = cleanup(cfg, raw, style, app_label)
+            c = cleanup(cfg, raw, "code" if code else style, app_label)
             if looks_valid(raw, c, cfg.get("cleanup_strength")):
                 out, cleaned = c, True
             else:
@@ -1338,9 +1347,12 @@ def process_text(cfg, raw, exe, app_label, segments=None):
         finally:
             _mark("llm_done")
     if not cleaned:
-        out = fallback_text(out) if rejected else apply_spoken_commands(out)
+        out = fallback_text(out) if rejected else out if code else apply_spoken_commands(out)
+    if code:
+        out = codemode.format_code(out)   # "new line" is one of its symbols
     out = fuzzy_dictionary(apply_replacements(out, replacements(cfg)), dictionary_terms(cfg))
-    out = apply_structure(cfg, out, style, segments)
+    if not code:
+        out = apply_structure(cfg, out, style, segments)
     return Result(raw, out, cleaned, error, rejected)
 
 
