@@ -619,7 +619,12 @@ def forward_upstream(base_url, api_key, suffix, method, body, content_type, acce
     thread) at that moment, because on some systems (Windows) shutting a socket down does not wake a read that is
     blocked on it in another thread: the caller can give up what the exchange holds (the proxy slot) without waiting
     for that read to end. On Linux the shutdown does wake it, and the exchange ends at once.
+    `body` is bytes, or a one-item list holding the bytes: the list is emptied and this function is then the only holder,
+    and it lets go of the body as soon as the request has been sent (an abandoned call that is still waiting for a read
+    that will not wake keeps the connection, not the up-to-25 MB request).
     Raises UpstreamError for anything that goes wrong; its text never holds the address or the key."""
+    if isinstance(body, list):
+        body = body.pop() if body else b""
     u = urlparse(base_url)
     https = u.scheme == "https"
     headers = {"User-Agent": "vox-relay"}
@@ -680,6 +685,7 @@ def forward_upstream(base_url, api_key, suffix, method, body, content_type, acce
                 sock.settimeout(left)
 
         conn.request(method, u.path.rstrip("/") + suffix, body=body if method == "POST" else None, headers=headers)
+        body = None      # sent: nothing below needs it
         budget()
         resp = conn.getresponse()
         status = resp.status
@@ -962,9 +968,11 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             if len(body) != n:
                 return 400, {"error": "the request body was cut short"}
+        held = [body]       # handed to forward_upstream in a list, so that this frame does not keep the body alive
+        del body
         content_type = _plain_header(self.headers.get("Content-Type")) if method == "POST" else None
         try:
-            status, ctype, retry_after, data = forward_upstream(base, key, suffix, method, body, content_type,
+            status, ctype, retry_after, data = forward_upstream(base, key, suffix, method, held, content_type,
                                                                 _plain_header(self.headers.get("Accept")), PROXY_TIMEOUT[kind],
                                                                 gone=lambda: client_gone(self.connection), on_abandon=on_abandon)
         except ClientGone:
