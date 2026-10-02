@@ -82,13 +82,14 @@ def eng(monkeypatch, tmp_path):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     e = object.__new__(engine_mod.Engine)
     e.cfg, e.busy = {"keep_clipboard": False}, True
-    e.messages, e.flashes, e.states, e.pasted = [], [], [], []
+    e.messages, e.flashes, e.states, e.pasted, e.paste_kw = [], [], [], [], []
     e.notify = lambda m, private=False: e.messages.append(m)
     e.flash = e.flashes.append
     e.set_state = e.states.append
     e.mod = engine_mod
     monkeypatch.setattr(engine_mod.paste_mod, "copy_selection", lambda exe: (SEL, ""))
-    monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, exe, keep: e.pasted.append((text, exe)) or "pasted")
+    monkeypatch.setattr(engine_mod.paste_mod, "paste_text",
+                        lambda text, exe, keep, **kw: e.paste_kw.append(kw) or e.pasted.append((text, exe)) or "pasted")
     monkeypatch.setattr(core, "transcribe", lambda cfg, audio, context="": "change Tuesday to Wednesday")
     return e
 
@@ -99,6 +100,15 @@ def test_the_engine_pastes_the_edited_text_over_the_selection(eng, monkeypatch):
     eng._process_command(b"\x10\x27" * 16000, "notepad.exe")
     assert eng.pasted == [(edited, "notepad.exe")] and eng.flashes == ["sent"]
     assert not eng.busy and eng.states[-1] == "idle" and eng.messages == []
+
+
+@pytest.mark.parametrize("history", [True, False])
+def test_the_edited_text_follows_the_clipboard_history_setting(eng, monkeypatch, history):
+    """Final fixes (relay-docs 2, windows 2): edit by voice used the default (kept in Win+V) whatever the setting said."""
+    eng.cfg["clipboard_history"] = history
+    monkeypatch.setattr(command, "edit", lambda cfg, sel, ins: "edited")
+    eng._process_command(b"'" * 16000, "notepad.exe")
+    assert eng.paste_kw == [{"clipboard_history": history}]
 
 
 def test_a_refused_answer_leaves_the_selection_alone(eng, monkeypatch):

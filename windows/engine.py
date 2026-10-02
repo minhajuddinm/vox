@@ -988,7 +988,8 @@ class Engine:
                 self.flash("error")
                 return
             edited = command_mod.edit(self.cfg, selection, instruction)
-            result = paste_mod.paste_text(edited, exe, self.cfg.get("keep_clipboard", False))
+            result = paste_mod.paste_text(edited, exe, self.cfg.get("keep_clipboard", False),
+                                          clipboard_history=self.cfg.get("clipboard_history", True))
             if result == paste_mod.PASTED:
                 log.info("edit by voice: applied (%d -> %d characters)", len(selection), len(edited))
                 self.flash("sent")
