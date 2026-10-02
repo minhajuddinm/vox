@@ -181,6 +181,15 @@ nav button.on .pill { background:var(--accent-soft); }
     <button class="btn full" id="r-add">Add replacement</button>
   </div>
   <div class="card list" id="repls" style="margin-top:10px"></div>
+  <h2>Snippets</h2>
+  <div class="card">
+    <p class="sub" style="margin:0 0 8px">Say the phrase and Vox types the text you saved. It is put in after the AI cleanup, so it never goes to the cleanup server. While sync is on, snippets are copied to your relay. Up to 50, 2,000 characters each.</p>
+    <input type="text" id="snip-trigger" maxlength="100" placeholder="When I say (e.g. my email)">
+    <textarea id="snip-text" rows="3" maxlength="2000" style="margin-top:8px" placeholder="Type (e.g. me@example.com, or a signature on several lines)"></textarea>
+    <div class="status" id="snip-status"></div>
+    <button class="btn full" id="snip-add">Add snippet</button>
+  </div>
+  <div class="card list" id="snips" style="margin-top:10px"></div>
 </section>
 
 <!-- STYLES -->
@@ -241,13 +250,14 @@ nav button.on .pill { background:var(--accent-soft); }
     <div class="item"><div class="grow"><div class="t">AI cleanup</div><div class="d">Removes fillers, fixes punctuation, applies corrections</div></div><label class="switch"><input type="checkbox" id="cleanup"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases are typed as spoken, which is faster. 1 cleans up everything (1 to 20)</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" inputmode="numeric" style="width:76px"></div>
     <div class="item"><div class="grow"><div class="t">Cleanup strength</div><div class="d">Light keeps every word you said and only fixes punctuation, capitals, spelling and paragraphs. Standard also removes fillers and false starts. If the cleanup lost words, Vox types them as spoken</div></div><select class="inline" id="cleanup-strength"><option value="light">Light</option><option value="standard">Standard</option></select></div>
+    <div class="item"><div class="grow"><div class="t">Lists and paragraphs</div><div class="d">Auto and Lists only turn a list you say (first, second; point one, point two; bullet point; pehla, doosra) into a list. Off keeps the text flat. Saying commas never makes a list</div></div><select class="inline" id="structure"><option value="off">Off</option><option value="auto">Auto</option><option value="lists">Lists only</option></select></div>
   </div>
 
   <h2>Privacy</h2>
   <p class="note" style="margin:0 4px 10px" id="leaves">What leaves this phone: your audio and its transcript go to your voice server, and the cleanup text goes to your cleanup server (both through your relay when it is the AI server). Voice notes are kept in this phone's note store and send no app name; with sync on, their text also goes to your relay. Vox has no analytics and no server of its own.</p>
   <div class="card list">
     <div class="item"><div class="grow"><div class="t">Keep dictation history</div><div class="d">Saves what you dictate on this phone, not encrypted. Off saves nothing</div></div><label class="switch"><input type="checkbox" id="keep-history"><span></span></label></div>
-    <div class="item"><div class="grow"><div class="t">Sync voice notes with my relay</div><div class="d">Keeps your voice notes the same on your phone and PCs through a relay you run yourself (a small server, for example on a Raspberry Pi, reached over Tailscale). While on, the relay receives the full text, raw transcript, tags and device name of each voice note, and your About you text, dictionary, people, default style, cleanup switch and language. Needs its address and token</div></div><label class="switch"><input type="checkbox" id="relay-sync"><span></span></label></div>
+    <div class="item"><div class="grow"><div class="t">Sync voice notes with my relay</div><div class="d">Keeps your voice notes the same on your phone and PCs through a relay you run yourself (a small server, for example on a Raspberry Pi, reached over Tailscale). While on, the relay receives the full text, raw transcript, tags and device name of each voice note, and your About you text, dictionary, people, snippets, learned cleanup rules, default style, cleanup switch and language. Needs its address and token</div></div><label class="switch"><input type="checkbox" id="relay-sync"><span></span></label></div>
   </div>
   <div class="card" id="relay-rows" style="margin-top:10px">
     <label class="note" style="display:block;margin:0">Relay address</label>
@@ -349,6 +359,24 @@ function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add
 // Dictionary lines: "word" is a term, "wrong => right" is a replacement.
 function dictRepls(lines) { return (lines || []).filter(l => l.includes("=>")).map(l => l.split("=>").map(s => s.trim())); }
 function dictLines(terms, repl) { return [...terms, ...repl.map(([w, r]) => `${w} => ${r}`)]; }
+// Snippets ({trigger: text}): the same caps as snippets.py and Snippets.java, which clean the setting again when they use it.
+const SNIP_MAX = 50, SNIP_TEXT_MAX = 2000, SNIP_TRIGGER_MAX = 100;
+// {ok, map, msg}: the snippets with this one added (a trigger already there, case ignored, gets the new text, at the end).
+function snippetsAdd(map, trigger, text) {
+  const t = String(trigger ?? "").replace(/[ \t\r\n]+/g, " ").trim(), x = String(text ?? "").replace(/\r\n?/g, "\n");
+  if (!t || !x.trim()) return { ok: false, map, msg: "Type the phrase and the text it stands for" };
+  if (t.length > SNIP_TRIGGER_MAX) return { ok: false, map, msg: `The phrase can be up to ${SNIP_TRIGGER_MAX} characters` };
+  const out = {};
+  for (const [k, v] of Object.entries(map || {})) if (k.toLowerCase() !== t.toLowerCase()) out[k] = v;
+  if (Object.keys(out).length >= SNIP_MAX) return { ok: false, map, msg: `Up to ${SNIP_MAX} snippets` };
+  out[t] = x.slice(0, SNIP_TEXT_MAX);
+  return { ok: true, map: out, msg: "Added" };
+}
+function snippetsRemove(map, trigger) { const out = {}; for (const [k, v] of Object.entries(map || {})) if (k !== trigger) out[k] = v; return out; }
+// One line of a saved text for the list: line breaks shown as " / ", cut at 80 characters.
+function snippetPreview(text) { const s = String(text ?? "").replace(/\n+/g, " / "); return s.length > 80 ? s.slice(0, 79) + "…" : s; }
+// "Lists and paragraphs": off, auto or lists; anything else is auto (structure.py structure_mode, Structure.mode).
+function structureMode(v) { const s = String(v ?? "").trim().toLowerCase(); return ["off", "auto", "lists"].includes(s) ? s : "auto"; }
 function aboutCount() {
   const n = $("about").value.length, s = $("about-status");
   s.className = "status" + (n > ABOUT_MAX ? " bad" : "");
@@ -733,7 +761,20 @@ function renderDict() {
   chips(words(), "words"); chips(S.config.people || [], "people");
   const r = repls();
   $("repls").innerHTML = r.length ? r.map(([a, b]) => `<div class="item"><div class="grow">${esc(a)} <span style="color:var(--muted)">→</span> <b>${esc(b)}</b></div><button class="ib" data-a="${esc(a)}" data-b="${esc(b)}">${ICON_DEL}</button></div>`).join("") : '<div class="empty">No replacements yet.</div>';
+  renderSnippets();
 }
+function renderSnippets() {
+  const s = Object.entries(S.config.snippets || {});
+  $("snips").innerHTML = s.length ? s.map(([t, x], i) => `<div class="item"><div class="grow"><b>${esc(t)}</b> <span style="color:var(--muted)">→</span> ${esc(snippetPreview(x))}</div><button class="ib" data-snip="${i}">${ICON_DEL}</button></div>`).join("") : '<div class="empty">No snippets yet.</div>';
+}
+$("snip-add").onclick = () => {
+  const res = snippetsAdd(S.config.snippets, $("snip-trigger").value, $("snip-text").value);
+  $("snip-status").textContent = res.ok ? "" : res.msg;
+  if (!res.ok) return;
+  $("snip-trigger").value = $("snip-text").value = "";
+  save({ snippets: res.map }, res.msg); renderSnippets();
+};
+$("snips").onclick = (e) => { const b = e.target.closest("[data-snip]"); if (!b) return; const s = Object.keys(S.config.snippets || {})[+b.dataset.snip]; if (s === undefined) return; save({ snippets: snippetsRemove(S.config.snippets, s) }, "Removed"); renderSnippets(); };
 $("w-add").onclick = () => { const v = $("w-in").value.trim(); if (!v) return; const w = words(); if (!w.includes(v)) w.push(v); $("w-in").value = ""; setDict(w, repls()); renderDict(); };
 $("p-add").onclick = () => { const v = $("p-in").value.trim(); if (!v) return; const p = [...(S.config.people || [])]; if (!p.includes(v)) p.push(v); $("p-in").value = ""; save({ people: p }); renderDict(); };
 $("words").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const w = words(), k = +b.dataset.i; if (!isNaN(k) && k >= 0 && k < w.length) { w.splice(k, 1); setDict(w, repls()); } renderDict(); };
@@ -773,6 +814,7 @@ function renderSettings() {
   $("always-show").checked = !!c.always_show_bubble;
   $("cleanup-min").value = c.cleanup_min_words || 3;
   $("cleanup-strength").value = c.cleanup_strength === "standard" ? "standard" : "light";
+  $("structure").value = structureMode(c.structure);
   $("keep-history").checked = c.keep_history !== false;
   $("note-bubble").checked = !!c.note_bubble; $("note-notification").checked = !!c.note_notification;
   $("language").value = c.language || ""; $("service").checked = S.service;
@@ -925,6 +967,7 @@ $("note-notification").onchange = (e) => save({ note_notification: e.target.chec
 $("open-about").onclick = () => go("dict");
 $("keep-history").onchange = (e) => save({ keep_history: e.target.checked }, "Saved");
 $("cleanup-strength").onchange = (e) => save({ cleanup_strength: e.target.value }, "Saved");
+$("structure").onchange = (e) => save({ structure: structureMode(e.target.value) }, "Saved");
 $("language").onchange = (e) => save({ language: e.target.value }, "Saved");
 $("mic-device").onchange = (e) => { V.setMic(e.target.value); toast(e.target.value ? "Microphone changed" : "Using the phone's own microphone"); };
 $("service").onchange = (e) => V.setService(e.target.checked);

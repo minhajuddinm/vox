@@ -214,6 +214,12 @@ public final class ApiClient {
     // -------------------------------------------------------------- cleanup
 
     public String cleanup(String raw, String style, String model, List<String> terms, String appLabel, String context, String strength, String rules) throws IOException {
+        return cleanup(raw, style, model, terms, appLabel, context, strength, rules, Structure.AUTO);
+    }
+
+    /** The cleanup with the "Lists and paragraphs" setting (see {@link #systemPrompt}). */
+    public String cleanup(String raw, String style, String model, List<String> terms, String appLabel, String context, String strength, String rules,
+                          String structure) throws IOException {
         JSONObject body = new JSONObject();
         boolean reason = false;
         try {
@@ -226,7 +232,7 @@ public final class ApiClient {
                 body.put("include_reasoning", false);
             }
             JSONArray msgs = new JSONArray();
-            msgs.put(new JSONObject().put("role", "system").put("content", systemPrompt(style, terms, appLabel, context, strength, rules)));
+            msgs.put(new JSONObject().put("role", "system").put("content", systemPrompt(style, terms, appLabel, context, strength, rules, structure)));
             msgs.put(new JSONObject().put("role", "user").put("content", "<transcript>\n" + raw + "\n</transcript>"));
             body.put("messages", msgs);
         } catch (Exception e) {
@@ -308,9 +314,12 @@ public final class ApiClient {
             + "(\"no wait\", \"actually\", \"I mean\", \"sorry\", \"scratch that\"), keep only the corrected version. Keep every other word.";
     private static final String PARAGRAPHS = "Start a new paragraph (a blank line) at a clear change of topic and about every five sentences in a long text.";
     static final String FLAT_STRUCTURE = "Keep it flat: no lists and no blank lines unless the speaker says new line or new paragraph.";
-    static final String NEUTRAL_STRUCTURE = PARAGRAPHS + " Make a \"- \" list only when the speaker clearly counts items (\"first\", \"second\", \"third\"), keeping those words.";
-    static final String FORMAL_STRUCTURE = PARAGRAPHS + " Use \"- \" bullets only where the speaker enumerates items, and keep every spoken word (first, second, then) in them.";
-    static final String NOTES_STRUCTURE = PARAGRAPHS + " Use \"- \" bullets for items the speaker enumerates, keeping every spoken word.";
+    static final String NEUTRAL_LIST = "Make a \"- \" list only when the speaker clearly counts items (\"first\", \"second\", \"third\"), keeping those words.";
+    static final String FORMAL_LIST = "Use \"- \" bullets only where the speaker enumerates items, and keep every spoken word (first, second, then) in them.";
+    static final String NOTES_LIST = "Use \"- \" bullets for items the speaker enumerates, keeping every spoken word.";
+    static final String NEUTRAL_STRUCTURE = PARAGRAPHS + " " + NEUTRAL_LIST;
+    static final String FORMAL_STRUCTURE = PARAGRAPHS + " " + FORMAL_LIST;
+    static final String NOTES_STRUCTURE = PARAGRAPHS + " " + NOTES_LIST;
     private static final String STRUCTURE_TAIL = " Never reorder or regroup what was said.";
     /** Few-shot examples, {input, output}: the output has exactly the words of the input (list markers and punctuation do not count). */
     static final String[][] EXAMPLES = {
@@ -329,18 +338,35 @@ public final class ApiClient {
 
     /** The structure rule of a style (twin of STRUCTURE_BY_STYLE in windows/vox_core.py); an unknown style is read as neutral. */
     static String structureFor(String style) {
-        switch (style) {
+        return structureFor(style, Structure.AUTO);
+    }
+
+    static final String NO_PARAGRAPHS = "No blank lines unless the speaker says new paragraph.";
+
+    /**
+     * The structure rule of a style for the "Lists and paragraphs" setting (twin of structure_rule in windows/vox_core.py):
+     * Auto is the style's own rule, Lists only its list sentence without paragraph breaks, Off is flat with no lists.
+     */
+    static String structureFor(String style, String structure) {
+        String mode = Structure.mode(structure);
+        String list;
+        switch (style == null ? "" : style) {
             case "casual":
             case "very_casual":
                 return FLAT_STRUCTURE;
             case "formal":
             case "email":
-                return FORMAL_STRUCTURE;
+                list = FORMAL_LIST;
+                break;
             case "notes":
-                return NOTES_STRUCTURE;
+                list = NOTES_LIST;
+                break;
             default:
-                return NEUTRAL_STRUCTURE;
+                list = NEUTRAL_LIST;
         }
+        if (mode.equals(Structure.OFF)) return FLAT_STRUCTURE;
+        if (mode.equals(Structure.LISTS)) return list + " " + NO_PARAGRAPHS;
+        return PARAGRAPHS + " " + list;
     }
 
     /**
@@ -354,7 +380,17 @@ public final class ApiClient {
 
     /** The same with the speaker's learned cleanup rules (my_cleanup_rules) after the strength rule, in their own tagged block; none when empty. */
     static String systemPrompt(String style, List<String> terms, String appLabel, String context, String strength, String rules) {
+        return systemPrompt(style, terms, appLabel, context, strength, rules, Structure.AUTO);
+    }
+
+    /**
+     * The same for a "Lists and paragraphs" setting (golden rows promptstructure): Off also drops the list example, Lists
+     * only the paragraph example; Auto is the prompt above.
+     */
+    static String systemPrompt(String style, List<String> terms, String appLabel, String context, String strength, String rules,
+                               String structure) {
         style = style == null ? "" : style.toLowerCase(Locale.ROOT);
+        String mode = Structure.mode(structure);
         String learned = cleanRules(rules);
         StringBuilder sb = new StringBuilder(ROLE_TEXT).append("\n\n");
         String ctx = cleanContext(context);
@@ -378,12 +414,15 @@ public final class ApiClient {
           .append("- ").append(standard ? STANDARD_TEXT : LIGHT_TEXT).append("\n");
         if (!learned.isEmpty()) sb.append("- ").append(RULES_TEXT).append("\n<my_cleanup_rules>\n").append(learned).append("\n</my_cleanup_rules>\n");
         sb.append("- Keep the speaker's wording, language (including mixed languages) and meaning. Do not add content.\n")
-          .append("- ").append(structureFor(style)).append(STRUCTURE_TAIL).append("\n")
+          .append("- ").append(structureFor(style, mode)).append(STRUCTURE_TAIL).append("\n")
           .append("- Spoken commands: \"new line\" = line break, \"new paragraph\" = blank line, spoken punctuation names (comma, period, question mark, colon) become the symbol.\n")
           .append("- Write numbers, dates, times, money, emails and URLs in standard written form.\n")
           .append("- Style: ").append(styleInstruction(style)).append("\n\n")
           .append("Examples (the output has the same words as the input):\n");
-        for (String[] ex : EXAMPLES) sb.append("\nInput: ").append(ex[0]).append("\nOutput:\n").append(ex[1]).append("\n");
+        for (int k = 0; k < EXAMPLES.length; k++) {
+            if ((mode.equals(Structure.OFF) && k == 2) || (mode.equals(Structure.LISTS) && k == 1)) continue;
+            sb.append("\nInput: ").append(EXAMPLES[k][0]).append("\nOutput:\n").append(EXAMPLES[k][1]).append("\n");
+        }
         if (appLabel != null && !appLabel.isEmpty()) {
             sb.append("\nThe text will be typed into the app: ").append(appLabel).append(".\n");
         }

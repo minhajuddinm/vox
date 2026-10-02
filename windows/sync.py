@@ -257,7 +257,7 @@ def wire(n):
 
 
 # ------------------------------------------------------------------ the profile
-PROFILE_FIELDS = ("user_context", "dictionary", "people", "default_style", "cleanup", "language", "my_cleanup_rules")
+PROFILE_FIELDS = ("user_context", "dictionary", "people", "default_style", "cleanup", "language", "my_cleanup_rules", "snippets")
 PROFILE_KEY_FIELDS = ("provider", "base_url", "stt_base_url", "llm_base_url", "stt_model", "llm_model",
                       "llm_reasoning", "api_key", "stt_api_key", "llm_api_key")   # only with relay_sync_keys
 
@@ -268,14 +268,18 @@ def shared_fields(cfg):
     return PROFILE_FIELDS + (PROFILE_KEY_FIELDS if cfg.get("relay_sync_keys") else ())
 
 
+def _blank(v):
+    return isinstance(v, (str, list, dict)) and len(v) == 0
+
+
 def merge3(base, local, remote):
     """Field by field: the side that changed since `base` wins; if both changed differently, the relay's value wins.
-    One exception: a field with no base (this device's first sync) whose relay value is blank ("" or an empty list)
-    keeps this device's value when that is not blank, because the blank is only the other device's default."""
+    One exception: a field with no base (this device's first sync) whose relay value is blank ("", an empty list or an
+    empty map) keeps this device's value when that is not blank, because the blank is only the other device's default."""
     out = {}
     for k in set(base) | set(local) | set(remote):
         b, l, r = base.get(k), local.get(k), remote.get(k)
-        if b is None and l is not None and r is not None and (r == "" or r == []) and not (l == "" or l == []):
+        if b is None and l is not None and r is not None and _blank(r) and not _blank(l):
             out[k] = l
             continue
         v = l if l == r else r if l == b else l if r == b else r

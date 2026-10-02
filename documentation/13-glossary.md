@@ -17,7 +17,10 @@
 | Fuzzy dictionary pass | The step after `apply_replacements` that puts a single-word term of 5+ letters right when the text has it in another case, and a term of 7+ letters also when the text has it one letter off (`fuzzy_dictionary`, `Terms.fuzzy`); words on the `COMMON_WORDS` stoplist are never changed. |
 | Benchmark | `tools/bench_cleanup.py`: a hand-run developer tool that scores a cleanup model on a 45-row synthetic corpus (latency, word recall, added words, guard pass, term accuracy); local only, not in CI. |
 | Raw transcript | The Whisper text before cleanup. Used as the fallback when cleanup fails. |
-| Style | Tone for cleanup: `formal`, `casual`, `very_casual`, `neutral`, or `raw` (no cleanup). Chosen per app. |
+| Style | Tone for cleanup: `formal`, `casual`, `very_casual`, `neutral`, or `raw` (no cleanup). Chosen per app. On Windows a per-app style can also be `code` (code mode in that app). |
+| Cue (list cue) | A spoken word that starts a list item: an ordinal in sequence (first, second; pehla, doosra), point/item/step/number one, or a bullet word (bullet point, next point). The list pass (`structure.py`, `Structure.java`) removes it and writes the item on its own line. |
+| Code mode | Windows only: in an editor or terminal (`code_apps`) or an app with the style `code`, spoken formatters (camel case, snake case, ...) and symbols (open paren, equals equals, ...) become code (`codemode.py`, [15-code-mode.md](15-code-mode.md)). |
+| Snippet | A trigger phrase and the text it types (`snippets` setting, `snippets.py`, `Snippets.java`); put in after the cleanup. |
 | App label | The name given to the cleanup model: exe name on Windows, app display name on Android. Never a window title. |
 | Term | A word or name in the dictionary that helps spelling (a plain dictionary line, or the right side of a replacement). |
 | Replacement | A `wrong => right` dictionary line applied to the final text. |

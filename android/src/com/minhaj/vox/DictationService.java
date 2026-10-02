@@ -750,7 +750,8 @@ public class DictationService extends Service {
                 if (tm != null) tm.mark("llm_start");
                 try {
                     String strength = p.cleanupStrength();   // the prompt and the guard use the same value
-                    String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext(), strength, p.myCleanupRules());
+                    String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext(), strength, p.myCleanupRules(),
+                            p.structure());
                     if (ApiClient.looksValid(raw, c, strength)) { out = c; cleaned = true; }
                     else { cleanupFailed = rejected = true; Log.w("vox", "fidelity guard: the cleanup answer lost the spoken words, used the raw words"); }
                 } catch (IOException e) {
@@ -765,6 +766,8 @@ public class DictationService extends Service {
             String notice = InsertGuard.cleanupNotice(isCurrent(job), cleanupFailed, note);
             if (notice != null) postError(notice);
             out = Terms.fuzzy(ApiClient.applyReplacements(out, p.replacements()), p.dictionaryTerms());   // as Windows: replacements, then the dictionary's spellings
+            out = Snippets.apply(out, p.snippets());   // after the cleanup: a saved text never goes to the AI
+            out = Structure.format(out, p.structure(), style);   // then lists from spoken cues, on whatever text came out (after the guard)
             if (!isCurrent(job)) return;
             if (note) {
                 saveNote(job, entry, raw, out, seconds, p);   // a note is not typed and is not added to the dictation history

@@ -89,12 +89,12 @@ def run(host, audio, target="note", cfg=NOCLEAN, focus=None, **kw):
 
 # ------------------------------------------------------------------ Note target
 def test_a_note_session_sends_each_piece_with_context_and_saves_one_note_at_the_end(monkeypatch):
-    stt = Script(["first thing.", "second thing.", "third thing."])
+    stt = Script(["red thing.", "green thing.", "blue thing."])   # (not first/second/third: those would make a list)
     monkeypatch.setattr(core, "transcribe", stt)
     host = Host()
     run(host, utterances(3))
-    assert stt.contexts == ["", "first thing.", "first thing. second thing."]
-    assert host.notes == [("first thing. second thing. third thing.", "first thing. second thing. third thing.")]
+    assert stt.contexts == ["", "red thing.", "red thing. green thing."]
+    assert host.notes == [("red thing. green thing. blue thing.", "red thing. green thing. blue thing.")]
     assert host.pasted == [] and host.mic_closed >= 1
     assert host.states == ["busy", "idle"] and host.flashes == ["sent"]
 
