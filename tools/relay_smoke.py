@@ -82,6 +82,8 @@ def main(argv):
                     print(f"FAIL: /health with the token answered {code}: {body}")
     finally:
         if proc.poll() is None:
+            if sys.platform == "win32":   # a --onefile exe is a launcher plus the real relay: end the whole tree
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
             proc.terminate()
             try:
                 proc.wait(15)
