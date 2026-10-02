@@ -34,6 +34,10 @@ class StreamingStt:
         self._transcribe = transcribe or core.transcribe
         self.seg = segmenter or core.Segmenter(min_seconds=MIN_SECONDS, max_seconds=MAX_SECONDS)
         self.texts = []
+        self.piece_starts = []     # seconds into the recording where each piece sent starts
+        self._segments = []        # the speech server's segment times of the pieces with text, shifted to the whole recording
+        self._segments_ok = True   # False once a piece with text came back without segment times
+        self._sent_seconds = 0.0
         self.pieces = 0
         self.early = 0             # pieces sent before finish() was called: while the user was still speaking
         self._finishing = False
@@ -68,6 +72,12 @@ class StreamingStt:
             return None
         return " ".join(t for t in self.texts if t).strip()
 
+    @property
+    def segments(self):
+        """The segment times ({"start", "end", "text"}, seconds into the whole recording) of every piece with text, for
+        the paragraph breaks at long pauses (vox_core.process_text); None when a piece came back without them."""
+        return list(self._segments) if self._segments_ok and self._segments else None
+
     def _run(self):
         try:
             while True:
@@ -89,6 +99,15 @@ class StreamingStt:
         self.pieces += 1
         if not self._finishing:
             self.early += 1
+        start = self._sent_seconds
+        self.piece_starts.append(start)
+        self._sent_seconds += len(pcm) / (core.SAMPLE_RATE * 2)
+        core._stt_local.segments = None   # this thread's last answer: a silent piece is not sent at all
         text = piece_text(self.cfg, pcm, " ".join(self.texts), self._transcribe, drop_hallucination=not self.texts)
         if text:
             self.texts.append(text)
+            segs = core.last_segments()   # transcribe ran on this worker thread
+            if segs is None:
+                self._segments_ok = False
+            else:
+                self._segments += [dict(s, start=s["start"] + start, end=s["end"] + start) for s in segs]

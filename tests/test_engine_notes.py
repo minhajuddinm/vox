@@ -129,13 +129,17 @@ def test_a_streamed_recording_skips_the_whole_transcription(eng, monkeypatch):
         raise AssertionError("the whole recording should not be transcribed again")
 
     monkeypatch.setattr(core, "process_detailed", whole)
-    monkeypatch.setattr(core, "process_text", lambda cfg, raw, exe, label: core.Result(raw, "Streamed text.", True, ""))
+    seen = []
+    monkeypatch.setattr(core, "process_text", lambda cfg, raw, exe, label, segments=None: seen.append(segments) or
+                        core.Result(raw, "Streamed text.", True, ""))
     eng.start()
     eng.streaming = FakeStreamer("streamed raw")
+    eng.streaming.segments = [{"start": 0.0, "end": 1.0, "text": "streamed"}, {"start": 3.0, "end": 4.0, "text": "raw"}]
     streamer = eng.streaming
     eng.chunks = speech()
     eng.stop()
     assert eng.pasted == ["Streamed text."] and streamer.finished == 1 and eng.streaming is None
+    assert seen == [streamer.segments]      # final fixes (windows 1): the pause times reach the paragraph breaks
 
 
 def test_when_streaming_gives_nothing_the_whole_recording_is_transcribed(eng, monkeypatch):

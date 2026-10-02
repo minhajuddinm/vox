@@ -359,7 +359,7 @@ def test_the_history_timing_says_how_many_pieces_were_streamed_and_the_upload_fo
     import timing
     eng.cfg["keep_history"] = True
     eng.paste = lambda text: True
-    monkeypatch.setattr(core, "process_text", lambda cfg, raw, exe, label: core.Result(raw, "Streamed.", True, ""))
+    monkeypatch.setattr(core, "process_text", lambda cfg, raw, exe, label, segments=None: core.Result(raw, "Streamed.", True, ""))
     monkeypatch.setattr(core, "upload_format", lambda cfg: "flac")
 
     class Streamer:

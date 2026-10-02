@@ -872,8 +872,8 @@ class Engine:
                         tm.mark("stt_done")
                 else:
                     raw_streamed = None
-                if raw_streamed is not None:
-                    res = core.process_text(self.cfg, raw_streamed, label, label)
+                if raw_streamed is not None:   # with the pieces' segment times, so pauses still make paragraphs
+                    res = core.process_text(self.cfg, raw_streamed, label, label, segments=getattr(streamer, "segments", None))
                 else:
                     res = core.process_detailed(self.cfg, pcm, label, label)
             raw, text = res.raw, res.text
