@@ -60,8 +60,8 @@ public final class AutoLearnTest {
         eq("stop words", "", show(AutoLearn.detect("we need to go", "we need too go")));
         check("gone", AutoLearn.locate(TYPED, "something else entirely") == null);
         eq("much shorter", "", show(AutoLearn.detect("one two three four five six seven", "one 2 3 4 5 6 seven")));
-        check("three pairs", AutoLearn.detect("alpha one beta one gamma one delta one epsilon one zeta",
-                "alpha onee beta onne gamma oone delta onee epsilon onne zeta").size() == 3);
+        check("three pairs", AutoLearn.detect("alpha vox beta vox gamma vox delta vox epsilon vox zeta",
+                "alpha voxx beta vix gamma vax delta voxx epsilon vix zeta").size() == 3);
         eq("no-break spaces", "a|b|c|d", String.join("|", AutoLearn.tokens("a b c  d")));
         eq("no-break space in the field", "Minhaj=>Minhajuddin", show(AutoLearn.detect(TYPED, "send it to Minhajuddin today")));
         check("empty", AutoLearn.detect("", "").isEmpty() && AutoLearn.detect(null, null).isEmpty() && AutoLearn.detect("x", "").isEmpty());
@@ -74,6 +74,16 @@ public final class AutoLearnTest {
         check("case only", !AutoLearn.looksLikeFix("vox", "Vox"));
         check("punctuation only", !AutoLearn.looksLikeFix("e-mail", "email"));
         check("stop word", !AutoLearn.looksLikeFix("to", "too"));
+        // final fixes: cut short (android 1), numbers (android 2), two ordinary words (windows 4)
+        String[] never = {"grok", "gr", "grok", "Gro", "Minhajuddin", "Minhaj", "grok", "rok",
+                "1234", "1243", "5551234", "5551243", "4821", "4812", "$1,200", "$1,250", "0042", "0024",
+                "10pm", "11pm", "v2", "v3", "4", "for", "two", "2",
+                "their", "there", "now", "not", "hai", "hain", "your", "you're", "then", "than", "there", "their"};
+        for (int i = 0; i < never.length; i += 2) check("never " + never[i] + "=>" + never[i + 1], !AutoLearn.looksLikeFix(never[i], never[i + 1]));
+        String[] still = {"Minhaj", "Minhajuddin", "teh", "the", "recieve", "receive", "grok", "Groq", "ec two", "EC2", "their", "Thier"};
+        for (int i = 0; i < still.length; i += 2) check("still " + still[i] + "=>" + still[i + 1], AutoLearn.looksLikeFix(still[i], still[i + 1]));
+        check("longer waits for the final look", AutoLearn.looksLikeFix("Minhaj", "Minhajuddin", true)
+                && !AutoLearn.looksLikeFix("Minhaj", "Minhajuddin", false) && AutoLearn.looksLikeFix("grok", "Groq", false));
         eq("soundex Robert", "R163", AutoLearn.soundex("Robert"));
         eq("soundex Rupert", "R163", AutoLearn.soundex("Rupert"));
         eq("soundex Ashcraft", "A261", AutoLearn.soundex("Ashcraft"));
@@ -123,21 +133,44 @@ public final class AutoLearnTest {
         check("bad log", AutoLearn.learnedLog("nope").isEmpty() && AutoLearn.learnedLog(null).isEmpty() && AutoLearn.learnedLog("{}").isEmpty());
 
         // the watch
+        final String grok = "we use grok for speech", groq = "Hello. we use Groq for speech";
         AutoLearnWatch w = watch();
-        check("first look", w.observe("app", "Hello. " + TYPED).isEmpty());
+        w.arm("app", grok);
+        check("first look", w.observe("app", "Hello. " + grok).isEmpty());
         NOW[0] += 2000;
-        check("just changed", w.observe("app", FIXED).isEmpty());
+        check("just changed", w.observe("app", groq).isEmpty());
         NOW[0] += 1000;
-        check("1 s quiet", w.observe("app", FIXED).isEmpty());
+        check("1 s quiet", w.observe("app", groq).isEmpty());
         NOW[0] += 600;
-        eq("settled", "Minhaj=>Minhajuddin", show(w.observe("app", FIXED)));
+        eq("settled", "grok=>Groq", show(w.observe("app", groq)));
         NOW[0] += 5000;
-        check("once", w.observe("app", FIXED).isEmpty() && w.isArmed());
+        check("once", w.observe("app", groq).isEmpty() && w.isArmed());
 
         w = watch();
-        w.observe("app", FIXED);
+        w.arm("app", grok);
+        w.observe("app", groq);
         NOW[0] += 1600;
-        eq("change after quiet", "Minhaj=>Minhajuddin", show(w.observe("app", FIXED + " more")));
+        eq("change after quiet", "grok=>Groq", show(w.observe("app", groq + " more")));
+
+        w = watch();   // final fixes (android 1): "grok" backspaced to "gr", a pause, then "Groq"
+        w.arm("app", grok);
+        for (String half : new String[] {"we use gr for speech", "we use Gro for speech"}) {
+            w.observe("app", half);
+            NOW[0] += 2000;
+            check("half retyped: " + half, w.observe("app", half).isEmpty());
+        }
+        w.observe("app", "we use Groq for speech");
+        NOW[0] += 2000;
+        eq("then the real fix", "grok=>Groq", show(w.observe("app", "we use Groq for speech")));
+
+        w = watch();   // a word made longer waits for the last look
+        w.observe("app", "Hello. send it to Minhaju today");
+        NOW[0] += 2000;
+        check("half typed longer word", w.observe("app", "Hello. send it to Minhaju today").isEmpty());
+        w.observe("app", FIXED);
+        NOW[0] += 2000;
+        check("longer word settled", w.observe("app", FIXED).isEmpty());
+        eq("longer word at the end", "Minhaj=>Minhajuddin", show(w.end()));
 
         w = watch();
         NOW[0] += 179_000;
@@ -177,9 +210,9 @@ public final class AutoLearnTest {
         w.observe("app", FIXED);
         eq("re-arm flushes", "Minhaj=>Minhajuddin", show(w.arm("app", "and then call Ada")));
         check("re-armed", "app".equals(w.app()));
-        w.observe("app", FIXED + " and then call Adah");
+        w.observe("app", FIXED + " and then call Aida");
         NOW[0] += 2000;
-        eq("new text", "Ada=>Adah", show(w.observe("app", FIXED + " and then call Adah")));
+        eq("new text", "Ada=>Aida", show(w.observe("app", FIXED + " and then call Aida")));
 
         w = new AutoLearnWatch(() -> NOW[0]);
         check("unarmed", w.observe("app", "x").isEmpty() && !w.isArmed() && w.arm("app", "  ").isEmpty() && w.app() == null);

@@ -16,7 +16,9 @@ import java.util.function.LongSupplier;
  * watch ends by itself after AUTO_LEARN_WINDOW_S, when the app changes, when the field is emptied (sent), when the typed
  * text is gone from it or when the field shrinks to under half of it. A text is analysed once it has stayed the same for
  * SETTLE_MS, and the last snapshot (the latest text that still held the typed text) is analysed once more when the watch
- * ends, so a fix made just before pressing Send still counts. The snapshot is kept in memory only, never stored or logged.
+ * ends, so a fix made just before pressing Send still counts. A word made longer is only taken at that last look (while
+ * the text only settles, the user may be in the middle of typing it); a word cut short never is. The snapshot is kept in
+ * memory only, never stored or logged.
  */
 final class AutoLearnWatch {
     /** The longest a watch lasts after Vox typed (autolearn.AUTO_LEARN_WINDOW_S). */
@@ -58,9 +60,9 @@ final class AutoLearnWatch {
         return out;
     }
 
-    /** Stop watching: the last snapshot is analysed once more and then dropped. */
+    /** Stop watching: the last snapshot is analysed once more (the final look) and then dropped. */
     List<String[]> end() {
-        List<String[]> out = armed && dirty ? analyse() : new ArrayList<String[]>();
+        List<String[]> out = armed && snapshot != null ? analyse(true) : new ArrayList<String[]>();
         armed = false;
         app = null;
         inserted = "";
@@ -83,20 +85,20 @@ final class AutoLearnWatch {
         }
         List<String[]> out = new ArrayList<>();
         if (!text.equals(snapshot)) {
-            if (dirty && now - changedAt >= SETTLE_MS) out = analyse();   // the text that was quiet until now
+            if (dirty && now - changedAt >= SETTLE_MS) out = analyse(false);   // the text that was quiet until now
             snapshot = text;
             changedAt = now;
             dirty = true;
         } else if (dirty && now - changedAt >= SETTLE_MS) {
-            out = analyse();
+            out = analyse(false);
         }
         return out;
     }
 
-    private List<String[]> analyse() {
+    private List<String[]> analyse(boolean fin) {
         dirty = false;
         List<String[]> out = new ArrayList<>();
-        for (String[] p : AutoLearn.detect(inserted, snapshot == null ? "" : snapshot)) {
+        for (String[] p : AutoLearn.detect(inserted, snapshot == null ? "" : snapshot, fin)) {
             if (reported.add(p[0].toLowerCase(Locale.ROOT))) out.add(p);
         }
         return out;

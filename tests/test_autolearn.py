@@ -3,7 +3,10 @@ autolearn) and run here through test_parity.py and on Android through ParityTest
 import os
 import re
 
+import pytest
+
 import autolearn as al
+import vox_core as core
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 
@@ -45,8 +48,8 @@ def test_a_much_longer_or_shorter_span_is_a_rewrite():
 
 
 def test_at_most_three_pairs():
-    ins = "alpha one beta one gamma one delta one epsilon one zeta"
-    cur = "alpha onee beta onne gamma oone delta onee epsilon onne zeta"
+    ins = "alpha vox beta vox gamma vox delta vox epsilon vox zeta"
+    cur = "alpha voxx beta vix gamma vax delta voxx epsilon vix zeta"
     assert len(al.detect(ins, cur)) == 3
 
 
@@ -69,6 +72,37 @@ def test_looks_like_fix_rules():
     assert not al.looks_like_fix("vox", "Vox")              # capitals only
     assert not al.looks_like_fix("e-mail", "email")         # punctuation only
     assert not al.looks_like_fix("to", "too")               # a stop word would change everywhere
+
+
+@pytest.mark.parametrize("wrong, right", [
+    ("grok", "gr"), ("grok", "Gro"), ("Minhajuddin", "Minhaj"), ("grok", "rok"),      # cut short (final fixes, android 1)
+    ("1234", "1243"), ("5551234", "5551243"), ("4821", "4812"), ("$1,200", "$1,250"), ("0042", "0024"),
+    ("10pm", "11pm"), ("v2", "v3"), ("4", "for"), ("two", "2"),                       # numbers (android 2)
+    ("their", "there"), ("now", "not"), ("hai", "hain"), ("your", "you're"), ("then", "than"), ("there", "their"),
+])                                                                                   # two ordinary words (windows 4)
+def test_pairs_that_are_never_learned(wrong, right):
+    assert not al.looks_like_fix(wrong, right)
+
+
+@pytest.mark.parametrize("wrong, right", [
+    ("Minhaj", "Minhajuddin"), ("teh", "the"), ("recieve", "receive"), ("grok", "Groq"), ("ec two", "EC2"),
+    ("their", "Thier"),
+])
+def test_pairs_that_are_still_learned(wrong, right):
+    assert al.looks_like_fix(wrong, right)
+
+
+def test_a_longer_word_waits_for_the_final_look():
+    assert al.looks_like_fix("Minhaj", "Minhajuddin") and not al.looks_like_fix("Minhaj", "Minhajuddin", final=False)
+    assert al.looks_like_fix("grok", "Groq", final=False)
+
+
+def test_python_and_java_share_one_short_word_list():
+    src = open(os.path.join(ROOT, "android", "src", "com", "minhaj", "vox", "AutoLearn.java"), encoding="utf-8").read()
+    m = re.search(r'SHORT_WORDS_TEXT\s*=\s*((?:\s*"[^"]*"\s*\+?)+);', src)
+    assert m, "AutoLearn.java has no SHORT_WORDS_TEXT"
+    assert set("".join(re.findall(r'"([^"]*)"', m.group(1))).split()) == set(al.SHORT_WORDS)
+    assert all(len(w) < core.FUZZY_MIN_LEN and w == w.lower() for w in al.SHORT_WORDS)
 
 
 def test_soundex_and_osa():
@@ -165,25 +199,57 @@ def watch():
     return w, c
 
 
+GROK = "we use grok for speech"
+GROQ = "Hello. we use Groq for speech"
+
+
 def test_a_fix_is_reported_once_the_text_has_settled():
     w, c = watch()
-    assert w.observe("app", "Hello. " + TYPED) == []
+    w.arm("app", GROK)
+    assert w.observe("app", "Hello. " + GROK) == []
     c.t += 2
-    assert w.observe("app", FIXED) == []          # just changed: not analysed yet
+    assert w.observe("app", GROQ) == []           # just changed: not analysed yet
     c.t += 1.0
-    assert w.observe("app", FIXED) == []          # 1.0 s quiet
+    assert w.observe("app", GROQ) == []           # 1.0 s quiet
     c.t += 0.6
-    assert w.observe("app", FIXED) == [["Minhaj", "Minhajuddin"]]
+    assert w.observe("app", GROQ) == [["grok", "Groq"]]
     c.t += 5
-    assert w.observe("app", FIXED) == []          # reported once only
+    assert w.observe("app", GROQ) == []           # reported once only
     assert w.is_armed()
 
 
 def test_a_change_after_a_quiet_period_analyses_the_quiet_text_at_once():
     w, c = watch()
-    w.observe("app", FIXED)
+    w.arm("app", GROK)
+    w.observe("app", GROQ)
     c.t += 1.6
-    assert w.observe("app", FIXED + " more") == [["Minhaj", "Minhajuddin"]]
+    assert w.observe("app", GROQ + " more") == [["grok", "Groq"]]
+
+
+def test_a_word_cut_short_while_retyping_is_never_learned_and_the_real_fix_still_is():
+    """Final fixes (android 1): "grok" backspaced to "gr", a pause, then "Groq". "grok => gr" used to be learned and then
+    blocked the real fix for good."""
+    w, c = watch()
+    w.arm("app", GROK)
+    for half in ("we use gr for speech", "we use Gro for speech"):
+        w.observe("app", half)
+        c.t += 2
+        assert w.observe("app", half) == []
+    w.observe("app", "we use Groq for speech")
+    c.t += 2
+    assert w.observe("app", "we use Groq for speech") == [["grok", "Groq"]]
+
+
+def test_a_word_made_longer_is_learned_only_when_the_watch_ends():
+    """While the user may still be typing, "Minhaj" -> "Minhaju" is not taken; the last text is when the watch ends."""
+    w, c = watch()
+    w.observe("app", "Hello. send it to Minhaju today")
+    c.t += 2
+    assert w.observe("app", "Hello. send it to Minhaju today") == []
+    w.observe("app", FIXED)
+    c.t += 2
+    assert w.observe("app", FIXED) == []
+    assert w.end() == [["Minhaj", "Minhajuddin"]]
 
 
 def test_still_watching_at_179_seconds_and_ended_at_181():
@@ -244,9 +310,9 @@ def test_a_new_dictation_rearms_with_the_new_text_after_a_final_check():
     w.observe("app", FIXED)
     assert w.arm("app", "and then call Ada") == [["Minhaj", "Minhajuddin"]]
     assert w.armed and w.inserted == "and then call Ada"
-    w.observe("app", FIXED + " and then call Adah")
+    w.observe("app", FIXED + " and then call Aida")
     c.t += 2
-    assert w.observe("app", FIXED + " and then call Adah") == [["Ada", "Adah"]]
+    assert w.observe("app", FIXED + " and then call Aida") == [["Ada", "Aida"]]
 
 
 def test_end_drops_the_snapshot():

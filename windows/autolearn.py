@@ -22,6 +22,29 @@ MAX_TEXT = 20000            # characters of a field that are read at all
 MAX_DICTIONARY_LINES = 1000   # nothing is learned into a dictionary this big (well inside the relay's 64 KB profile)
 LEARNED_LOG_MAX = 20        # entries kept in learned_log (the "Recently learned" list)
 STOP_WORDS = frozenset("the a an is are to of and or in on".split())
+# Everyday words shorter than core.COMMON_WORDS holds (that list starts at five letters), English and common Hinglish.
+# With COMMON_WORDS they are the ordinary words: a fix of one into another ordinary word ("their" -> "there", "now" ->
+# "not", "hai" -> "hain") is right in one sentence and wrong in the next, so it is not learned on its own (AutoLearn.java
+# SHORT_WORDS_TEXT keeps the same list).
+SHORT_WORDS = frozenset("""
+a i am an as at be by do go he if in is it me my no of oh ok on or so to up us we
+ago all and any are ask bad big boy but buy bye can day did die dog eat end far few for fun get got had has her hey
+him his hot how its let lot low man may men new nor not now off old one our out own pay put ran red run sad saw say
+see set she sit six son sun ten the too top try two use was way who why win won yes yet you
+able also area away back bank base bear been best body book both busy call came care case city come cool cost dark
+data date dead deal dear does done door down draw drop each easy else even ever face fact fair fall fast fear feel
+feet fell felt file fill find fine fire five food foot form four free from full game gave girl give glad goal goes
+gone good grew grow half hand hard have head hear held help here hers high hold home hope hour huge idea into item
+join just keep kept kind knew know last late lead left less life like line list live load long look lose loss lost
+love made mail main make many mark meal mean meet mind mine miss more most move much must name near need news next
+nice nine none note okay once only onto open over page paid pair part pass past pick plan play plus poor post pull
+push rain rate read real rest ride ring rise road room rule safe said same save seem seen sell send sent ship shop
+show shut sick side sign site size slow some soon sort stay step stop such sure take talk team tell term test text
+than that them then they this thus till time told took tool town tree trip true turn type unit upon used user very
+view wait walk want warm wear week well went were what when whom wide wife will wish with word wore work year your
+hai hain ho hoon hu kya ki ka ke ko se mai mein na nahi nhi toh bhi aur ye yeh wo woh hum tum aap kal aaj abhi bas
+haan han ji tha thi
+""".split())
 EDGE = core._EDGE_PUNCT
 _SOUNDEX = {**dict.fromkeys("bfpv", "1"), **dict.fromkeys("cgjkqsxz", "2"), **dict.fromkeys("dt", "3"),
             "l": "4", "m": "5", "n": "5", "r": "6"}
@@ -102,13 +125,39 @@ def soundex(s):
     return (out + "000")[:4]
 
 
-def looks_like_fix(wrong, right):
-    """True when wrong -> right looks like a correction of a misheard or misspelled word, not a rewrite."""
+def _letters(s):
+    """The letters and marks of `s`, lowercased (digits, spaces and punctuation left out)."""
+    return "".join(c for c in s.lower() if unicodedata.category(c)[0] in "LM")
+
+
+def _part_of(x, y):
+    """True when x (letters and digits, lowercased) is the start or the end of the longer y: y cut short is x."""
+    x, y = _word_chars(x), _word_chars(y)
+    return len(x) < len(y) and (y.startswith(x) or y.endswith(x))
+
+
+def ordinary(s):
+    """One everyday word (core.COMMON_WORDS or SHORT_WORDS), whatever its case and punctuation."""
+    t = tokens(s)
+    return len(t) == 1 and (_word_chars(s) in core.COMMON_WORDS or _word_chars(s) in SHORT_WORDS)
+
+
+def looks_like_fix(wrong, right, final=True):
+    """True when wrong -> right looks like a correction of a misheard or misspelled word, not a rewrite.
+    `final` False is a look while the user may still be typing: a word made longer ("Minhaj" -> "Minhaju") waits for the
+    last look, when the watch ends."""
     if not wrong or not right or _word_chars(wrong) == _word_chars(right):
         return False   # empty, or only capitals or punctuation changed
+    digits = any(c.isdecimal() for c in wrong + right)
+    if not _letters(wrong) or not _letters(right) or (digits and _letters(wrong) == _letters(right)):
+        return False   # a number (phone, PIN, card, amount) or only its digits changed: never learned, never sent on
+    if _part_of(right, wrong) or (not final and _part_of(wrong, right)):
+        return False   # cut short: a word half deleted while it is retyped ("grok" -> "gr" on the way to "Groq")
     a, b = wrong.lower(), right.lower()
     if all(t in STOP_WORDS for t in tokens(a)):
         return False   # "to => too" would change every "to" from now on
+    if ordinary(wrong) and not name_like(right):
+        return False   # "their => there" is right in one sentence and wrong in the next (History, Fix a word, still can)
     dist, longest = osa(a, b), max(len(a), len(b))
     if 2 * dist <= longest:
         return True   # at least half the letters stay
@@ -167,9 +216,10 @@ def locate(inserted, current):
     return None if best is None else (best[1], best[2])
 
 
-def detect(inserted, current):
+def detect(inserted, current, final=True):
     """[[wrong, right], ...] (at most MAX_PAIRS): the words the user corrected in the text Vox typed (`inserted`), seen
-    in the whole text of the field now (`current`, which may hold other text before and after)."""
+    in the whole text of the field now (`current`, which may hold other text before and after). `final`: see
+    looks_like_fix."""
     span = locate(inserted, current)
     if span is None:
         return []
@@ -179,7 +229,7 @@ def detect(inserted, current):
         return []   # more than 40% longer or shorter: rewritten, not corrected
     out = []
     for wrong, right in core.suggest_corrections(ins_text, edited, MAX_WORDS):
-        if looks_like_fix(wrong, right) and [wrong, right] not in out:
+        if looks_like_fix(wrong, right, final) and [wrong, right] not in out:
             out.append([wrong, right])
         if len(out) == MAX_PAIRS:
             break
@@ -292,7 +342,9 @@ class Watch:
     pair once per watch. The watch ends by itself when AUTO_LEARN_WINDOW_S pass, the app changes, the field is emptied
     (sent), the typed text is gone from it or the field shrinks to under half of it. A text is analysed once it has stayed
     the same for SETTLE_S, and the last snapshot (the latest text that still held the typed text) is analysed once more when
-    the watch ends, so a fix made just before pressing Send still counts. The snapshot is kept in memory only."""
+    the watch ends, so a fix made just before pressing Send still counts. A word made longer is only taken at that last
+    look (while the text only settles, the user may be in the middle of typing it); a word cut short never is. The snapshot
+    is kept in memory only."""
 
     def __init__(self, clock=time.monotonic, window=AUTO_LEARN_WINDOW_S, settle=SETTLE_S):
         self.clock, self.window, self.settle = clock, window, settle
@@ -316,8 +368,8 @@ class Watch:
         return out
 
     def end(self):
-        """Stop watching: the last snapshot is analysed once more and then dropped."""
-        out = self._analyse() if self.armed and self._dirty else []
+        """Stop watching: the last snapshot is analysed once more (the final look) and then dropped."""
+        out = self._analyse(final=True) if self.armed and self._snapshot is not None else []
         self._reset()
         return out
 
@@ -337,16 +389,16 @@ class Watch:
         out = []
         if text != self._snapshot:
             if self._dirty and now - self._changed_at >= self.settle:
-                out = self._analyse()   # the text that was quiet until now
+                out = self._analyse(final=False)   # the text that was quiet until now
             self._snapshot, self._changed_at, self._dirty = text, now, True
         elif self._dirty and now - self._changed_at >= self.settle:
-            out = self._analyse()
+            out = self._analyse(final=False)
         return out
 
-    def _analyse(self):
+    def _analyse(self, final):
         self._dirty = False
         out = []
-        for wrong, right in detect(self.inserted, self._snapshot or ""):
+        for wrong, right in detect(self.inserted, self._snapshot or "", final):
             if wrong.lower() not in self._reported:
                 self._reported.add(wrong.lower())
                 out.append([wrong, right])

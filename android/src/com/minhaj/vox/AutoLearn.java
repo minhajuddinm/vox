@@ -28,6 +28,31 @@ final class AutoLearn {
     private static final String EDGE = ".,;:!?\"'()[]{}";
     private static final Set<String> STOP_WORDS =
             new HashSet<>(Arrays.asList("the", "a", "an", "is", "are", "to", "of", "and", "or", "in", "on"));
+    /**
+     * Everyday words shorter than Terms' COMMON list holds (it starts at five letters), English and common Hinglish. With
+     * that list they are the ordinary words: a fix of one into another ordinary word ("their" -> "there", "now" -> "not",
+     * "hai" -> "hain") is right in one sentence and wrong in the next, so it is not learned on its own. Same list as
+     * SHORT_WORDS in windows/autolearn.py (tests/test_autolearn.py compares them).
+     */
+    static final String SHORT_WORDS_TEXT =
+        "a i am an as at be by do go he if in is it me my no of oh ok on or so to up us we " +
+        "ago all and any are ask bad big boy but buy bye can day did die dog eat end far few for fun get got had has her hey " +
+        "him his hot how its let lot low man may men new nor not now off old one our out own pay put ran red run sad saw say " +
+        "see set she sit six son sun ten the too top try two use was way who why win won yes yet you " +
+        "able also area away back bank base bear been best body book both busy call came care case city come cool cost dark " +
+        "data date dead deal dear does done door down draw drop each easy else even ever face fact fair fall fast fear feel " +
+        "feet fell felt file fill find fine fire five food foot form four free from full game gave girl give glad goal goes " +
+        "gone good grew grow half hand hard have head hear held help here hers high hold home hope hour huge idea into item " +
+        "join just keep kept kind knew know last late lead left less life like line list live load long look lose loss lost " +
+        "love made mail main make many mark meal mean meet mind mine miss more most move much must name near need news next " +
+        "nice nine none note okay once only onto open over page paid pair part pass past pick plan play plus poor post pull " +
+        "push rain rate read real rest ride ring rise road room rule safe said same save seem seen sell send sent ship shop " +
+        "show shut sick side sign site size slow some soon sort stay step stop such sure take talk team tell term test text " +
+        "than that them then they this thus till time told took tool town tree trip true turn type unit upon used user very " +
+        "view wait walk want warm wear week well went were what when whom wide wife will wish with word wore work year your " +
+        "hai hain ho hoon hu kya ki ka ke ko se mai mein na nahi nhi toh bhi aur ye yeh wo woh hum tum aap kal aaj abhi bas " +
+        "haan han ji tha thi ";
+    private static final Set<String> SHORT_WORDS = new HashSet<>(Arrays.asList(SHORT_WORDS_TEXT.trim().split(" ")));
 
     private AutoLearn() { }
 
@@ -164,13 +189,63 @@ final class AutoLearn {
         return out.toString();
     }
 
+    /** The letters and marks of s, lowercased (digits, spaces and punctuation left out). */
+    static String letters(String s) {
+        StringBuilder sb = new StringBuilder();
+        String l = lower(s);
+        for (int i = 0; i < l.length(); ) {
+            int c = l.codePointAt(i);
+            i += Character.charCount(c);
+            int t = Character.getType(c);
+            if (Character.isLetter(c) || t == Character.NON_SPACING_MARK || t == Character.ENCLOSING_MARK
+                    || t == Character.COMBINING_SPACING_MARK) sb.appendCodePoint(c);
+        }
+        return sb.toString();
+    }
+
+    private static boolean hasDigit(String s) {
+        for (int i = 0; i < s.length(); ) {
+            int c = s.codePointAt(i);
+            i += Character.charCount(c);
+            if (Character.isDigit(c)) return true;
+        }
+        return false;
+    }
+
+    /** True when x (letters and digits, lowercased) is the start or the end of the longer y: y cut short is x. */
+    static boolean partOf(String x, String y) {
+        String a = wordChars(x), b = wordChars(y);
+        return a.length() < b.length() && (b.startsWith(a) || b.endsWith(a));
+    }
+
+    /** One everyday word (Terms' COMMON list or SHORT_WORDS), whatever its case and punctuation. */
+    static boolean ordinary(String s) {
+        if (tokens(s).size() != 1) return false;
+        String w = wordChars(s);
+        return Terms.isCommonWord(w) || SHORT_WORDS.contains(w);
+    }
+
     /** True when wrong -> right looks like a correction of a misheard or misspelled word, not a rewrite. */
     static boolean looksLikeFix(String wrong, String right) {
+        return looksLikeFix(wrong, right, true);
+    }
+
+    /**
+     * Same, with fin false for a look while the user may still be typing: a word made longer ("Minhaj" -> "Minhaju")
+     * waits for the last look, when the watch ends. Same rules as looks_like_fix in windows/autolearn.py.
+     */
+    static boolean looksLikeFix(String wrong, String right, boolean fin) {
         if (wrong == null || right == null || wrong.isEmpty() || right.isEmpty() || wordChars(wrong).equals(wordChars(right))) return false;
+        String lw = letters(wrong), lr = letters(right);
+        if (lw.isEmpty() || lr.isEmpty() || (hasDigit(wrong + right) && lw.equals(lr))) {
+            return false;   // a number (phone, PIN, card, amount) or only its digits changed: never learned, never sent on
+        }
+        if (partOf(right, wrong) || (!fin && partOf(wrong, right))) return false;   // cut short: "grok" -> "gr" on the way to "Groq"
         String a = lower(wrong), b = lower(right);
         boolean allStop = true;
         for (String t : tokens(a)) if (!STOP_WORDS.contains(t)) allStop = false;
         if (allStop) return false;   // "to => too" would change every "to" from now on
+        if (ordinary(wrong) && !nameLike(right)) return false;   // "their => there": right in one sentence, wrong in the next
         int dist = osa(a, b);
         int la = a.codePointCount(0, a.length()), lb = b.codePointCount(0, b.length()), longest = Math.max(la, lb);
         if (2 * dist <= longest) return true;
@@ -250,6 +325,11 @@ final class AutoLearn {
 
     /** [wrong, right] pairs (at most MAX_PAIRS): the words the user corrected in the text Vox typed, seen in the field's whole text now. */
     static List<String[]> detect(String inserted, String current) {
+        return detect(inserted, current, true);
+    }
+
+    /** Same, with fin as in looksLikeFix. */
+    static List<String[]> detect(String inserted, String current, boolean fin) {
         List<String[]> out = new ArrayList<>();
         int[] span = locate(inserted, current);
         if (span == null) return out;
@@ -257,7 +337,7 @@ final class AutoLearn {
         String edited = join(tokens(current).subList(span[0], span[1]));
         if (span[1] - span[0] > MAX_TOKENS || 5 * Math.abs(len(edited) - len(insText)) > 2 * len(insText)) return out;
         for (String[] p : Corrections.suggest(insText, edited, MAX_WORDS)) {
-            if (!looksLikeFix(p[0], p[1])) continue;
+            if (!looksLikeFix(p[0], p[1], fin)) continue;
             boolean dup = false;
             for (String[] o : out) if (o[0].equals(p[0]) && o[1].equals(p[1])) dup = true;
             if (!dup) out.add(new String[] {p[0], p[1]});

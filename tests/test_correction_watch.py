@@ -57,6 +57,9 @@ def test_a_fix_in_the_pasted_window_is_learned_and_announced_privately(setup):
     w.poll_once()
     clock.t += 2
     w.poll_once()
+    assert said == []        # a word made longer waits for the watch's last look (the user may still be typing it)
+    desk.text = ""           # sent
+    w.poll_once()
     cfg = core.load_config()
     assert cfg["dictionary"] == ["LoomXR", "Minhaj => Minhajuddin", "Minhajuddin"]
     assert [(e["wrong"], e["right"], e["word"]) for e in cfg["learned_log"]] == [("Minhaj", "Minhajuddin", True)]

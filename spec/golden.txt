@@ -951,8 +951,8 @@ autocorrect	the the cat	the the cat
 autocorrect	ok ok ok ok	ok ok ok ok	
 autocorrect	vox and vox again	Vox and Box again	vox=>Box
 autocorrect	call grok then call grok again	call Groq then call Groq again	grok=>Groq
-autocorrect	alpha one beta one gamma one delta one epsilon one zeta	alpha onee beta onne gamma oone delta onee epsilon onne zeta	one=>onee;one=>onne;one=>oone
-autocorrect	kal milte hai yaar	kal milte hain yaar	hai=>hain
+autocorrect	alpha vox beta vox gamma vox delta vox epsilon vox zeta	alpha voxx beta vix gamma vax delta voxx epsilon vix zeta	vox=>voxx;vox=>vix;vox=>vax
+autocorrect	kal milte hai yaar	kal milte hain yaar	
 autocorrect	हम कल मिलेंगे यार	हम कल मिलेंगे यारा	यार=>यारा
 autocorrect	mera naam yuvi hai	mera naam Yuvi hai	
 autocorrect	acha theek hai bhai	accha theek hai bhai	acha=>accha
@@ -960,6 +960,21 @@ autocorrect
 autocorrect		anything here	
 autocorrect	some text		
 autocorrect	x	x	
+# Final fixes: a word cut short (half retyped) is never learned; numbers (phone, PIN, card, amount) are never learned, nor
+# a change of only the digits; a fix of one ordinary word into another (their/there, now/not, hai/hain) is not learned on
+# its own (History, Fix a word, still can); a name or identifier with digits and letters still is.
+autocorrect	we use grok for speech	we use gr for speech	
+autocorrect	we use grok for speech	we use Gro for speech	
+autocorrect	send it to Minhajuddin today	send it to Minhaj today	
+autocorrect	call me at 555 1234 today	call me at 555 1243 today	
+autocorrect	my pin is 4821 okay	my pin is 4812 okay	
+autocorrect	it costs 1200 rupees in total	it costs 1250 rupees in total	
+autocorrect	the card ends in 0042 here	the card ends in 0024 here	
+autocorrect	meet me at 10pm tonight	meet me at 11pm tonight	
+autocorrect	put it over their please	put it over there please	
+autocorrect	i am now sure about it	i am not sure about it	
+autocorrect	your welcome to join us	you're welcome to join us	
+autocorrect	deploy it to ec two now	deploy it to EC2 now	ec two=>EC2
 autocorrect	send it to Minhaj today	send it to Minhajuddin today	Minhaj=>Minhajuddin
 # autolearn: dictionary replacements (wrong=>right;...), dictionary words (|), the pairs found, the replacements and
 # words that are added (autolearn.learn, AutoLearn.learn).
