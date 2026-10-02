@@ -308,3 +308,44 @@ def test_a_database_error_while_following_the_relay_is_a_message_not_a_crash(dev
     monkeypatch.setattr(notes, "get_meta", locked)
     res = sync.sync_once(a)
     assert res["pushed"] == 0 and res["pulled"] == 0 and res["error"] == "Sync failed: OperationalError"
+
+
+# ------------------------------------------------------------------ final fixes (relay-docs 1): a fast phone clock must not split devices
+class _FastClock:
+    """`notes.time` running `offset` seconds ahead (a phone whose clock is wrong)."""
+    def __init__(self, offset):
+        self.offset = offset
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+    def time(self):
+        return time.time() + self.offset
+
+
+@pytest.mark.parametrize("act", ["edit", "delete"])
+def test_a_note_from_a_fast_clock_device_still_takes_edits_and_deletes_from_the_others(dev, srv, monkeypatch, act):
+    """Device A's clock is an hour fast. B edits or deletes A's note half a minute later: every device ends with B's change."""
+    a = dev("A")
+    monkeypatch.setattr(notes, "time", _FastClock(3600))
+    n = notes.add("written on the fast phone", device="A")
+    assert sync.sync_once(a)["error"] == ""
+    monkeypatch.setattr(notes, "time", time)
+    b = dev("B")
+    sync.sync_once(b)
+    assert notes.get(n["id"])["text"] == "written on the fast phone"
+    later = _FastClock(30)                                             # half a minute later, for everyone
+    monkeypatch.setattr(notes, "time", later)
+    monkeypatch.setattr(relay, "time", later)
+    if act == "edit":
+        notes.update(n["id"], text="edited on the laptop")
+    else:
+        notes.delete(n["id"])
+    assert sync.sync_once(b)["pushed"] == 1
+    want = "edited on the laptop" if act == "edit" else None
+    assert (notes.get(n["id"]) or {}).get("text") == want              # B keeps its own change
+    dev("A")
+    sync.sync_once(a)
+    assert (notes.get(n["id"]) or {}).get("text") == want              # and the fast phone takes it
+    stored = srv.store.changes(0)["notes"][-1]
+    assert stored["deleted"] is (act == "delete")
