@@ -4,7 +4,7 @@ An optional server the user runs on their own machine (PC, Raspberry Pi, any Lin
 
 ## What it is
 
-`relay/relay.py`: one Python file, standard library only, no Vox imports, Python 3.9 or newer. It runs on Linux (including a Raspberry Pi 5, arm64), macOS and Windows; CI runs its tests on Python 3.9 and 3.13 on x86 Linux and on Python 3.13 on arm64 Linux. It listens on `127.0.0.1` only (there is no option to listen elsewhere). The Windows app can run it for you: `Vox.exe --relay` starts it (the exe bundles `relay.py`), and the tray item "Run relay on this PC" starts and stops that as a child process of Vox (see "Running it from Vox on Windows" below). The installer has no separate relay file or service.
+`relay/relay.py`: one Python file, standard library only, no Vox imports, Python 3.9 or newer. It runs on Linux (including a Raspberry Pi 5, arm64), macOS and Windows; CI runs its tests on Python 3.9 and 3.13 on x86 Linux and on Python 3.13 on arm64 Linux. It listens on `127.0.0.1` only (there is no option to listen elsewhere). The Windows app can run it for you: `Vox.exe --relay` starts it (the exe bundles `relay.py`), and the tray item "Run relay on this PC" starts and stops that as a child process of Vox (see "Running it from Vox on Windows" below). The installer has no separate relay file or service. For a machine without Python, CI also builds standalone relay programs (see "Standalone relay programs" below).
 
 | Item | Detail |
 |---|---|
@@ -115,6 +115,10 @@ The tray menu has a checkbox **Run relay on this PC** (setting `relay_run`, port
 - The child cannot outlive Vox: it is stopped on quit and is tied to Vox by a Windows job object, so it also ends if Vox is killed or crashes. The relay is still bound to `127.0.0.1` only.
 - The PC's own Vox does not point its sync at this relay automatically: enter the relay's address and token in Settings like any other device.
 - Design of the process handling: [windows/relay_host.py](../windows/relay_host.py); details in [04-windows-app.md](04-windows-app.md).
+
+## Standalone relay programs
+
+Job `relay-exe` in `.github/workflows/build.yml` freezes `relay/relay.py` with PyInstaller `--onefile` (console program, no extra packages, a few unused standard-library modules excluded) into `vox-relay-windows-x64.exe` (`windows-latest`), `vox-relay-linux-x64` (`ubuntu-latest`) and `vox-relay-linux-arm64` (`ubuntu-24.04-arm`, for a Raspberry Pi 5 with the 64-bit Raspberry Pi OS). Each is uploaded as an artifact of the same name; job `relay-sums` adds `SHA256SUMS.txt` (artifact `SHA256SUMS`), and on a tag build the release job attaches the three files and the sums. Each program is smoke-tested in its own job before upload by `tools/relay_smoke.py`: `--help` exits 0, then it is started on `127.0.0.1` with a temporary data folder and `--show-token`, `/health` must answer 401 without the token and 200 with it, then it is stopped. The options and data-folder defaults are those of `relay.py`; as the systemd service it uses the same unit file with `ExecStart` pointing at the file (see [../relay/README.md](../relay/README.md), "Standalone relay (no Python)"). **Unverified on a real Raspberry Pi, under the systemd unit and through `tailscale serve`;** only the CI smoke test has run. Downloaded Linux files need `chmod +x` (an artifact zip does not keep the mark). The Windows app does not use these files: it still bundles `relay.py` as `Vox.exe --relay`.
 
 ## Not built yet
 
