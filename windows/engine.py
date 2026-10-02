@@ -17,6 +17,7 @@ import sounddevice as sd
 from pynput import keyboard
 
 import audio_devices
+import correction_watch
 import listen as listen_mod
 import improve
 import logo
@@ -647,6 +648,7 @@ class Engine:
                                 clipboard_history=self.cfg.get("clipboard_history", True)) == paste_mod.COPIED:
             self.notify("Copied; the window changed")
             return False
+        correction_watch.arm(text, self.cfg, self.notify)   # Learn from my corrections: watch this field for the user's fixes
         return True
 
     # ------------------------------------------------------------ keep listening
