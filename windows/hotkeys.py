@@ -3,9 +3,11 @@
 The dictation shortcut (`hotkey`, a list of modifier names) and the note shortcut (`note_hotkey`, session.py) existed
 before; this module adds four optional ones, all written like the note shortcut ("shift+alt+z"):
 
-  hands_free_hotkey  default ctrl+cmd+space  starts hands-free dictation, or ends it (sends what was said). While the
+  hands_free_hotkey  default off             starts hands-free dictation, or ends it (sends what was said). While the
                                              dictation shortcut is already held (Ctrl+Win), adding its last key latches
-                                             the dictation that started, so it may contain the dictation shortcut.
+                                             the dictation that started, so it may contain the dictation shortcut
+                                             (for example ctrl+cmd+h; not ctrl+cmd+space, which Windows uses to switch
+                                             the keyboard language).
   paste_last_hotkey  default shift+alt+z     pastes the last dictation again into the focused window.
   copy_last_hotkey   default off             puts the last dictation on the clipboard.
   command_hotkey     default off             edit by voice (experimental): modifiers only (for example ctrl+cmd+alt),
@@ -23,7 +25,7 @@ HOLD_SECONDS = 0.3   # a press of the dictation shortcut shorter than this is a 
 
 # setting -> (how messages name it, its default, modifiers only)
 SHORTCUTS = {
-    "hands_free_hotkey": ("the hands-free shortcut", "ctrl+cmd+space", False),
+    "hands_free_hotkey": ("the hands-free shortcut", "", False),   # off: Ctrl+Win+Space switches the keyboard language
     "paste_last_hotkey": ("the paste-last shortcut", "shift+alt+z", False),
     "copy_last_hotkey": ("the copy-last shortcut", "", False),
     "command_hotkey": ("the edit-by-voice shortcut", "", True),

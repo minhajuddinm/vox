@@ -602,7 +602,7 @@ class Engine:
             self.cancel()
 
     def on_hands_free(self):
-        """The hands-free shortcut (default Ctrl+Win+Space): starts hands-free dictation, latches the dictation that the
+        """The hands-free shortcut (off by default; for example Ctrl+Win+H): starts hands-free dictation, latches the dictation that the
         held Ctrl+Win just started, or ends a hands-free one (what was said is sent)."""
         if self.busy or self.listening:
             return

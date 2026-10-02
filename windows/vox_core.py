@@ -79,7 +79,7 @@ DEFAULT_CONFIG = {
     "listen_target": "note",
     "note_hotkey": "ctrl+alt+n",
     "hotkey_style": "classic",
-    "hands_free_hotkey": "ctrl+cmd+space",
+    "hands_free_hotkey": "",   # off by default: Ctrl+Win+Space is Windows' "switch keyboard language" (hotkeys.py)
     "paste_last_hotkey": "shift+alt+z",
     "copy_last_hotkey": "",
     "command_hotkey": "",

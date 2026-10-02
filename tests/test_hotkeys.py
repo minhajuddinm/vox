@@ -56,10 +56,12 @@ def defaults(**cfg):
 
 def test_the_defaults_agree_with_each_other():
     out = hotkeys.check(defaults())
-    assert out["hands_free_hotkey"][0].text == "ctrl+cmd+space"      # extends Ctrl + Win: allowed
+    # final fixes (windows 8): Ctrl + Win + Space is Windows' own "switch keyboard language", so hands-free is off by default
+    assert out["hands_free_hotkey"] == (None, "")
     assert out["paste_last_hotkey"][0].text == "alt+shift+z"
     assert out["copy_last_hotkey"] == (None, "") and out["command_hotkey"] == (None, "")
     assert all(problem == "" for _, problem in out.values())
+    assert hotkeys.check(defaults(hands_free_hotkey="ctrl+cmd+h"))["hands_free_hotkey"][0].text == "ctrl+cmd+h"   # extends Ctrl + Win
 
 
 def test_the_defaults_match_the_config_defaults():
@@ -122,7 +124,7 @@ def test_tap_or_hold(style, held, command, action):
 
 
 def test_space_cannot_be_used_when_it_is_part_of_a_custom_dictation_shortcut():
-    out = hotkeys.check(defaults(hotkey=["ctrl", "space"], note_hotkey=""))
+    out = hotkeys.check(defaults(hotkey=["ctrl", "space"], note_hotkey="", hands_free_hotkey="ctrl+cmd+space"))
     assert out["hands_free_hotkey"][0] is None and "Space" in out["hands_free_hotkey"][1]
 
 

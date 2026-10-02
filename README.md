@@ -38,7 +38,7 @@ Vox was written by Muhammad Minhajuddin ([minhajuddinm](https://github.com/minha
 - **Voice notes.** Record a note that is saved to a searchable list instead of being typed.
 - **Meeting notes (beta).** Records your microphone and the PC's audio, shows a live transcript, answers questions about the meeting, and writes a summary with decisions and action items. Optional Google Calendar or ICS link.
 - **Improve my cleanup.** A stronger model reads some of your saved dictations and suggests dictionary words and cleanup rules. It sends nothing until you press **Run once** and then **Send**, and you pick what to keep.
-- **Shortcuts.** Hold or tap (a quick tap starts hands-free dictation, if you choose it), Ctrl + Win + Space for hands-free, Esc to cancel, Shift + Alt + Z to paste your last dictation again, an optional copy-last shortcut, and **edit by voice** (experimental, off by default: select text, hold a shortcut, say what to change).
+- **Shortcuts.** Hold or tap (a quick tap starts hands-free dictation, if you choose it), an optional hands-free shortcut (off by default; for example Ctrl + Win + H), Esc to cancel, Shift + Alt + Z to paste your last dictation again, an optional copy-last shortcut, and **edit by voice** (experimental, off by default: select text, hold a shortcut, say what to change).
 - Microphone choice, API key protected by your Windows login (DPAPI), paste only into the window you started in (Ctrl + Shift + V in terminals), uploads while you speak and FLAC to Groq and OpenAI, and a tray item to run the relay on the PC.
 
 ### Android only
@@ -128,7 +128,7 @@ To update, install the new `Vox.apk` over the old one. If Android refuses the up
 |---|---|
 | Dictate | Click into a text box, **hold Ctrl + Win**, speak, **release**. The text is pasted about a second later |
 | Keep listening | **Double-tap Ctrl + Win** and speak. Double-tap again or say "stop listening" to end it and save; **Esc** cancels it without saving |
-| Hands-free dictation | **Ctrl + Win + Space** to start, again to send (or Settings, "A quick tap of the dictation shortcut": Hold or tap). **Esc** cancels any recording |
+| Hands-free dictation | Settings, "A quick tap of the dictation shortcut": Hold or tap (a tap starts, the next press sends), or set a hands-free shortcut in Settings (off by default; for example Ctrl + Win + H). **Esc** cancels any recording |
 | Paste the last dictation again | **Shift + Alt + Z** |
 | Voice note | **Ctrl + Alt + N** to start, again to stop; or the tray menu |
 | Open the window | Double-click the tray icon, or search **Vox** in the Start menu |
