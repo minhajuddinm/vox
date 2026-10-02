@@ -56,6 +56,11 @@
 .rs-t { margin-bottom: 6px; }
 .rs-cmd { margin: 6px 0; padding: 9px 11px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: 12.5px/1.55 ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
 .rs-copy { margin-top: 2px; }
+.lrow { display: flex; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.lrow:last-child { border-bottom: 0; }
+.lrow .lw { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.lrow .lw i { color: var(--muted); font-style: normal; padding: 0 4px; }
+.lrow .la { flex: none; color: var(--muted); font-size: 13px; }
 /* ui-shared:css end */
 :root { --line:#E6E6E2; --bad:#D93025; --warn:#B26A00; }
 .dark { --line:#2C2C31; --bad:#FF6B5E; --warn:#F5B83D; }
@@ -190,6 +195,9 @@ nav button.on .pill { background:var(--accent-soft); }
     <button class="btn full" id="snip-add">Add snippet</button>
   </div>
   <div class="card list" id="snips" style="margin-top:10px"></div>
+  <h2>Recently learned</h2>
+  <p class="note" style="margin:0 4px 8px">Fixes Vox picked up when you corrected text it had just typed (Settings, Privacy, Learn from my corrections). Remove takes the fix out of your dictionary again.</p>
+  <div class="card" id="learned"></div>
 </section>
 
 <!-- STYLES -->
@@ -257,6 +265,7 @@ nav button.on .pill { background:var(--accent-soft); }
   <p class="note" style="margin:0 4px 10px" id="leaves">What leaves this phone: your audio and its transcript go to your voice server, and the cleanup text goes to your cleanup server (both through your relay when it is the AI server). Voice notes are kept in this phone's note store and send no app name; with sync on, their text also goes to your relay. Vox has no analytics and no server of its own.</p>
   <div class="card list">
     <div class="item"><div class="grow"><div class="t">Keep dictation history</div><div class="d">Saves what you dictate on this phone, not encrypted. Off saves nothing</div></div><label class="switch"><input type="checkbox" id="keep-history"><span></span></label></div>
+    <div class="item"><div class="grow"><div class="t">Learn from my corrections</div><div class="d" id="auto-learn-d"></div></div><label class="switch"><input type="checkbox" id="auto-learn"><span></span></label></div>
     <div class="item"><div class="grow"><div class="t">Sync voice notes with my relay</div><div class="d">Keeps your voice notes the same on your phone and PCs through a relay you run yourself (a small server, for example on a Raspberry Pi, reached over Tailscale). While on, the relay receives the full text, raw transcript, tags and device name of each voice note, and your About you text, dictionary, people, snippets, learned cleanup rules, default style, cleanup switch and language. Needs its address and token</div></div><label class="switch"><input type="checkbox" id="relay-sync"><span></span></label></div>
   </div>
   <div class="card" id="relay-rows" style="margin-top:10px">
@@ -455,6 +464,16 @@ function relayCheckRows(r) {
   if (r.ok && r.device_name) rows.push(["This device", r.device_name, ""]);
   return rows;
 }
+// Learn from my corrections (setting auto_learn). One text for the switch on both pages.
+const AUTO_LEARN_TEXT = "For up to 3 minutes after Vox types, or until you send it, Vox notices when you fix a word in that text and adds the fix to your dictionary. Only the changed words are kept. Password fields are never read.";
+// The "Recently learned" list of the Dictionary page from learned_log ({t, wrong, right, word}, oldest first): newest first,
+// at most 20. Each Remove button carries data-unlearn = the entry's t; the page asks its bridge to remove that entry and the
+// dictionary lines it added.
+function learnedHtml(log) {
+  const rows = (Array.isArray(log) ? log : []).filter(e => e && typeof e.wrong === "string" && typeof e.right === "string").slice(-20).reverse();
+  if (!rows.length) return '<div class="dempty">Nothing learned yet. Fix a word in text Vox just typed and the fix shows up here.</div>';
+  return rows.map(e => `<div class="lrow"><span class="lw">${esc(e.wrong)}<i>→</i><b>${esc(e.right)}</b></span><span class="la">${esc(agoText(e.t))}</span><button class="btn ghost" data-unlearn="${esc(String(e.t))}">Remove</button></div>`).join("");
+}
 // ui-shared:js end
 // Browser preview only: a few voice notes kept in memory, and the bridge methods that work on them.
 function previewNotes() {
@@ -496,7 +515,7 @@ const V = window.Vox || {   // browser preview fallback
   state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, always_show_bubble: false, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, relay_proxy: false, device_name: "", note_bubble: false, note_notification: false }, status: { notes: 0, unsent: false }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
   ...previewNotes(),
   getMics: () => JSON.stringify({ current: "", options: [{ key: "15|Preview phone", label: "Preview phone (built-in)" }, { key: "11|Preview dock", label: "Preview dock (USB)" }] }), setMic(){},
-  save(){}, requestMic(){}, openAccessibility(){}, openAppInfo(){}, openBattery(){}, setService(){}, testKey(k, u, cb){ setTimeout(() => window[cb]("ok"), 300); }, listModels(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ models: [], error: "Preview only" })), 200); }, testRole(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ ok: true, message: "Preview only" })), 200); }, endpointProblem: () => "", suggestCorrections: (a, b) => JSON.stringify(a !== b ? [["vox", "Vox"]] : []), copy(){}, deleteHistory(){}, clearHistory(){}, openUrl(){}, toast(){}, apps: () => "[]", appLabel: (p) => p, getSpeed: () => JSON.stringify({ count: 0, biggest: "", stages: {}, models: [], last: [] })
+  save(){}, requestMic(){}, openAccessibility(){}, openAppInfo(){}, openBattery(){}, setService(){}, testKey(k, u, cb){ setTimeout(() => window[cb]("ok"), 300); }, listModels(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ models: [], error: "Preview only" })), 200); }, testRole(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ ok: true, message: "Preview only" })), 200); }, endpointProblem: () => "", suggestCorrections: (a, b) => JSON.stringify(a !== b ? [["vox", "Vox"]] : []), learnedRemove: () => JSON.stringify({ dictionary: S.config.dictionary || [], learned_log: [] }), copy(){}, deleteHistory(){}, clearHistory(){}, openUrl(){}, toast(){}, apps: () => "[]", appLabel: (p) => p, getSpeed: () => JSON.stringify({ count: 0, biggest: "", stages: {}, models: [], last: [] })
 };
 const TITLES = { home: ["Vox", ""], notes: ["Voice notes", ""], dict: ["Dictionary", ""], styles: ["Styles", ""], settings: ["Settings", ""] };
 const GROQ_URL = "https://api.groq.com/openai/v1";
@@ -760,6 +779,7 @@ function renderDict() {
   renderAbout();
   chips(words(), "words"); chips(S.config.people || [], "people");
   const r = repls();
+  $("learned").innerHTML = learnedHtml(S.config.learned_log);
   $("repls").innerHTML = r.length ? r.map(([a, b]) => `<div class="item"><div class="grow">${esc(a)} <span style="color:var(--muted)">→</span> <b>${esc(b)}</b></div><button class="ib" data-a="${esc(a)}" data-b="${esc(b)}">${ICON_DEL}</button></div>`).join("") : '<div class="empty">No replacements yet.</div>';
   renderSnippets();
 }
@@ -781,6 +801,13 @@ $("words").onclick = (e) => { const b = e.target.closest("button"); if (!b) retu
 $("people").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const p = [...(S.config.people || [])], k = +b.dataset.i; if (!isNaN(k) && k >= 0 && k < p.length) { p.splice(k, 1); save({ people: p }); } renderDict(); };
 $("r-add").onclick = () => { const a = $("r-wrong").value.trim(), b = $("r-right").value.trim(); if (!a || !b) return; const r = repls(); r.push([a, b]); $("r-wrong").value = $("r-right").value = ""; setDict(words(), r); renderDict(); toast("Added"); };
 $("repls").onclick = (e) => { const b = e.target.closest("[data-a]"); if (!b) return; const r = repls(), k = r.findIndex(x => x[0] === b.dataset.a && x[1] === b.dataset.b); if (k >= 0) { r.splice(k, 1); setDict(words(), r); } renderDict(); };
+$("learned").onclick = (e) => {
+  const b = e.target.closest("[data-unlearn]");
+  if (!b) return;
+  const r = JSON.parse(V.learnedRemove(b.dataset.unlearn));
+  S.config.dictionary = r.dictionary; S.config.learned_log = r.learned_log;
+  toast("Removed from your dictionary"); renderDict();
+};
 ["w-in", "p-in"].forEach(id => $(id).onkeydown = (e) => { if (e.key === "Enter") $(id.replace("in", "add")).click(); });
 
 // ---------------- styles
@@ -816,6 +843,7 @@ function renderSettings() {
   $("cleanup-strength").value = c.cleanup_strength === "standard" ? "standard" : "light";
   $("structure").value = structureMode(c.structure);
   $("keep-history").checked = c.keep_history !== false;
+  $("auto-learn").checked = c.auto_learn !== false;
   $("note-bubble").checked = !!c.note_bubble; $("note-notification").checked = !!c.note_notification;
   $("language").value = c.language || ""; $("service").checked = S.service;
   renderMics();
@@ -966,6 +994,8 @@ $("note-bubble").onchange = (e) => save({ note_bubble: e.target.checked }, "Save
 $("note-notification").onchange = (e) => save({ note_notification: e.target.checked }, "Saved");
 $("open-about").onclick = () => go("dict");
 $("keep-history").onchange = (e) => save({ keep_history: e.target.checked }, "Saved");
+$("auto-learn-d").textContent = AUTO_LEARN_TEXT;
+$("auto-learn").onchange = (e) => save({ auto_learn: e.target.checked }, "Saved");
 $("cleanup-strength").onchange = (e) => save({ cleanup_strength: e.target.value }, "Saved");
 $("structure").onchange = (e) => save({ structure: structureMode(e.target.value) }, "Saved");
 $("language").onchange = (e) => save({ language: e.target.value }, "Saved");

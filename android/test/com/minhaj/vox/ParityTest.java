@@ -226,6 +226,19 @@ public final class ParityTest {
         return r.ok + ";" + r.reachable + ";" + r.tokenOk + ";" + r.relayVersion + ";" + r.notes;
     }
 
+    /** wrong=>right pairs separated by ; */
+    private static List<String[]> pairs(String field) {
+        List<String[]> out = new ArrayList<>();
+        for (String p : items(field, ";")) out.add(new String[] {p.substring(0, p.indexOf("=>")), p.substring(p.indexOf("=>") + 2)});
+        return out;
+    }
+
+    private static String pairsText(List<String[]> ps) {
+        StringBuilder sb = new StringBuilder();
+        for (String[] p : ps) sb.append(sb.length() == 0 ? "" : ";").append(p[0]).append("=>").append(p[1]);
+        return sb.toString();
+    }
+
     private static void eq(int line, String kind, String expected, String actual) {
         checks++;
         if (!expected.equals(actual)) {
@@ -412,6 +425,14 @@ public final class ParityTest {
                 case "notebubble":   // persistent switch, note recording, note being saved, expected
                     eq(ln, kind, f[3], NoteBubbleLogic.visible(f[0].equals("true"), f[1].equals("true"), f[2].equals("true")) ? "true" : "false");
                     break;
+                case "autocorrect":   // text Vox typed, the field's whole text now, the corrections found
+                    eq(ln, kind, f[2], pairsText(AutoLearn.detect(f[0], f[1])));
+                    break;
+                case "autolearn": {   // replacements, words, pairs found => the replacements and words added
+                    AutoLearn.Learned l = AutoLearn.learn(pairs(f[0]), items(f[1], "|"), pairs(f[2]));
+                    eq(ln, kind, f[3] + " / " + f[4], pairsText(l.replacements) + " / " + String.join("|", l.words));
+                    break;
+                }
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);

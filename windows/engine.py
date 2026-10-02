@@ -20,6 +20,7 @@ from pynput import keyboard
 import audio_devices
 import command as command_mod
 import hotkeys
+import correction_watch
 import listen as listen_mod
 import improve
 import logo
@@ -959,6 +960,7 @@ class Engine:
         if result == paste_mod.BLOCKED:
             self._say_elevated()
             return False
+        correction_watch.arm(text, self.cfg, self.notify)   # Learn from my corrections: watch this field for the user's fixes
         return True
 
     def _say_elevated(self):

@@ -59,6 +59,11 @@
 .rs-t { margin-bottom: 6px; }
 .rs-cmd { margin: 6px 0; padding: 9px 11px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: 12.5px/1.55 ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
 .rs-copy { margin-top: 2px; }
+.lrow { display: flex; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.lrow:last-child { border-bottom: 0; }
+.lrow .lw { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.lrow .lw i { color: var(--muted); font-style: normal; padding: 0 4px; }
+.lrow .la { flex: none; color: var(--muted); font-size: 13px; }
 /* ui-shared:css end */
 :root {
   --side: #EFEFEC; --line: #E4E4E0; --danger: #D93025; --bad: var(--danger);
@@ -330,6 +335,9 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="row" style="margin-top:8px"><div class="status grow" id="snip-status"></div><button class="btn" id="snip-add">Add</button></div>
     </div>
     <div class="card list" style="margin-top:12px"><table id="snips"></table></div>
+    <h2>Recently learned</h2>
+    <p class="sub" style="margin-top:-6px">Fixes Vox picked up when you corrected text it had just typed (Settings, Privacy, Learn from my corrections). Remove takes the fix out of your dictionary again.</p>
+    <div class="card" id="learned"></div>
   </section>
 
   <!-- STYLES -->
@@ -415,6 +423,7 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
     <p class="sub" style="margin:-6px 0 12px" id="leaves">What leaves this PC: your audio and its transcript go to your voice server, and the cleanup text goes to your cleanup server (both through your relay when it is the AI server). Vox has no analytics and no server of its own.</p>
     <div class="card list">
       <div class="setting"><div><div class="t">Keep dictation history</div><div class="d">Saves what you dictate on this PC, for the history list. Off means nothing is saved.</div></div><label class="switch"><input type="checkbox" id="keep-history"><span></span></label></div>
+      <div class="setting"><div><div class="t">Learn from my corrections</div><div class="d" id="auto-learn-d"></div></div><label class="switch"><input type="checkbox" id="auto-learn"><span></span></label></div>
       <div class="setting"><div><div class="t">Keep dictation on the clipboard</div><div class="d">Off by default: after pasting, your earlier copied text comes back. A copied image or file is not restored. On keeps your text copied so you can paste it again with Ctrl + V.</div></div><label class="switch"><input type="checkbox" id="keep-clip"><span></span></label></div>
       <div class="setting"><div><div class="t">Keep dictations in Windows clipboard history (Win+V)</div><div class="d">On by default, so you can pick a dictation again from Win + V. It also means anything you dictate stays in that history until Windows clears it. Off keeps dictations out of Win + V and the cloud clipboard. With it on, dictations still never go to the cloud clipboard.</div></div><label class="switch"><input type="checkbox" id="clip-history"><span></span></label></div>
       <div class="setting"><div><div class="t">Sync voice notes with my relay</div><div class="d">Keeps your voice notes the same on your phone and PCs through a relay you run yourself (a small server, for example on a Raspberry Pi, reached over Tailscale). While on, the relay receives the full text, raw transcript, tags and device name of each voice note, and your About you text, dictionary, people, snippets, learned cleanup rules, default style, cleanup switch and language. Needs its address and token.</div></div><label class="switch"><input type="checkbox" id="relay-sync"><span></span></label></div>
@@ -564,6 +573,16 @@ function relayCheckRows(r) {
     ["Token", r.token_ok ? "Accepted" : r.reachable ? "Refused" : "Not checked", r.token_ok ? "ok" : r.reachable ? "bad" : "dim"]];
   if (r.ok && r.device_name) rows.push(["This device", r.device_name, ""]);
   return rows;
+}
+// Learn from my corrections (setting auto_learn). One text for the switch on both pages.
+const AUTO_LEARN_TEXT = "For up to 3 minutes after Vox types, or until you send it, Vox notices when you fix a word in that text and adds the fix to your dictionary. Only the changed words are kept. Password fields are never read.";
+// The "Recently learned" list of the Dictionary page from learned_log ({t, wrong, right, word}, oldest first): newest first,
+// at most 20. Each Remove button carries data-unlearn = the entry's t; the page asks its bridge to remove that entry and the
+// dictionary lines it added.
+function learnedHtml(log) {
+  const rows = (Array.isArray(log) ? log : []).filter(e => e && typeof e.wrong === "string" && typeof e.right === "string").slice(-20).reverse();
+  if (!rows.length) return '<div class="dempty">Nothing learned yet. Fix a word in text Vox just typed and the fix shows up here.</div>';
+  return rows.map(e => `<div class="lrow"><span class="lw">${esc(e.wrong)}<i>→</i><b>${esc(e.right)}</b></span><span class="la">${esc(agoText(e.t))}</span><button class="btn ghost" data-unlearn="${esc(String(e.t))}">Remove</button></div>`).join("");
 }
 // ui-shared:js end
 const ICON_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg>';
@@ -773,6 +792,7 @@ function renderDict() {
   renderAbout();
   const { terms, repl } = dictLists();
   $("terms").innerHTML = terms.length ? terms.map((t, i) => `<span class="chip">${esc(t)}<button data-i="${i}" title="Remove">${ICON_X}</button></span>`).join("") : '<span class="style-tag">No words yet.</span>';
+  $("learned").innerHTML = learnedHtml(S.config.learned_log);
   $("repls").innerHTML = repl.length ? repl.map(([w, r], i) => `<tr><td>${esc(w)}</td><td class="arrow">→</td><td><b>${esc(r)}</b></td><td style="width:40px"><button class="icon-btn" data-r="${i}">${ICON_DEL}</button></td></tr>`).join("") : '<tr><td class="empty">No replacements yet.</td></tr>';
   renderSnippets();
 }
@@ -793,6 +813,13 @@ $("term").onkeydown = (e) => { if (e.key === "Enter") $("add-term").click(); };
 $("terms").onclick = async (e) => { const b = e.target.closest("button"); if (!b) return; const t = dictLists().terms[+b.dataset.i]; if (t === undefined) return; await editList("dictionary", api().dict_remove_term(t)); renderDict(); };
 $("add-repl").onclick = async () => { const w = $("wrong").value.trim(), r = $("right").value.trim(); if (!w || !r) return; $("wrong").value = $("right").value = ""; await editList("dictionary", api().dict_add_repl(w, r)); renderDict(); };
 $("right").onkeydown = (e) => { if (e.key === "Enter") $("add-repl").click(); };
+$("learned").onclick = async (e) => {
+  const b = e.target.closest("[data-unlearn]");
+  if (!b) return;
+  const r = await api().learned_remove(Number(b.dataset.unlearn));
+  S.config.dictionary = r.dictionary; S.config.learned_log = r.learned_log;
+  toast("Removed from your dictionary"); renderDict();
+};
 function renderPeople() {
   const p = S.config.people || [];
   $("people").innerHTML = p.length ? p.map((t, i) => `<span class="chip">${esc(t)}<button data-i="${i}" title="Remove">${ICON_X}</button></span>`).join("") : '<span class="style-tag">No names yet.</span>';
@@ -866,6 +893,7 @@ function renderSettings() {
   $("keep-clip").checked = !!c.keep_clipboard;
   $("clip-history").checked = c.clipboard_history !== false;
   $("keep-history").checked = c.keep_history !== false;
+  $("auto-learn").checked = c.auto_learn !== false;
   $("stream-stt").checked = c.stream_stt !== false;
   $("relay-sync").checked = !!c.relay_sync;
   $("relay-keys").checked = !!c.relay_sync_keys;
@@ -1020,6 +1048,8 @@ $("my-email").onchange = (e) => save({ my_email: e.target.value.trim() });
 $("keep-clip").onchange = (e) => save({ keep_clipboard: e.target.checked });
 $("clip-history").onchange = (e) => save({ clipboard_history: e.target.checked });
 $("keep-history").onchange = (e) => save({ keep_history: e.target.checked });
+$("auto-learn-d").textContent = AUTO_LEARN_TEXT;
+$("auto-learn").onchange = (e) => save({ auto_learn: e.target.checked });
 $("relay-keys").onchange = (e) => { save({ relay_sync_keys: e.target.checked }); api().sync_now(); };
 $("relay-sync").onchange = (e) => { save({ relay_sync: e.target.checked }); if (e.target.checked) api().sync_now(); };
 $("relay-url").onchange = async () => {

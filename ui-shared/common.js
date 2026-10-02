@@ -103,3 +103,13 @@ function relayCheckRows(r) {
   if (r.ok && r.device_name) rows.push(["This device", r.device_name, ""]);
   return rows;
 }
+// Learn from my corrections (setting auto_learn). One text for the switch on both pages.
+const AUTO_LEARN_TEXT = "For up to 3 minutes after Vox types, or until you send it, Vox notices when you fix a word in that text and adds the fix to your dictionary. Only the changed words are kept. Password fields are never read.";
+// The "Recently learned" list of the Dictionary page from learned_log ({t, wrong, right, word}, oldest first): newest first,
+// at most 20. Each Remove button carries data-unlearn = the entry's t; the page asks its bridge to remove that entry and the
+// dictionary lines it added.
+function learnedHtml(log) {
+  const rows = (Array.isArray(log) ? log : []).filter(e => e && typeof e.wrong === "string" && typeof e.right === "string").slice(-20).reverse();
+  if (!rows.length) return '<div class="dempty">Nothing learned yet. Fix a word in text Vox just typed and the fix shows up here.</div>';
+  return rows.map(e => `<div class="lrow"><span class="lw">${esc(e.wrong)}<i>→</i><b>${esc(e.right)}</b></span><span class="la">${esc(agoText(e.t))}</span><button class="btn ghost" data-unlearn="${esc(String(e.t))}">Remove</button></div>`).join("");
+}

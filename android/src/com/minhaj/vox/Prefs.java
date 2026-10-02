@@ -117,6 +117,34 @@ public final class Prefs {
     public int noteBubbleY() { return sp.getInt("note_bubble_y", -1); }
     /** Keep a "Record note" notification in the shade (off by default). */
     public boolean noteNotification() { return sp.getBoolean("note_notification", false); }
+    /** "Learn from my corrections" (auto_learn): on unless turned off. Kept on this phone only (not in the synced profile). */
+    public boolean autoLearn() { return sp.getBoolean("auto_learn", true); }
+    /** The "Recently learned" list (learned_log) as stored JSON, oldest first. Kept on this phone only. */
+    public String learnedLogRaw() { return sp.getString("learned_log", "[]"); }
+
+    /** The dictionary is read, changed and written back as one string: one writer at a time for the learned corrections. */
+    private static final Object LEARN_LOCK = new Object();
+
+    /**
+     * Adds corrections the user made in text Vox typed (Learn from my corrections) to the dictionary, as the "Fix a word"
+     * flow does: "wrong => right" lines, plus the right word when it looks like a name, and records them in learned_log.
+     * Returns the pairs really added (none when they are known already or the dictionary is full).
+     */
+    public List<String[]> learnCorrections(List<String[]> pairs) {
+        synchronized (LEARN_LOCK) {
+            AutoLearn.Applied a = AutoLearn.applyLearned(dictionaryRaw(), learnedLogRaw(), pairs, System.currentTimeMillis() / 1000.0);
+            if (!a.added.isEmpty()) sp.edit().putString("dictionary", a.dictionary).putString("learned_log", a.log).apply();
+            return a.added;
+        }
+    }
+
+    /** Removes the "Recently learned" entry made at t and the dictionary lines it added. */
+    public void removeLearned(double t) {
+        synchronized (LEARN_LOCK) {
+            String[] r = AutoLearn.removeLearned(dictionaryRaw(), learnedLogRaw(), t);
+            sp.edit().putString("dictionary", r[0]).putString("learned_log", r[1]).apply();
+        }
+    }
 
     public SharedPreferences.Editor edit() { return sp.edit(); }
 

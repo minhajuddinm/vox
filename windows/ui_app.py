@@ -11,6 +11,7 @@ import webview
 
 import audio_devices
 import hotkeys
+import autolearn
 import improve
 import meeting
 import notes
@@ -123,6 +124,18 @@ class Api:
                     return d[:i] + d[i + 1:]
             return d
         return self._edit_list("dictionary", drop)
+
+    def learned_remove(self, t):
+        """Removes the "Recently learned" entry made at `t` and the dictionary lines it added (Learn from my corrections).
+        {"dictionary", "learned_log"} as saved, for the page."""
+        cfg = core.load_config()
+        try:
+            parts = autolearn.remove_learned(cfg, float(t))
+        except (TypeError, ValueError):
+            return {"dictionary": [x for x in cfg.get("dictionary") or [] if isinstance(x, str)], "learned_log": autolearn.learned_log(cfg)}
+        cfg.update(parts)
+        core.save_config(cfg)
+        return parts
 
     def people_add(self, name):
         n = str(name or "").strip()

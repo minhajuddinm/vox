@@ -7,6 +7,8 @@ android/src/com/minhaj/vox/Endpoint.java
 android/src/com/minhaj/vox/Multipart.java
 android/src/com/minhaj/vox/Pcm.java
 android/src/com/minhaj/vox/Corrections.java
+android/src/com/minhaj/vox/AutoLearn.java
+android/src/com/minhaj/vox/AutoLearnWatch.java
 android/src/com/minhaj/vox/Terms.java
 android/src/com/minhaj/vox/Fidelity.java
 android/src/com/minhaj/vox/Providers.java

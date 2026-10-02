@@ -911,3 +911,62 @@ snippets	पहला काम	first task	पहला काम	first task
 snippets	über alles	over alles	Über	over
 snippets	dollar sign $ here	dollar sign no word char? fine	$ here	no word char? fine
 snippets	re: quote	x\\y$1: quote	re	x\\y$1
+# autocorrect: text Vox typed, the whole field text now, the corrections learned from it (wrong=>right;...). Learn from
+# my corrections: windows/autolearn.py detect, AutoLearn.detect. Rewrites, capitals, punctuation and stop words are not learned.
+autocorrect	send it to Minhaj today	send it to Minhajuddin today	Minhaj=>Minhajuddin
+autocorrect	i recieve the mail daily	i receive the mail daily	recieve=>receive
+autocorrect	teh cat sat down	the cat sat down	teh=>the
+autocorrect	see you at the nite market	see you at the night market	nite=>night
+autocorrect	hello vox team	hello Box team	vox=>Box
+autocorrect	we use grok for speech	we use Groq for speech	grok=>Groq
+autocorrect	ask grok cloud about it	ask Groq Cloud about it	grok cloud=>Groq Cloud
+autocorrect	ask you vrag about it	ask Yuvraj about it	you vrag=>Yuvraj
+autocorrect	ping yuvraj about it	ping Yuvraj about it	
+autocorrect	please send the jason file now	please send the JSON file now	jason=>JSON
+autocorrect	jay son file is ready	JSON file is ready	jay son=>JSON
+autocorrect	meeting with shital at five	meeting with Sheetal at five	shital=>Sheetal
+autocorrect	call the get user name function	call the getUserName function	get user name=>getUserName
+autocorrect	set the user underscore id field	set the user_id field	user underscore id=>user_id
+autocorrect	bump version to v two now	bump version to v2 now	
+autocorrect	import react js here	import React.js here	react js=>React.js
+autocorrect	I will send it today	I will ship it tomorrow	
+autocorrect	kal office aana hai bro	kal office aana hai bhai	
+autocorrect	one two three four five six seven	one 2 3 4 5 6 seven	
+autocorrect	send it to Minhaj today	completely different text here now	
+autocorrect	the plan is good	the plan is good and we should also invite everyone else to join	
+autocorrect	please call me back	call	
+autocorrect	meet at the cafe	meet at a cafe	
+autocorrect	we need to go now	we need too go now	
+autocorrect	check the e-mail first	check the email first	
+autocorrect	is it done yet	Is it done yet?	
+autocorrect	dont do that again	don't do that again	
+autocorrect	we use grok for speech	Before. we use Groq for speech. After.	grok=>Groq
+autocorrect	ask you vrag about it	Dear team,\nplease ask Yuvraj about it.\nThanks!	you vrag=>Yuvraj
+autocorrect	Minhaj said hi	Hi Minhaj. Minhajuddin said hi	Minhaj=>Minhajuddin
+autocorrect	send it to Minhaj today	Earlier text with a tpyo. send it to Minhaj today	
+autocorrect	send it to Minhaj today	send it to Minhaj today. Later I fixd this	
+autocorrect	Minhaj said hi	Minhajuddin said hi	Minhaj=>Minhajuddin
+autocorrect	send it to Minhaj tomorow	send it to Minhaj tomorrow	tomorow=>tomorrow
+autocorrect	the the cat	the the cat	
+autocorrect	ok ok ok ok	ok ok ok ok	
+autocorrect	vox and vox again	Vox and Box again	vox=>Box
+autocorrect	call grok then call grok again	call Groq then call Groq again	grok=>Groq
+autocorrect	alpha one beta one gamma one delta one epsilon one zeta	alpha onee beta onne gamma oone delta onee epsilon onne zeta	one=>onee;one=>onne;one=>oone
+autocorrect	kal milte hai yaar	kal milte hain yaar	hai=>hain
+autocorrect	हम कल मिलेंगे यार	हम कल मिलेंगे यारा	यार=>यारा
+autocorrect	mera naam yuvi hai	mera naam Yuvi hai	
+autocorrect	acha theek hai bhai	accha theek hai bhai	acha=>accha
+autocorrect			
+autocorrect		anything here	
+autocorrect	some text		
+autocorrect	x	x	
+autocorrect	send it to Minhaj today	send it to Minhajuddin today	Minhaj=>Minhajuddin
+# autolearn: dictionary replacements (wrong=>right;...), dictionary words (|), the pairs found, the replacements and
+# words that are added (autolearn.learn, AutoLearn.learn).
+autolearn			you vrag=>Yuvraj	you vrag=>Yuvraj	Yuvraj
+autolearn	Minhaj=>Minhajuddin		minhaj=>Minhaj Uddin		
+autolearn		yuvraj	you vrag=>Yuvraj	you vrag=>Yuvraj	
+autolearn			recieve=>receive;teh=>the	recieve=>receive;teh=>the	
+autolearn			user underscore id=>user_id;recieve=>receive;recieve=>receipt	user underscore id=>user_id;recieve=>receive	user_id
+autolearn	vox=>Vox	LoomXR	jason=>JSON;grok cloud=>Groq Cloud	jason=>JSON;grok cloud=>Groq Cloud	JSON
+autolearn					

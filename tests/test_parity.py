@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+import autolearn
 import notes
 import providers
 import relay
@@ -57,6 +58,15 @@ def merged_value(base, local, remote):
     def side(v):
         return {} if v == "~" else {"k": v}
     return sync.merge3(side(base), side(local), side(remote)).get("k", "~")
+
+
+def pairs(field):
+    """wrong=>right pairs separated by ;"""
+    return [p.split("=>", 1) for p in items(field, ";")]
+
+
+def pairs_text(ps):
+    return ";".join("%s=>%s" % (w, r) for w, r in ps)
 
 
 def numbers(field):
@@ -323,5 +333,10 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert core.system_prompt(f[1], items(f[2]), f[3], f[4], f[5], f[6], f[0]) == f[7]
     elif kind == "notebubble":   # persistent switch, note recording, note being saved, expected
         assert note_bubble_visible(*[v == "true" for v in f[:3]]) == (f[3] == "true")
+    elif kind == "autocorrect":   # text Vox typed, the field's whole text now, the corrections found
+        assert pairs_text(autolearn.detect(f[0], f[1])) == f[2]
+    elif kind == "autolearn":   # replacements, words, pairs found => the replacements and words added
+        out = autolearn.learn(pairs(f[0]), items(f[1]), pairs(f[2]))
+        assert (pairs_text(out["replacements"]), "|".join(out["words"])) == (f[3], f[4])
     else:
         pytest.fail(f"unknown case kind {kind}")

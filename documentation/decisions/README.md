@@ -44,6 +44,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0036](0036-fuzzy-dictionary-guesses-only-for-long-terms.md) | The fuzzy dictionary guesses a spelling only for terms of 7+ letters | Accepted |
 | [0037](0037-esc-cancels-and-the-hook-only-queues-keys.md) | Esc cancels a keep-listening session; the keyboard hook only queues keys | Accepted |
 | [0038](0038-text-structure-from-spoken-cues-and-code-mode-without-the-ai.md) | Lists come only from spoken cues, after the cleanup; code apps get rules, not the AI cleanup | Accepted (not run on real speech) |
+| [0039](0039-auto-learn-reads-the-field-through-ui-automation-with-pythonnet.md) | Learn from my corrections: a short watch of the typed field, UI Automation through pythonnet, a final check before the text goes | Accepted (not run on a real desktop or phone) |
 
 ## Template
 
