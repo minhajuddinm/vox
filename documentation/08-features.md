@@ -20,7 +20,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | Bubble diagnostics card in Settings (service connected or killed, battery optimisation, the last 50 bubble events with reasons, copy report) | no | yes | `OverlayDiag`, `VoxAccessibilityService.diag`, `MainActivity.Bridge.getDiagnostics` | java `OverlayDiagTest`; py `test_ui_static` (card ids, bridge method) |
 | Floating mic bubble (tap to start/stop, drag, long press) | - | yes | orig | `VoxAccessibilityService`, `BubbleView` | - |
 | Recording pill (waveform, dots) | yes | - | orig | `overlay.py` | - |
-| Paste into the focused app; only when the window is unchanged (else copy and say so); dictation kept out of Win+V and cloud clipboard history; whole old clipboard restored unless `keep_clipboard`, and never over something newer | yes | - | orig | `paste.paste_text`, `Engine.paste` | py `test_paste` |
+| Paste into the focused app; only when the window is unchanged (else copy and say so); dictation in Win+V clipboard history unless `clipboard_history` is off, never in the cloud clipboard; whole old clipboard restored unless `keep_clipboard`, and never over something newer | yes | - | orig | `paste.paste_text`, `Engine.paste` | py `test_paste` |
 | Insert into the focused field via accessibility | - | yes | orig | `VoxAccessibilityService.insertText` | - |
 | Language lock (Whisper language code) | yes | yes | orig | `language` setting | - |
 | History with search, copy, delete, clear; Home status card (provider, models, last Test, sync, notes, last dictation) | yes | yes | orig | `core.history_*`, window; `Prefs.history` | - |

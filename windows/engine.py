@@ -641,8 +641,10 @@ class Engine:
         """True when the text was pasted into the window; False when it only reached the clipboard (said so in a
         balloon). Does not flash: _process flashes from this result once everything else is done."""
         # paste.py checks the window is still the one the dictation started in, sends Ctrl+V, and restores the
-        # old clipboard only when keep_clipboard is off and the clipboard still holds our text.
-        if paste_mod.paste_text(text, self.target, self.cfg.get("keep_clipboard", False)) == paste_mod.COPIED:
+        # old clipboard only when keep_clipboard is off and the clipboard still holds our text. Every dictation goes
+        # through here (hold-to-talk, the keep-listening Type target, a recovered session), so clipboard_history applies to all.
+        if paste_mod.paste_text(text, self.target, self.cfg.get("keep_clipboard", False),
+                                clipboard_history=self.cfg.get("clipboard_history", True)) == paste_mod.COPIED:
             self.notify("Copied; the window changed")
             return False
         return True

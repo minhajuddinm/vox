@@ -63,7 +63,7 @@ def dictate(e, monkeypatch, result=None, raises=None, pasted="pasted"):
         return result or ok_result()
 
     monkeypatch.setattr(core, "process_detailed", process)
-    monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep: pasted)
+    monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep, **kw: pasted)
     e.recording = True
     e.chunks = speech()
     e.stop()
@@ -273,10 +273,10 @@ def test_history_keeps_the_raw_words_and_flags_a_guard_fallback(eng, monkeypatch
 
 
 def test_paste_itself_does_not_flash(eng, monkeypatch):
-    monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep: "pasted")
+    monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep, **kw: "pasted")
     assert eng.paste("Hi.") is True
     assert eng.active_flash() == ""
-    monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep: "copied")
+    monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep, **kw: "copied")
     assert eng.paste("Hi.") is False and eng.messages == ["Copied; the window changed"]
     assert eng.active_flash() == ""
 
@@ -317,7 +317,7 @@ def test_the_inserted_mark_comes_after_the_paste(eng, monkeypatch):
     real_mark = eng.timing.mark
     eng.timing.mark = lambda name, at_ms=None: (order.append(name), real_mark(name, at_ms))
     monkeypatch.setattr(core, "process_detailed", lambda cfg, pcm, exe, label: ok_result())
-    monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep: order.append("paste") or "pasted")
+    monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep, **kw: order.append("paste") or "pasted")
     eng.recording, eng.chunks = True, speech()
     eng.stop()
     assert order == ["key_up", "paste", "inserted"]
