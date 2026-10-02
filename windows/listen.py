@@ -29,6 +29,7 @@ MIC_SILENT_SECONDS = 5   # a live microphone delivers a block every ~0.1 s, even
 MIC_LOST = ("The microphone stopped sending sound (unplugged, taken by another app, or the PC slept). "
             "Listening ended and what you said before is saved.")
 REPLAY_BLOCK = 32000   # bytes per queue item when saved audio is played back into a session (1 s)
+CANCEL_KEEP_SECONDS = 30   # a cancelled session at least this long keeps its audio file (Recover can still save it)
 
 
 def clean_note(cfg, text):
@@ -64,6 +65,7 @@ class Listening:
         self._failed = False
         self._halted = False
         self._mic_lost = False
+        self._cancelled = False
 
     # ------------------------------------------------------------ what the pill shows
     @property
@@ -91,6 +93,12 @@ class Listening:
         """Ends the session: the microphone is closed, the rest of the audio is sent, then the note is saved."""
         self._halt()
         self._q.put(None)
+
+    def cancel(self):
+        """Esc: ends the session without sending anything more and without saving a note. Pieces already typed stay
+        typed. A long session keeps its audio file, so Recover listening session can still save it."""
+        self._cancelled = True
+        self.stop()
 
     def replay(self, pcm):
         """Plays saved audio (a session that did not finish) into this session and ends it."""
@@ -126,6 +134,11 @@ class Listening:
                     self._keep(pcm)
                 with self._lock:
                     segs = s.stop() if pcm is None else s.feed(pcm)
+                if self._cancelled:   # nothing more is sent; the pieces are answered empty so the session can end
+                    with self._lock:
+                        for seg in segs:
+                            s.on_text(seg.id, "")
+                    segs = []
                 for seg in segs:
                     tm = timing_mod.Timing()
                     tm.mark("seg_end")
@@ -176,6 +189,8 @@ class Listening:
             self._finish()
 
     def _transcribe(self, seg):
+        if self._cancelled:
+            return ""
         try:
             text = streaming.piece_text(self.cfg, seg.pcm, self._ctx)
         except Exception as e:   # the server, the network: this piece is missing from the text, the audio is kept
@@ -197,6 +212,8 @@ class Listening:
                 continue
             if raw is None:
                 return
+            if self._cancelled:
+                continue
             try:
                 self._type(raw)
             except Exception:
@@ -222,6 +239,9 @@ class Listening:
         """Everything said is text: type what is left, save the note, report. Runs once, on the stt thread."""
         s = self.session
         kind = "error" if self._failed or self._mic_lost else "sent"
+        if self._cancelled:
+            self._end_cancelled()
+            return
         try:
             if self._typer:
                 self._out.put(None)
@@ -256,5 +276,26 @@ class Listening:
             except Exception:
                 log.exception("keep listening: could not tidy up the audio buffer")
             self.host.flash(kind)
+            self.host.listen_state("idle")
+            self.done.set()
+
+    def _end_cancelled(self):
+        """The end of a cancelled session: no note, no flash; the audio file is kept only for a long session."""
+        try:
+            if self._typer:
+                self._out.put(None)
+                self._typer.join()
+            keep = self.buffer is not None and self.session.seconds >= CANCEL_KEEP_SECONDS
+            if self.buffer:
+                if keep:
+                    self.buffer.close()
+                else:
+                    self.buffer.discard()
+            log.info("keep listening: cancelled after %d s%s", self.session.seconds, ", audio kept" if keep else "")
+            self.host.notify("Listening cancelled, nothing was saved." +
+                             (" The audio is kept: %s." % RECOVER if keep else ""))
+        except Exception:
+            log.exception("keep listening: could not tidy up a cancelled session")
+        finally:
             self.host.listen_state("idle")
             self.done.set()

@@ -42,6 +42,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0034](0034-devices-list-is-the-relays-own-list-asked-on-a-switch-or-a-press.md) | The devices list is the relay's own list, asked only on a switch or a press | Accepted |
 | [0035](0035-sideload-warnings-are-explained-not-engineered-away.md) | Sideload warnings are explained in the app, not engineered away | Accepted |
 | [0036](0036-fuzzy-dictionary-guesses-only-for-long-terms.md) | The fuzzy dictionary guesses a spelling only for terms of 7+ letters | Accepted |
+| [0037](0037-esc-cancels-and-the-hook-only-queues-keys.md) | Esc cancels a keep-listening session; the keyboard hook only queues keys | Accepted |
 
 ## Template
 

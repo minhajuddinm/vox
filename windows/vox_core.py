@@ -70,6 +70,12 @@ DEFAULT_CONFIG = {
     "cleanup_strength": "light",
     "listen_target": "note",
     "note_hotkey": "ctrl+alt+n",
+    "hotkey_style": "classic",
+    "hands_free_hotkey": "ctrl+cmd+space",
+    "paste_last_hotkey": "shift+alt+z",
+    "copy_last_hotkey": "",
+    "command_hotkey": "",
+    "upload_format": "auto",
     "keep_history": True,
     "keep_clipboard": False,
     "clipboard_history": True,
@@ -918,6 +924,62 @@ def pcm_to_wav(pcm_bytes):
     return buf.getvalue()
 
 
+# ------------------------------------------------------------- upload format (Windows engine, task B4)
+FLAC_HOSTS = ("api.groq.com", "api.openai.com")   # speech servers known to read FLAC
+_soundfile = None   # the soundfile module once it loaded; False when it cannot be used (looked up once)
+
+
+def flac_available():
+    """True when FLAC can be written: the optional soundfile package (with its libsndfile) and numpy load."""
+    global _soundfile
+    if _soundfile is None:
+        try:
+            import numpy  # noqa: F401  (soundfile needs it)
+            import soundfile
+            _soundfile = soundfile if "FLAC" in soundfile.available_formats() else False
+        except Exception:   # not installed, or its DLL is missing (a frozen build without it): WAV as before
+            _soundfile = False
+    return bool(_soundfile)
+
+
+def choose_upload_format(setting, stt_base, via_relay, flac_ok):
+    """"flac" or "wav" for the speech upload. `setting` is upload_format: "wav" always sends WAV; "auto" sends FLAC
+    (lossless, about half the bytes) when it can be written and the speech server is one known to read it (Groq,
+    OpenAI) reached directly. A local or self-hosted server or the relay gets WAV: it may not read FLAC."""
+    if setting == "wav" or via_relay or not flac_ok:
+        return "wav"
+    host = (urlparse(stt_base or "").hostname or "").lower()
+    return "flac" if host in FLAC_HOSTS else "wav"
+
+
+def upload_format(cfg):
+    """The format the next upload uses ("flac" or "wav"), from the settings."""
+    if cfg.get("upload_format") == "wav":
+        return "wav"
+    return choose_upload_format(cfg.get("upload_format", "auto"), api_base(cfg, "stt"), providers.uses_relay(cfg),
+                                flac_available())
+
+
+def pcm_to_flac(pcm_bytes):
+    """16 kHz mono 16-bit PCM as a FLAC file (needs flac_available())."""
+    import numpy as np
+    buf = io.BytesIO()
+    samples = np.frombuffer(pcm_bytes[:len(pcm_bytes) // 2 * 2], dtype="<i2")
+    _soundfile.write(buf, samples, SAMPLE_RATE, format="FLAC", subtype="PCM_16")
+    return buf.getvalue()
+
+
+def upload_audio(cfg, pcm_bytes):
+    """The recording as it is sent to the speech server: FLAC or WAV (see upload_format). A failed FLAC encoding sends
+    WAV instead."""
+    if upload_format(cfg) == "flac":
+        try:
+            return pcm_to_flac(pcm_bytes)
+        except Exception as e:
+            log.warning("FLAC encoding failed (%s), sending WAV", type(e).__name__)
+    return pcm_to_wav(pcm_bytes)
+
+
 # ---------------------------------------------------------------------- groq
 
 class ApiError(Exception):
@@ -1114,7 +1176,8 @@ def timing_info(cfg):
 
 
 def transcribe(cfg, wav_bytes, context=""):
-    """Speech to text. `context` is the end of the text before this piece (long recordings sent in pieces)."""
+    """Speech to text. `wav_bytes` is a WAV or FLAC file (upload_audio). `context` is the end of the text before this
+    piece (long recordings sent in pieces)."""
     data = {"model": providers.role_settings(cfg, "stt")[2], "response_format": "json", "temperature": "0"}
     if cfg.get("language"):
         data["language"] = cfg["language"]
@@ -1125,7 +1188,7 @@ def transcribe(cfg, wav_bytes, context=""):
         f"{api_base(cfg, 'stt')}/audio/transcriptions",
         headers=auth_headers(cfg, "stt"),
         data=data,
-        files={"file": ("audio.wav", wav_bytes, "audio/wav")},
+        files={"file": ("audio.flac", wav_bytes, "audio/flac") if wav_bytes[:4] == b"fLaC" else ("audio.wav", wav_bytes, "audio/wav")},
         timeout=60,
         via_relay=providers.uses_relay(cfg),
     )
@@ -1217,7 +1280,7 @@ def _transcribe_in_pieces(cfg, pcm_bytes):
     for piece in seg.feed(pcm_bytes) + [seg.rest()]:
         if not piece or is_silent(piece):
             continue
-        text = transcribe(cfg, pcm_to_wav(piece), " ".join(texts)[-150:])
+        text = transcribe(cfg, upload_audio(cfg, piece), " ".join(texts)[-150:])
         if text and not (not texts and is_silence_hallucination(text)):
             texts.append(text)
     return " ".join(texts).strip()
@@ -1235,7 +1298,7 @@ def process_detailed(cfg, pcm_bytes, exe, app_label):
         if len(pcm_bytes) > MAX_UPLOAD_BYTES:
             raw = _transcribe_in_pieces(cfg, pcm_bytes)
         else:
-            raw = transcribe(cfg, pcm_to_wav(pcm_bytes))
+            raw = transcribe(cfg, upload_audio(cfg, pcm_bytes))
     finally:
         _mark("stt_done")
     return process_text(cfg, raw, exe, app_label)

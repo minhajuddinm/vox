@@ -210,3 +210,11 @@ def test_speed_view_of_no_history_is_empty_not_an_error():
     assert v == {"count": 0, "biggest": "", "stages": v["stages"], "models": [], "last": []}
     assert all(v["stages"][s] == {"median": 0, "p90": 0} for s in timing.STAGES)
     assert timing.speed_view([{"raw": "a"}, None, {"timing": "x"}])["count"] == 0
+
+
+def test_the_entry_records_the_pieces_and_the_upload_format_only_when_there_is_something_to_say():
+    t = timing.Timing(clock=lambda: 0)
+    assert "pieces" not in t.entry() and "upload" not in t.entry()
+    e = t.entry(pieces=3, upload="flac")
+    assert e["pieces"] == 3 and e["upload"] == "flac"
+    assert timing.summarize([e])["count"] == 1                      # the Speed card reads it as before

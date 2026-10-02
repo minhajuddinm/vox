@@ -1,12 +1,16 @@
-"""Puts dictated text into the focused app (Windows), with three safeguards:
+"""Puts dictated text into the focused app (Windows), with these safeguards:
   - the text is only pasted when the window is still the one the dictation started in; otherwise it is left on
     the clipboard and the caller says so ("Copied; the window changed"), so it never lands in the wrong app;
-  - Ctrl+V waits until the hotkey's modifiers are up, so it is not combined with Win;
+  - a window that runs as administrator while Vox does not would silently drop the keys: the text is only copied and
+    the caller says so (BLOCKED);
+  - the paste waits until the hotkey's modifiers are up, so it is not combined with Win; terminals get Ctrl+Shift+V
+    (in a terminal Ctrl+V is a control character), everything else Ctrl+V;
   - the old clipboard (every format that can be copied as plain memory: text, rich text, cells, images, files) is
     put back only if the clipboard still holds our text (something the user copied while the paste ran is never
-    overwritten), and only when the keep_clipboard setting is off;
+    overwritten), and only when the keep_clipboard setting is off (otherwise it is not even read);
   - the dictation is always marked "do not upload to the cloud clipboard"; unless the clipboard_history setting is on
     (the default) it is also marked "exclude from history", so Win+V does not keep it either.
+`copy_selection` is the other direction, for edit by voice: Ctrl+C, read the text, put the old clipboard back.
 The real clipboard, window and key calls live in SystemDeps; tests pass their own `deps`."""
 import ctypes
 import logging
@@ -18,6 +22,12 @@ log = logging.getLogger("vox")
 
 PASTED = "pasted"
 COPIED = "copied"
+BLOCKED = "blocked"          # only copied: the window runs as administrator and Vox does not (R2-M6)
+
+# Terminals read Ctrl+V as a control character; they paste with Ctrl+Shift+V (lower-case exe names).
+TERMINALS = frozenset({"windowsterminal.exe", "wt.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "conhost.exe",
+                       "alacritty.exe", "wezterm-gui.exe", "mintty.exe", "putty.exe"})
+COPY_WAIT = 0.5              # seconds to wait for the app to answer Ctrl+C (edit by voice)
 
 MODIFIER_WAIT = 2.0          # seconds to wait for the hotkey's keys to come up
 SETTLE = 0.05                # after copying, before Ctrl+V
@@ -32,6 +42,7 @@ _CF_UNICODETEXT = 13
 _GMEM_MOVEABLE = 2
 CLIP_OPEN_WAIT = 0.5         # seconds to keep trying while another program has the clipboard open
 CLIP_SNAPSHOT_LIMIT = 64_000_000   # bytes; a clipboard bigger than this is not copied (the text-only path is used)
+CLIP_FORMAT_LIMIT = 16_000_000     # bytes; one format bigger than this is left out of the copy (and logged)
 # Formats that are not plain memory (GDI handles) cannot be copied this way; the DIB formats cover images.
 # CF_TEXT and CF_OEMTEXT are skipped because Windows makes them from CF_UNICODETEXT.
 _CF_SKIP = {1, 2, 3, 7, 9, 14}
@@ -55,6 +66,7 @@ def _api():
         u.GetWindowThreadProcessId.restype = wintypes.DWORD
         u.GetAsyncKeyState.argtypes = [ctypes.c_int]
         u.GetAsyncKeyState.restype = ctypes.c_short
+        u.GetClipboardSequenceNumber.restype = wintypes.DWORD
         k = ctypes.WinDLL("kernel32", use_last_error=True)
         k.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
         k.OpenProcess.restype = wintypes.HANDLE
@@ -142,6 +154,48 @@ class _Clipboard:
         self._destroy(user32)
 
 
+def paste_chord(exe):
+    """The keys that paste into the app `exe` (a lower-case exe name): ("ctrl", "shift", "v") for a terminal, else
+    ("ctrl", "v")."""
+    return ("ctrl", "shift", "v") if (exe or "").lower() in TERMINALS else ("ctrl", "v")
+
+
+def wait_released(is_down, clock, sleep, limit, step=0.02):
+    """Waits until `is_down()` is false, for at most `limit` seconds. True when the keys came up."""
+    deadline = clock() + limit
+    while is_down():
+        if clock() >= deadline:
+            return False
+        sleep(step)
+    return True
+
+
+def _read_global(handle, size):
+    """The bytes of a clipboard memory block (`handle`, `size` bytes); None when it cannot be locked."""
+    _, kernel32 = _api()
+    ptr = kernel32.GlobalLock(handle)
+    if not ptr:
+        return None
+    try:
+        return ctypes.string_at(ptr, size)
+    finally:
+        kernel32.GlobalUnlock(handle)
+
+
+def _token_elevated(kernel32, advapi32, process):
+    """True/False whether a process handle's token is elevated; None when it cannot be read."""
+    token = wintypes.HANDLE()
+    if not advapi32.OpenProcessToken(process, 0x0008, ctypes.byref(token)):   # TOKEN_QUERY
+        return None
+    try:
+        elevated, size = wintypes.DWORD(), wintypes.DWORD()
+        if not advapi32.GetTokenInformation(token, 20, ctypes.byref(elevated), 4, ctypes.byref(size)):   # TokenElevation
+            return None
+        return bool(elevated.value)
+    finally:
+        kernel32.CloseHandle(token)
+
+
 def _put(user32, kernel32, fmt, data):
     """Sets one clipboard format to `data`; raises OSError when Windows refuses it."""
     handle = _global_from_bytes(kernel32, data)
@@ -202,7 +256,8 @@ class SystemDeps:
 
     def clip_snapshot(self):
         """Every copyable format on the clipboard as [(format, bytes)], or None when it cannot be read, is empty or is
-        too big. Used to put the user's clipboard back after the paste."""
+        too big. Used to put the user's clipboard back after the paste. A single format over CLIP_FORMAT_LIMIT is left
+        out (logged with its number and size only)."""
         user32, kernel32 = _api()
         out, total = [], 0
         try:
@@ -213,15 +268,15 @@ class SystemDeps:
                     if fmt not in _CF_SKIP and not 0x80 <= fmt <= 0x8E and not 0x200 <= fmt <= 0x3FF:
                         handle = user32.GetClipboardData(fmt)
                         size = kernel32.GlobalSize(handle) if handle else 0
-                        ptr = kernel32.GlobalLock(handle) if size else None
-                        if ptr:
-                            try:
-                                out.append((fmt, ctypes.string_at(ptr, size)))
-                            finally:
-                                kernel32.GlobalUnlock(handle)
-                            total += size
-                            if total > CLIP_SNAPSHOT_LIMIT:
-                                return None
+                        if size > CLIP_FORMAT_LIMIT:
+                            log.info("clipboard format %s (%d bytes) is too big to keep, it is not put back", fmt, size)
+                        elif size:
+                            data = _read_global(handle, size)
+                            if data is not None:
+                                out.append((fmt, data))
+                                total += size
+                                if total > CLIP_SNAPSHOT_LIMIT:
+                                    return None
                     fmt = user32.EnumClipboardFormats(fmt)
         except OSError as e:
             log.warning("could not copy the clipboard before pasting: %s", e)
@@ -239,55 +294,136 @@ class SystemDeps:
                 except OSError as e:
                     log.warning("clipboard format %s not restored: %s", fmt, e)
 
-    def send_ctrl_v(self):
+    def _send(self, vk, shift=False):
+        """Ctrl (+ Shift) + the key `vk`. The virtual key, not the letter: on a layout with no Latin letters (Cyrillic,
+        Greek, Hebrew, Arabic) the letter would be sent as a character and the shortcut would not work."""
         global _keyboard
         from pynput import keyboard
         if _keyboard is None:
             _keyboard = keyboard.Controller()
         with _keyboard.pressed(keyboard.Key.ctrl):
-            # the virtual key, not the letter: on a layout with no Latin v (Cyrillic, Greek, Hebrew, Arabic) the
-            # letter would be sent as a character and Ctrl+V would not paste
-            _keyboard.tap(keyboard.KeyCode.from_vk(0x56))
+            if shift:
+                with _keyboard.pressed(keyboard.Key.shift):
+                    _keyboard.tap(keyboard.KeyCode.from_vk(vk))
+            else:
+                _keyboard.tap(keyboard.KeyCode.from_vk(vk))
+
+    def send_ctrl_v(self):
+        self._send(0x56)
+
+    def send_ctrl_shift_v(self):
+        self._send(0x56, shift=True)
+
+    def send_ctrl_c(self):
+        self._send(0x43)
+
+    def clip_sequence(self):
+        """Windows' clipboard change counter: it changes whenever anything is copied."""
+        user32, _ = _api()
+        return user32.GetClipboardSequenceNumber()
 
     def wait_modifiers_released(self):
-        """Waits (at most MODIFIER_WAIT seconds) until Shift, Ctrl, Alt and Win are all up."""
+        """Waits (at most MODIFIER_WAIT seconds) until Shift, Ctrl, Alt and Win are all up. Logs when they did not."""
         user32, _ = _api()
-        deadline = time.monotonic() + MODIFIER_WAIT
-        while time.monotonic() < deadline and any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in _MODIFIER_KEYS):
-            time.sleep(0.02)
+        if not wait_released(lambda: any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in _MODIFIER_KEYS),
+                             time.monotonic, time.sleep, MODIFIER_WAIT):
+            log.warning("modifier keys still held after %.1f s, going on", MODIFIER_WAIT)
+
+    def foreground_elevated(self):
+        """True when the focused window's program runs as administrator (elevated), False when not, None when it
+        cannot be told (an unreadable process: the paste goes ahead as before)."""
+        user32, kernel32 = _api()
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return None
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        process = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+        if not process:
+            return None
+        try:
+            return _token_elevated(kernel32, _advapi(), process)
+        finally:
+            kernel32.CloseHandle(process)
+
+    def self_elevated(self):
+        """True when Vox itself runs as administrator."""
+        _, kernel32 = _api()
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        return bool(_token_elevated(kernel32, _advapi(), kernel32.GetCurrentProcess()))
 
     def sleep(self, seconds):
         time.sleep(seconds)
 
 
-def _window_changed(target_exe, deps):
-    """True only when we know the focused window is not the one the dictation started in. A target that was never
-    captured, a window that cannot be named, or a failed lookup all mean "cannot tell", so the paste goes ahead
-    rather than losing the text."""
-    if not target_exe:
-        return False
+_advapi32 = None
+
+
+def _advapi():
+    global _advapi32
+    if _advapi32 is None:
+        a = ctypes.WinDLL("advapi32", use_last_error=True)
+        a.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+        a.OpenProcessToken.restype = wintypes.BOOL
+        a.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD,
+                                          ctypes.POINTER(wintypes.DWORD)]
+        a.GetTokenInformation.restype = wintypes.BOOL
+        _advapi32 = a
+    return _advapi32
+
+
+def _focused(deps):
+    """The focused window's exe name ("" when there is none or it cannot be read; a failure is logged)."""
     try:
-        current = deps.foreground_exe()
+        return deps.foreground_exe() or ""
     except Exception as e:
         log.warning("could not read the focused window, pasting anyway: %s", e)
+        return ""
+
+
+def _blocked(deps):
+    """True when the focused window runs as administrator and Vox does not, so Windows would drop the keys. Anything
+    that cannot be told counts as not blocked (the paste goes ahead as before)."""
+    try:
+        return deps.foreground_elevated() is True and not deps.self_elevated()
+    except Exception as e:
+        log.warning("could not tell whether the window runs as administrator: %s", e)
         return False
-    return bool(current) and current.lower() != target_exe.lower()
+
+
+def _window_changed(target_exe, current):
+    """True only when we know the focused window (`current`) is not the one the dictation started in. A target that
+    was never captured, a window that cannot be named, or a failed lookup all mean "cannot tell", so the paste goes
+    ahead rather than losing the text."""
+    return bool(target_exe) and bool(current) and current.lower() != target_exe.lower()
 
 
 def paste_text(text, target_exe, keep_clipboard, deps=None, clipboard_history=True):
-    """Pastes `text` into the focused app. Returns "pasted", or "copied" when the focused window is no longer
-    `target_exe` (the text is then left on the clipboard and Ctrl+V is not sent). `clipboard_history` (the setting)
-    lets Windows clipboard history (Win+V) keep the dictation; the old text put back afterwards is never added to it."""
+    """Pastes `text` into the focused app. Returns "pasted"; "copied" when the focused window is no longer
+    `target_exe` ("" means any window); "blocked" when it runs as administrator and Vox does not. In the last two
+    cases the text is left on the clipboard and no paste keys are sent. `clipboard_history` (the setting) lets
+    Windows clipboard history (Win+V) keep the dictation; the old text put back afterwards is never added to it."""
     deps = deps or SystemDeps()
     deps.wait_modifiers_released()
-    if _window_changed(target_exe, deps):
+    current = _focused(deps)
+    if _window_changed(target_exe, current):
         deps.clip_set(text, clipboard_history)
         return COPIED
-    old = deps.clip_get()
-    snapshot = deps.clip_snapshot()
+    if _blocked(deps):
+        deps.clip_set(text, clipboard_history)
+        return BLOCKED
+    # The old clipboard is only read when it will be put back: reading it makes the program that copied it render
+    # every delayed format (a big Office copy can take seconds), for nothing when keep_clipboard is on.
+    old = snapshot = None
+    if not keep_clipboard:
+        old = deps.clip_get()
+        snapshot = deps.clip_snapshot()
     deps.clip_set(text, clipboard_history)
     deps.sleep(SETTLE)
-    deps.send_ctrl_v()
+    if paste_chord(current or target_exe) == ("ctrl", "shift", "v"):
+        deps.send_ctrl_shift_v()
+    else:
+        deps.send_ctrl_v()
     deps.sleep(PASTE_WAIT)
     # The text normally stays on the clipboard only when asked (keep_clipboard). Put the old one back unless it
     # is unknown or the user has copied something else in the meantime. With a snapshot every format comes back
@@ -303,3 +439,40 @@ def paste_text(text, target_exe, keep_clipboard, deps=None, clipboard_history=Tr
         except Exception as e:
             log.warning("could not put the old clipboard back: %s", e)
     return PASTED
+
+
+def copy_selection(target_exe, deps=None):
+    """Edit by voice: the text selected in the focused app, as (text, "") or (None, what to tell the user). Sends Ctrl+C
+    once the shortcut's keys are up, waits for the clipboard to change, reads the text and puts the old clipboard back
+    (only when the copy happened). Refused in a terminal (there Ctrl+C stops the running program) and when the focused
+    window is no longer `target_exe`."""
+    deps = deps or SystemDeps()
+    deps.wait_modifiers_released()
+    current = _focused(deps)
+    if _window_changed(target_exe, current):
+        return None, "The window changed, so Vox did not edit anything."
+    if (current or target_exe or "").lower() in TERMINALS:
+        return None, "Edit by voice does not work in a terminal (Ctrl+C would stop the running program)."
+    if _blocked(deps):
+        return None, "The window in front runs as administrator, so Vox cannot copy from it or paste into it."
+    old = deps.clip_get()
+    snapshot = deps.clip_snapshot()
+    before = deps.clip_sequence()
+    deps.send_ctrl_c()
+    waited = 0.0
+    while deps.clip_sequence() == before and waited < COPY_WAIT:
+        deps.sleep(0.02)
+        waited += 0.02
+    if deps.clip_sequence() == before:
+        return None, "Select the text to change first, then hold the edit shortcut and say what to change."
+    text = deps.clip_get()
+    try:
+        if snapshot:
+            deps.clip_restore(snapshot)
+        elif isinstance(old, str) and old != "":
+            deps.clip_set(old)
+    except Exception as e:
+        log.warning("could not put the old clipboard back after copying the selection: %s", e)
+    if not isinstance(text, str) or not text.strip():
+        return None, "Select some text first: Vox could not read any text from the selection."
+    return text, ""

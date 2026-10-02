@@ -117,7 +117,7 @@ def test_a_failure_hands_back_to_the_normal_path():
 
 def test_silent_pieces_are_skipped_and_hallucinated_ones_dropped():
     stt = FakeStt()
-    s, text = run(stt, silence(13) + silence(1) + tone(13) + silence(1) + tone(2))
+    s, text = run(stt, silence(13) + silence(1) + tone(13) + silence(1) + tone(2), segmenter=core.Segmenter())   # 12-28 s pieces
     assert text == "piece1 piece2" and len(stt.calls) == 2 and s.pieces == 3
     hallucination = lambda cfg, wav, context="": "Thank you."   # noqa: E731
     s2, text2 = run(hallucination, tone(13) + silence(1) + tone(3))
@@ -201,3 +201,35 @@ def test_piece_text_skips_silence_and_hallucinations():
 def test_piece_text_uses_the_real_transcribe_by_default(monkeypatch):
     monkeypatch.setattr(core, "transcribe", lambda cfg, wav, context="": "from core")
     assert streaming.piece_text({}, tone(1), "") == "from core"
+
+
+# ------------------------------------------------- every recording longer than about 8 s (task B4)
+def test_a_nine_second_recording_with_a_pause_is_sent_in_pieces_while_speaking():
+    stt = FakeStt()
+    s, text = run(stt, tone(5) + silence(1) + tone(3))
+    assert text == "piece1 piece2" and s.pieces == 2
+
+
+def test_the_pieces_are_six_to_twenty_seconds():
+    seg = streaming.StreamingStt({}).seg
+    assert seg.min_bytes == 6 * RATE * 2 and seg.max_bytes == 20 * RATE * 2
+
+
+def test_pieces_cut_before_the_end_count_as_sent_while_speaking():
+    import time as _time
+    stt = FakeStt()
+    s = streaming.StreamingStt({}, transcribe=stt)
+    s.start()
+    s.feed(tone(7) + silence(1))
+    deadline = _time.time() + 5
+    while s.pieces < 1 and _time.time() < deadline:
+        _time.sleep(0.01)
+    s.feed(tone(3))
+    assert s.finish(timeout=10) == "piece1 piece2"
+    assert s.early == 1 and s.pieces == 2                              # only the last piece waited for the key-up
+
+
+def test_a_short_dictation_is_still_one_upload():
+    stt = FakeStt()
+    s, text = run(stt, tone(4) + silence(0.5) + tone(2))
+    assert text is None and stt.calls == []

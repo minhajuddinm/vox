@@ -38,6 +38,9 @@ class FakeListening:
     def stop(self):
         self.calls.append("stop")
 
+    def cancel(self):
+        self.calls.append("cancel")
+
     def replay(self, pcm):
         self.calls.append(("replay", len(pcm)))
 
@@ -126,12 +129,19 @@ def test_two_presses_far_apart_do_not_stop_a_session(eng):
     assert lis.calls == []
 
 
-def test_esc_ends_a_session_and_is_ignored_otherwise(eng):
+def test_esc_cancels_a_session_and_is_ignored_otherwise(eng):
     eng.on_press(Key.esc)
     lis = FakeListening(eng, {}, "note")
     eng.listening = lis
     eng.on_press(Key.esc)
-    assert lis.calls == ["stop"]
+    assert lis.calls == ["cancel"]                # nothing more is sent and no note is saved (listen.Listening.cancel)
+
+
+def test_esc_leaves_a_session_that_is_already_saving_alone(eng):
+    lis = FakeListening(eng, {}, "note")
+    eng.listening, eng.busy = lis, True
+    eng.on_press(Key.esc)
+    assert lis.calls == []
 
 
 def test_a_busy_session_ignores_the_hotkey(eng):
