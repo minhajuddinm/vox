@@ -5,8 +5,8 @@
   - the old clipboard (every format that can be copied as plain memory: text, rich text, cells, images, files) is
     put back only if the clipboard still holds our text (something the user copied while the paste ran is never
     overwritten), and only when the keep_clipboard setting is off;
-  - the dictation is put on the clipboard marked "exclude from history / cloud", so Win+V and the cloud clipboard
-    do not keep it.
+  - the dictation is always marked "do not upload to the cloud clipboard"; unless the clipboard_history setting is on
+    (the default) it is also marked "exclude from history", so Win+V does not keep it either.
 The real clipboard, window and key calls live in SystemDeps; tests pass their own `deps`."""
 import ctypes
 import logging
@@ -37,9 +37,10 @@ CLIP_SNAPSHOT_LIMIT = 64_000_000   # bytes; a clipboard bigger than this is not 
 _CF_SKIP = {1, 2, 3, 7, 9, 14}
 # Registered formats that tell Windows clipboard history (Win+V), the cloud clipboard and clipboard monitors to
 # ignore this content: (name, value). The first only needs to exist, the other two are DWORD 0.
-_PRIVATE_FORMATS = (("ExcludeClipboardContentFromMonitorProcessing", b"\x01"),
-                    ("CanIncludeInClipboardHistory", b"\x00\x00\x00\x00"),
-                    ("CanUploadToCloudClipboard", b"\x00\x00\x00\x00"))
+_NO_CLOUD_FORMAT = ("CanUploadToCloudClipboard", b"\x00\x00\x00\x00")   # always set: a dictation never goes to the cloud
+_NO_HISTORY_FORMATS = (("ExcludeClipboardContentFromMonitorProcessing", b"\x01"),
+                       ("CanIncludeInClipboardHistory", b"\x00\x00\x00\x00"))
+_PRIVATE_FORMATS = _NO_HISTORY_FORMATS + (_NO_CLOUD_FORMAT,)
 
 _user32 = _kernel32 = _keyboard = None
 
@@ -183,14 +184,15 @@ class SystemDeps:
         except Exception:
             return None
 
-    def clip_set(self, text):
-        """Puts `text` on the clipboard (replacing everything on it), marked so that Windows clipboard history and
-        the cloud clipboard skip it. Raises OSError when the clipboard cannot be opened or written."""
+    def clip_set(self, text, history=False):
+        """Puts `text` on the clipboard (replacing everything on it), marked so that the cloud clipboard skips it and,
+        unless `history` is true, Windows clipboard history (Win+V) skips it too. Raises OSError when the clipboard
+        cannot be opened or written."""
         user32, kernel32 = _api()
         with _Clipboard(owner=True):
             user32.EmptyClipboard()
             _put(user32, kernel32, _CF_UNICODETEXT, (text + "\0").encode("utf-16-le"))
-            for name, value in _PRIVATE_FORMATS:
+            for name, value in (_PRIVATE_FORMATS if not history else (_NO_CLOUD_FORMAT,)):
                 try:
                     fmt = user32.RegisterClipboardFormatW(name)
                     if fmt:
@@ -272,17 +274,18 @@ def _window_changed(target_exe, deps):
     return bool(current) and current.lower() != target_exe.lower()
 
 
-def paste_text(text, target_exe, keep_clipboard, deps=None):
+def paste_text(text, target_exe, keep_clipboard, deps=None, clipboard_history=True):
     """Pastes `text` into the focused app. Returns "pasted", or "copied" when the focused window is no longer
-    `target_exe` (the text is then left on the clipboard and Ctrl+V is not sent)."""
+    `target_exe` (the text is then left on the clipboard and Ctrl+V is not sent). `clipboard_history` (the setting)
+    lets Windows clipboard history (Win+V) keep the dictation; the old text put back afterwards is never added to it."""
     deps = deps or SystemDeps()
     deps.wait_modifiers_released()
     if _window_changed(target_exe, deps):
-        deps.clip_set(text)
+        deps.clip_set(text, clipboard_history)
         return COPIED
     old = deps.clip_get()
     snapshot = deps.clip_snapshot()
-    deps.clip_set(text)
+    deps.clip_set(text, clipboard_history)
     deps.sleep(SETTLE)
     deps.send_ctrl_v()
     deps.sleep(PASTE_WAIT)

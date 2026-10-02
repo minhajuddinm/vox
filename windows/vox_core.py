@@ -72,6 +72,7 @@ DEFAULT_CONFIG = {
     "note_hotkey": "ctrl+alt+n",
     "keep_history": True,
     "keep_clipboard": False,
+    "clipboard_history": True,
     "default_style": "neutral",
     "dictionary": [],
     "people": [],

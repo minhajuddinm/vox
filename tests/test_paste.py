@@ -12,6 +12,7 @@ class FakeDeps:
         self.foreground, self.clip, self.calls = foreground, clip, []
         self.during_wait = None     # runs while paste_text sleeps after Ctrl+V: the user doing something else
         self.snapshot, self.restore_error = None, None   # the full clipboard (all formats) taken before our text
+        self.history = []           # the `history` argument of every clip_set call
 
     def foreground_exe(self):
         self.calls.append("foreground")
@@ -22,8 +23,9 @@ class FakeDeps:
     def clip_get(self):
         return self.clip
 
-    def clip_set(self, text):
+    def clip_set(self, text, history=False):
         self.calls.append(("set", text))
+        self.history.append(history)
         self.clip = text
 
     def clip_snapshot(self):
@@ -139,6 +141,33 @@ def test_the_clipboard_is_not_kept_unless_asked():
     assert vox_core.DEFAULT_CONFIG["keep_clipboard"] is False
 
 
+# ---- clipboard_history: dictations may be kept in Win+V history (default on) ---------------------------------------------
+
+def test_dictations_are_allowed_in_clipboard_history_by_default():
+    import vox_core
+    assert vox_core.DEFAULT_CONFIG["clipboard_history"] is True
+
+
+def test_paste_text_asks_for_history_by_default_and_not_for_the_old_text_put_back():
+    d = FakeDeps(clip="old")
+    paste.paste_text("Hello.", "notepad.exe", False, deps=d)
+    assert d.history == [True, False]      # the dictation (history allowed), then the old text put back (kept private)
+
+
+def test_paste_text_with_history_off_keeps_every_clip_set_private():
+    d = FakeDeps(clip="old")
+    paste.paste_text("Hello.", "notepad.exe", False, deps=d, clipboard_history=False)
+    assert d.history == [False, False]
+
+
+def test_a_copied_only_dictation_honours_the_history_setting_too():
+    d = FakeDeps(foreground="chrome.exe")
+    assert paste.paste_text("Hello.", "notepad.exe", False, deps=d) == "copied" and d.history == [True]
+    d = FakeDeps(foreground="chrome.exe")
+    assert paste.paste_text("Hello.", "notepad.exe", False, deps=d, clipboard_history=False) == "copied"
+    assert d.history == [False]
+
+
 # ---- the whole clipboard is put back, not only its text (R2-M3) ----------------------------------------------------------
 
 def test_the_whole_clipboard_is_restored_from_the_snapshot_taken_before_our_text():
@@ -216,19 +245,40 @@ class FakeKernel32:
         return 0
 
 
-def test_clip_set_marks_the_text_as_private_and_sets_it_as_unicode_text(monkeypatch):
+def _clip_set(monkeypatch, history):
     user32 = FakeUser32()
     monkeypatch.setattr(paste, "_user32", user32)
     monkeypatch.setattr(paste, "_kernel32", FakeKernel32())
-    sizes = iter(range(100, 200))
-    monkeypatch.setattr(paste, "_global_from_bytes", lambda k, data: next(sizes))
-    paste.SystemDeps().clip_set("hi")
+    sizes, user32.sent = iter(range(100, 200)), []
+    monkeypatch.setattr(paste, "_global_from_bytes", lambda k, data: user32.sent.append(data) or next(sizes))
+    paste.SystemDeps().clip_set("hi", history=history)
+    return user32
+
+
+def test_clip_set_marks_the_text_as_private_and_sets_it_as_unicode_text(monkeypatch):
+    user32 = _clip_set(monkeypatch, history=False)
     assert set(user32.registered) == {"ExcludeClipboardContentFromMonitorProcessing", "CanIncludeInClipboardHistory",
                                       "CanUploadToCloudClipboard"}
     formats = [f for f, _ in user32.set_calls]
     assert 13 in formats and all(0xC001 <= f <= 0xC003 for f in formats if f != 13)
     assert len(formats) == 4
     assert user32.closed == 1
+
+
+def test_clip_set_is_private_unless_history_is_asked_for(monkeypatch):
+    user32 = FakeUser32()
+    monkeypatch.setattr(paste, "_user32", user32)
+    monkeypatch.setattr(paste, "_kernel32", FakeKernel32())
+    monkeypatch.setattr(paste, "_global_from_bytes", lambda k, data: 5)
+    paste.SystemDeps().clip_set("hi")
+    assert len(user32.registered) == 3
+
+
+def test_clip_set_with_history_allowed_leaves_out_the_history_markers_but_blocks_the_cloud(monkeypatch):
+    user32 = _clip_set(monkeypatch, history=True)
+    assert user32.registered == ["CanUploadToCloudClipboard"]      # no exclude / no history marker: Win+V may keep it
+    assert [f for f, _ in user32.set_calls] == [13, 0xC001] and user32.closed == 1
+    assert user32.sent[1:] == [b"\x00\x00\x00\x00"]                     # the cloud marker is DWORD 0
 
 
 def test_clip_set_raises_and_closes_the_clipboard_when_the_text_cannot_be_set(monkeypatch):
@@ -286,18 +336,24 @@ def _engine_with(monkeypatch, result, **cfg):
     e.cfg, e.target, e.messages = cfg, "notepad.exe", []
     e.notify = lambda m, private=False: e.messages.append(m)
     calls = []
-    monkeypatch.setattr(paste, "paste_text", lambda *a, **k: calls.append(a) or result)
+    monkeypatch.setattr(paste, "paste_text", lambda *a, **k: calls.append(a + (k,) if k else a) or result)
     return e, calls
 
 
 def test_the_engine_says_so_when_the_window_changed_and_the_text_was_only_copied(monkeypatch):
     e, calls = _engine_with(monkeypatch, "copied")
     e.paste("Hello.")
-    assert calls == [("Hello.", "notepad.exe", False)]      # keep_clipboard off when the setting is absent
+    assert calls == [("Hello.", "notepad.exe", False, {"clipboard_history": True})]   # defaults when the settings are absent
     assert e.messages == ["Copied; the window changed"]
 
 
 def test_the_engine_stays_quiet_when_the_text_was_pasted(monkeypatch):
     e, calls = _engine_with(monkeypatch, "pasted", keep_clipboard=True)
     e.paste("Hello.")
-    assert calls == [("Hello.", "notepad.exe", True)] and e.messages == []
+    assert calls == [("Hello.", "notepad.exe", True, {"clipboard_history": True})] and e.messages == []
+
+
+def test_the_engine_passes_clipboard_history_off_to_every_paste(monkeypatch):
+    e, calls = _engine_with(monkeypatch, "pasted", clipboard_history=False)
+    e.paste("Hello.")
+    assert calls == [("Hello.", "notepad.exe", False, {"clipboard_history": False})]
