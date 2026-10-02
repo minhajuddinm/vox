@@ -85,7 +85,7 @@ Only when the text had a formatter or symbol (otherwise it is typed as Whisper w
 
 ## What it does not do
 
-- **Variable names from the file you are editing**: out of scope. It would need the editor's screen-reader interface (UI Automation) and reading the file, which Vox does not do ([09-security-privacy.md](09-security-privacy.md): only the app name goes with the text). Identifiers you put in the Dictionary are spelled as saved, also in code apps (the dictionary runs after the formatters; for example `use memo => useMemo`).
+- **Variable names from the file you are editing**: out of scope; Vox does not read the file, and only the app name goes to the cleanup server with the text ([09-security-privacy.md](09-security-privacy.md)). Code mode itself is detected from the foreground program's file name only. Note that **Learn from my corrections** (on by default) also runs in code apps: for up to 3 minutes after a paste it reads the focused editor control's text through UI Automation (up to 20,000 characters, in memory only) to learn the words you fix, nothing else. Identifiers you put in the Dictionary are spelled as saved, also in code apps (the dictionary runs after the formatters; for example `use memo => useMemo`).
 - Number words are not turned into digits (Whisper usually writes digits already).
 - No per-language command sets, no "reformat that", no editing commands.
 - No spoken "end" for a formatter: say a symbol or `then`, or pause so Whisper writes a comma.

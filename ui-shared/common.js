@@ -116,7 +116,7 @@ function relayCheckRows(r) {
   return rows;
 }
 // Learn from my corrections (setting auto_learn). One text for the switch on both pages.
-const AUTO_LEARN_TEXT = "For up to 3 minutes after Vox types, or until you send it, Vox notices when you fix a word in that text and adds the fix to your dictionary. Only the changed words are kept. Password fields are never read.";
+const AUTO_LEARN_TEXT = "On by default. For up to 3 minutes after Vox types, or until you send it, Vox reads the text of the focused field in that app (up to 20,000 characters; it can be another field there) to notice when you fix a word, and adds the fix to your dictionary. Only the changed words are kept; numbers and swaps of everyday words are not learned. Your dictionary goes to your speech and cleanup servers as spelling hints and, with sync on, to your relay. Password fields are never read.";
 // The "Recently learned" list of the Dictionary page from learned_log ({t, wrong, right, word}, oldest first): newest first,
 // at most 20. Each Remove button carries data-unlearn = the entry's t; the page asks its bridge to remove that entry and the
 // dictionary lines it added.
