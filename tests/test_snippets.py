@@ -61,6 +61,21 @@ def test_load_config_cleans_snippets(tmp_path, monkeypatch):
     assert core.load_config()["snippets"] == {}
 
 
+# ------------------------------------------------------------------ final fixes (android 4): the size the relay counts
+def test_the_wire_size_is_what_the_relay_counts():
+    import json
+    for s in ("abc", 'a"b\\c', "line\nbreak\t", "\x01\x7f", "é", "पहला", "😀", ""):
+        assert snippets.wire_size(s) == len(json.dumps(s)) - 2
+    assert snippets.wire_size("é") == 6 and snippets.wire_size("😀") == 12 and snippets.wire_size("a\n") == 3
+
+
+def test_the_total_cap_counts_escaped_bytes_of_triggers_and_texts():
+    big = {"t%d" % i: "क" * 1000 for i in range(5)}      # 6,000 bytes each once escaped: only three fit in 20,000
+    clean = snippets.clean_snippets(big)
+    assert list(clean) == ["t0", "t1", "t2"]
+    assert sum(snippets.wire_size(t) + snippets.wire_size(x) for t, x in clean.items()) <= snippets.MAX_TOTAL
+
+
 # ------------------------------------------------------------------ the pipeline
 
 def _cfg(**kw):
@@ -113,3 +128,35 @@ def test_both_dictionary_pages_have_a_snippets_list(page):
         assert part in dict_page, part
     assert 'maxlength="2000"' in dict_page
     assert "save({ snippets: " in html and "snippetsAdd(" in html
+
+
+NODE = __import__("shutil").which("node")
+
+
+def _add(tmp, snips, trigger, text):
+    """snippetsAdd from ui-shared/common.js, run by node (from a file: the maps are too long for a command line)."""
+    import json
+    import subprocess
+    with open(os.path.join(ROOT, "ui-shared", "common.js"), encoding="utf-8") as f:
+        code = f.read()
+    code += "\n;process.stdout.write(JSON.stringify(snippetsAdd(%s, %s, %s)));" % (json.dumps(snips), json.dumps(trigger), json.dumps(text))
+    script = tmp / "add.js"
+    script.write_text(code, encoding="utf-8")
+    r = subprocess.run([NODE, str(script)], capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_the_page_refuses_what_the_app_would_drop_and_says_so(tmp_path):
+    """Final fixes (android 4): the page said "Added" for a snippet the app then dropped on save."""
+    full = {"t%d" % i: "क" * 1000 for i in range(3)}          # 18,006 bytes once escaped
+    res = _add(tmp_path, full, "one more", "क" * 1000)
+    assert res["ok"] is False and "too much" in res["msg"].lower() and res["map"] == full
+    res = _add(tmp_path, {}, "!!", "x")                                   # no letter or digit in the phrase
+    assert res["ok"] is False and res["map"] == {}
+    res = _add(tmp_path, {}, "sig", "s" * 2500)
+    assert res["ok"] is True and len(res["map"]["sig"]) == 2000 and "2,000" in res["msg"] and res["msg"] != "Added"
+    res = _add(tmp_path, {}, "my email", "me@example.com")
+    assert res == {"ok": True, "map": {"my email": "me@example.com"}, "msg": "Added"}
+    assert all(snippets.clean_snippets(r["map"]) == r["map"] for r in (res,))

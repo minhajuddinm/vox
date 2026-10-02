@@ -8,17 +8,29 @@ function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add
 function dictRepls(lines) { return (lines || []).filter(l => l.includes("=>")).map(l => l.split("=>").map(s => s.trim())); }
 function dictLines(terms, repl) { return [...terms, ...repl.map(([w, r]) => `${w} => ${r}`)]; }
 // Snippets ({trigger: text}): the same caps as snippets.py and Snippets.java, which clean the setting again when they use it.
-const SNIP_MAX = 50, SNIP_TEXT_MAX = 2000, SNIP_TRIGGER_MAX = 100;
+const SNIP_MAX = 50, SNIP_TEXT_MAX = 2000, SNIP_TRIGGER_MAX = 100, SNIP_TOTAL_MAX = 20000;
+// Bytes a text takes in the relay's profile (JSON with ASCII escapes: 6 for a letter outside ASCII, 12 for an emoji), as
+// snippets.wire_size and Snippets.wireSize count them for SNIP_TOTAL_MAX.
+function snipWireSize(s) {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); n += '"\\\n\r\t\b\f'.includes(s[i]) ? 2 : (c >= 32 && c <= 126 ? 1 : 6); }
+  return n;
+}
 // {ok, map, msg}: the snippets with this one added (a trigger already there, case ignored, gets the new text, at the end).
 function snippetsAdd(map, trigger, text) {
   const t = String(trigger ?? "").replace(/[ \t\r\n]+/g, " ").trim(), x = String(text ?? "").replace(/\r\n?/g, "\n");
   if (!t || !x.trim()) return { ok: false, map, msg: "Type the phrase and the text it stands for" };
   if (t.length > SNIP_TRIGGER_MAX) return { ok: false, map, msg: `The phrase can be up to ${SNIP_TRIGGER_MAX} characters` };
+  if (!/[\p{L}\p{N}\p{M}]/u.test(t)) return { ok: false, map, msg: "The phrase needs at least one letter or digit" };
   const out = {};
   for (const [k, v] of Object.entries(map || {})) if (k.toLowerCase() !== t.toLowerCase()) out[k] = v;
   if (Object.keys(out).length >= SNIP_MAX) return { ok: false, map, msg: `Up to ${SNIP_MAX} snippets` };
-  out[t] = x.slice(0, SNIP_TEXT_MAX);
-  return { ok: true, map: out, msg: "Added" };
+  const cut = [...x].length > SNIP_TEXT_MAX;
+  out[t] = cut ? [...x].slice(0, SNIP_TEXT_MAX).join("") : x;
+  let total = 0;
+  for (const [k, v] of Object.entries(out)) total += snipWireSize(k) + snipWireSize(v);
+  if (total > SNIP_TOTAL_MAX) return { ok: false, map, msg: "Not added: too much snippet text to sync (letters outside A-Z count six times). Remove or shorten a snippet first" };
+  return { ok: true, map: out, msg: cut ? `Added, cut to ${SNIP_TEXT_MAX.toLocaleString("en-US")} characters` : "Added" };
 }
 function snippetsRemove(map, trigger) { const out = {}; for (const [k, v] of Object.entries(map || {})) if (k !== trigger) out[k] = v; return out; }
 // One line of a saved text for the list: line breaks shown as " / ", cut at 80 characters.

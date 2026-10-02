@@ -22,7 +22,8 @@ final class Snippets {
     static final int MAX_SNIPPETS = 50;      // snippets used (the first ones)
     static final int MAX_EXPANSION = 2000;   // characters (code points) of one saved text
     static final int MAX_TRIGGER = 100;      // characters of one trigger phrase
-    static final int MAX_TOTAL = 20000;      // characters of all saved texts together (the relay keeps at most 64,000 bytes of profile)
+    /** Bytes of all triggers and saved texts as the relay stores them (wireSize): the relay keeps at most 64,000 bytes of profile. */
+    static final int MAX_TOTAL = 20000;
 
     private static final Pattern SPACES = Pattern.compile("[ \\t\\r\\n]+");
 
@@ -49,6 +50,21 @@ final class Snippets {
         return false;
     }
 
+    /**
+     * Bytes s takes in the relay's profile: JSON with ASCII escapes, as relay.py measures it (a letter outside ASCII is 6
+     * bytes, an emoji 12, a line break, tab, quote or backslash 2). Twin of wire_size in windows/snippets.py.
+     */
+    static int wireSize(String s) {
+        int n = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '"' || c == '\\' || c == '\n' || c == '\r' || c == '\t' || c == '\b' || c == '\f') n += 2;
+            else if (c >= ' ' && c <= '~') n += 1;
+            else n += 6;
+        }
+        return n;
+    }
+
     private static int cps(String s) {
         return s.codePointCount(0, s.length());
     }
@@ -69,7 +85,8 @@ final class Snippets {
      * The setting made safe (twin of clean_snippets): only text triggers with text, a trigger's spaces made single and
      * trimmed (at most MAX_TRIGGER characters, at least one letter or digit), line breaks as \n, each text cut at
      * MAX_EXPANSION characters, a repeated trigger (case ignored) dropped, at most MAX_SNIPPETS snippets and MAX_TOTAL
-     * characters of text (a snippet that would go over is left out). Order kept. Anything that is not a map gives none.
+     * bytes of triggers and texts as the relay stores them (a snippet that would go over is left out). Order kept.
+     * Anything that is not a map gives none.
      */
     static Map<String, String> clean(Object value) {
         Map<String, String> out = new LinkedHashMap<>();
@@ -84,10 +101,11 @@ final class Snippets {
             if (cps(x) > MAX_EXPANSION) x = x.substring(0, x.offsetByCodePoints(0, MAX_EXPANSION));
             String key = t.toLowerCase(Locale.ROOT);
             if (t.isEmpty() || cps(t) > MAX_TRIGGER || !hasWordChar(t) || blank(x) || seen.contains(key)) continue;
-            if (total + cps(x) > MAX_TOTAL) continue;
+            int size = wireSize(t) + wireSize(x);
+            if (total + size > MAX_TOTAL) continue;
             seen.add(key);
             out.put(t, x);
-            total += cps(x);
+            total += size;
         }
         return out;
     }

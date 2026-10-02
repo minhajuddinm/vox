@@ -5,13 +5,15 @@ server) and before lists. Whole phrase, case ignored, any run of spaces between 
 text put in is not looked at again. The same rules run on the phone (Snippets.java, golden rows `snippets`); the setting
 travels with the synced profile.
 """
+import json
 import re
 import unicodedata
 
 MAX_SNIPPETS = 50       # snippets used (the first ones)
 MAX_EXPANSION = 2000    # characters of one saved text
 MAX_TRIGGER = 100       # characters of one trigger phrase
-MAX_TOTAL = 20000       # characters of all saved texts together: the relay keeps a profile of at most 64,000 bytes
+MAX_TOTAL = 20000       # bytes of all triggers and saved texts as the relay stores them (wire_size): the relay keeps a
+                        # profile of at most 64,000 bytes, and a letter outside ASCII takes 6 bytes there (an emoji 12)
 _SPACES = re.compile(r"[ \t\r\n]+")
 
 
@@ -19,11 +21,17 @@ def _has_word_char(s):
     return any(unicodedata.category(c)[0] in "LNM" for c in s)
 
 
+def wire_size(s):
+    """Bytes `s` takes in the relay's profile: JSON with ASCII escapes, as relay.py measures it (a letter outside ASCII is
+    6 bytes, an emoji 12, a line break, quote or backslash 2). Twin: Snippets.wireSize and snipWireSize in common.js."""
+    return len(json.dumps(s)) - 2
+
+
 def clean_snippets(value):
     """The setting made safe: only text triggers with text, a trigger's spaces made single and trimmed (at most
     MAX_TRIGGER characters and at least one letter or digit), line breaks as \\n, each text cut at MAX_EXPANSION characters,
-    a repeated trigger (case ignored) dropped, at most MAX_SNIPPETS snippets and MAX_TOTAL characters of text (a snippet
-    that would go over is left out). Order kept. Twin: Snippets.clean."""
+    a repeated trigger (case ignored) dropped, at most MAX_SNIPPETS snippets and MAX_TOTAL bytes of triggers and texts as
+    the relay stores them (a snippet that would go over is left out). Order kept. Twin: Snippets.clean."""
     out, seen, total = {}, set(), 0
     if not isinstance(value, dict):
         return out
@@ -36,11 +44,12 @@ def clean_snippets(value):
         x = text.replace("\r\n", "\n").replace("\r", "\n")[:MAX_EXPANSION]
         if not t or len(t) > MAX_TRIGGER or not _has_word_char(t) or not x.strip(" \t\n") or t.lower() in seen:
             continue
-        if total + len(x) > MAX_TOTAL:
+        size = wire_size(t) + wire_size(x)
+        if total + size > MAX_TOTAL:
             continue
         seen.add(t.lower())
         out[t] = x
-        total += len(x)
+        total += size
     return out
 
 

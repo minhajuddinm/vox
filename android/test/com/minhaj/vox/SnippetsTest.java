@@ -52,6 +52,17 @@ public final class SnippetsTest {
         Map<String, String> crlf = new LinkedHashMap<>();
         crlf.put("a", "x\r\ny");
         eq("line breaks", "x\ny", Snippets.clean(crlf).get("a"));
+        // final fixes (android 4): the size the relay counts (JSON with ASCII escapes), triggers and texts together
+        eq("wire ascii", 3, Snippets.wireSize("abc"));
+        eq("wire quote and backslash", 7, Snippets.wireSize("a\"b\\c"));
+        eq("wire line break and tab", 4, Snippets.wireSize("\n\t"));
+        eq("wire control and DEL", 12, Snippets.wireSize("\u0001\u007f"));
+        eq("wire accent", 6, Snippets.wireSize("é"));
+        eq("wire Devanagari", 24, Snippets.wireSize("पहला"));
+        eq("wire emoji", 12, Snippets.wireSize("😀"));
+        Map<String, String> hindi = new LinkedHashMap<>();
+        for (int i = 0; i < 5; i++) hindi.put("t" + i, rep('क', 1000));
+        eq("escaped total cap", "[t0, t1, t2]", Snippets.clean(hindi).keySet().toString());
         // a code point beyond the BMP counts once, as in Python
         Map<String, String> emoji = new LinkedHashMap<>();
         emoji.put("e", rep('a', 1999) + "😀😀");
