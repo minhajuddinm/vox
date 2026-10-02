@@ -28,6 +28,13 @@ BLOCKED = "blocked"          # only copied: the window runs as administrator and
 TERMINALS = frozenset({"windowsterminal.exe", "wt.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "conhost.exe",
                        "alacritty.exe", "wezterm-gui.exe", "mintty.exe", "putty.exe"})
 COPY_WAIT = 0.5              # seconds to wait for the app to answer Ctrl+C (edit by voice)
+# Editors whose Ctrl+C copies the whole current line (with its line break) when nothing is selected: in them, one line
+# ending in a line break is taken as "nothing selected" (VS Code editor.emptySelectionClipboard, Visual Studio, JetBrains
+# IDEs, Sublime Text copy_with_empty_selection; all on by default).
+LINE_COPY_EDITORS = frozenset({"code.exe", "code - insiders.exe", "cursor.exe", "windsurf.exe", "vscodium.exe",
+                               "devenv.exe", "sublime_text.exe", "idea64.exe", "pycharm64.exe", "webstorm64.exe",
+                               "clion64.exe", "rider64.exe", "goland64.exe", "phpstorm64.exe", "rubymine64.exe",
+                               "datagrip64.exe", "studio64.exe", "fleet.exe"})
 
 MODIFIER_WAIT = 2.0          # seconds to wait for the hotkey's keys to come up
 SETTLE = 0.05                # after copying, before Ctrl+V
@@ -475,4 +482,13 @@ def copy_selection(target_exe, deps=None):
         log.warning("could not put the old clipboard back after copying the selection: %s", e)
     if not isinstance(text, str) or not text.strip():
         return None, "Select some text first: Vox could not read any text from the selection."
+    if (current or target_exe or "").lower() in LINE_COPY_EDITORS and _one_line_with_break(text):
+        return None, ("Select the text to change first. With nothing selected this editor copies the whole line (to edit "
+                      "one whole line, select it without its line break).")
     return text, ""
+
+
+def _one_line_with_break(text):
+    """True for one line of text followed by its line break: what a line-copying editor puts there for no selection."""
+    body = text[:-2] if text.endswith("\r\n") else text[:-1] if text.endswith("\n") else None
+    return body is not None and "\n" not in body and "\r" not in body

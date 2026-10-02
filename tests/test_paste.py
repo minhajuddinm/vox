@@ -549,6 +549,29 @@ def test_copy_selection_refuses_a_terminal_a_changed_window_and_an_elevated_one(
     assert "administrator" in paste.copy_selection("notepad.exe", deps=d)[1]
 
 
+@pytest.mark.parametrize("exe", ["Code.exe", "devenv.exe", "sublime_text.exe", "idea64.exe", "pycharm64.exe", "cursor.exe"])
+@pytest.mark.parametrize("line", ["    count = count + 1\n", "int x = 0;\r\n"])
+def test_an_editor_that_copies_the_whole_line_on_an_empty_selection_counts_as_nothing_selected(exe, line):
+    """Final fixes (windows 3): with nothing selected these editors copy the current line and its line break; editing
+    that and pasting it at the caret garbled the line."""
+    d = FakeDeps(foreground=exe, clip="old")
+    d.selection = line
+    d.snapshot = [(13, b"old")]
+    text, problem = paste.copy_selection(exe, deps=d)
+    assert text is None and "Select" in problem and "line" in problem
+    assert ("restore", d.snapshot) in d.calls                       # the old clipboard is back
+
+
+def test_a_real_selection_in_an_editor_still_works():
+    for sel in ("count = count + 1", "a\nb\n", "first line\nsecond line"):
+        d = FakeDeps(foreground="Code.exe", clip="old")
+        d.selection = sel
+        assert paste.copy_selection("Code.exe", deps=d) == (sel, "")
+    d = FakeDeps(foreground="notepad.exe", clip="old")          # an app that does not copy lines: a whole line is a selection
+    d.selection = "one whole line\r\n"
+    assert paste.copy_selection("notepad.exe", deps=d) == ("one whole line\r\n", "")
+
+
 def test_a_selection_of_only_spaces_is_no_selection():
     d = FakeDeps(clip="old")
     d.selection = "   "
