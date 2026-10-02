@@ -70,6 +70,9 @@ windows/                Windows app (Python) and its installer scripts
 | `windows/listen.py` | Keep listening, running part: `Listening` takes the microphone audio through a `ListenSession`, turns each piece into text in the background (`streaming.piece_text`) and ends in one cleaned note (Note target) or typed pieces (Type target, only in the app it started in); marks `seg_end` and `seg_text` per piece. |
 | `windows/paste.py` | `paste_text`: pastes into the focused app only if the window is still the one the dictation started in, and restores the old clipboard (all copyable formats) only if it still holds our text; the dictation is set with the exclude-from-history markers. The real Win32, clipboard and key calls are in `SystemDeps`; tests pass their own. |
 | `windows/streaming.py` | Sends the finished parts of a long recording to speech-to-text while the user is still speaking (worker thread, falls back to the whole recording). |
+| `windows/structure.py` | Lists from spoken cues (`format_structure`: ordinals, point/item/step/number one, Hindi ordinals, bullet cues; never commas) and paragraph breaks at long pauses (`add_paragraphs`, Windows only, from the speech server's segment times). Pure; Java twin `Structure.java` (lists only), golden kind `structure`. |
+| `windows/codemode.py` | Code mode (Windows only): spoken formatters (camel case, snake case, ...) and the spoken symbol table, `is_code_app` (the `code_apps`, `code_mode` settings and the per-app style `code`). Pure. Table: [15-code-mode.md](15-code-mode.md). |
+| `windows/snippets.py` | Snippets: `clean_snippets` (caps), `apply_snippets` (a trigger phrase becomes its saved text, after the cleanup), `unexpand` (what Improve my cleanup sends). Pure; Java twin `Snippets.java`, golden kind `snippets`. |
 | `windows/improve.py` | Pure core of "Improve my cleanup" (no network): picks the history pairs to send, estimates the cost, builds the request, reads and caps the answer (`parse_proposal`), applies the accepted items to the config with versions and `revert`, and lists the cleanups that lost words. |
 | `windows/timing.py` | Pure timing core (stdlib): `Timing` marks (`key_down` ... `inserted`) become the six stage durations (`start`, `rec`, `stt`, `llm`, `insert`, `total`); `median`, `p90`, `biggest`, `format_ms`, `summarize` over the newest N history entries, `by_model` (medians per voice and cleanup model pair) and `speed_view` (everything the Speed card shows, from the history). Local only, nothing is sent. Java twin `Timing.java`. |
 | `windows/ui/index.html` | The main window's screens: Home, Notes (meetings), Dictionary, Styles, Settings. One file with CSS and JavaScript. |
@@ -104,6 +107,8 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/Timing.java` | Pure Java twin of `windows/timing.py` (marks, stages, median, p90, biggest stage, "1.4 s" text, summary, `byModel`, `speedView` for the Speed card, `historyMap` the keys of a history row's timing); pinned by the `timing_*` rows of `spec/golden.txt`. |
 | `android/src/com/minhaj/vox/Segmenter.java` | Pure Java twin of `Segmenter` in `windows/vox_core.py`: cuts a recording that is still going on into pieces at pauses (12 s minimum, 28 s maximum, 0.6 s pause); the `segcuts` golden rows prove it cuts where Windows does, whatever the block size. |
 | `android/src/com/minhaj/vox/StreamingStt.java` | Pure Java twin of `windows/streaming.py`: a worker thread cuts the audio with `Segmenter` and sends each piece to speech to text (with the end of the text before it as context) while the user is still talking; `finish` returns the text, or null when the caller should send the whole recording. The server call is a `Transcriber` callback, so it is tested with a fake. |
+| `android/src/com/minhaj/vox/Structure.java` | Pure Java twin of `format_structure` in `windows/structure.py`: lists from spoken cues after the cleanup (golden rows `structure`); no paragraph breaks on the phone. |
+| `android/src/com/minhaj/vox/Snippets.java` | Pure Java twin of `windows/snippets.py`: `clean` (caps) and `apply` (golden rows `snippets`); `ProfileMap` syncs the setting. |
 | `android/src/com/minhaj/vox/Latency.java` | Pure latency rules: 5 s connect timeout, speech and cleanup read timeouts that grow with the audio and the words, which failures count as "never reached the server" (the fast retry), the cleanup `max_tokens` bound (floor of 256, headroom for thinking models, the cut-off check), and when to warm the connection again. |
 | `android/src/com/minhaj/vox/UploadFormat.java` | Pure rule for the audio container of an upload (WAV under 4 s, m4a from 4 s), its type and file name, and when an encoded file is used. |
 | `android/src/com/minhaj/vox/AudioUpload.java` | Makes the uploaded file: encodes the 16 kHz PCM as AAC in an m4a file (`MediaCodec` and `MediaMuxer`, 64 kbit/s) when `UploadFormat` says so, and falls back to the WAV on any encoder failure. Android classes, so it is only compile-checked here. |
@@ -188,6 +193,9 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_sync.py` | The Windows sync client against a real relay: two devices, edits, deletes, conflicts, failures, notes the relay refuses for good, upgrade of old databases. |
 | `tests/test_sync_profile.py` | Profile sync between two devices through a real relay: merge rules, keys switch, races. |
 | `tests/test_streaming.py` | The pause finder (`Segmenter`), the streaming worker, and the text half of the pipeline. |
+| `tests/test_structure.py` | Lists and paragraphs: the cue rules, prose that stays prose, idempotence over every golden row, the order around the fidelity guard, the prompt per setting, `verbose_json` segments and the pause breaks. |
+| `tests/test_codemode.py` | Code mode: every formatter and symbol, formatters with symbols, whole words only, which apps, the pipeline (no AI cleanup by default, the code prompt), the help box and [15-code-mode.md](15-code-mode.md) list the whole table. |
+| `tests/test_snippets.py` | Snippets: matching, caps, the order (after the cleanup, before lists), never sent to the cleanup or the Improve run, the profile field, both Dictionary pages. |
 | `tests/test_listen_session.py` | The keep-listening session, the same-window rule and the crash-safe audio buffer (temp folder, no hardware). |
 | `tests/test_listen.py` | The running session with the speech calls and the window replaced: Note and Type targets, stop phrase, limit, window change, failed pieces, recovery, latency marks. |
 | `tests/test_engine_listen.py` | The engine side: double press, Esc, tray entries, the `listen_target` setting, microphone errors, recovery. |
@@ -227,6 +235,8 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/PcmTest.java` | Silence gate. |
 | `android/test/com/minhaj/vox/TimingTest.java` | The Java timing core: stages, skipped cleanup, clock, summary rules, per-model medians, `speedView` from history rows. |
 | `android/test/com/minhaj/vox/SegmenterTest.java` | `Segmenter` beyond the golden rows: nothing lost, the same pieces for any block size, reuse after `rest()`. |
+| `android/test/com/minhaj/vox/StructureTest.java` | `Structure` beyond the golden rows: twice changes nothing on every row, the setting, every other word kept in order. |
+| `android/test/com/minhaj/vox/SnippetsTest.java` | `Snippets` beyond the golden rows: the caps (code points), the stored JSON form in `ProfileMap`, the profile field and the blank-map merge rule. |
 | `android/test/com/minhaj/vox/M4aFallbackTest.java` | A stand-in server that cannot read m4a (415, 422) or refuses everything (400), or fails (500): the upload is resent as WAV once, the server is remembered only when the WAV got through, a WAV upload or a 500 is not retried. |
 | `android/test/com/minhaj/vox/StreamingSttTest.java` | `StreamingStt` with a fake server: order and context, the first piece going out before the recording ends, only the tail left after, failure, slow server, silent and hallucinated pieces, cancel. |
 | `android/test/com/minhaj/vox/LatencyTest.java` | The timeout and token rules of `Latency`, the connect-failure classification and the `UploadFormat` rule. |
@@ -293,6 +303,7 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/12-known-issues-and-roadmap.md` | Open problems and plans. |
 | `documentation/13-glossary.md` | Terms. |
 | `documentation/14-relay.md` | The relay server: what it is, protocol, rules, what is not built. |
+| `documentation/15-code-mode.md` | Code mode (Windows): when it is on, the formatters and the whole symbol table, what it does not do. |
 | `documentation/devlog.md` | Chronological development log. |
 | `documentation/decisions/README.md` | Index of architecture decision records and the template. |
 | `documentation/decisions/0001-openai-compatible-api-groq-default.md` | ADR: OpenAI-compatible API, Groq default. |
@@ -342,6 +353,7 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/specs/p7f-relay-proxy.md` | Spec for P7f: the relay as the AI server (proxy routes, upstream settings, the apps' switch). |
 | `documentation/specs/p2b-stream-long-dictations.md` | Spec for P2b: send long recordings in pieces while speaking. |
 | `documentation/decisions/0036-fuzzy-dictionary-guesses-only-for-long-terms.md` | ADR: the one-letter dictionary guess only for terms of 7+ letters; a short name keeps the case fix. |
+| `documentation/decisions/0037-text-structure-from-spoken-cues-and-code-mode-without-the-ai.md` | ADR: lists only from spoken cues (never commas), after the cleanup and its guard; code apps get rules, not the AI cleanup, by default. |
 | `documentation/decisions/0035-sideload-warnings-are-explained-not-engineered-away.md` | ADR: explain the Play Protect and Restricted setting warnings in the app; no `isAccessibilityTool`, targetSdk stays 34, minimum permissions. |
 | `documentation/specs/p9h-android-mic-choice.md` | Spec for the Android Microphone setting: what was built, why Bluetooth is not offered yet and the device checklist (not run on a phone). |
 | `documentation/specs/p9g2-install-safety.md` | Spec for part 3 branch G task G2: the Install help card, the permission clean-up, why targetSdk stays 34, what a sideloaded APK cannot avoid, the unverified list. |

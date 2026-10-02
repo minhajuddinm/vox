@@ -24,6 +24,7 @@ Documentation verified against commit: see the `Verified against` line at the bo
 | Open problems and the roadmap | [12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md) |
 | Terms used in the code and docs | [13-glossary.md](13-glossary.md) |
 | The optional relay server: protocol, management page, rules, what is missing (set-up guide: [../relay/README.md](../relay/README.md)) | [14-relay.md](14-relay.md) |
+| Code mode on Windows: spoken formatters and the whole spoken symbol table | [15-code-mode.md](15-code-mode.md) |
 | Why things are the way they are | [decisions/README.md](decisions/README.md) (architecture decision records) |
 | Designs written before the code (one per sub-project) | [specs/README.md](specs/README.md) |
 | What changed and when | [../CHANGELOG.md](../CHANGELOG.md) and [devlog.md](devlog.md) |
@@ -46,6 +47,8 @@ Documentation verified against commit: see the `Verified against` line at the bo
 - "Groq" means the default speech and language API at `https://api.groq.com/openai/v1`. "Server" means whatever the Server address setting points to (Groq by default).
 
 ## Verified against
+
+Branch `feat/text-structure` on top of `main` at `f53a962` (stream A of the final feature pass: lists and paragraphs on both apps, code mode on Windows, snippets on both apps; [decision 0037](decisions/0037-text-structure-from-spoken-cues-and-code-mode-without-the-ai.md), [15-code-mode.md](15-code-mode.md)). Tests run locally on Windows on 2026-10-02 (`APPDATA`, `LOCALAPPDATA`, `HOME` and `USERPROFILE` pointed at a temporary folder): 2493 pytest tests collected (2486 pass, 7 skipped), 786 of them shared golden cases; the same suite in a fresh venv with only `tests/requirements.txt` (what CI's tests job has): 2355 pass, 48 skipped, none fail; 35 Java test programs (33 run and pass, `ParityTest` 786 golden cases, `StructureTest`, `SnippetsTest`; the 2 integration programs skipped); `javatest compile` is OK (49 files); `tools/sync_ui.py --check` and `documentation/tools/check_docs.py` report OK. **Not run:** real speech (how Whisper writes the cues and symbol names), a real speech server's `verbose_json`, a real editor or terminal, the window or the Android pages on screen, anything on a phone, a real relay with snippets in the profile.
 
 Branch `fix/medium-round` on top of `main` at `5f3afab` (medium review findings, batches M1 to M3 and the M5 feature: Windows engine, config and paste; meetings, calendar and the two pages; Android services; the Android microphone choice). Tests run locally on Windows on 2026-10-01 (`APPDATA`, `LOCALAPPDATA`, `HOME` and `USERPROFILE` pointed at a temporary folder): 2094 pytest tests collected (2092 pass, 2 skipped); 31 Java test programs pass (2 integration programs skipped) and `javatest compile` is OK (47 files); `tools/sync_ui.py --check` and `documentation/tools/check_docs.py` report OK. Not run: a live dictation, a real meeting, the pages in a window, anything on a phone (cancel during an upload, rotation, accessibility off, the microphone choice with a headset).
 

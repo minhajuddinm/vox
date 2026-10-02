@@ -23,13 +23,16 @@ Vox was written by Muhammad Minhajuddin ([minhajuddinm](https://github.com/minha
 - **Tone per app.** Formal, Neutral, Casual, Very casual or Raw (no cleanup), chosen by the app you type in.
 - **Personal dictionary.** Your words, people's names and `wrong => right` replacements. Vox puts a one-word term back in your spelling when the text has it in another case (five letters or more) or one letter off (seven letters or more).
 - **About you.** A short text about yourself (names, jargon, languages you mix) that the cleanup model reads first.
-- **Spoken commands.** "new line", "new paragraph", "comma", "question mark"; spoken lists become lists.
+- **Spoken commands.** "new line", "new paragraph", "comma", "question mark".
+- **Lists and paragraphs.** Say "first ... second ...", "point one ... point two", "bullet point ..." or "pehla ... doosra ..." and Vox writes a numbered or bulleted list, keeping every other word; commas alone never make a list. On Windows a long pause starts a new paragraph in a long dictation. Off, Auto or Lists only in Settings.
+- **Snippets.** Say a phrase such as "my email" or "my signature" and Vox types the text you saved for it. The saved text is added after the cleanup, so it is never sent to the cleanup server.
 - **Nothing is lost.** A failed dictation is kept and can be retried. A silent recording is not uploaded.
 - **History and a Speed card.** Search, copy and fix past dictations; see where the time of a dictation goes. Timings stay on the device.
 - **Optional relay (self-hosted).** A one-file server you run on a Raspberry Pi or any PC on your own Tailscale network. It syncs voice notes and your profile (About you, dictionary, people) between devices, and can act as the AI server so your provider key lives only on the relay. See [relay/README.md](relay/README.md).
 
 ### Windows only
 
+- **Code mode.** In code editors and terminals, "camel case user name" types `userName`, "snake case max retries" `max_retries`, "open paren" `(`, "equals equals" `==`, and what you say there is not sent to the AI cleanup unless you choose it ([the whole table](documentation/15-code-mode.md)).
 - **Keep listening.** Double-tap the shortcut and talk for up to 60 minutes. **Note** (default) saves one cleaned note at the end; **Type** types each piece into the app you started in. A second shortcut (Ctrl + Alt + N) starts and stops a note.
 - **Voice notes.** Record a note that is saved to a searchable list instead of being typed.
 - **Meeting notes (beta).** Records your microphone and the PC's audio, shows a live transcript, answers questions about the meeting, and writes a summary with decisions and action items. Optional Google Calendar or ICS link.
@@ -75,6 +78,7 @@ The Windows app and the earlier Android app have been used on real devices, but 
 - **Keep listening and Improve my cleanup have not run with a real microphone or model.** Checklists: [p9e](documentation/specs/p9e-keep-listening.md), [p9f](documentation/specs/p9f-improve-my-cleanup.md).
 - **The new cleanup prompt and the word check have not been measured on a real model.** The thresholds were tuned on written examples ([p9a](documentation/specs/p9a-cleanup-keeps-my-words.md)).
 - **The relay has not run on a real Raspberry Pi or over Tailscale**, and the Windows build that runs the relay (`Vox.exe --relay`) has not been built and started yet. Its tests run on Linux x86 and arm64 in CI.
+- **Lists, code mode and snippets have only been tested on text**, not on real speech, in a real editor or on a phone; how Whisper writes the spoken cues and symbol names on real speech is unconfirmed.
 - **Meeting notes are beta** and have no automated tests.
 - The Windows installer is not code-signed, and the Android APK is installed from a file, so both get warnings (see [Install](#install)).
 - On Android the API keys, relay token and history are stored unencrypted inside the app's private storage.
