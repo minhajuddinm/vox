@@ -56,7 +56,8 @@ final class Structure {
     }
 
     private static final Pattern ALREADY_LIST = Pattern.compile("(?md)^[ \\t]*(?:[-*\u2022]|[0-9]+[.)])[ \\t]+[^ \\t\\r\\n]");
-    private static final Pattern NEWLINES = Pattern.compile("[ \\t\\r\\n]*\\n[ \\t\\r\\n]*");
+    private static final Pattern SENTENCE_INSIDE = Pattern.compile("[.!?।][ \\t\\r\\n]");
+    private static final Pattern NEWLINES =Pattern.compile("[ \\t\\r\\n]*\\n[ \\t\\r\\n]*");
     private static final Pattern SENTENCE_END = Pattern.compile("[.!?\u0964][\"'\u201d\u2019)\\]]*[ \\t\\r\\n]+(?=[^ \\t\\r\\n])");
 
     /** The "Lists and paragraphs" setting as off, auto or lists; unset or anything else is auto (twin of structure_mode). */
@@ -218,6 +219,7 @@ final class Structure {
         int j = 0;
         while (j < item.length() && isWordChar(item.codePointAt(j))) j += Character.charCount(item.codePointAt(j));
         if (j == 0) return item;
+        if (j < item.length() && " \t,;:!?".indexOf(item.charAt(j)) < 0) return item;   // a word glued to more (me@example.com, node.js) keeps its case
         int first = item.codePointAt(0);
         if (!Character.isLowerCase(first)) return item;
         for (int i = 0; i < j; ) {
@@ -231,11 +233,8 @@ final class Structure {
 
     private static String cleanItem(String body, boolean flatCase) {
         String s = rstrip(lstrip(NEWLINES.matcher(body).replaceAll(" "), LEAD_STRIP), SPACE + ",;:");
-        if (s.endsWith(".") || s.endsWith("\u0964")) {
-            String rest = s.substring(0, s.length() - 1);
-            boolean other = false;
-            for (int i = 0; i < rest.length(); i++) if (".!?\u0964".indexOf(rest.charAt(i)) >= 0) other = true;
-            if (!other) s = rstrip(rest, SPACE);
+        if ((s.endsWith(".") || s.endsWith("\u0964")) && !SENTENCE_INSIDE.matcher(s.substring(0, s.length() - 1)).find()) {
+            s = rstrip(s.substring(0, s.length() - 1), SPACE);   // one sentence: its full stop goes (the dot of example.com is not a sentence end)
         }
         return flatCase ? s : capitalised(s);
     }

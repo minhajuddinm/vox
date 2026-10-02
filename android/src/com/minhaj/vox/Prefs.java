@@ -92,6 +92,10 @@ public final class Prefs {
     public String dictionaryRaw() { return sp.getString("dictionary", DEFAULT_DICTIONARY); }
     public String peopleRaw() { return sp.getString("people", ""); }
     public String appStylesRaw() { return sp.getString("app_styles", DEFAULT_APP_STYLES); }
+    /** The snippets ({trigger: text}) as stored: their JSON text, "{}" when none. Synced with the profile. */
+    public String snippetsRaw() { return sp.getString("snippets", "{}"); }
+    /** The snippets, cleaned (Snippets.clean: at most 50, 2,000 characters each). */
+    public Map<String, String> snippets() { return ProfileMap.snippetsOf(snippetsRaw()); }
     public String defaultStyle() { return nonEmpty(sp.getString("default_style", ""), "neutral"); }
     /** When false, nothing dictated is saved on the phone. */
     public boolean keepHistory() { return sp.getBoolean("keep_history", true); }
@@ -131,6 +135,7 @@ public final class Prefs {
         m.put("cleanup", cleanupEnabled());
         m.put("language", language());
         m.put("my_cleanup_rules", myCleanupRules());
+        m.put("snippets", snippetsRaw());
         m.put("provider", provider());
         m.put("base_url", baseUrl());
         m.put("stt_base_url", raw("stt_base_url"));

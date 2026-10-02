@@ -20,7 +20,7 @@ final class ProfileMerge {
 
     /** Settings that always travel (sync.PROFILE_FIELDS). Read-only, in the order of the Python tuple. */
     static final Set<String> SHARED_FIELDS = Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(
-            "user_context", "dictionary", "people", "default_style", "cleanup", "language", "my_cleanup_rules")));
+            "user_context", "dictionary", "people", "default_style", "cleanup", "language", "my_cleanup_rules", "snippets")));
 
     /**
      * Provider settings and API keys, which travel only when the user switched on relay sync of keys
@@ -48,7 +48,8 @@ final class ProfileMerge {
     }
 
     private static boolean isBlank(Object v) {
-        return "".equals(v) || (v instanceof java.util.List && ((java.util.List<?>) v).isEmpty());
+        return "".equals(v) || (v instanceof java.util.List && ((java.util.List<?>) v).isEmpty())
+                || (v instanceof Map && ((Map<?, ?>) v).isEmpty());   // an empty snippets map
     }
 
     /**

@@ -12,8 +12,9 @@ import java.util.Set;
 /**
  * The settings of this phone as the relay's profile fields, and back, in the encodings the Windows app uses
  * (windows/sync.py PROFILE_FIELDS and PROFILE_KEY_FIELDS; the field names are ProfileMerge's two lists). Windows
- * keeps the dictionary and the people as lists of text and everything else as text or a boolean; the phone keeps
- * the two lists as text with one entry per line, so they are converted; the other fields are the same on both sides.
+ * keeps the dictionary and the people as lists of text, the snippets as a map of text, and everything else as text or a
+ * boolean; the phone keeps the two lists as text with one entry per line and the snippets as their JSON text, so those
+ * are converted; the other fields are the same on both sides.
  *
  * Two forms of a setting appear here. The <em>stored</em> form is what this phone keeps in its preferences under the
  * same name (text; {@code cleanup} as a boolean; {@code dictionary} and {@code people} as lines). The <em>profile</em>
@@ -32,10 +33,11 @@ final class ProfileMap {
     static final Set<String> STYLES = Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(
             "formal", "casual", "very_casual", "neutral", "raw")));
 
-    private static final int NONE = 0, CONTEXT = 1, LINES = 2, FLAG = 3, STYLE = 4, ADDRESS = 5, TEXT = 6;
+    private static final int NONE = 0, CONTEXT = 1, LINES = 2, FLAG = 3, STYLE = 4, ADDRESS = 5, TEXT = 6, SNIPPETS = 7;
 
     private static int kindOf(String field) {
         switch (field) {
+            case "snippets": return SNIPPETS;   // a map {trigger: text}; stored on the phone as its JSON text
             case "user_context":
             case "my_cleanup_rules": return CONTEXT;   // text kept as it is, like About you
             case "dictionary":
@@ -89,6 +91,19 @@ final class ProfileMap {
         return sb.toString();
     }
 
+    /**
+     * The snippets setting as the phone stores it (the JSON text of {trigger: text}) read back as a map, cleaned
+     * (Snippets.clean). Empty for null, unreadable JSON or anything that is not an object.
+     */
+    static Map<String, String> snippetsOf(String json) {
+        if (json == null || json.trim().isEmpty()) return Snippets.clean(null);
+        try {
+            return Snippets.clean(PlainJson.parse(json));
+        } catch (RuntimeException bad) {
+            return Snippets.clean(null);
+        }
+    }
+
     // ------------------------------------------------------------------ cleaning one value
 
     /**
@@ -113,6 +128,8 @@ final class ProfileMap {
                 String a = Endpoint.normalize((String) v);
                 return Endpoint.error(a) == null ? a : null;
             }
+            case SNIPPETS:
+                return v instanceof Map ? Snippets.clean(v) : null;   // the same caps on both sides, so it never looks changed
             case LINES: {
                 if (!(v instanceof List)) return null;
                 StringBuilder sb = new StringBuilder();
@@ -140,6 +157,7 @@ final class ProfileMap {
         for (String f : FIELDS) {
             Object v = stored.get(f);
             if (kindOf(f) == LINES) v = v instanceof String ? lines((String) v) : null;
+            if (kindOf(f) == SNIPPETS) v = v instanceof String ? snippetsOf((String) v) : null;
             Object c = v == null ? null : clean(f, v);
             if (c != null) out.put(f, c);
         }
@@ -178,6 +196,8 @@ final class ProfileMap {
                 @SuppressWarnings("unchecked")
                 List<String> entries = (List<String>) c;
                 c = joinLines(entries);
+            } else if (kindOf(f) == SNIPPETS) {
+                c = PlainJson.stringify(c);
             }
             out.put(f, c);
         }

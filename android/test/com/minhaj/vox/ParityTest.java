@@ -400,6 +400,12 @@ public final class ParityTest {
                 case "structure":   // mode, style, text, the text with a spoken list written as one
                     eq(ln, kind, f[3], Structure.format(f[2], f[0], f[1]));
                     break;
+                case "snippets": {   // text, expected, then trigger, saved text pairs
+                    Map<String, String> snips = new LinkedHashMap<>();
+                    for (int i = 2; i + 1 < f.length; i += 2) snips.put(f[i], f[i + 1]);   // like Python's dict(zip(...))
+                    eq(ln, kind, f[1], Snippets.apply(f[0], snips));
+                    break;
+                }
                 case "promptstructure":   // structure, style, terms, app, About you, strength, rules => the cleanup prompt
                     eq(ln, kind, f[7], ApiClient.systemPrompt(f[1], items(f[2], "|"), f[3], f[4], f[5], f[6], f[0]));
                     break;

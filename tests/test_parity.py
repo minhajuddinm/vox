@@ -7,6 +7,7 @@ import pytest
 import notes
 import providers
 import relay
+import snippets
 import structure
 import sync
 import timing
@@ -316,6 +317,8 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert core.fuzzy_dictionary(f[1], items(f[0])) == f[2]
     elif kind == "structure":   # mode, style, text, the text with a spoken list written as one
         assert structure.format_structure(f[2], f[0], f[1]) == f[3]
+    elif kind == "snippets":   # text, expected, then trigger, saved text pairs
+        assert snippets.apply_snippets(f[0], dict(zip(f[2::2], f[3::2]))) == f[1]
     elif kind == "promptstructure":   # structure, style, terms, app, About you, strength, rules => the cleanup prompt
         assert core.system_prompt(f[1], items(f[2]), f[3], f[4], f[5], f[6], f[0]) == f[7]
     elif kind == "notebubble":   # persistent switch, note recording, note being saved, expected

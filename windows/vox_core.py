@@ -21,6 +21,7 @@ import requests
 import codemode
 import providers
 import secret
+import snippets as snippets_mod
 import structure as structure_mod
 
 log = logging.getLogger("vox")
@@ -74,6 +75,7 @@ DEFAULT_CONFIG = {
     "code_mode": "auto",
     "code_apps": list(codemode.CODE_APPS),
     "code_cleanup": "rules",
+    "snippets": {},
     "listen_target": "note",
     "note_hotkey": "ctrl+alt+n",
     "keep_history": True,
@@ -177,6 +179,8 @@ def _fix_types(cfg):
         elif isinstance(default, dict):
             if not isinstance(v, dict):
                 cfg[k] = dict(default)
+            elif k == "snippets":
+                cfg[k] = snippets_mod.clean_snippets(v)
         elif isinstance(default, str) and v is None:
             cfg[k] = ""
 
@@ -1351,6 +1355,7 @@ def process_text(cfg, raw, exe, app_label, segments=None):
     if code:
         out = codemode.format_code(out)   # "new line" is one of its symbols
     out = fuzzy_dictionary(apply_replacements(out, replacements(cfg)), dictionary_terms(cfg))
+    out = snippets_mod.apply_snippets(out, cfg.get("snippets"))   # after the cleanup: a saved text never goes to the AI
     if not code:
         out = apply_structure(cfg, out, style, segments)
     return Result(raw, out, cleaned, error, rejected)

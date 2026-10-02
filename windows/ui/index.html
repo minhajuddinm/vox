@@ -322,6 +322,14 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="row"><input type="text" id="wrong" class="grow" placeholder="When it hears (e.g. lume x r)"><input type="text" id="right" class="grow" placeholder="Write (e.g. LoomXR)"><button class="btn" id="add-repl">Add</button></div>
     </div>
     <div class="card list" style="margin-top:12px"><table id="repls"></table></div>
+    <h2>Snippets</h2>
+    <p class="sub" style="margin-top:-6px">Say the phrase and Vox types the text you saved, in any app. The text is put in after the AI cleanup, so it never goes to the cleanup server. While sync is on, snippets are copied to your relay. Up to 50, 2,000 characters each.</p>
+    <div class="card">
+      <div class="row"><input type="text" id="snip-trigger" class="grow" maxlength="100" placeholder="When I say (e.g. my email)"></div>
+      <textarea class="mynotes" id="snip-text" maxlength="2000" style="min-height:70px;margin-top:8px" placeholder="Type (e.g. me@example.com, or a signature on several lines)"></textarea>
+      <div class="row" style="margin-top:8px"><div class="status grow" id="snip-status"></div><button class="btn" id="snip-add">Add</button></div>
+    </div>
+    <div class="card list" style="margin-top:12px"><table id="snips"></table></div>
   </section>
 
   <!-- STYLES -->
@@ -454,6 +462,22 @@ function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add
 // Dictionary lines: "word" is a term, "wrong => right" is a replacement.
 function dictRepls(lines) { return (lines || []).filter(l => l.includes("=>")).map(l => l.split("=>").map(s => s.trim())); }
 function dictLines(terms, repl) { return [...terms, ...repl.map(([w, r]) => `${w} => ${r}`)]; }
+// Snippets ({trigger: text}): the same caps as snippets.py and Snippets.java, which clean the setting again when they use it.
+const SNIP_MAX = 50, SNIP_TEXT_MAX = 2000, SNIP_TRIGGER_MAX = 100;
+// {ok, map, msg}: the snippets with this one added (a trigger already there, case ignored, gets the new text, at the end).
+function snippetsAdd(map, trigger, text) {
+  const t = String(trigger ?? "").replace(/[ \t\r\n]+/g, " ").trim(), x = String(text ?? "").replace(/\r\n?/g, "\n");
+  if (!t || !x.trim()) return { ok: false, map, msg: "Type the phrase and the text it stands for" };
+  if (t.length > SNIP_TRIGGER_MAX) return { ok: false, map, msg: `The phrase can be up to ${SNIP_TRIGGER_MAX} characters` };
+  const out = {};
+  for (const [k, v] of Object.entries(map || {})) if (k.toLowerCase() !== t.toLowerCase()) out[k] = v;
+  if (Object.keys(out).length >= SNIP_MAX) return { ok: false, map, msg: `Up to ${SNIP_MAX} snippets` };
+  out[t] = x.slice(0, SNIP_TEXT_MAX);
+  return { ok: true, map: out, msg: "Added" };
+}
+function snippetsRemove(map, trigger) { const out = {}; for (const [k, v] of Object.entries(map || {})) if (k !== trigger) out[k] = v; return out; }
+// One line of a saved text for the list: line breaks shown as " / ", cut at 80 characters.
+function snippetPreview(text) { const s = String(text ?? "").replace(/\n+/g, " / "); return s.length > 80 ? s.slice(0, 79) + "…" : s; }
 // "Lists and paragraphs": off, auto or lists; anything else is auto (structure.py structure_mode, Structure.mode).
 function structureMode(v) { const s = String(v ?? "").trim().toLowerCase(); return ["off", "auto", "lists"].includes(s) ? s : "auto"; }
 function aboutCount() {
@@ -743,7 +767,20 @@ function renderDict() {
   const { terms, repl } = dictLists();
   $("terms").innerHTML = terms.length ? terms.map((t, i) => `<span class="chip">${esc(t)}<button data-i="${i}" title="Remove">${ICON_X}</button></span>`).join("") : '<span class="style-tag">No words yet.</span>';
   $("repls").innerHTML = repl.length ? repl.map(([w, r], i) => `<tr><td>${esc(w)}</td><td class="arrow">→</td><td><b>${esc(r)}</b></td><td style="width:40px"><button class="icon-btn" data-r="${i}">${ICON_DEL}</button></td></tr>`).join("") : '<tr><td class="empty">No replacements yet.</td></tr>';
+  renderSnippets();
 }
+function renderSnippets() {
+  const s = Object.entries(S.config.snippets || {});
+  $("snips").innerHTML = s.length ? s.map(([t, x], i) => `<tr><td><b>${esc(t)}</b></td><td class="arrow">→</td><td>${esc(snippetPreview(x))}</td><td style="width:40px"><button class="icon-btn" data-snip="${i}">${ICON_DEL}</button></td></tr>`).join("") : '<tr><td class="empty">No snippets yet.</td></tr>';
+}
+$("snip-add").onclick = async () => {
+  const res = snippetsAdd(S.config.snippets, $("snip-trigger").value, $("snip-text").value);
+  $("snip-status").textContent = res.ok ? "" : res.msg;
+  if (!res.ok) return;
+  $("snip-trigger").value = $("snip-text").value = "";
+  await save({ snippets: res.map }, res.msg); renderSnippets();
+};
+$("snips").onclick = async (e) => { const b = e.target.closest("[data-snip]"); if (!b) return; const s = Object.keys(S.config.snippets || {})[+b.dataset.snip]; if (s === undefined) return; await save({ snippets: snippetsRemove(S.config.snippets, s) }, "Removed"); renderSnippets(); };
 $("add-term").onclick = async () => { const v = $("term").value.trim(); if (!v) return; $("term").value = ""; await editList("dictionary", api().dict_add_term(v)); renderDict(); };
 $("term").onkeydown = (e) => { if (e.key === "Enter") $("add-term").click(); };
 $("terms").onclick = async (e) => { const b = e.target.closest("button"); if (!b) return; const t = dictLists().terms[+b.dataset.i]; if (t === undefined) return; await editList("dictionary", api().dict_remove_term(t)); renderDict(); };

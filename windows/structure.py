@@ -41,6 +41,8 @@ _SENTENCE_PUNCT = ".!?।"
 _SPACE = " \t\r\n"
 _ALREADY_LIST = re.compile(r"(?m)^[ \t]*(?:[-*•]|[0-9]+[.)])[ \t]+[^ \t\r\n]")
 _NEWLINES = re.compile(r"[ \t\r\n]*\n[ \t\r\n]*")
+_WORD_END = ("", " ", "\t", ",", ";", ":", "!", "?")   # what may follow an item's first word for it to get a capital
+_SENTENCE_INSIDE = re.compile("[.!?।][ \t\r\n]")   # a sentence end inside an item (the dot of example.com is not one)
 _SENTENCE_END = re.compile("[.!?।][\"'”’)\\]]*[ \t\r\n]+(?=[^ \t\r\n])")
 
 
@@ -158,14 +160,16 @@ def _capitalised(item):
     while j < len(item) and _is_word_char(item[j]):
         j += 1
     first = item[:j]
-    if not first or not first[0].islower() or any(c.isupper() for c in first):
-        return item
+    if not first or not first[0].islower() or any(c.isupper() for c in first) or item[j:j + 1] not in _WORD_END:
+        return item   # a word glued to more (me@example.com, node.js) keeps its case too
     return first[0].upper() + item[1:]
 
 
 def _clean_item(body, flat_case):
+    """One item: line breaks inside made spaces, the punctuation around the cue and at the end dropped (a full stop too
+    when the item is one sentence), and a capital first letter unless very casual."""
     s = _NEWLINES.sub(" ", body).lstrip(_SPACE + ",.;:-–—।").rstrip(_SPACE + ",;:")
-    if s[-1:] in (".", "।") and not any(c in ".!?।" for c in s[:-1]):
+    if s[-1:] in (".", "।") and not _SENTENCE_INSIDE.search(s[:-1]):
         s = s[:-1].rstrip(_SPACE)
     return s if flat_case else _capitalised(s)
 

@@ -181,6 +181,15 @@ nav button.on .pill { background:var(--accent-soft); }
     <button class="btn full" id="r-add">Add replacement</button>
   </div>
   <div class="card list" id="repls" style="margin-top:10px"></div>
+  <h2>Snippets</h2>
+  <div class="card">
+    <p class="sub" style="margin:0 0 8px">Say the phrase and Vox types the text you saved. It is put in after the AI cleanup, so it never goes to the cleanup server. While sync is on, snippets are copied to your relay. Up to 50, 2,000 characters each.</p>
+    <input type="text" id="snip-trigger" maxlength="100" placeholder="When I say (e.g. my email)">
+    <textarea id="snip-text" rows="3" maxlength="2000" style="margin-top:8px" placeholder="Type (e.g. me@example.com, or a signature on several lines)"></textarea>
+    <div class="status" id="snip-status"></div>
+    <button class="btn full" id="snip-add">Add snippet</button>
+  </div>
+  <div class="card list" id="snips" style="margin-top:10px"></div>
 </section>
 
 <!-- STYLES -->
@@ -350,6 +359,22 @@ function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add
 // Dictionary lines: "word" is a term, "wrong => right" is a replacement.
 function dictRepls(lines) { return (lines || []).filter(l => l.includes("=>")).map(l => l.split("=>").map(s => s.trim())); }
 function dictLines(terms, repl) { return [...terms, ...repl.map(([w, r]) => `${w} => ${r}`)]; }
+// Snippets ({trigger: text}): the same caps as snippets.py and Snippets.java, which clean the setting again when they use it.
+const SNIP_MAX = 50, SNIP_TEXT_MAX = 2000, SNIP_TRIGGER_MAX = 100;
+// {ok, map, msg}: the snippets with this one added (a trigger already there, case ignored, gets the new text, at the end).
+function snippetsAdd(map, trigger, text) {
+  const t = String(trigger ?? "").replace(/[ \t\r\n]+/g, " ").trim(), x = String(text ?? "").replace(/\r\n?/g, "\n");
+  if (!t || !x.trim()) return { ok: false, map, msg: "Type the phrase and the text it stands for" };
+  if (t.length > SNIP_TRIGGER_MAX) return { ok: false, map, msg: `The phrase can be up to ${SNIP_TRIGGER_MAX} characters` };
+  const out = {};
+  for (const [k, v] of Object.entries(map || {})) if (k.toLowerCase() !== t.toLowerCase()) out[k] = v;
+  if (Object.keys(out).length >= SNIP_MAX) return { ok: false, map, msg: `Up to ${SNIP_MAX} snippets` };
+  out[t] = x.slice(0, SNIP_TEXT_MAX);
+  return { ok: true, map: out, msg: "Added" };
+}
+function snippetsRemove(map, trigger) { const out = {}; for (const [k, v] of Object.entries(map || {})) if (k !== trigger) out[k] = v; return out; }
+// One line of a saved text for the list: line breaks shown as " / ", cut at 80 characters.
+function snippetPreview(text) { const s = String(text ?? "").replace(/\n+/g, " / "); return s.length > 80 ? s.slice(0, 79) + "…" : s; }
 // "Lists and paragraphs": off, auto or lists; anything else is auto (structure.py structure_mode, Structure.mode).
 function structureMode(v) { const s = String(v ?? "").trim().toLowerCase(); return ["off", "auto", "lists"].includes(s) ? s : "auto"; }
 function aboutCount() {
@@ -736,7 +761,20 @@ function renderDict() {
   chips(words(), "words"); chips(S.config.people || [], "people");
   const r = repls();
   $("repls").innerHTML = r.length ? r.map(([a, b]) => `<div class="item"><div class="grow">${esc(a)} <span style="color:var(--muted)">→</span> <b>${esc(b)}</b></div><button class="ib" data-a="${esc(a)}" data-b="${esc(b)}">${ICON_DEL}</button></div>`).join("") : '<div class="empty">No replacements yet.</div>';
+  renderSnippets();
 }
+function renderSnippets() {
+  const s = Object.entries(S.config.snippets || {});
+  $("snips").innerHTML = s.length ? s.map(([t, x], i) => `<div class="item"><div class="grow"><b>${esc(t)}</b> <span style="color:var(--muted)">→</span> ${esc(snippetPreview(x))}</div><button class="ib" data-snip="${i}">${ICON_DEL}</button></div>`).join("") : '<div class="empty">No snippets yet.</div>';
+}
+$("snip-add").onclick = () => {
+  const res = snippetsAdd(S.config.snippets, $("snip-trigger").value, $("snip-text").value);
+  $("snip-status").textContent = res.ok ? "" : res.msg;
+  if (!res.ok) return;
+  $("snip-trigger").value = $("snip-text").value = "";
+  save({ snippets: res.map }, res.msg); renderSnippets();
+};
+$("snips").onclick = (e) => { const b = e.target.closest("[data-snip]"); if (!b) return; const s = Object.keys(S.config.snippets || {})[+b.dataset.snip]; if (s === undefined) return; save({ snippets: snippetsRemove(S.config.snippets, s) }, "Removed"); renderSnippets(); };
 $("w-add").onclick = () => { const v = $("w-in").value.trim(); if (!v) return; const w = words(); if (!w.includes(v)) w.push(v); $("w-in").value = ""; setDict(w, repls()); renderDict(); };
 $("p-add").onclick = () => { const v = $("p-in").value.trim(); if (!v) return; const p = [...(S.config.people || [])]; if (!p.includes(v)) p.push(v); $("p-in").value = ""; save({ people: p }); renderDict(); };
 $("words").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; const w = words(), k = +b.dataset.i; if (!isNaN(k) && k >= 0 && k < w.length) { w.splice(k, 1); setDict(w, repls()); } renderDict(); };

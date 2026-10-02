@@ -736,6 +736,7 @@ public class DictationService extends Service {
                         : "Cleanup did not work, so Vox typed your words as spoken");
             }
             out = Terms.fuzzy(ApiClient.applyReplacements(out, p.replacements()), p.dictionaryTerms());   // as Windows: replacements, then the dictionary's spellings
+            out = Snippets.apply(out, p.snippets());   // after the cleanup: a saved text never goes to the AI
             out = Structure.format(out, p.structure(), style);   // then lists from spoken cues, on whatever text came out (after the guard)
             if (!isCurrent(job)) return;
             if (note) {
