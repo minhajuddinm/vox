@@ -122,3 +122,10 @@ def test_the_version_step_accepts_two_part_tags_and_refuses_anything_else(tmp_pa
 
 def test_the_committed_manifest_is_not_changed_by_the_workflow_text():
     assert 'android:versionCode="4"' in read("android", "AndroidManifest.xml")      # the step edits a copy in the runner only
+
+def test_batch_files_are_checked_out_with_crlf_on_every_os():
+    """C-B6: build_app.bat is run by cmd.exe, which can mis-find a label in an LF file; the checkout (a Linux runner too) must give CRLF."""
+    assert re.search(r"(?m)^\*\.bat\s+text\s+eol=crlf\s*$", read(".gitattributes"))
+    with open(os.path.join(ROOT, "windows", "build_app.bat"), "rb") as f:
+        data = f.read()
+    assert data.count(b"\r\n") == data.count(b"\n") > 0
