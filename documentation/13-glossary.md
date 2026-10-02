@@ -22,7 +22,9 @@
 | Term | A word or name in the dictionary that helps spelling (a plain dictionary line, or the right side of a replacement). |
 | Replacement | A `wrong => right` dictionary line applied to the final text. |
 | People | Extra dictionary terms for names. |
-| Keep listening | Windows session started by double-tapping the shortcut (or the note shortcut or the tray): audio cut at pauses into pieces and turned into text while you speak; target Note (one cleaned note at the end) or Type (each piece typed into the app it started in); a double press, the stop phrase, Esc, the tray, the note shortcut or the 60 minute limit ends it and saves. Android has none. |
+| Keep listening | Windows session started by double-tapping the shortcut (or the note shortcut or the tray): audio cut at pauses into pieces and turned into text while you speak; target Note (one cleaned note at the end) or Type (each piece typed into the app it started in); a double press, the stop phrase, the tray, the note shortcut or the 60 minute limit ends it and saves; Esc cancels it (no note). Android has none. |
+| Hands-free dictation | Windows: a dictation that keeps recording after the keys are let go, until the next press (the pill shows a stop square): from the hands-free shortcut (`hands_free_hotkey`, Ctrl+Win+Space), a tap with `hotkey_style` Hold or tap, or a voice note. |
+| Edit by voice | Windows, experimental (`command_hotkey`): select text, hold the shortcut, say what to change; the selection and the instruction go to the cleanup server and the answer replaces the selection after a guard. |
 | Listening target | `listen_target`: `note` or `type`, what keep listening does with the text. |
 | Note shortcut | `note_hotkey` (default Ctrl+Alt+N): a second shortcut that starts and stops a keep-listening session with the target Note. |
 | Piece | One utterance of a keep-listening session (3 to 20 s) or of a long dictation; each is one speech-to-text request. |

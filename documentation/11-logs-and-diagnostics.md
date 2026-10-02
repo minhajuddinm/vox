@@ -22,6 +22,16 @@ Messages worth knowing:
 | `keep listening: piece N is text X ms after it ended` | One piece of a session became text; X is the wait from the end of the speech |
 | `keep listening: ...` (warning or traceback) | A piece could not be sent, the audio buffer could not be written or removed, typing or the cleanup failed; the audio file under `%APPDATA%\Vox\listen` is kept after a failure |
 | `note shortcut '...' is off: ...` | The note shortcut setting is not usable (for example it contains the dictation shortcut) and is ignored |
+| `hands_free_hotkey '...' is off: ...` (also `paste_last_hotkey`, `copy_last_hotkey`, `command_hotkey`) | That shortcut clashes with another one or cannot be read (`hotkeys.check`) and is ignored; Settings shows the same reason under its row |
+| `hands-free dictation (tap)` / `hands-free dictation (shortcut)` | A dictation was latched hands-free by a tap (`hotkey_style` hold_or_tap) or by the hands-free shortcut |
+| `recording cancelled (Esc)` / `keep listening: cancelled after N s[, audio kept]` | Esc ended a recording or a session without sending anything more |
+| `hotkey: N key(s) were not really held after a pause, forgotten` | After more than 2 s without key events some keys the engine thought were held were up (a lost key-up, for example after Win+L); they were dropped |
+| `modifier keys still held after 2.0 s, going on` | The paste waited for Shift/Ctrl/Alt/Win to come up and gave up; the paste was sent anyway |
+| `streaming: N pieces, M sent while speaking` | A dictation went to speech-to-text in N pieces, M of them before the key was released |
+| `FLAC encoding failed (...), sending WAV` | The FLAC upload could not be made; the dictation went as WAV |
+| `clipboard format N (B bytes) is too big to keep, it is not put back` | One clipboard format was over 16 MB and was left out of the copy taken before a paste |
+| `edit by voice: applied (A -> B characters)` / `edit by voice: refused (reason)` / `edit by voice: api error N` | Edit by voice; sizes and reasons only, never the selected text or the instruction |
+| `meeting ID saved, exported (N lines[; audio kept: not fully transcribed])` / `... not exported` / `could not export the notes of meeting ID (ErrorType)` | A meeting was finished; its title and export path are not logged |
 | `notify: ...` | A tray notification was shown (text included, except note and meeting titles, which log `(private text not logged)`), e.g. "Vox did not hear anything (loudest sound N of 32768)..." |
 | `api error: ...` | The server answered with an error status |
 | `settings reloaded, hotkey=...` | `config.json` changed and was re-read |
@@ -43,6 +53,8 @@ The Android app writes one small file: the bubble diagnostics, `files/overlay_di
 | Shortcut does nothing | `vox.log` for `engine started` and `recording started`. No `recording started`: the engine is not running or the key names in `hotkey` are wrong. |
 | "Vox did not hear anything (loudest sound 1 ...)" | The selected microphone delivers silence (muted, dead, or a wireless headset whose mic is off). Pick another in Settings > Microphone. A live microphone in a quiet room usually shows a small but non-trivial value (25 to 30 was seen on one laptop). |
 | Nothing pasted, no error | The target app blocked Ctrl+V, or the engine was busy (`busy` state) |
+| Notification "The window in front runs as administrator..." | That program runs elevated and Vox does not, so Windows drops the keys Vox sends; the text is on the clipboard (press Ctrl+V), or run that program without administrator rights |
+| Hands-free starts when you tap the shortcut | Settings, "A quick tap of the dictation shortcut" is Hold or tap (`hotkey_style`); Classic restores the old behaviour |
 | Notification "Copied; the window changed" | The focused program was not the one the dictation started in, so Vox did not paste (it would have gone to the wrong app). The text is on the clipboard: press Ctrl+V where you want it. `vox.log` shows a warning `could not read the focused window` when that check itself failed (the paste then goes ahead). |
 | Notification "The server rejected the API key" | Key wrong or expired; Settings > Test |
 | Notification "Rate limit reached" | Groq free limit; wait, then tray > Retry last dictation |

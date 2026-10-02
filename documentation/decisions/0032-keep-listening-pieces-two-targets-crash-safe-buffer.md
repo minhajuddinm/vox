@@ -1,6 +1,6 @@
 # 0032. Keep listening: pieces, two targets (Note and Type), a crash-safe audio file
 
-Status: Accepted (built on Windows, unit tested with fakes; never run with a real microphone or server, see [p9e](../specs/p9e-keep-listening.md)). Android keep-listening is out of scope for this round.
+Status: Accepted (built on Windows, unit tested with fakes; never run with a real microphone or server, see [p9e](../specs/p9e-keep-listening.md)). Android keep-listening is out of scope for this round. The Esc rule of point 6 is superseded by [0037](0037-esc-cancels-and-the-hook-only-queues-keys.md): Esc now cancels.
 Date: 2026-10-01
 
 ## Context
