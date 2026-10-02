@@ -118,6 +118,8 @@ def check(cfg):
 
 def _conflict(name, chord, dictation, taken):
     mods = set(chord.mods)
+    if chord.vk == 0x20 and "space" in dictation:
+        return "Space is part of your dictation shortcut. Pick another key."
     if dictation <= mods and name not in EXTENDS_DICTATION:
         return ("That includes your dictation shortcut (%s), which would start a dictation first. Pick another "
                 "combination." % _names(m for m in _MODS if m in dictation))

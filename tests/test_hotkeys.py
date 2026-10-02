@@ -119,3 +119,8 @@ def test_the_style_setting():
 ])
 def test_tap_or_hold(style, held, command, action):
     assert hotkeys.tap_action(style, held, command) == action
+
+
+def test_space_cannot_be_used_when_it_is_part_of_a_custom_dictation_shortcut():
+    out = hotkeys.check(defaults(hotkey=["ctrl", "space"], note_hotkey=""))
+    assert out["hands_free_hotkey"][0] is None and "Space" in out["hands_free_hotkey"][1]
