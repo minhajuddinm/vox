@@ -60,7 +60,7 @@ State of the code, honestly. Update this page when you fix or discover something
 
 - Android API key and history are not encrypted inside the app's private storage.
 - Windows history and meeting data are plain files.
-- Dictated text passes through the clipboard, marked so Win+V history and the cloud clipboard skip it. `keep_clipboard` defaults to false, so the old clipboard is restored after a paste (every format that is plain memory; GDI-handle formats are not copied). The clipboard code (`paste.py`) was run on the development PC against the real clipboard but not under a live dictation.
+- Dictated text passes through the clipboard, marked so the cloud clipboard skips it; Win+V history keeps it unless `clipboard_history` is turned off (default on). `keep_clipboard` defaults to false, so the old clipboard is restored after a paste (every format that is plain memory; GDI-handle formats are not copied). The clipboard code (`paste.py`) was run on the development PC against the real clipboard but not under a live dictation.
 
 ### Structure and quality
 
