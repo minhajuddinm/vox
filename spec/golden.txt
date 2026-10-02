@@ -465,6 +465,16 @@ bubbleaction	false	true	false	remove
 bubbleaction	false	false	true	none
 bubbleaction	false	false	false	none
 # fidelity guard (Fidelity.java / vox_core.fidelity_ok): strength<TAB>raw<TAB>cleaned<TAB>ok. Light: recall >= 97%, Standard: recall >= 85% after fillers and repeats are dropped from raw.
+fidelity	light	the show starts at nine fifteen a m	The show starts at 9:15 AM.	true
+fidelity	light	the show starts at nine fifteen a m	The show starts at 9:30 AM.	false
+fidelity	light	the battery is at seventy five percent	The battery is at 75%.	true
+fidelity	light	the battery is at seventy five percent	The battery is at 70%.	false
+fidelity	light	we sold ten thousand units	We sold 10,000 units.	true
+fidelity	light	we sold ten thousand units	We sold 1,000 units.	false
+fidelity	light	I live on the second floor	I live on the 2nd floor.	true
+fidelity	light	I live on the second floor	I live on the 3rd floor.	false
+fidelity	light	it costs fifty pounds	It costs £50.	true
+fidelity	light	it costs fifty pounds	It costs 50.	false
 fidelity	light	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together	So yesterday I went to the market and bought some apples and bananas. Then I came home and cooked dinner for the whole family, and we all sat down together.	true
 fidelity	light	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together	So yesterday I went to the market and bought some apples and bananas.\n\nThen I came home and cooked dinner for the whole family, and we all sat down together.	true
 fidelity	standard	so yesterday I went to the market and bought some apples and bananas then I came home and cooked dinner for the whole family and we all sat down together	So yesterday I went to the market and bought some apples and bananas. Then I came home and cooked dinner for the whole family, and we all sat down together.	true
