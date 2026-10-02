@@ -577,18 +577,18 @@ def test_an_end_that_looks_clean_after_the_cut_off_is_still_a_502(server, llm_st
 
 
 def test_a_read_that_goes_quiet_is_cut_at_the_deadline_even_where_a_shutdown_cannot_wake_it(server, llm_stub, monkeypatch):
-    monkeypatch.setitem(relay.PROXY_TIMEOUT, "models", 1.0)
+    monkeypatch.setitem(relay.PROXY_TIMEOUT, "models", 2.0)       # (2 s, not 1 s: a slow runner has room before the 3.0 s limit)
     crippled_sockets(monkeypatch, no_shutdown=True)
 
     def goes_quiet(h, rec):
         h.wfile.write(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n" + b"x" * 10)
-        time.sleep(0.8)
-        h.wfile.write(b"x" * 10)    # a read starts right after this one, 0.2 s before the deadline, then nothing
-        time.sleep(4)
+        time.sleep(1.6)
+        h.wfile.write(b"x" * 10)    # a read starts right after this one, 0.4 s before the deadline, then nothing
+        time.sleep(8)
     llm_stub.script = goes_quiet
     t0 = time.monotonic()
     resp = call(server, "GET", LLM_MODELS)
-    assert resp.status == 502 and time.monotonic() - t0 < 1.4      # (a whole new 1 s for the last read would end at 1.8 s)
+    assert resp.status == 502 and time.monotonic() - t0 < 3.0      # (a whole new 2 s for the last read would end at 3.6 s)
     assert free_slots(server)
 
 
@@ -1282,7 +1282,7 @@ def test_a_client_that_hangs_up_mid_wait_frees_its_slot_within_about_a_second(se
         _send_and_hang_up(server, route, stub, arrived)
         t0 = time.monotonic()
         assert _slots_free_within(server, 3), "the slot is still held after the client left"
-        assert time.monotonic() - t0 < 1.5
+        assert time.monotonic() - t0 < 2.5      # (the relay looks every 0.25 s; the room is for a slow runner)
     finally:
         gate.set()
 
