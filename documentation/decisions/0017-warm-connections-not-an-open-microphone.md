@@ -1,6 +1,6 @@
 # 0017. Warm the connections at key-down; never keep the microphone open
 
-Status: Accepted
+Status: Accepted (the microphone rule is relaxed as an opt-in by [0041](0041-optional-warm-microphone-with-a-400-ms-ring.md); the default is unchanged)
 Date: 2026-09-30
 
 ## Context

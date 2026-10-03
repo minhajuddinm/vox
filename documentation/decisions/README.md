@@ -22,7 +22,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0014](0014-documentation-checked-in-ci.md) | This documentation is machine-checked in CI | Accepted |
 | [0015](0015-sync-docs-every-session.md) | Sync the documentation at the end of every session | Accepted |
 | [0016](0016-per-role-server-and-model-discovery.md) | Per-role server and model discovery by id | Accepted |
-| [0017](0017-warm-connections-not-an-open-microphone.md) | Warm the connections at key-down; never keep the microphone open | Accepted |
+| [0017](0017-warm-connections-not-an-open-microphone.md) | Warm the connections at key-down; never keep the microphone open | Accepted (opt-in exception: 0041) |
 | [0018](0018-about-you-context-in-the-prompt.md) | "About you" context: constant, fenced, capped | Accepted |
 | [0019](0019-voice-notes-in-sqlite.md) | Voice notes in SQLite, separate from history and meetings for now | Accepted |
 | [0020](0020-relay-design.md) | Relay: loopback server, tailnet transport, token auth, sequence cursor | Accepted |
@@ -46,6 +46,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0038](0038-text-structure-from-spoken-cues-and-code-mode-without-the-ai.md) | Lists come only from spoken cues, after the cleanup; code apps get rules, not the AI cleanup | Accepted (not run on real speech) |
 | [0039](0039-auto-learn-reads-the-field-through-ui-automation-with-pythonnet.md) | Learn from my corrections: a short watch of the typed field, UI Automation through pythonnet, a final check before the text goes | Accepted (not run on a real desktop or phone) |
 | [0040](0040-the-relay-stores-the-sent-note-time-and-orders-by-a-bounded-copy.md) | The relay stores the sent note time and orders writes by a bounded copy of it | Accepted (tested against the real relay with in-memory devices, not on a real relay or phone) |
+| [0041](0041-optional-warm-microphone-with-a-400-ms-ring.md) | An optional warm microphone with a 400 ms ring buffer (`warm_mic`, off by default) | Accepted (Windows; not run with a real microphone) |
 
 ## Template
 
