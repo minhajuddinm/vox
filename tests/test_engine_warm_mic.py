@@ -3,11 +3,12 @@ its last 400 ms, and that nothing changes while the setting is off. A fake sound
 Needs the Windows runtime packages (pynput, pystray, ...); skipped where they are missing (CI's test job)."""
 import types
 
-import numpy as np
 import pytest
 
 for _mod in ("pynput", "pystray", "sounddevice", "pyperclip", "psutil"):
     pytest.importorskip(_mod)
+
+import numpy as np  # noqa: E402  (the engine needs it too)
 
 import engine as engine_mod  # noqa: E402
 import vox_core as core  # noqa: E402
