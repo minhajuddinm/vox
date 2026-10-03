@@ -62,6 +62,7 @@ DEFAULT_CONFIG = {
     "relay_run": False,
     "relay_port": 8765,
     "stream_stt": True,
+    "warm_mic": False,         # Windows: keep the microphone open so the first word is not lost (mic-in-use icon stays on)
     "device_name": "",
     "hotkey": ["ctrl_l", "cmd"],
     "stt_model": DEFAULT_STT,

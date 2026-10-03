@@ -390,6 +390,7 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="setting"><div><div class="t">Copy last dictation</div><div class="d">Puts your last dictation on the clipboard, for example shift+alt+x. Empty (the default) turns it off.</div><div class="status" id="copy-last-hotkey-status"></div></div><input type="text" id="copy-last-hotkey" style="width:170px" placeholder="off" spellcheck="false"></div>
       <div class="setting"><div><div class="t">Edit by voice (experimental)</div><div class="d">Select text, hold these keys and say what to change, for example "make this shorter"; the answer replaces the selection. This sends the selected text and your instruction to your cleanup server, also in code apps. To read the selection Vox presses Ctrl + C, so the app copies it the normal way: Win + V history (and the cloud clipboard, if Windows clipboard sync is on) can keep it, whatever the clipboard settings below say. Modifier keys only, for example ctrl+cmd+alt (hold Ctrl + Win, then add Alt). Does not work in terminals. Empty (the default) turns it off.</div><div class="status" id="command-hotkey-status"></div></div><input type="text" id="command-hotkey" style="width:170px" placeholder="off" spellcheck="false"></div>
       <div class="setting"><div><div class="t">Microphone</div><div class="d">Which microphone Vox listens to. The Windows default unless you pick one. If dictation says it heard nothing, try another.</div></div><select id="mic" style="max-width:260px"></select></div>
+      <div class="setting"><div><div class="t">Keep the microphone ready</div><div class="d">Starts recording without losing the first word. Windows shows the microphone-in-use icon all the time while this is on.</div></div><label class="switch"><input type="checkbox" id="warm-mic"><span></span></label></div>
       <div class="setting"><div><div class="t">Language</div><div class="d">Auto detect can switch language on short phrases. Pick one to lock it.</div></div>
         <select id="language"><option value="">Auto detect</option><option value="en">English</option><option value="ur">Urdu</option><option value="hi">Hindi</option><option value="ar">Arabic</option><option value="fr">French</option><option value="es">Spanish</option></select></div>
       <div class="setting"><div><div class="t">Send recordings while I speak</div><div class="d">For dictations longer than about 7 seconds, the finished parts are sent to your voice server in pieces at your pauses while you are still talking, so less is left to wait for when you stop. Short recordings are not affected. Uses a few more requests.</div></div><label class="switch"><input type="checkbox" id="stream-stt"><span></span></label></div>
@@ -907,6 +908,7 @@ function renderSettings() {
   $("keep-history").checked = c.keep_history !== false;
   $("auto-learn").checked = c.auto_learn !== false;
   $("stream-stt").checked = c.stream_stt !== false;
+  $("warm-mic").checked = !!c.warm_mic;
   $("relay-sync").checked = !!c.relay_sync;
   $("relay-keys").checked = !!c.relay_sync_keys;
   if (document.activeElement !== $("relay-url")) $("relay-url").value = c.relay_url || "";
@@ -1052,6 +1054,7 @@ $("code-apps").onchange = (e) => save({ code_apps: codeAppList(e.target.value) }
 // The Code apps box: names separated by commas or lines, trimmed, without repeats (case is ignored).
 function codeAppList(text) { const seen = new Set(); return String(text || "").split(/[,\n]/).map(s => s.trim()).filter(s => s && !seen.has(s.toLowerCase()) && seen.add(s.toLowerCase())); }
 $("stream-stt").onchange = (e) => save({ stream_stt: e.target.checked });
+$("warm-mic").onchange = (e) => save({ warm_mic: e.target.checked });
 $("autostart").onchange = async (e) => { S.autostart = await api().set_autostart(e.target.checked); e.target.checked = S.autostart; toast(S.autostart ? "Vox will start with Windows" : "Autostart off"); };
 $("stt").onchange = (e) => save({ stt_model: e.target.value.trim() });
 $("llm").onchange = (e) => save({ llm_model: e.target.value.trim() });

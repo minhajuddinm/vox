@@ -33,6 +33,7 @@ import streaming
 import sync
 import timing as timing_mod
 import vox_core as core
+import warm_mic
 import vcalendar
 from meeting import Meeting, recover_unfinished
 from overlay import Overlay
@@ -144,6 +145,8 @@ class Engine:
     _audio_refresh_t = float("-inf")
     _mic_missing_told = ""   # the chosen microphone we already said is missing
     _told_elevated = False
+    warm = None          # warm_mic.WarmMic while the warm_mic setting is on (windows/warm_mic.py)
+    _preroll = 0         # bytes at the front of this recording that came from before the key-down (warm microphone)
 
     def __init__(self):
         self.cfg = core.load_config()
@@ -244,6 +247,7 @@ class Engine:
             try:
                 if not self.recording:
                     self.reload_if_changed()
+                    self._sync_warm()
             except Exception:
                 log.exception("config reload failed")
 
@@ -263,6 +267,8 @@ class Engine:
             deadline = time.time() + 180
             while self.listening and time.time() < deadline:
                 time.sleep(0.5)
+        if self.warm is not None:
+            self.warm.close()   # the microphone is let go, and the audio it held with it
         self.sync.stop()
         self.relay.stop()
         self.icon.stop()
@@ -700,7 +706,7 @@ class Engine:
             self.streaming.start()
         core.warm(self.cfg)   # open the server connections while the user speaks
         try:
-            self._open_mic(self._audio)
+            self._begin_capture()
             tm.mark("rec_start")
         except Exception as e:
             self.notify(f"Microphone error: {e}")
@@ -745,6 +751,49 @@ class Engine:
             else:
                 raise
 
+    # ------------------------------------------------------ warm microphone (setting warm_mic, windows/warm_mic.py)
+    def _sync_warm(self):
+        """Keeps the warm microphone in line with the settings: open on the chosen microphone while `warm_mic` is on
+        (reopened when the microphone changed or the stream died, a failed open is retried now and then), closed when off."""
+        if not self.cfg.get("warm_mic"):
+            if self.warm is not None:
+                self.warm.close()
+                self.warm = None
+            return
+        if self.warm is None:
+            self.warm = warm_mic.WarmMic(self._open_warm_stream, self.notify)
+        self.warm.ensure(self.cfg.get("input_device") or "")
+
+    def _open_warm_stream(self, callback):
+        """The stream the warm microphone keeps: the chosen microphone only (a missing one is for `_open_mic` to explain)."""
+        name = self.cfg.get("input_device")
+        device = audio_devices.input_index(name)
+        if name and device is None:
+            raise warm_mic.NotAvailable(name)
+        stream = sd.InputStream(samplerate=core.SAMPLE_RATE, channels=1, dtype="int16", device=device, callback=callback)
+        try:
+            stream.start()
+        except Exception:
+            try:
+                stream.close()
+            except Exception:
+                pass
+            raise
+        return stream
+
+    def _begin_capture(self):
+        """Feeds `_audio` from the warm microphone when it is ready (the last 400 ms before the key-down come first),
+        else from a stream opened now, as always."""
+        self._preroll = 0
+        warm = self.warm
+        if warm is not None and warm.attach(self._audio, prime=self._prime):
+            return
+        self._open_mic(self._audio)
+
+    def _prime(self, held):
+        self._preroll = len(held)
+        self._audio(np.frombuffer(held, dtype=np.int16).reshape(-1, 1), None, None, None)
+
     def _mic_missing(self, name):
         """Says once (until the microphone is back) that the chosen microphone is not there."""
         if self._mic_missing_told != name:
@@ -761,7 +810,7 @@ class Engine:
         Only while none of our streams is open, and at most once every AUDIO_REFRESH_SECONDS (restarting PortAudio takes
         time, and a missing microphone would otherwise restart it for every dictation); True when it was done."""
         now = time.monotonic()
-        if self.recording or self.listening or now - self._audio_refresh_t < AUDIO_REFRESH_SECONDS:
+        if self.recording or self.listening or now - self._audio_refresh_t < AUDIO_REFRESH_SECONDS                 or (self.warm is not None and self.warm.is_open):   # restarting PortAudio would kill the warm stream
             return False
         self._audio_refresh_t = now
         try:
@@ -783,6 +832,8 @@ class Engine:
             threading.Thread(target=self.stop, daemon=True).start()
 
     def _close_stream(self):
+        if self.warm is not None and self.warm.detach():
+            return   # the recording was fed by the warm microphone: it stays open for the next one
         try:
             self.stream.stop()
             self.stream.close()
@@ -828,7 +879,7 @@ class Engine:
             streamer.cancel()
             streamer = None
         pcm = b"".join(self.chunks)
-        if len(pcm) < core.SAMPLE_RATE * 2 * MIN_SECONDS:
+        if len(pcm) - self._preroll < core.SAMPLE_RATE * 2 * MIN_SECONDS:   # the 400 ms before the key do not count
             if streamer:
                 streamer.cancel()
             self.set_state("idle")
