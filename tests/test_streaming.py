@@ -68,12 +68,75 @@ def test_speech_without_pauses_is_cut_at_the_maximum():
     assert b"".join(pieces) + seg.rest() == audio
 
 
-def test_a_forced_cut_prefers_the_last_quiet_moment():
-    seg = core.Segmenter(min_seconds=12, max_seconds=28, pause_seconds=2.0)      # pauses of 0.5 s are too short to cut on
-    audio = tone(16) + silence(0.5) + tone(20)
+FRAME_BYTES = core.Segmenter.FRAME * 2
+
+
+def loud_frames(n, dips=()):
+    """n frames of constant loud audio; `dips` maps a frame number to the peak that frame has instead (0 = silence)."""
+    out = bytearray()
+    for i in range(n):
+        out += int(dict(dips).get(i, 8000)).to_bytes(2, "little", signed=True) * core.Segmenter.FRAME
+    return bytes(out)
+
+
+def test_a_forced_cut_takes_the_quietest_frame_of_the_last_two_seconds():
+    seg = core.Segmenter()                                    # 12 s to 28 s: the limit is reached at frame 934
+    audio = loud_frames(2000, {910: 200, 920: 60, 925: 500})     # speech all the way, three dips in the last 2 s
     pieces = seg.feed(audio)
-    assert len(pieces) == 1 and abs(len(pieces[0]) - int(16.5 * RATE * 2)) <= 960   # cut where the quiet moment ended
+    assert len(pieces[0]) == 921 * FRAME_BYTES               # the cut ends the quietest frame (920)
     assert b"".join(pieces) + seg.rest() == audio
+
+
+def test_a_forced_cut_takes_the_latest_of_equally_quiet_frames():
+    seg = core.Segmenter()
+    audio = loud_frames(1200, {905: 0, 915: 0, 930: 0})
+    pieces = seg.feed(audio)
+    assert len(pieces[0]) == 931 * FRAME_BYTES
+    assert b"".join(pieces) + seg.rest() == audio
+
+
+def test_a_forced_cut_without_any_dip_falls_back_to_the_limit():
+    seg = core.Segmenter()
+    audio = loud_frames(2000)
+    pieces = seg.feed(audio)
+    assert [len(p) for p in pieces] == [934 * FRAME_BYTES, 934 * FRAME_BYTES]   # 934 frames is the first whole frame past 28 s
+    assert b"".join(pieces) + seg.rest() == audio
+
+
+def test_a_forced_cut_ignores_a_dip_before_the_last_two_seconds_but_takes_one_at_the_start_of_the_window():
+    audio_out = loud_frames(1200, {867: 0})                  # the frame just before the window (frames 868 to 933)
+    assert len(core.Segmenter().feed(audio_out)[0]) == 934 * FRAME_BYTES
+    audio_in = loud_frames(1200, {868: 0})                   # the first frame of the window
+    seg = core.Segmenter()
+    pieces = seg.feed(audio_in)
+    assert len(pieces[0]) == 869 * FRAME_BYTES
+    assert b"".join(pieces) + seg.rest() == audio_in
+
+
+def test_a_forced_cut_dip_does_not_need_to_be_quiet_only_quieter():
+    seg = core.Segmenter()
+    audio = loud_frames(1200, {900: 3000})                   # soft, far above the pause level: still the quietest
+    assert len(seg.feed(audio)[0]) == 901 * FRAME_BYTES
+
+
+def test_a_forced_cut_never_makes_a_piece_shorter_than_the_minimum():
+    # min 5 s, max 6 s: the last two seconds start at 4 s, but a piece may not be shorter than 5 s
+    audio = loud_frames(400, {140: 0})                       # a dip at 4.2 s: before the minimum
+    pieces = core.Segmenter(min_seconds=5, max_seconds=6, pause_seconds=0.6).feed(audio)
+    assert len(pieces[0]) >= 5 * RATE * 2 and len(pieces[0]) == 200 * FRAME_BYTES
+    audio = loud_frames(400, {170: 0})                       # a dip at 5.1 s: allowed
+    pieces = core.Segmenter(min_seconds=5, max_seconds=6, pause_seconds=0.6).feed(audio)
+    assert len(pieces[0]) == 171 * FRAME_BYTES
+
+
+def test_forced_cuts_do_not_depend_on_how_the_audio_arrives():
+    audio = loud_frames(2200, {915: 0, 1500: 100})
+    whole = core.Segmenter().feed(audio)
+    for block in (2, 1000, 1601, 7777, 96000):
+        seg = core.Segmenter()
+        pieces = feed_in_blocks(seg, audio, block)
+        assert pieces == whole, block
+        assert b"".join(pieces) + seg.rest() == audio
 
 
 # -------------------------------------------------------------- StreamingStt

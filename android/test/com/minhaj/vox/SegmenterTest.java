@@ -42,6 +42,28 @@ public final class SegmenterTest {
         return o.toByteArray();
     }
 
+    private static final int FRAME_BYTES = Segmenter.FRAME * 2;
+
+    /** n frames of constant loud audio; dips holds {frame, peak} pairs for the frames that have another peak instead. */
+    private static byte[] loudFrames(int n, int... dips) {
+        byte[] b = new byte[n * FRAME_BYTES];
+        for (int f = 0; f < n; f++) {
+            int v = 8000;
+            for (int d = 0; d < dips.length; d += 2) if (dips[d] == f) v = dips[d + 1];
+            for (int i = 0; i < Segmenter.FRAME; i++) {
+                b[f * FRAME_BYTES + 2 * i] = (byte) (v & 0xff);
+                b[f * FRAME_BYTES + 2 * i + 1] = (byte) ((v >> 8) & 0xff);
+            }
+        }
+        return b;
+    }
+
+    private static int firstPiece(Segmenter s, byte[] audio) {
+        List<byte[]> pieces = s.feed(audio);
+        check("pieces plus rest are the audio", java.util.Arrays.equals(audio, all(pieces, s.rest())));
+        return pieces.isEmpty() ? -1 : pieces.get(0).length;
+    }
+
     public static void main(String[] args) {
         byte[] audio = cat(tone(14), silence(1), tone(14), silence(1), tone(3));
         Segmenter whole = new Segmenter();
@@ -71,6 +93,25 @@ public final class SegmenterTest {
         // constructor rules
         Segmenter tiny = new Segmenter(0.0, 0.0, 0.0);   // pause of 0 s still needs one quiet frame
         check("one quiet frame is enough when the pause is 0", tiny.feed(cat(tone(0.03), silence(0.03))).size() >= 1);
+        // forced cuts: no pause by the maximum, so the cut is at the quietest frame of the last 2 s (limit = frame 934)
+        check("quietest frame", firstPiece(new Segmenter(), loudFrames(2000, 910, 200, 920, 60, 925, 500)) == 921 * FRAME_BYTES);
+        check("latest of equal frames", firstPiece(new Segmenter(), loudFrames(1200, 905, 0, 915, 0, 930, 0)) == 931 * FRAME_BYTES);
+        check("no dip falls back to the limit", firstPiece(new Segmenter(), loudFrames(1200)) == 934 * FRAME_BYTES);
+        check("a dip before the window is ignored", firstPiece(new Segmenter(), loudFrames(1200, 867, 0)) == 934 * FRAME_BYTES);
+        check("a dip at the start of the window", firstPiece(new Segmenter(), loudFrames(1200, 868, 0)) == 869 * FRAME_BYTES);
+        check("a soft dip is enough", firstPiece(new Segmenter(), loudFrames(1200, 900, 3000)) == 901 * FRAME_BYTES);
+        check("never shorter than the minimum", firstPiece(new Segmenter(5, 6, 0.6), loudFrames(400, 140, 0)) == 200 * FRAME_BYTES);
+        check("a dip after the minimum", firstPiece(new Segmenter(5, 6, 0.6), loudFrames(400, 170, 0)) == 171 * FRAME_BYTES);
+        byte[] forced = loudFrames(2200, 915, 0, 1500, 100);
+        Segmenter forcedWhole = new Segmenter();
+        List<byte[]> forcedExpected = forcedWhole.feed(forced);
+        for (int block : new int[] {2, 1000, 1601, 7777, 96000}) {
+            Segmenter fs = new Segmenter();
+            java.util.ArrayList<byte[]> got = new java.util.ArrayList<>();
+            for (int i = 0; i < forced.length; i += block) got.addAll(fs.feed(forced, i, Math.min(block, forced.length - i)));
+            check("forced cuts for block " + block, got.size() == forcedExpected.size());
+            for (int k = 0; k < got.size(); k++) check("forced piece " + k + " for block " + block, java.util.Arrays.equals(got.get(k), forcedExpected.get(k)));
+        }
         System.out.println("OK: " + checks + " checks passed");
     }
 }

@@ -50,7 +50,7 @@ public final class ParityTest {
     private static byte[] segAudio(String runs) {
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
         for (String r : items(runs, "|")) {
-            int v = r.charAt(0) == 't' ? 8000 : r.charAt(0) == 'q' ? 899 : r.charAt(0) == 'n' ? 900 : 0;
+            int v = r.charAt(0) == 't' ? 8000 : r.charAt(0) == 'q' ? 899 : r.charAt(0) == 'n' ? 900 : r.charAt(0) == 'm' ? 2000 : 0;
             int n = Integer.parseInt(r.substring(1)) * 16;
             for (int i = 0; i < n; i++) { out.write(v & 0xff); out.write((v >> 8) & 0xff); }
         }

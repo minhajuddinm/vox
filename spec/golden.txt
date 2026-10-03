@@ -314,7 +314,7 @@ timing_view		50	10	count=0 biggest= start=0/0 rec=0/0 stt=0/0 llm=0/0 insert=0/0
 timing_view	@x@@w@a@0@stt=1	50	10	count=1 biggest=stt start=0/0 rec=0/0 stt=1/1 llm=0/0 insert=0/0 total=0/0 models=w+a n=1 stt=1 llm=0 total=0 last=0@x@0@w@a@0@start=0,rec=0,stt=1,llm=0,insert=0,total=0
 timing_view	9@a@1@w@a@0@stt=1;3@a@1@w@a@0@stt=2;7@a@1@w@a@0@stt=3	50	2	count=3 biggest=stt start=0/0 rec=0/0 stt=2/3 llm=0/0 insert=0/0 total=0/0 models=w+a n=3 stt=2 llm=0 total=0 last=7@a@1@w@a@0@start=0,rec=0,stt=3,llm=0,insert=0,total=0|3@a@1@w@a@0@start=0,rec=0,stt=2,llm=0,insert=0,total=0
 timing_view	10@mail.exe@12@whisper-large-v3-turbo@openai/gpt-oss-20b@1@start=40,rec=2000,stt=450,llm=700,insert=30,total=1180	50	10	count=1 biggest=llm start=40/40 rec=2000/2000 stt=450/450 llm=700/700 insert=30/30 total=1180/1180 models=whisper-large-v3-turbo+openai/gpt-oss-20b n=1 stt=450 llm=700 total=1180 last=10@mail.exe@12@whisper-large-v3-turbo@openai/gpt-oss-20b@1@start=40,rec=2000,stt=450,llm=700,insert=30,total=1180
-# segcuts: min_ms|max_ms|pause_ms, runs, block => piece lengths in bytes and the rest, as a|b/rest (windows/vox_core.py Segmenter, Segmenter.java). The runs are the audio, | separated, each a letter and a length in milliseconds: t = loud (constant 8000), s = silence (0), q = just under the pause level (899, still a pause), n = at the pause level (900, not a pause). It is fed in blocks of that many bytes (an odd count is fine): the pieces must not depend on how the audio arrives. Expected values were produced by running the Python function.
+# segcuts: min_ms|max_ms|pause_ms, runs, block => piece lengths in bytes and the rest, as a|b/rest (windows/vox_core.py Segmenter, Segmenter.java). The runs are the audio, | separated, each a letter and a length in milliseconds: t = loud (constant 8000), s = silence (0), q = just under the pause level (899, still a pause), n = at the pause level (900, not a pause), m = soft speech (2000). When the maximum is reached with no pause the piece ends at the quietest 30 ms frame of the last 2 s (lowest peak, the latest on a tie, never before the minimum), else at the maximum. It is fed in blocks of that many bytes (an odd count is fine): the pieces must not depend on how the audio arrives. Expected values were produced by running the Python function.
 segcuts	12000|28000|600	t5000|s1000|t5000	1600	/352000
 segcuts	12000|28000|600	t13000|s1000|t5000	1600	435840/172160
 segcuts	12000|28000|600	t13000|s1000|t5000	2	435840/172160
@@ -322,7 +322,7 @@ segcuts	12000|28000|600	t13000|s1000|t5000	7777	435840/172160
 segcuts	12000|28000|600	t13000|s1000|t5000	96000	435840/172160
 segcuts	12000|28000|600	t6000|s1000|t6000|s1000|t2000	1600	435840/76160
 segcuts	12000|28000|600	t60000	3200	896640|896640/126720
-segcuts	12000|28000|2000	t16000|s500|t20000	1600	528000/640000
+segcuts	12000|28000|2000	t16000|s500|t20000	1600	896640/271360
 segcuts	12000|28000|600	t13000|q1000|t5000	1600	435840/172160
 segcuts	12000|28000|600	t13000|n1000|t5000	1600	/608000
 segcuts	12000|28000|600	s3000|t13000|s1000|t1000	1600	531840/44160
@@ -334,6 +334,18 @@ segcuts	12000|28000|600	t12500|s630|t3000	1600	419520/96640
 segcuts	3000|6000|300	t4000|s400|t4000|s400|t4000	960	138240|140160/131200
 segcuts	3000|6000|300	t20000	960	192000|192000|192000/64000
 segcuts	3000|6000|300	t4000|s100|t4000|s350|t1000	1000	130560|138240/33600
+segcuts	12000|28000|600	t27000|s90|t33000	1600	866880|896640/159360
+segcuts	12000|28000|600	t27000|s90|t33000	4097	866880|896640/159360
+segcuts	12000|28000|600	t26040|s30|t30000	1600	834240|896640/63360
+segcuts	12000|28000|600	t26010|s30|t30000	1600	896640|896640/0
+segcuts	12000|28000|600	t27000|m30|t33000	1600	864960|896640/159360
+segcuts	12000|28000|600	t26500|s30|t200|s30|t33000	1600	856320|896640/159360
+segcuts	12000|28000|600	t26500|s60|t200|m30|t33000	1600	849600|896640/167040
+segcuts	12000|28000|600	t20000|s400|t10000|s400|t20000	1600	896640/728960
+segcuts	5000|6000|600	t4200|s30|t5000	1600	192000/103360
+segcuts	5000|6000|600	t5100|s30|t5000	1600	164160/160000
+segcuts	5000|6000|600	t5100|s30|t5000	7	164160/160000
+segcuts	3000|6000|300	t3500|n300|t10000	960	192000|192000/57600
 segcuts	12000|28000|600	s30000	1600	384000|384000/192000
 # whisperctx: terms, context => the speech-to-text prompt of one piece of a long recording: the dictionary terms (as in whisper), then a space and the trimmed end of the text before it; only the last 600 characters (code points) are kept. With no terms the prompt starts with the space. (vox_core.whisper_prompt_with_context, ApiClient.whisperPromptWith.) Expected values were produced by running the Python function.
 whisperctx	Ada|Grace	hello there	Ada, Grace. hello there

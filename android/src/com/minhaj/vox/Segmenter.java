@@ -20,12 +20,17 @@ final class Segmenter {
     static final int FRAME = 480;
     /** A frame whose loudest sample is below this counts as a pause. */
     static final int QUIET_PEAK = 900;
+    /** No pause by the maximum: the cut is made at the quietest frame of this many last seconds. */
+    static final double CUT_WINDOW = 2.0;
 
     private final long minBytes, maxBytes;
     private final int pauseFrames;
     private byte[] buf = new byte[64 * 1024];
     private int len;
-    private int scanned, quietRun, lastQuietEnd;
+    private int scanned, quietRun;
+    /** The loudest sample of every frame scanned since the last cut. */
+    private int[] peaks = new int[64];
+    private int frames;
 
     /** The defaults of the Windows app: a piece is at least 12 s, at most 28 s, and ends in a pause of 0.6 s. */
     Segmenter() {
@@ -37,6 +42,21 @@ final class Segmenter {
         this.maxBytes = (long) (maxSeconds * SAMPLE_RATE * 2);
         // Python's round() takes a tie to the even number, Math.rint does the same
         this.pauseFrames = (int) Math.max(1, Math.rint(pauseSeconds / 0.03));
+    }
+
+    /**
+     * Where to cut when the maximum is reached without a pause: the end of the quietest frame (lowest peak, the latest
+     * on a tie) among the last CUT_WINDOW seconds, never leaving a piece shorter than the minimum. With no such frame
+     * (a minimum beyond what was scanned) the cut is at the scanned end.
+     */
+    private int forcedCut() {
+        final long size = FRAME * 2L;
+        int first = (int) Math.max(Math.max(frames - (int) (CUT_WINDOW * SAMPLE_RATE) / FRAME, (minBytes + size - 1) / size - 1), 0);
+        int best = -1;
+        for (int i = first; i < frames; i++) {
+            if (best < 0 || peaks[i] <= peaks[best]) best = i;
+        }
+        return best < 0 ? scanned : (int) ((best + 1) * size);
     }
 
     /** Adds audio; returns the pieces that are complete now, in order (usually none). */
@@ -56,23 +76,20 @@ final class Segmenter {
                 if (a > peak) peak = a;
             }
             scanned += size;
-            if (peak < QUIET_PEAK) {
-                quietRun++;
-                lastQuietEnd = scanned;
-            } else {
-                quietRun = 0;
-            }
+            if (frames == peaks.length) peaks = Arrays.copyOf(peaks, frames * 2);
+            peaks[frames++] = peak;
+            quietRun = peak < QUIET_PEAK ? quietRun + 1 : 0;
             int cut = 0;
             if (scanned >= minBytes && quietRun >= pauseFrames) {
                 cut = scanned;                       // long enough and a pause: cut here
-            } else if (scanned >= maxBytes) {        // no pause for a long time: cut at the last quiet moment if there was one
-                cut = lastQuietEnd >= maxBytes / 2 ? lastQuietEnd : scanned;
+            } else if (scanned >= maxBytes) {        // no pause for a long time: cut at the quietest moment just before the limit
+                cut = forcedCut();
             }
             if (cut > 0) {
                 out.add(Arrays.copyOfRange(buf, 0, cut));
                 System.arraycopy(buf, cut, buf, 0, len - cut);
                 len -= cut;
-                scanned = quietRun = lastQuietEnd = 0;   // the remainder is scanned again from its start
+                scanned = quietRun = frames = 0;   // the remainder is scanned again from its start
             }
         }
         return out;
@@ -86,7 +103,7 @@ final class Segmenter {
     byte[] rest() {
         byte[] data = Arrays.copyOf(buf, len);
         len = 0;
-        scanned = quietRun = lastQuietEnd = 0;
+        scanned = quietRun = frames = 0;
         return data;
     }
 }

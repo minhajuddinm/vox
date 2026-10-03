@@ -143,7 +143,7 @@ def view_text(v):
     return "%s models=%s last=%s" % (summary_text(s), models_text(v["models"]), last)
 
 
-SEG_LEVEL = {"t": 8000, "s": 0, "q": 899, "n": 900}
+SEG_LEVEL = {"t": 8000, "s": 0, "q": 899, "n": 900, "m": 2000}
 
 
 def seg_audio(runs):
