@@ -2,7 +2,9 @@
 of the focused control and learn the words the user fixes (rules: autolearn.py).
 
 The engine calls arm() right after a successful paste. A daemon thread then polls every POLL_S seconds, only while the
-watch is armed and only while the foreground window is the one Vox pasted into; it stops when the watch ends. The text is
+watch is armed and only while the foreground window is the one Vox pasted into; it stops when the watch ends. The lock is
+never held while the desktop is asked (a slow app can take seconds to answer UI Automation): poll_once() notes what it needs
+under the lock, reads without it, and uses the answer only if the watch is still the same one. The text is
 read through Windows UI Automation (the .NET UIAutomationClient, through pythonnet, which pywebview already brings), behind
 the small Provider interface so tests use a fake. Password controls are never read. A control that exposes no text
 (terminals, many Electron apps) ends the watch quietly; this is logged once. Nothing here logs text: only counts.
@@ -88,14 +90,17 @@ class Watcher:
         self.provider, self.notify, self.poll = provider, notify, poll
         self.watch = autolearn.Watch(clock=clock)
         self.lock = threading.Lock()
+        self._gen = 0   # changes whenever a watch is armed or ended: tells a read that started earlier its watch is gone
         self._wake = threading.Event()
         self._thread = None
         self._told_no_text = False
 
     def arm(self, text, start_thread=True):
         """Vox just pasted `text` into the foreground window: watch it (a running watch ends first and is learned from)."""
+        app = self.provider.foreground()   # asked before the lock is taken
         with self.lock:
-            pairs = self.watch.arm(self.provider.foreground(), text)
+            self._gen += 1
+            pairs = self.watch.arm(app, text)
             if start_thread and self.watch.armed and self._thread is None:
                 self._wake.clear()
                 self._thread = threading.Thread(target=self._run, name="vox-autolearn", daemon=True)
@@ -104,22 +109,35 @@ class Watcher:
 
     def end(self):
         with self.lock:
+            self._gen += 1
             pairs = self.watch.end()
         self._wake.set()
         self._learn(pairs)
 
     def poll_once(self):
-        """One look at the desktop. Reads the focused control only while the pasted-into window is in front."""
+        """One look at the desktop. Reads the focused control only while the pasted-into window is in front. The desktop
+        is asked without the lock; if the watch ended or a new one was armed meanwhile, the answer is dropped."""
         with self.lock:
             if not self.watch.armed:
                 return
-            app = self.provider.foreground()
-            text = None
-            if app == self.watch.app:
+            gen, target = self._gen, self.watch.app
+        app = self.provider.foreground()
+        text, password = None, False
+        if app == target:
+            try:
                 text, password = self.provider.focused_text()
-                if text is None and not password and not self._told_no_text:
-                    self._told_no_text = True
-                    log.info("auto-learn: control exposes no text")
+            except Exception:
+                with self.lock:
+                    stale = gen != self._gen
+                if stale:
+                    return   # the failure belongs to a watch that is gone; the new one is not to blame
+                raise
+        with self.lock:
+            if gen != self._gen or not self.watch.armed:
+                return
+            if app == target and text is None and not password and not self._told_no_text:
+                self._told_no_text = True
+                log.info("auto-learn: control exposes no text")
             pairs = self.watch.observe(app, text)
         self._learn(pairs)
 
@@ -131,9 +149,7 @@ class Watcher:
                 self.poll_once()
             except Exception as e:   # never the text: only what went wrong
                 log.warning("auto-learn: could not read the control (%s)", type(e).__name__)
-                with self.lock:
-                    pairs = self.watch.end()
-                self._learn(pairs)
+                self.end()
             with self.lock:
                 if not self.watch.armed:
                     self._thread = None

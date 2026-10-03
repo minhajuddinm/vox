@@ -62,6 +62,7 @@ DEFAULT_CONFIG = {
     "relay_run": False,
     "relay_port": 8765,
     "stream_stt": True,
+    "warm_mic": False,         # Windows: keep the microphone open so the first word is not lost (mic-in-use icon stays on)
     "device_name": "",
     "hotkey": ["ctrl_l", "cmd"],
     "stt_model": DEFAULT_STT,
@@ -888,13 +889,28 @@ class Segmenter:
     `rest()` returns what is left. The pieces and the rest together are exactly the audio that was fed."""
     FRAME = 480          # 30 ms at 16 kHz, in samples
     QUIET_PEAK = 900     # a frame whose loudest sample is below this counts as a pause
+    CUT_WINDOW = 2.0     # no pause by the maximum: the cut is made at the quietest frame of this many last seconds
 
     def __init__(self, min_seconds=12.0, max_seconds=28.0, pause_seconds=0.6):
         self.min_bytes = int(min_seconds * SAMPLE_RATE * 2)
         self.max_bytes = int(max_seconds * SAMPLE_RATE * 2)
         self.pause_frames = max(1, round(pause_seconds / 0.03))
         self.buf = bytearray()
-        self.scanned = self.quiet_run = self.last_quiet_end = 0
+        self.scanned = self.quiet_run = 0
+        self.peaks = []      # the loudest sample of every frame scanned since the last cut
+
+    def _forced_cut(self):
+        """Where to cut when the maximum is reached without a pause: the end of the quietest frame (lowest peak, the
+        latest on a tie) among the last CUT_WINDOW seconds, never leaving a piece shorter than the minimum. With no
+        such frame (a minimum beyond what was scanned) the cut is at the scanned end."""
+        size = self.FRAME * 2
+        n = len(self.peaks)
+        first = max(n - int(self.CUT_WINDOW * SAMPLE_RATE) // self.FRAME, -(-self.min_bytes // size) - 1, 0)
+        best = None
+        for i in range(first, n):
+            if best is None or self.peaks[i] <= self.peaks[best]:
+                best = i
+        return self.scanned if best is None else (best + 1) * size
 
     def feed(self, pcm):
         self.buf += pcm
@@ -904,26 +920,26 @@ class Segmenter:
             frame = array.array("h")
             frame.frombytes(bytes(self.buf[self.scanned:self.scanned + size]))
             self.scanned += size
-            if max(max(frame), -min(frame)) < self.QUIET_PEAK:
-                self.quiet_run += 1
-                self.last_quiet_end = self.scanned
-            else:
-                self.quiet_run = 0
+            peak = max(max(frame), -min(frame))
+            self.peaks.append(peak)
+            self.quiet_run = self.quiet_run + 1 if peak < self.QUIET_PEAK else 0
             cut = 0
             if self.scanned >= self.min_bytes and self.quiet_run >= self.pause_frames:
                 cut = self.scanned                   # long enough and a pause: cut here
-            elif self.scanned >= self.max_bytes:     # no pause for a long time: cut at the last quiet moment if there was one
-                cut = self.last_quiet_end if self.last_quiet_end >= self.max_bytes // 2 else self.scanned
+            elif self.scanned >= self.max_bytes:     # no pause for a long time: cut at the quietest moment just before the limit
+                cut = self._forced_cut()
             if cut:
                 out.append(bytes(self.buf[:cut]))
                 del self.buf[:cut]
-                self.scanned = self.quiet_run = self.last_quiet_end = 0   # the remainder is scanned again from its start
+                self.scanned = self.quiet_run = 0   # the remainder is scanned again from its start
+                self.peaks = []
         return out
 
     def rest(self):
         data = bytes(self.buf)
         self.buf = bytearray()
-        self.scanned = self.quiet_run = self.last_quiet_end = 0
+        self.scanned = self.quiet_run = 0
+        self.peaks = []
         return data
 
 

@@ -1,5 +1,6 @@
 """The Windows side of Learn from my corrections (correction_watch.py) with a fake desktop: no UI Automation, no window."""
 import logging
+import threading
 import time
 
 import pytest
@@ -155,6 +156,114 @@ def test_the_thread_stops_when_the_window_changes(setup):
     while w._thread is not None and time.time() < deadline:
         time.sleep(0.01)
     assert w._thread is None and not w.watch.armed
+
+
+class SlowDesktop(FakeDesktop):
+    """A desktop whose focused_text blocks until the test lets it go (a slow app answering UI Automation)."""
+
+    def __init__(self):
+        super().__init__()
+        self.reading = threading.Event()     # set when a read has started
+        self.release = threading.Event()     # the read returns when this is set
+        self.fail = None
+
+    def focused_text(self):
+        self.reading.set()
+        assert self.release.wait(10), "the test never released the read"
+        if self.fail:
+            raise self.fail
+        return super().focused_text()
+
+
+def _poll_in_thread(w):
+    errors = []
+
+    def run():
+        try:
+            w.poll_once()
+        except Exception as e:
+            errors.append(e)
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return t, errors
+
+
+def _timed(fn, limit=2.0):
+    """Runs fn in a thread; True when it finished within `limit` seconds."""
+    t = threading.Thread(target=fn, daemon=True)
+    t.start()
+    t.join(limit)
+    return not t.is_alive()
+
+
+def test_a_slow_read_does_not_hold_the_lock_so_the_next_dictation_is_not_stalled(setup):
+    w, _, clock, said = setup
+    desk = SlowDesktop()
+    w.provider = desk
+    w.arm(TYPED, start_thread=False)
+    desk.text = TYPED
+    poller, errors = _poll_in_thread(w)
+    try:
+        assert desk.reading.wait(5)
+        assert _timed(lambda: w.arm("a second dictation", start_thread=False)), "arm() waited for the slow read"
+        assert _timed(w.end), "end() waited for the slow read"
+    finally:
+        desk.release.set()
+        poller.join(5)
+    assert errors == [] and not w.watch.armed
+
+
+def test_what_a_slow_read_returns_after_a_new_dictation_is_not_applied_to_the_new_watch(setup):
+    w, _, clock, said = setup
+    desk = SlowDesktop()
+    w.provider = desk
+    w.arm(TYPED, start_thread=False)
+    desk.text = "Hi. send it to Minhajuddin today"       # a fix of the first dictation
+    poller, errors = _poll_in_thread(w)
+    assert desk.reading.wait(5)
+    w.arm("something else entirely", start_thread=False)    # the next dictation arms a new watch meanwhile
+    desk.release.set()
+    poller.join(5)
+    assert errors == []
+    assert w.watch.armed and w.watch.inserted == "something else entirely"
+    assert w.watch._snapshot is None                           # the late text was not taken for the new watch
+    assert said == []
+
+
+def test_a_slow_read_that_finds_the_watch_still_armed_is_used_as_before(setup):
+    w, _, clock, said = setup
+    desk = SlowDesktop()
+    w.provider = desk
+    w.arm(TYPED, start_thread=False)
+    desk.text = TYPED
+    desk.release.set()
+    w.poll_once()
+    assert w.watch._snapshot == TYPED
+
+
+def test_a_failed_slow_read_of_a_watch_that_is_gone_does_not_end_the_new_one(setup):
+    w, _, clock, said = setup
+    desk = SlowDesktop()
+    w.provider = desk
+    w.arm(TYPED, start_thread=False)
+    desk.fail = RuntimeError("uia")
+    poller, errors = _poll_in_thread(w)
+    assert desk.reading.wait(5)
+    w.arm("another dictation", start_thread=False)
+    desk.release.set()
+    poller.join(5)
+    assert errors == [] and w.watch.armed and w.watch.inserted == "another dictation"
+
+
+def test_a_failed_read_of_the_current_watch_still_raises_for_the_thread_to_end_it(setup):
+    w, _, clock, said = setup
+    desk = SlowDesktop()
+    w.provider = desk
+    w.arm(TYPED, start_thread=False)
+    desk.fail = RuntimeError("uia")
+    desk.release.set()
+    with pytest.raises(RuntimeError):
+        w.poll_once()
 
 
 def test_module_arm_does_nothing_without_a_provider(monkeypatch):

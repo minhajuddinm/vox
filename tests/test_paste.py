@@ -45,6 +45,9 @@ class FakeDeps:
     def send_ctrl_shift_v(self):
         self.calls.append("ctrl_shift_v")
 
+    def send_shift_insert(self):
+        self.calls.append("shift_insert")
+
     def send_ctrl_c(self):
         self.calls.append("ctrl_c")
         if self.selection is not None:
@@ -380,12 +383,46 @@ def test_the_engine_passes_clipboard_history_off_to_every_paste(monkeypatch):
 
 # ---- terminals paste with Ctrl+Shift+V (task B2) --------------------------------------------------------------------------
 @pytest.mark.parametrize("exe", ["WindowsTerminal.exe", "wt.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "conhost.exe",
-                                 "alacritty.exe", "wezterm-gui.exe", "mintty.exe", "putty.exe"])
+                                 "alacritty.exe", "wezterm-gui.exe"])
 def test_a_terminal_gets_ctrl_shift_v(exe):
     assert paste.paste_chord(exe) == ("ctrl", "shift", "v")
     d = FakeDeps(foreground=exe.lower())
     assert paste.paste_text("ls -la", exe.lower(), False, deps=d) == "pasted"
     assert "ctrl_shift_v" in d.calls and "ctrl_v" not in d.calls
+
+
+# PuTTY and mintty (Git Bash) ignore Ctrl+Shift+V by default and paste with Shift+Insert (issue 49, Windows 7)
+@pytest.mark.parametrize("exe", ["putty.exe", "mintty.exe", "PuTTY.exe", "MinTTY.exe"])
+def test_putty_and_mintty_get_shift_insert(exe):
+    assert paste.paste_chord(exe) == ("shift", "insert")
+    d = FakeDeps(foreground=exe.lower())
+    assert paste.paste_text("ls -la", exe.lower(), False, deps=d) == "pasted"
+    assert "shift_insert" in d.calls and "ctrl_v" not in d.calls and "ctrl_shift_v" not in d.calls
+
+
+def test_shift_insert_is_sent_as_the_extended_insert_key(monkeypatch):
+    import contextlib
+    import sys
+    import types
+    taps = []
+
+    class FakeController:
+        @contextlib.contextmanager
+        def pressed(self, key):
+            taps.append(("down", key))
+            yield
+            taps.append(("up", key))
+
+        def tap(self, key):
+            taps.append(("tap", key))
+
+    fake = types.ModuleType("pynput")
+    fake.keyboard = types.SimpleNamespace(Controller=FakeController,
+                                          Key=types.SimpleNamespace(ctrl="ctrl", shift="shift", insert="insert"))
+    monkeypatch.setitem(sys.modules, "pynput", fake)
+    monkeypatch.setattr(paste, "_keyboard", None)
+    paste.SystemDeps().send_shift_insert()
+    assert taps == [("down", "shift"), ("tap", "insert"), ("up", "shift")]
 
 
 @pytest.mark.parametrize("exe", ["notepad.exe", "code.exe", "chrome.exe", "", None])
