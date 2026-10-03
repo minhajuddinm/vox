@@ -4,7 +4,8 @@
   - a window that runs as administrator while Vox does not would silently drop the keys: the text is only copied and
     the caller says so (BLOCKED);
   - the paste waits until the hotkey's modifiers are up, so it is not combined with Win; terminals get Ctrl+Shift+V
-    (in a terminal Ctrl+V is a control character), everything else Ctrl+V;
+    (in a terminal Ctrl+V is a control character), PuTTY and mintty Shift+Insert (they ignore Ctrl+Shift+V by default),
+    everything else Ctrl+V;
   - the old clipboard (every format that can be copied as plain memory: text, rich text, cells, images, files) is
     put back only if the clipboard still holds our text (something the user copied while the paste ran is never
     overwritten), and only when the keep_clipboard setting is off (otherwise it is not even read);
@@ -24,9 +25,11 @@ PASTED = "pasted"
 COPIED = "copied"
 BLOCKED = "blocked"          # only copied: the window runs as administrator and Vox does not (R2-M6)
 
-# Terminals read Ctrl+V as a control character; they paste with Ctrl+Shift+V (lower-case exe names).
+# Terminals read Ctrl+V as a control character; they paste with Ctrl+Shift+V (lower-case exe names), except the two in
+# SHIFT_INSERT_TERMINALS: PuTTY and mintty (Git Bash) ignore Ctrl+Shift+V by default and paste with Shift+Insert.
+SHIFT_INSERT_TERMINALS = frozenset({"mintty.exe", "putty.exe"})
 TERMINALS = frozenset({"windowsterminal.exe", "wt.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "conhost.exe",
-                       "alacritty.exe", "wezterm-gui.exe", "mintty.exe", "putty.exe"})
+                       "alacritty.exe", "wezterm-gui.exe"}) | SHIFT_INSERT_TERMINALS
 COPY_WAIT = 0.5              # seconds to wait for the app to answer Ctrl+C (edit by voice)
 # Editors whose Ctrl+C copies the whole current line (with its line break) when nothing is selected: in them, one line
 # ending in a line break is taken as "nothing selected" (VS Code editor.emptySelectionClipboard, Visual Studio, JetBrains
@@ -162,9 +165,12 @@ class _Clipboard:
 
 
 def paste_chord(exe):
-    """The keys that paste into the app `exe` (a lower-case exe name): ("ctrl", "shift", "v") for a terminal, else
-    ("ctrl", "v")."""
-    return ("ctrl", "shift", "v") if (exe or "").lower() in TERMINALS else ("ctrl", "v")
+    """The keys that paste into the app `exe` (an exe name): ("shift", "insert") for PuTTY and mintty,
+    ("ctrl", "shift", "v") for any other terminal, else ("ctrl", "v")."""
+    exe = (exe or "").lower()
+    if exe in SHIFT_INSERT_TERMINALS:
+        return ("shift", "insert")
+    return ("ctrl", "shift", "v") if exe in TERMINALS else ("ctrl", "v")
 
 
 def wait_released(is_down, clock, sleep, limit, step=0.02):
@@ -321,6 +327,15 @@ class SystemDeps:
     def send_ctrl_shift_v(self):
         self._send(0x56, shift=True)
 
+    def send_shift_insert(self):
+        """Shift+Insert (PuTTY and mintty). pynput's Key.insert is the extended key, so it is not read as numpad 0."""
+        global _keyboard
+        from pynput import keyboard
+        if _keyboard is None:
+            _keyboard = keyboard.Controller()
+        with _keyboard.pressed(keyboard.Key.shift):
+            _keyboard.tap(keyboard.Key.insert)
+
     def send_ctrl_c(self):
         self._send(0x43)
 
@@ -427,7 +442,10 @@ def paste_text(text, target_exe, keep_clipboard, deps=None, clipboard_history=Tr
         snapshot = deps.clip_snapshot()
     deps.clip_set(text, clipboard_history)
     deps.sleep(SETTLE)
-    if paste_chord(current or target_exe) == ("ctrl", "shift", "v"):
+    chord = paste_chord(current or target_exe)
+    if chord == ("shift", "insert"):
+        deps.send_shift_insert()
+    elif chord == ("ctrl", "shift", "v"):
         deps.send_ctrl_shift_v()
     else:
         deps.send_ctrl_v()
