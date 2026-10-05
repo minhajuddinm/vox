@@ -36,6 +36,11 @@ Checked against `main` at `288fe59` (the merge of PR 54). **Release:** v2.0.0 wa
 - The default keystore password in `android/build.sh`: the script falls back to a built-in default when the `ANDROID_KEYSTORE_PASS` secret is not given, so that keys made with it keep working. It is a known weakness of the signing setup; changing it means moving to a new key, which phones refuse as an update (inferred from how Android checks signatures).
 - The repository's description and topics are empty (checked with the API) and private vulnerability reporting is off (checked); setting them needs a repository admin.
 
+**v2.0.0 review (2026-10-05, two scoped reviewers; mediums are issue #63).** Fixed: a lone "Thank you." was dropped silently (now announced). Open, none a crash:
+- Windows: code mode (on by default in terminals and editors) rewrites ordinary English ("a quote" becomes `"`, "a hash" becomes `#`); the engine keeps default config after one transient `config.json` open failure (it does not check `config_is_fallback()`); the default note shortcut Ctrl+Alt+N collides with AltGr+N on some layouts; quitting loses a dictation still being processed.
+- Android and relay: a wiped relay leaves the phone's sync cursor ahead and sync stops silently; list fields such as the dictionary merge as whole values, so a word learned on the phone can be lost; the relay accepts NaN in `PUT /profile` and then breaks every phone sync; the clipboard paste fallback can leave dictated text on the clipboard; `/changes?since=` over 63 bits gives 500 instead of 400.
+Checked and clean: exported components, WebView escaping, log content, password-field checks, relay authentication, size limits and SQL; the released relay exe starts and asks for a token; the APK is signed, version 2.0.0, `allowBackup=false`.
+
 **Plan to match Wispr Flow** (staged; none of stages 2 to 4 is started):
 1. Fix what the device and desktop tests find (the lists above). Nothing else is worth tuning before real use shows what breaks.
 2. Accuracy and speed levers: run the cleanup model benchmark (`tools/bench_cleanup.py`) on real models and pick by its numbers; a Hinglish speech engine or setting; cleanup per sentence instead of per whole text.
