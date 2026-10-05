@@ -276,7 +276,8 @@ def test_history_keeps_the_raw_words_and_flags_a_guard_fallback(eng, monkeypatch
     dictate(eng, monkeypatch, result=ok_result("Hello."))
     flagged, plain = core.read_history()
     assert flagged["raw"] == "so i went" and flagged["text"] == "So i went" and flagged["fidelity_fallback"] is True
-    assert plain["raw"] == "hello" and "fidelity_fallback" not in plain and "snippets" not in plain
+    # fix wave: `snippets` is in every entry ([] for none): Improve my cleanup leaves out an entry without it (PRV-3)
+    assert plain["raw"] == "hello" and "fidelity_fallback" not in plain and plain["snippets"] == []
 
 
 def test_history_records_where_a_snippet_put_its_saved_text(eng, monkeypatch):

@@ -110,13 +110,3 @@ def put_back(text, spans):
         out += [text[last:s[0]], s[2]]
         last = s[1]
     return "".join(out) + text[last:]
-
-
-def unexpand(text, value):
-    """Text with each saved text put back as its trigger phrase: what Improve my cleanup sends instead of the saved texts
-    for a history entry from before the entries recorded their snippets (put_back): it only knows today's snippets."""
-    if not isinstance(text, str):
-        return text
-    for t, x in sorted(clean_snippets(value).items(), key=lambda kv: -len(kv[1])):
-        text = text.replace(x, t)
-    return text

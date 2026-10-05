@@ -63,6 +63,17 @@ def test_a_paste_that_raises_keeps_the_recording_and_still_writes_history(eng, m
     assert [e["text"] for e in saved] == ["Hello there."]
 
 
+def test_every_history_entry_says_where_its_snippets_landed_also_none(eng, monkeypatch):
+    # PRV-3 fix wave: Improve my cleanup leaves out an entry without `snippets` (saved before this build)
+    saved = []
+    eng.cfg["keep_history"] = True
+    monkeypatch.setattr(core, "add_history", saved.append)
+    for res in (ok_result("Hello there."), core.Result("my email", "me@example.com", True, "", False, [[0, 14, "my email"]])):
+        monkeypatch.setattr(core, "process_detailed", lambda cfg, pcm, exe, label: res)
+        eng._process(PCM, "notepad.exe")
+    assert [e["snippets"] for e in saved] == [[], [[0, 14, "my email"]]]
+
+
 def test_a_note_that_cannot_be_saved_is_kept_as_a_note(eng, monkeypatch):
     def locked(*a, **k):
         raise sqlite3.OperationalError("database is locked")

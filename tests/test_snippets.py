@@ -109,10 +109,12 @@ def test_snippets_work_in_a_code_app_and_when_cleanup_is_off():
 
 
 def test_the_improve_run_sends_the_trigger_not_the_saved_text():
-    hist = [{"t": 10, "raw": "send it to my email", "text": "Send it to me@example.com.\n\n" + SIG}]
-    pairs = improve.select_transcripts(hist, 0, 10_000, S)
+    text, spans = snippets.expand("Send it to my email.\n\nmy signature", S)
+    assert text == "Send it to me@example.com.\n\n" + SIG
+    hist = [{"t": 10, "raw": "send it to my email", "text": text, "snippets": spans}]
+    pairs = improve.select_transcripts(hist, 0, 10_000)
     assert pairs[0]["cleaned"] == "Send it to my email.\n\nmy signature"
-    assert improve.selection(hist, 0, 100, S)[1] == pairs
+    assert improve.selection(hist, 0, 100)[1] == pairs
     assert improve.preview(dict(core.DEFAULT_CONFIG, snippets=S), hist, 0, 100)["chars"] == len(hist[0]["raw"]) + len(pairs[0]["cleaned"])
 
 
@@ -128,16 +130,28 @@ def test_a_deleted_snippet_is_still_never_sent_by_improve():
     text, spans = snippets.expand("Send it to my address.", {"my address": "Flat 4, 12 Secret Road, London"})
     hist = [{"t": 10, "raw": "send it to my address", "text": text, "snippets": spans}]
     for now in (None, {}, {"my address": "Somewhere else"}):
-        assert improve.select_transcripts(hist, 0, 10_000, now)[0]["cleaned"] == "Send it to my address."
-    legacy = [{"t": 10, "raw": "send it to my address", "text": text}]   # before entries recorded spans: today's snippets
-    assert improve.select_transcripts(legacy, 0, 10_000, None)[0]["cleaned"] == text
+        cfg = dict(core.DEFAULT_CONFIG, snippets=now or {})
+        assert improve.select_transcripts(hist, 0, 10_000)[0]["cleaned"] == "Send it to my address."
+        assert improve.preview(cfg, hist, 0, 100)["count"] == 1
+
+
+def test_history_saved_before_entries_had_snippets_is_never_sent_by_improve():
+    # fix wave (review 3): an entry saved before this build has no `snippets`, so a snippet deleted or changed since
+    # cannot be found in it: it is left out, whatever today's snippets are; an entry of this build without any is sent
+    legacy = {"t": 10, "raw": "send it to my address", "text": "Send it to Flat 4, 12 Secret Road."}
+    plain = {"t": 11, "raw": "ok", "text": "Ok.", "snippets": []}
+    for now in ({}, {"my address": "Flat 4, 12 Secret Road."}):
+        cfg = dict(core.DEFAULT_CONFIG, snippets=now)
+        assert [p["cleaned"] for p in improve.select_transcripts([legacy, plain], 0, 10_000)] == ["Ok."]
+        assert improve.preview(cfg, [legacy, plain], 0, 100)["count"] == 1
 
 
 @pytest.mark.parametrize("spans", [[[5, 2, "x"]], [[0, 999, "x"]], [[0, 3, 4]], "x", [[0, 1]], [[True, 2, "x"]],
                                    [[4, 6, "a"], [0, 2, "b"]]])
 def test_an_entry_whose_spans_do_not_fit_is_left_out(spans):
-    hist = [{"t": 10, "raw": "a b c", "text": "secret text", "snippets": spans}, {"t": 11, "raw": "ok", "text": "Ok."}]
-    assert [p["cleaned"] for p in improve.select_transcripts(hist, 0, 10_000, None)] == ["Ok."]
+    hist = [{"t": 10, "raw": "a b c", "text": "secret text", "snippets": spans},
+            {"t": 11, "raw": "ok", "text": "Ok.", "snippets": []}]
+    assert [p["cleaned"] for p in improve.select_transcripts(hist, 0, 10_000)] == ["Ok."]
 
 
 def test_snippets_are_part_of_the_synced_profile():
