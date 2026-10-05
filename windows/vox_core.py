@@ -1524,7 +1524,8 @@ def process_text(cfg, raw, exe, app_label, segments=None):
         finally:
             _mark("llm_done")
     if not cleaned:
-        out = fallback_text(out) if rejected else out if code else apply_spoken_commands(out)
+        # in code "new line" is a symbol of format_code; "new paragraph" is not, so it is applied here
+        out = fallback_text(out) if rejected else _NEW_PARAGRAPH.sub("\n\n", out) if code else apply_spoken_commands(out)
     if code:
         out = codemode.format_code(out)   # "new line" is one of its symbols
     out = fuzzy_dictionary(apply_replacements(out, replacements(cfg)), dictionary_terms(cfg))

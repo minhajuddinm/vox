@@ -210,3 +210,57 @@ def test_the_docs_page_lists_every_formatter_and_symbol():
         text = f.read().lower()
     for spoken in list(codemode.FORMATTERS) + [s for s, _, _, _ in codemode.SYMBOLS]:
         assert "| " + spoken + " |" in text, spoken
+
+
+# ------------------------------------------------------------------ #63: ordinary English is not code
+
+@pytest.mark.parametrize("text", [
+    "add a quote from the ceo",
+    "take a hash of the file",
+    "Plus, I need to buy milk.",
+    "press the tab key twice",
+    "open a new tab and star the repo",
+    "it took less than a minute",
+    "the pipe is leaking, so dash to the store",
+    "I'll dot the i's and cross the t's",
+    "he gave it a five star review",
+    "the slash command is new",
+    "ten percent of users said yes",
+    "a single quote from him is enough",
+    "that equals trouble",
+    "shoot the arrow at the target",
+    "two plus two is more than three minus one",
+    "Go to the slash command page and star it.",
+    "Ten percent plus tax, minus the discount.",
+])
+def test_ordinary_sentences_keep_their_words(text):
+    assert codemode.format_code(text) == text
+
+
+@pytest.mark.parametrize("spoken,typed", [
+    ("ls dash la", "ls -la"),                                           # a command name first: code
+    ("cat log dot txt pipe grep error", "cat log.txt | grep error"),
+    ("npm install dash dash save dev", "npm install --save dev"),       # a symbol next to a symbol
+    ("print open paren a dot b close paren", "print(a.b)"),             # a code symbol elsewhere: code
+    ('git commit dash m quote add the dot env file quote', 'git commit -m "add the dot env file"'),   # "the dot": prose
+    ("x dot y", "x.y"),                                                 # a one-letter name next to it
+    ("total equals 5", "total = 5"),                                    # a digit next to it
+    ("user underscore id equals my var", "user_id = my var"),
+    ("if x less than 10 colon", "if x < 10:"),
+    ("dash dash verbose", "--verbose"),                                 # the same symbol twice
+])
+def test_code_words_still_become_symbols(spoken, typed):
+    assert codemode.format_code(spoken) == typed
+
+
+# ------------------------------------------------------------------ TXT-11
+
+def test_a_formatter_keeps_letters_outside_ascii():
+    assert codemode.format_code("camel case café menu") == "caféMenu"
+    assert codemode.format_code("snake case नमस्ते दुनिया") == "नमस्ते_दुनिया"
+
+
+def test_new_paragraph_works_in_a_code_app_without_the_ai(monkeypatch):
+    _no_cleanup(monkeypatch)
+    r = core.process_text(_cfg(cleanup=False), "first line new paragraph second line", "Code.exe", "Code")
+    assert r.text == "first line\n\nsecond line"
