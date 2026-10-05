@@ -177,6 +177,19 @@ public final class RelayClientTest {
         answer(200, "{\"notes\": [], \"next\": 2}");
         eq("changes: a missing 'more' means no more", false, c.changes(0, 200).more);
 
+        // ---- relaySeq: the relay's newest sequence number from /health (a wiped relay is found by it, SyncEngine)
+        answer(200, "{\"ok\": true, \"notes\": 3, \"seq\": 42, \"version\": \"2.0.0\"}");
+        eq("relaySeq: the number", 42L, c.relaySeq());
+        eq("relaySeq: request", "GET /health", last().method + " " + last().path);
+        answer(200, "{\"ok\": true, \"notes\": 3}");
+        eq("relaySeq: not said is -1", -1L, c.relaySeq());
+        answer(200, "{\"ok\": true, \"seq\": \"7\"}");
+        eq("relaySeq: not a number is -1", -1L, c.relaySeq());
+        answer(200, "[]");
+        eq("relaySeq: not an object is -1", -1L, c.relaySeq());
+        answer(500, "{\"error\": \"boom\"}");
+        eq("relaySeq: a failure is a RelayError", 500, fails("relaySeq 500", () -> c.relaySeq()).status);
+
         // ---- profile
         answer(200, "{\"version\": 3, \"data\": {\"user_context\": \"hi\", \"dictionary\": [\"a\"]}}");
         RelayApi.Profile p = c.getProfile();

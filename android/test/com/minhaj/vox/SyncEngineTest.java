@@ -224,6 +224,14 @@ public final class SyncEngineTest {
             return new Changes(page, next, page.size() == cap);
         }
 
+        boolean noSeq;                        // a relay whose /health does not say its sequence number
+
+        @Override
+        public long relaySeq() throws RelayError {
+            gate("health");
+            return noSeq ? -1 : seq;
+        }
+
         @Override
         public Profile getProfile() throws RelayError {
             calls.add("GET profile");
@@ -303,6 +311,7 @@ public final class SyncEngineTest {
         profileKeys();
         keysDoNotFlap();
         relayChange();
+        relayReset();
         keysFlagAcrossUpgradeAndAddress();
         neverThrows();
         loopGuards();
@@ -888,6 +897,50 @@ public final class SyncEngineTest {
         eq("relay change: the profile version was reset", "0", on.store.meta.get("profile_version"));
     }
 
+    /** Issue #63: the relay's data was wiped (or restored from an older backup) at the same address: everything is sent again. */
+    private static void relayReset() {
+        Env e = new Env();
+        Note a = e.store.add("first", 100);
+        Note b = e.store.add("second", 200);
+        e.sync();
+        eq("reset: set up, all clean", false, a.dirty || b.dirty);
+        eq("reset: the cursor is the relay's number", "2", e.store.meta.get("relay_cursor"));
+
+        // same address, empty relay (its sequence starts again), with one note another device put there since
+        FakeRelay wiped = new FakeRelay();
+        wiped.store(id(99), "from the PC after the wipe", 150, false);
+        SyncResult r = new SyncEngine(e.store, wiped, e.cfg).syncOnce();
+        eq("reset: no error", "", r.error);
+        eq("reset: every note is sent again", true, wiped.notes.containsKey(a.id) && wiped.notes.containsKey(b.id));
+        eq("reset: two sent", 2, r.pushed);
+        eq("reset: the note written after the wipe is received", "from the PC after the wipe", e.store.notes.get(id(99)).text);
+        eq("reset: the cursor follows the wiped relay", String.valueOf(wiped.seq), e.store.meta.get("relay_cursor"));
+        eq("reset: the profile is sent again", 1L, wiped.profileVersion);
+        r = new SyncEngine(e.store, wiped, e.cfg).syncOnce();
+        eq("reset: quiet afterwards", "0/0/", r.pushed + "/" + r.pulled + "/" + r.error);
+
+        // a relay that does not say its number (an old relay.py): nothing changes
+        Env quiet = new Env();
+        Note q = quiet.store.add("kept", 1);
+        quiet.sync();
+        FakeRelay unknown = new FakeRelay();
+        unknown.noSeq = true;
+        r = new SyncEngine(quiet.store, unknown, quiet.cfg).syncOnce();
+        eq("reset: no number, no reset", "0/", r.pushed + "/" + r.error);
+        eq("reset: no number, the cursor stays", "1", quiet.store.meta.get("relay_cursor"));
+        eq("reset: no number, the note is not sent again", false, q.dirty);
+
+        // the relay cannot be reached: the run stops as before, nothing is reset
+        Env off = new Env();
+        Note o = off.store.add("offline", 1);
+        off.sync();
+        off.relay.always.put("health", new RelayApi.RelayError(0, "Cannot reach the relay (is Tailscale running?): ConnectException"));
+        r = off.sync();
+        eq("reset: offline is reported", true, r.error.contains("Cannot reach the relay"));
+        eq("reset: offline keeps the cursor", "1", off.store.meta.get("relay_cursor"));
+        eq("reset: offline keeps the note clean", false, o.dirty);
+    }
+
     /** F6 part 2: the sync state belongs to one relay; another address means everything is sent again. */
     private static void relayChange() {
         Env e = new Env();
@@ -932,6 +985,7 @@ public final class SyncEngineTest {
         Note n = old.store.add("kept", 1);
         old.store.markSynced(n.id, 1, 5);
         old.store.setMeta("relay_cursor", "5");
+        old.relay.seq = 5;   // the relay has had those five writes (a relay below the cursor was wiped: see relayReset)
         old.sync();
         eq("relay change: no origin saved yet is not a change", "5", old.store.meta.get("relay_cursor"));
         eq("relay change: note not sent again", 0, old.relay.puts(n.id));

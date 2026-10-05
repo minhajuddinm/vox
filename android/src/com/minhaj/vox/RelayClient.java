@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Talks to a relay (relay/relay.py) over HTTP with HttpURLConnection and PlainJson: the four calls of RelayApi, plus
+ * Talks to a relay (relay/relay.py) over HTTP with HttpURLConnection and PlainJson: the calls of RelayApi, plus
  * {@link #check} for the Test connection button. Every request carries {@code Authorization: Bearer <token>} and
  * {@code X-Vox-Device: <name>}; the token goes only to the address it was made for, and redirects are never followed
  * (a Location header could otherwise take it to another server). Every failure is a RelayError in plain words (the
@@ -175,6 +175,13 @@ final class RelayClient implements RelayApi {
             notes.add(note);
         }
         return new Changes(notes, ((Number) m.get("next")).longValue(), Boolean.TRUE.equals(m.get("more")));
+    }
+
+    @Override
+    public long relaySeq() throws RelayError {
+        Map<String, Object> m = asMap(call("GET", "/health", null, null));
+        Object seq = m == null ? null : m.get("seq");
+        return seq instanceof Number ? ((Number) seq).longValue() : -1;
     }
 
     @Override
