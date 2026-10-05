@@ -1103,3 +1103,25 @@ structure	auto	neutral	First, call the bank. Second, email Mr. Patel and Mrs. Ra
 structure	auto	neutral	First, call Dr. Smith. Second, book the room.	1. Call Dr. Smith\n2. Book the room
 structure	auto	neutral	First, tea. Second, e.g. coffee or juice. That is all.	1. Tea\n2. e.g. coffee or juice\n\nThat is all.
 structure	auto	neutral	First, it is cheap. It is good. Second, fast.	1. It is cheap. It is good.\n2. Fast
+# DAT-6 / #63: when both sides changed a list field (dictionary, people), the lists merge item by item instead of the
+# relay's list winning whole: an item added on either side is kept, an item removed on either side (it was in the base)
+# goes; the relay's order first, then this device's additions. mergelist: base, local, remote, expected (items joined
+# by |; ~ = the field is absent there; an empty column = an empty list). sync.merge3 / ProfileMerge.merge3.
+mergelist	Vox	Vox|Foobar	Vox|Bar	Vox|Bar|Foobar
+mergelist	Vox|Old	Vox|Foobar	Vox|Old|Bar	Vox|Bar|Foobar
+mergelist	Vox|Old	Vox|Old|Foobar	Vox|Bar	Vox|Bar|Foobar
+mergelist	~	Mine|Both	Both|Theirs	Both|Theirs|Mine
+mergelist	~	Mine		Mine
+mergelist	a|b	a|b	a|b|c	a|b|c
+mergelist	a|b	a|b|c	a|b	a|b|c
+mergelist	a|b	b|a	a|b|c	a|b|c
+mergelist	a|b		a|b|c	c
+mergelist	a	b	c	c|b
+mergelist	a	~	a|c	a|c
+mergelist	a	a|b	~	~
+# mergemap: the snippets map merges the same way, trigger by trigger (a trigger changed on both sides takes the relay's
+# text). Entries trigger=text joined by |.
+mergemap	home=1 Main St	home=1 Main St|sig=Best, Yuvi	home=1 Main St|mail=me@x.com	home=1 Main St|mail=me@x.com|sig=Best, Yuvi
+mergemap	home=1 Main St|old=x	home=2 Main St	home=1 Main St|old=x|mail=me@x.com	home=2 Main St|mail=me@x.com
+mergemap	home=1	home=2|a=b	home=3	home=3|a=b
+mergemap	~	mine=1	theirs=2	theirs=2|mine=1

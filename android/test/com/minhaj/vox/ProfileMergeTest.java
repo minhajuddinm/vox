@@ -44,8 +44,9 @@ public final class ProfileMergeTest {
                 ProfileMerge.merge3(list("a"), list("a", "b"), list("a")));
         eq("lists compare by content, remote changed", list("c"),
                 ProfileMerge.merge3(list("a"), list("a"), list("c")));
-        eq("lists both changed: the relay wins", list("c"),
+        eq("lists both changed: item by item, the relay's order first", list("c", "b"),
                 ProfileMerge.merge3(list("a"), list("b"), list("c")));
+        eq("a list and a text both changed: the relay wins", "c", ProfileMerge.merge3(list("a"), list("b"), "c"));
         eq("lists both changed the same way", list("b"),
                 ProfileMerge.merge3(list("a"), list("b"), list("b")));
         eq("booleans: local turned it on", true, ProfileMerge.merge3(false, true, false));

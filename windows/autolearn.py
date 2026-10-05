@@ -318,13 +318,17 @@ def enabled(cfg):
 
 
 def learned_log(cfg):
-    """The learned_log setting as a clean list of {"t", "wrong", "right", "word"}, oldest first."""
+    """The learned_log setting as a clean list of {"t", "wrong", "right", "word"}, oldest first. When cfg has a dictionary,
+    an entry whose "wrong => right" line is no longer in it (removed by hand or on another device) is left out."""
     raw = cfg.get("learned_log")
     out = []
     for e in raw if isinstance(raw, list) else []:
         if isinstance(e, dict) and isinstance(e.get("wrong"), str) and isinstance(e.get("right"), str) \
                 and isinstance(e.get("t"), (int, float)) and not isinstance(e.get("t"), bool):
             out.append({"t": float(e["t"]), "wrong": e["wrong"], "right": e["right"], "word": e.get("word") is True})
+    if isinstance(cfg.get("dictionary"), list):
+        lines = {tuple(p) for p in _dict_parts([x for x in cfg["dictionary"] if isinstance(x, str)])[0]}
+        out = [e for e in out if (e["wrong"], e["right"]) in lines]
     return out[-LEARNED_LOG_MAX:]
 
 

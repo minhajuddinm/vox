@@ -120,6 +120,11 @@ public final class AutoLearnTest {
         String[] rm = AutoLearn.removeLearned(ap.dictionary, ap.log, 1000.0);
         eq("removed", "# One term per line. Use  wrong => right  to force a replacement.\nLoomXR\nvox => Vox\nrecieve => receive\n", rm[0]);
         check("removed from the log", AutoLearn.learnedLog(rm[1]).size() == 1);
+        // DAT-6: an entry whose line left the dictionary (removed on another device) leaves the log
+        check("stale entry pruned", AutoLearn.learnedLog(ap.log, "LoomXR\nrecieve => receive\n# you vrag => Yuvraj\n").size() == 1
+                && AutoLearn.learnedLog(ap.log, "LoomXR\nrecieve => receive\n").get(0).get("wrong").equals("recieve"));
+        check("pruned when learning again", AutoLearn.learnedLog(AutoLearn.applyLearned("recieve => receive\n", ap.log,
+                pairs("teh", "the"), 2000.0).log).size() == 2);
         ap = AutoLearn.applyLearned("vox => Vox", "[]", pairs("vox", "VOX"), 1.0);
         check("nothing new", ap.added.isEmpty() && ap.dictionary.equals("vox => Vox"));
         ap = AutoLearn.applyLearned("Yuvraj", "", pairs("you vrag", "Yuvraj"), 5.0);

@@ -454,8 +454,12 @@ final class AutoLearn {
     // ------------------------------------------------------------------ the learned log ("Recently learned")
 
     /** The stored learned_log JSON as a clean list of {t, wrong, right, word}, oldest first, at most LEARNED_LOG_MAX. */
-    @SuppressWarnings("unchecked")
     static List<Map<String, Object>> learnedLog(String json) {
+        return learnedLog(json, true);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> learnedLog(String json, boolean cap) {
         List<Map<String, Object>> out = new ArrayList<>();
         Object v;
         try { v = PlainJson.parse(json == null || json.isEmpty() ? "[]" : json); } catch (RuntimeException e) { return out; }
@@ -467,6 +471,18 @@ final class AutoLearn {
             if (!(t instanceof Number) || !(w instanceof String) || !(r instanceof String)) continue;
             out.add(entry(((Number) t).doubleValue(), (String) w, (String) r, Boolean.TRUE.equals(e.get("word"))));
         }
+        return cap && out.size() > LEARNED_LOG_MAX ? new ArrayList<>(out.subList(out.size() - LEARNED_LOG_MAX, out.size())) : out;
+    }
+
+    /**
+     * learnedLog without the entries whose "wrong => right" line is no longer in the dictionary text dictRaw (removed by
+     * hand or on another device). Twin of learned_log in windows/autolearn.py with a dictionary.
+     */
+    static List<Map<String, Object>> learnedLog(String json, String dictRaw) {
+        Set<String> lines = new HashSet<>();
+        for (String[] r : dictReplacements(dictRaw)) lines.add(r[0] + "\n" + r[1]);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> e : learnedLog(json, false)) if (lines.contains(e.get("wrong") + "\n" + e.get("right"))) out.add(e);
         return out.size() > LEARNED_LOG_MAX ? new ArrayList<>(out.subList(out.size() - LEARNED_LOG_MAX, out.size())) : out;
     }
 
@@ -490,7 +506,7 @@ final class AutoLearn {
         Applied out = new Applied();
         String raw = dictRaw == null ? "" : dictRaw;
         out.dictionary = raw;
-        List<Map<String, Object>> log = learnedLog(logJson);
+        List<Map<String, Object>> log = learnedLog(logJson, raw);
         out.log = PlainJson.stringify(log);
         Learned add = learn(dictReplacements(raw), dictWords(raw), pairs);
         if (add.replacements.isEmpty()) return out;
@@ -511,10 +527,10 @@ final class AutoLearn {
 
     /** The dictionary text and learned_log after the entry made at t is removed, with the replacement and word it added. */
     static String[] removeLearned(String dictRaw, String logJson, double t) {
-        List<Map<String, Object>> log = learnedLog(logJson);
+        String raw = dictRaw == null ? "" : dictRaw;
+        List<Map<String, Object>> log = learnedLog(logJson, raw);
         Map<String, Object> hit = null;
         for (Map<String, Object> e : log) if (Math.abs((Double) e.get("t") - t) < 0.0005) { hit = e; break; }
-        String raw = dictRaw == null ? "" : dictRaw;
         if (hit == null) return new String[] {raw, PlainJson.stringify(log)};
         List<String> lines = new ArrayList<>(Arrays.asList(raw.split("\n", -1)));
         for (int i = 0; i < lines.size(); i++) {

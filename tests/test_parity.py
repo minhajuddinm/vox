@@ -60,6 +60,17 @@ def merged_value(base, local, remote):
     return sync.merge3(side(base), side(local), side(remote)).get("k", "~")
 
 
+def merged_list(base, local, remote, as_map=False):
+    """sync.merge3 on one list field (items joined by |) or, as_map, one map field (key=value entries joined by |); "~"
+    when the field is absent on that side. The result in the same notation."""
+    def side(v):
+        if v == "~":
+            return {}
+        return {"k": dict(e.split("=", 1) for e in items(v)) if as_map else items(v)}
+    out = sync.merge3(side(base), side(local), side(remote)).get("k")
+    return "~" if out is None else "|".join("%s=%s" % kv for kv in out.items()) if as_map else "|".join(out)
+
+
 def pairs(field):
     """wrong=>right pairs separated by ;"""
     return [p.split("=>", 1) for p in items(field, ";")]
@@ -271,6 +282,10 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert remote_wins(f[0] == "true", float(f[1]), float(f[2]), f[3] == "true") == (f[4] == "true")
     elif kind == "merge3":
         assert merged_value(f[0], f[1], f[2]) == f[3]
+    elif kind == "mergelist":   # base, local, remote list (| between items, ~ absent) => the merged list
+        assert merged_list(f[0], f[1], f[2]) == f[3]
+    elif kind == "mergemap":   # the same for a map (key=value entries)
+        assert merged_list(f[0], f[1], f[2], as_map=True) == f[3]
     elif kind == "profilefields":
         assert "|".join(sync.PROFILE_KEY_FIELDS if f[0] == "keys" else sync.PROFILE_FIELDS) == f[1]
     elif kind == "devname":

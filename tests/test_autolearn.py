@@ -174,6 +174,14 @@ def test_the_learned_log_keeps_the_last_twenty_and_drops_junk():
     assert al.learned_log({"learned_log": "nope"}) == [] and al.learned_log({}) == []
 
 
+def test_a_learned_entry_whose_line_left_the_dictionary_leaves_the_log():
+    log = [{"t": 1, "wrong": "fubar", "right": "Foobar"}, {"t": 2, "wrong": "grok", "right": "Groq"}]
+    cfg = {"dictionary": ["Vox", "grok => Groq", "# fubar => Foobar"], "learned_log": log}   # DAT-6: dropped on the phone
+    assert [e["wrong"] for e in al.learned_log(cfg)] == ["grok"]
+    parts, _ = al.apply_learned(cfg, [["teh", "the"]], now=3.0)
+    assert [e["wrong"] for e in parts["learned_log"]] == ["grok", "teh"]
+
+
 def test_enabled_defaults_to_on():
     assert al.enabled({}) and al.enabled({"auto_learn": True}) and not al.enabled({"auto_learn": False})
 
