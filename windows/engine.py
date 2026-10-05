@@ -57,7 +57,8 @@ PASTE_RESTORE_QUIT_WAIT = 3.0   # seconds Quit waits for the old clipboard of th
 BUSY_TOLD_GAP = 5.0     # seconds between two "still sending" balloons for presses ignored while busy
 # The once-a-second watchdog ran this late: Python was frozen for longer than Windows' keyboard hook timeout (at most 1 s
 # since Windows 10 1709), and Windows removes a hook that times out without telling anyone, so it is installed again (ENG-2).
-HOOK_STALL_SECONDS = 2.0
+# The watchdog sleeps 1 s, so a gap over 1.6 s means a freeze of more than about 0.6 s; a needless re-install is harmless.
+HOOK_STALL_SECONDS = 1.6
 # AltGr reaches the hook as a Left Ctrl that Windows makes up (scan code 0x21D) and a Right Alt at the same moment: that
 # Ctrl is not the user's, so AltGr is never Ctrl+Alt (ENG-6, issue 63). ALTGR_GAP: the most time between the two.
 ALTGR_CTRL_SCAN = 0x21D
@@ -322,6 +323,21 @@ class Engine:
             self.icon.icon = ICONS[name]   # pystray can raise here (DestroyIcon); it is called from several threads
         except Exception:
             log.exception("could not change the tray icon")
+        self.refresh_menu()   # recording, listening and the voice note change the menu's labels
+
+    _menu_lock = threading.Lock()
+
+    def refresh_menu(self):
+        """Builds the tray menu again. On Windows pystray builds it only at start, after a menu click and on a left click,
+        not when a right click opens it, so a label or a hidden item (Retry dictation, N waiting) would be stale."""
+        icon = getattr(self, "icon", None)
+        if icon is None:
+            return
+        try:
+            with self._menu_lock:
+                icon.update_menu()
+        except Exception:
+            log.exception("could not update the tray menu")
 
     def flash(self, kind):
         """Makes the pill show "sent" (green check, 0.7 s) or "error" (red !, 1.8 s), then go back to the real
@@ -1047,17 +1063,21 @@ class Engine:
         added; at most MAX_PENDING are kept (the oldest goes). A dictation that succeeds never clears another one."""
         if kept is not None:
             self.pending = [p for p in self.pending if p is not kept] + [kept]
-            return
-        self.pending = (self.pending + [(pcm, exe, note)])[-MAX_PENDING:]
+        else:
+            if len(self.pending) >= MAX_PENDING:
+                log.warning("retry: more than %d recordings could not be sent; the oldest is dropped", MAX_PENDING)
+            self.pending = (self.pending + [(pcm, exe, note)])[-MAX_PENDING:]
+        self.refresh_menu()
 
     def _delivered(self, kept):
         """The retried recording `kept` (None: a new dictation) got through: only it leaves the kept ones."""
         if kept is not None:
             self.pending = [p for p in self.pending if p is not kept]
+            self.refresh_menu()
 
     def _process(self, pcm, exe, note=False, streamer=None, tm=None, kept=None):
         secs = len(pcm) / (core.SAMPLE_RATE * 2)
-        keep = " Your recording is kept: tray icon > Retry last dictation."
+        keep = " Your recording is kept: tray icon > Retry."   # the item reads "Retry dictation (N waiting)" with more
         delivered = False   # the text was pasted or the note saved: nothing left to retry
         pieces = 0          # pieces sent to speech-to-text in the background (streaming.py)
         try:

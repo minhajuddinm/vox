@@ -145,6 +145,30 @@ def test_the_tray_item_says_how_many_are_waiting(eng):
     assert eng.retry_label() == "Retry dictation (3 waiting)"
 
 
+def test_the_tray_menu_is_built_again_when_a_recording_is_kept_or_delivered(eng, monkeypatch):
+    """pystray builds the Windows menu only at start, after a click and on a left click: without update_menu the Retry
+    item stays hidden after the first failure, and its count stays old after a retry (final review W-I2)."""
+    monkeypatch.setattr(engine_mod.threading, "Thread", InlineThread)
+    labels = []
+    eng.icon = type("I", (), {"update_menu": lambda self: labels.append((bool(eng.pending), eng.retry_label()))})()
+    monkeypatch.setattr(core, "process_detailed", fails)
+    eng._process(PCM, "a.exe")
+    eng._process(PCM, "b.exe")
+    assert labels[-1] == (True, "Retry dictation (2 waiting)")
+    monkeypatch.setattr(core, "process_detailed", lambda cfg, pcm, exe, label: ok_result("Hi."))
+    eng.retry_last()
+    assert labels[-1] == (True, "Retry last dictation")
+    assert any("tray icon > Retry." in m for m in eng.messages)
+
+
+def test_set_state_builds_the_tray_menu_again():
+    calls = []
+    e = object.__new__(engine_mod.Engine)
+    e.icon = type("I", (), {"update_menu": lambda self: calls.append(1), "icon": None})()
+    engine_mod.Engine.set_state(e, "rec")
+    assert calls == [1]
+
+
 def hotkey_engine(eng):
     eng.pressed, eng.note_hotkey = set(), None
     eng.hotkey = [{keyboard.Key.cmd}]

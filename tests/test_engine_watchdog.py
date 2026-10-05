@@ -165,6 +165,17 @@ def test_a_listener_that_stopped_is_started_again(hooked):
     assert len(FakeListener.made) == 2 and FakeListener.made[1].alive
 
 
-def test_no_hook_yet_means_nothing_to_check(eng):
+def test_a_freeze_of_under_two_seconds_also_installs_the_hook_again(hooked):
+    """Windows drops the hook after 1 s without an answer: a check that comes 1.8 s after the last one (a 1.3 s GIL hold
+    that began mid-sleep) counts too (final review W-M3)."""
+    hooked.check_hook(100.0)
+    hooked.check_hook(101.8)
+    assert len(FakeListener.made) == 2
+
+
+def test_no_hook_yet_means_nothing_to_check(eng, monkeypatch):
+    made = []
+    monkeypatch.setattr(engine_mod.keyboard, "Listener", lambda **kw: made.append(kw))
     eng.check_hook(100.0)
     eng.check_hook(110.0)
+    assert made == [] and eng._listener is None
