@@ -2948,7 +2948,7 @@ def cleanup(cfg, raw, style, app_label):
     return cleanup_answer(text)
 
 
-Result = namedtuple("Result", "raw text cleaned cleanup_error fidelity_fallback", defaults=(False,))
+Result = namedtuple("Result", "raw text cleaned cleanup_error fidelity_fallback snippets", defaults=(False, ()))
 
 
 def _transcribe_in_pieces(cfg, pcm_bytes, context=""):
@@ -2998,7 +2998,8 @@ def process_detailed(cfg, pcm_bytes, exe, app_label):
 
     Result.cleaned says whether the AI cleanup produced the text; Result.cleanup_error holds the reason when
     cleanup was wanted but failed (the spoken words tidied by the rules layer are used then, so the dictation is never lost);
-    Result.fidelity_fallback says the fidelity guard rejected the cleanup answer (see fallback_text).
+    Result.fidelity_fallback says the fidelity guard rejected the cleanup answer (see fallback_text); Result.snippets
+    says where saved texts were put in ([start, end, phrase said], snippets.expand; kept in the history entry).
     """
     _mark("stt_start")
     segments = None
@@ -3069,16 +3070,21 @@ def process_text(cfg, raw, exe, app_label, segments=None):
     if code:
         out = codemode.format_code(out)   # "new line" is one of its symbols
     out = fuzzy_dictionary(apply_replacements(out, replacements(cfg)), dictionary_terms(cfg))
-    return Result(raw, apply_layout(cfg, out, style, segments, code), cleaned, error, rejected)
+    out, spans = _layout(cfg, out, style, segments, code)
+    return Result(raw, out, cleaned, error, rejected, spans)
 
 
 def apply_layout(cfg, text, style, segments=None, code=False):
     """Lists and paragraphs (apply_structure; not in code), then the snippets: last, so a saved text never goes to the AI
     and is never re-formatted by the list pass (TXT-12: its line breaks and list markers stay as saved). Twin: the end of
     DictationService's pipeline, Snippets.layout (golden rows "layout")."""
+    return _layout(cfg, text, style, segments, code)[0]
+
+
+def _layout(cfg, text, style, segments, code):
     if not code:
         text = apply_structure(cfg, text, style, segments)
-    return snippets_mod.apply_snippets(text, cfg.get("snippets"))
+    return snippets_mod.expand(text, cfg.get("snippets"))
 
 
 def apply_structure(cfg, text, style, segments=None):

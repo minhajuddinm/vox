@@ -116,6 +116,30 @@ def test_the_improve_run_sends_the_trigger_not_the_saved_text():
     assert improve.preview(dict(core.DEFAULT_CONFIG, snippets=S), hist, 0, 100)["chars"] == len(hist[0]["raw"]) + len(pairs[0]["cleaned"])
 
 
+def test_the_pipeline_records_where_each_saved_text_landed():
+    r = core.process_text(_cfg(cleanup=False), "First, my email. Second, my signature.", "x.exe", "x")
+    assert r.snippets == [[3, 17, "My email"], [21, 21 + len(SIG), "My signature"]]
+    assert snippets.put_back(r.text, r.snippets) == "1. My email\n2. My signature"
+    assert core.process_text(_cfg(cleanup=False), "no snippet here", "x.exe", "x").snippets == []
+
+
+def test_a_deleted_snippet_is_still_never_sent_by_improve():
+    # PRV-3: the entry's own spans put the phrase back; today's snippets (here: none, the snippet was deleted) do not matter
+    text, spans = snippets.expand("Send it to my address.", {"my address": "Flat 4, 12 Secret Road, London"})
+    hist = [{"t": 10, "raw": "send it to my address", "text": text, "snippets": spans}]
+    for now in (None, {}, {"my address": "Somewhere else"}):
+        assert improve.select_transcripts(hist, 0, 10_000, now)[0]["cleaned"] == "Send it to my address."
+    legacy = [{"t": 10, "raw": "send it to my address", "text": text}]   # before entries recorded spans: today's snippets
+    assert improve.select_transcripts(legacy, 0, 10_000, None)[0]["cleaned"] == text
+
+
+@pytest.mark.parametrize("spans", [[[5, 2, "x"]], [[0, 999, "x"]], [[0, 3, 4]], "x", [[0, 1]], [[True, 2, "x"]],
+                                   [[4, 6, "a"], [0, 2, "b"]]])
+def test_an_entry_whose_spans_do_not_fit_is_left_out(spans):
+    hist = [{"t": 10, "raw": "a b c", "text": "secret text", "snippets": spans}, {"t": 11, "raw": "ok", "text": "Ok."}]
+    assert [p["cleaned"] for p in improve.select_transcripts(hist, 0, 10_000, None)] == ["Ok."]
+
+
 def test_snippets_are_part_of_the_synced_profile():
     assert "snippets" in sync.PROFILE_FIELDS
 

@@ -1148,6 +1148,8 @@ class Engine:
                             "t": time.time(), "app": exe, "raw": raw, "text": text,
                             "words": len(text.split()), "secs": round(secs, 1),
                             **({"fidelity_fallback": True} if res.fidelity_fallback else {}),
+                            # where saved texts landed: Improve my cleanup never sends them (PRV-3)
+                            **({"snippets": [list(s) for s in res.snippets]} if res.snippets else {}),
                         }
                         if tm:   # where the time went, kept with the dictation (local only, see the Speed card)
                             entry["timing"] = tm.entry(**core.timing_info(self.cfg), pieces=pieces,

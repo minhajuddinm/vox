@@ -53,7 +53,9 @@ NOT_JSON = "The answer was not usable JSON, so nothing was proposed."
 def select_transcripts(history, since_ts, max_chars, snippets=None):
     """Raw/cleaned pairs of the history entries made since `since_ts`, oldest first: the newest ones that fit `max_chars`
     (raw plus cleaned characters). Entries marked `private` or `no_history`, and entries without both texts, are left out.
-    The text a snippet put in (the `snippets` setting) goes back to its trigger phrase: saved texts are never sent."""
+    The text a snippet put in goes back to its trigger phrase: saved texts are never sent. An entry knows where its
+    snippets landed (`snippets`, see snippets.expand), so a snippet changed or deleted since changes nothing (PRV-3); an
+    entry whose spans do not fit is left out, and an older entry without them uses today's `snippets` setting."""
     out, used = [], 0
     for e in reversed(history):
         if not isinstance(e, dict) or e.get("private") or e.get("no_history"):
@@ -62,7 +64,9 @@ def select_transcripts(history, since_ts, max_chars, snippets=None):
         if not (isinstance(t, (int, float)) and t >= since_ts and isinstance(raw, str) and isinstance(text, str)
                 and raw.strip() and text.strip()):
             continue
-        text = snippets_mod.unexpand(text, snippets)
+        text = snippets_mod.put_back(text, e["snippets"]) if "snippets" in e else snippets_mod.unexpand(text, snippets)
+        if text is None:
+            continue
         used += len(raw) + len(text)
         if used > max_chars:
             break
