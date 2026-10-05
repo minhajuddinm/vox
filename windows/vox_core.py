@@ -335,7 +335,8 @@ def whole_word(text, start, end):
 def in_address(text, start, end):
     """True when text[start:end] is joined to another word by ADDRESS_GLUE on either side (an email, a web or file
     address, code such as ai.predict): a replacement or a dictionary spelling never changes it. Twin: Terms.inAddress."""
-    return (start >= 2 and text[start - 1] in ADDRESS_GLUE and is_word(text[start - 2]))         or (end + 1 < len(text) and text[end] in ADDRESS_GLUE and is_word(text[end + 1]))
+    return (start >= 2 and text[start - 1] in ADDRESS_GLUE and is_word(text[start - 2])) \
+        or (end + 1 < len(text) and text[end] in ADDRESS_GLUE and is_word(text[end + 1]))
 
 
 def apply_replacements(text, repl):

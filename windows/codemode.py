@@ -145,7 +145,7 @@ def _has_code(chunks):
 def _code_here(chunks, i, n, out, code):
     """True when the AMBIGUOUS spoken symbol of chunks[i:i+n] is meant as the symbol: the dictation is code (`code`) or a
     word next to it looks like code (_codeish) or is a symbol, and the word before it is not an article or possessive
-    ("the dot", "a single quote" is a noun after "a" only when nothing around it is code)."""
+    (_ARTICLES: "add the dot env file" keeps "dot")."""
     before = _split(chunks[i - 1]) if i > 0 and chunks[i - 1] != "\n" else None
     if before and before[1].lower() in _ARTICLES and not before[2]:
         return False
