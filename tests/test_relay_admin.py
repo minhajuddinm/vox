@@ -685,3 +685,8 @@ def test_a_server_made_without_an_admin_token_allows_no_admin_changes(tmp_path):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_the_remember_box_says_who_else_could_read_the_token():
+    label = relay.UI_HTML.split('id="remember"', 1)[1].split("</label>", 1)[0]
+    assert "same address" in label and "own port" in label     # bf-e SEC-13

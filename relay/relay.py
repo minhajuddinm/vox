@@ -1370,7 +1370,7 @@ code { background:var(--bg); border:1px solid var(--line); border-radius:6px; pa
   <h2>Vox relay</h2>
   <p class="muted">Enter the relay token (it is in <code>relay.json</code> in the relay's data folder, or run the relay with <code>--show-token</code>).</p>
   <div class="row"><input id="tok" type="password" class="grow" placeholder="Token" autocomplete="off"><button class="b" id="go">Sign in</button></div>
-  <label class="muted"><input type="checkbox" id="remember"> Remember on this device</label>
+  <label class="muted"><input type="checkbox" id="remember"> Remember on this device. Any other web app published on the same address could read it too: give the relay its own port (<code>tailscale serve --bg --https=8443 8765</code>) if you publish anything else.</label>
   <p id="lerr" class="bad"></p>
 </div>
 <div id="app" hidden>
