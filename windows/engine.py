@@ -954,6 +954,9 @@ class Engine:
             raw, text = res.raw, res.text
             outcome = ""   # what the pill shows once the result is in; set only when something was sent or saved
             keep_pending = False
+            if not text:   # silence phrases ("Thank you.") and empty answers are dropped: never without a word
+                self.notify("Vox heard no usable words in that recording (a lone \"Thank you\" counts as silence). Speak a little longer, or check the microphone.")
+                outcome = "error"
             if res.fidelity_fallback:
                 log.warning("fidelity guard: the cleanup answer lost the spoken words, used the raw words (%d words)", len(raw.split()))
             if res.cleanup_error:
