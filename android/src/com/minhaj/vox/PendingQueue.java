@@ -7,7 +7,8 @@ import java.util.List;
  * The unsent recordings of DictationService, as pure logic (no android.*, no files): the service wires it to the
  * files in the cache folder. Each failed recording is one Entry with its own id and its own file
  * ({@link #fileName}); a new recording never replaces an unsent one. Kept oldest first. At most {@link #MAX_KEPT}
- * are kept (adding one more drops the oldest) and {@link #purgeOlder} drops the ones older than {@link #MAX_AGE_MS}.
+ * are kept (adding one more drops the oldest; a fresh recording is only counted once its send failed, see
+ * {@link #addFresh}) and {@link #purgeOlder} drops the ones older than {@link #MAX_AGE_MS}.
  * The id of an entry is the time it was made (milliseconds since 1970, made unique by the caller), so the age needs
  * no other field and the order survives a restart of the service. All methods are synchronized: the worker thread
  * and the main thread both use it.
@@ -36,10 +37,23 @@ public final class PendingQueue {
 
     /** Adds an entry as the newest. Returns the entries pushed out because more than MAX_KEPT would be kept (oldest first). */
     public synchronized List<Entry> add(Entry e) {
-        List<Entry> dropped = new ArrayList<>();
+        addFresh(e);
+        return trim();
+    }
+
+    /**
+     * Adds a fresh recording that is about to be sent, without the cap: a send that works must not cost the oldest kept
+     * recording. When its send fails, {@link #trim} applies the cap (the caller does that after {@link #onSendFailed}).
+     */
+    public synchronized void addFresh(Entry e) {
         int at = items.size();
         while (at > 0 && items.get(at - 1).id > e.id) at--;   // keeps oldest-first order when a restored entry arrives late
         items.add(at, e);
+    }
+
+    /** Applies the cap: removes and returns the entries over MAX_KEPT, oldest first. */
+    public synchronized List<Entry> trim() {
+        List<Entry> dropped = new ArrayList<>();
         while (items.size() > MAX_KEPT) {   // the oldest by age (lowest id), which after a rotation is not always the first in line
             int oldest = 0;
             for (int i = 1; i < items.size(); i++) if (items.get(i).id < items.get(oldest).id) oldest = i;

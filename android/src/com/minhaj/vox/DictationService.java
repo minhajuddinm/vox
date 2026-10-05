@@ -591,9 +591,13 @@ public class DictationService extends Service {
 
     private boolean isCurrent(int job) { return job == jobId; }
 
-    /** A send of this entry failed: when it was a Retry, the entry goes behind the others (and is parked after the third failure). */
+    /**
+     * A send of this entry failed: when it was a Retry, the entry goes behind the others (and is parked after the third
+     * failure). Only now does the cap count a fresh recording: one more than the cap drops the oldest kept one.
+     */
     private void retryFailed(PendingQueue.Entry entry) {
-        if (pending.onSendFailed(entry.id)) refreshNotification();
+        boolean moved = pending.onSendFailed(entry.id);
+        if (!dropOverCap() && moved) refreshNotification();
     }
 
     /** The input devices Android reports now, as the pure MicChoice sees them (no permission is needed to list them). */
@@ -645,12 +649,23 @@ public class DictationService extends Service {
         return new PendingQueue.Entry(id, pkg, label, dest);
     }
 
-    /** Keeps an entry for Retry. The cap drops the oldest one (file too) and says so. */
+    /**
+     * Keeps a fresh recording for Retry while it is sent. It does not count against the cap yet: a send that works must
+     * not cost the oldest kept recording (retryFailed applies the cap when the send fails).
+     */
     private void enqueue(PendingQueue.Entry e) {
-        boolean dropped = false;
-        for (PendingQueue.Entry d : pending.add(e)) { fileOf(d).delete(); dropped = true; }
-        if (dropped) main.post(() -> Toast.makeText(this, "Oldest unsent recording dropped", Toast.LENGTH_LONG).show());
+        pending.addFresh(e);
         refreshNotification();
+    }
+
+    /** The cap drops the oldest kept recordings (files too) and says so. Returns whether any went (the notification was refreshed). */
+    private boolean dropOverCap() {
+        boolean dropped = false;
+        for (PendingQueue.Entry d : pending.trim()) { fileOf(d).delete(); dropped = true; }
+        if (!dropped) return false;
+        main.post(() -> Toast.makeText(this, "Oldest unsent recording dropped", Toast.LENGTH_LONG).show());
+        refreshNotification();
+        return true;
     }
 
     /** Removes one entry and its file: it was sent, or the user discarded it. */
