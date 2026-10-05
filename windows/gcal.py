@@ -191,7 +191,7 @@ def connect(timeout=240):
         os.remove(os.path.join(core.data_dir(), "calendar.json"))
     except OSError:
         pass
-    log.info("google calendar connected for %s", email)
+    log.info("google calendar connected")   # never the account address: the log holds no personal data
     return {"ok": True, "email": email}
 
 

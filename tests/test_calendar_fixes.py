@@ -135,3 +135,11 @@ def test_the_google_revoke_sends_the_token_in_the_body(appdata, monkeypatch):
     gcal.disconnect()
     url, kw = sent[0]
     assert "rt-SECRET" not in url and "params" not in kw and kw["data"] == {"token": "rt-SECRET"}
+
+
+def test_connecting_google_does_not_log_the_account_address():
+    # PRV-13 of the v2 review: vox.log is described as holding app names and server errors only
+    import inspect
+    import re
+    for call in re.findall(r"log\.\w+\((.*)\)", inspect.getsource(gcal)):
+        assert "email" not in call
