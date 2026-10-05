@@ -529,7 +529,8 @@ def main(argv=None, call=core.cleanup, legacy_call=legacy.cleanup):
     ap.add_argument("--corpus", help="a JSONL corpus of transcripts (default: your clips if transcribed, else "
                                      "tools/bench/corpus.jsonl)")
     ap.add_argument("--clips", action="store_true", help="use your recorded clips (fails when none is transcribed)")
-    ap.add_argument("--folder", help="the clips folder (default: %%APPDATA%%\\Vox\\bench\\clips)")
+    ap.add_argument("--folder", help="the clips folder (default: %%APPDATA%%\\Vox\\bench\\clips; a public set from "
+                                      "bench_public.py: %%APPDATA%%\\Vox\\bench\\public\\<source>)")
     ap.add_argument("--stt", help="which cached transcript of the clips (the label bench_stt.py prints; default: the one "
                                   "covering the most clips)")
     ap.add_argument("--out", help="where to save the JSON (default: %%APPDATA%%\\Vox\\bench\\bench-DATE.json)")

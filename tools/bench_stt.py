@@ -275,7 +275,8 @@ def main(argv=None, transcribe=transcribe_clip):
                                           f"default: the app's {core.TRIM_PAD_FRAMES * FRAME_MS} ms)")
     ap.add_argument("--prompt-tokens", help="Whisper prompt sizes to try, comma separated, in estimated tokens "
                                             f"(default: the app's {core.WHISPER_PROMPT_TOKENS})")
-    ap.add_argument("--folder", help="the clips folder (default: %%APPDATA%%\\Vox\\bench\\clips)")
+    ap.add_argument("--folder", help="the clips folder (default: %%APPDATA%%\\Vox\\bench\\clips; a public set from "
+                                      "bench_public.py: %%APPDATA%%\\Vox\\bench\\public\\<source>)")
     ap.add_argument("--out", help="where to save the JSON (default: %%APPDATA%%\\Vox\\bench\\stt-DATE.json)")
     ap.add_argument("--pause", type=float, default=3.0, help="seconds between requests (default 3: free tiers allow 20 a minute)")
     args = ap.parse_args(argv)
