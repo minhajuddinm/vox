@@ -334,6 +334,13 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert bubble_action(*[v == "true" for v in f[:3]]) == f[3]
     elif kind == "fidelity":   # strength, raw, cleaned, whether the cleanup kept enough of the spoken words
         assert core.fidelity_ok(f[1], f[2], f[0]) == (f[3] == "true")
+    elif kind == "guard":   # strength, finish, terms, replacements, raw, cleaned => accept|empty|reject, reason (label ignored)
+        v = core.fidelity_check(f[4], f[5], f[0], f[1], items(f[2]), dict(pairs(f[3])))
+        assert ("empty" if v.empty else "accept" if v.ok else "reject", v.reason) == (f[6], f[7])
+    elif kind == "lcs":   # tokens a, tokens b => aligned index pairs i:j
+        assert "|".join("%d:%d" % p for p in core.lcs_pairs(items(f[0]), items(f[1]))) == f[2]
+    elif kind == "pkey":   # word, its phonetic key
+        assert core.pkey(f[0]) == f[1]
     elif kind == "tokens":   # text, its word tokens joined by |
         assert "|".join(core.word_tokens(f[0])) == f[1]
     elif kind == "recall":   # raw, cleaned, share of raw's words still in cleaned (3 decimals)

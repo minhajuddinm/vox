@@ -1,5 +1,6 @@
 """Platform-independent parts of Vox: config, Groq calls, prompt, text post-processing."""
 import array
+import bisect
 import copy
 import difflib
 import io
@@ -837,11 +838,13 @@ def fallback_text(raw):
 
 
 # ------------------------------------------------------------ fidelity guard
-# Rejects a cleanup that lost the speaker's words (a summary, a rewrite, a dropped paragraph). The same rules run on
-# the phone (Fidelity.java); spec/golden.txt (kinds fidelity, tokens, recall) keeps the two equal. Integer arithmetic only.
+# Rejects a cleanup that lost or changed the speaker's words (a summary, a rewrite, a dropped clause, an answer, padding,
+# a prompt echo). The same rules run on the phone (Fidelity.java); spec/golden.txt (kinds fidelity, guard, lcs, pkey,
+# tokens, recall) keeps the two equal. Integer arithmetic only.
 
-FILLERS = frozenset({"um", "uh", "er", "erm", "ah", "hmm", "like", "you know", "i mean", "sort of", "kind of"})
-NOISES = frozenset({"um", "uh", "er", "erm", "ah", "hmm"})   # pure noises: may go even in Light strength
+FILLERS = frozenset({"um", "uh", "er", "erm", "ah", "hmm", "like", "basically", "you know", "i mean", "sort of",
+                     "kind of"})
+NOISES = frozenset({"um", "uh", "er", "erm", "ah", "hmm", "hm", "mm", "uhm"})   # pure noises: may go even in Light
 
 _UNITS = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
           "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
@@ -1066,7 +1069,8 @@ def _compare_tokens(raw, cleaned, split_dates=False):
 
 
 def _drop_fillers(tokens, standard):
-    """Tokens the cleanup may remove: pure noises always; in Standard also fillers, filler phrases and immediate repeats."""
+    """Tokens the cleanup may remove: pure noises always; in Standard also fillers, filler phrases and immediate repeats
+    (the benchmark's structure_only reads words this way; the guard has its own rules below)."""
     out, i = [], 0
     while i < len(tokens):
         t = tokens[i]
@@ -1101,43 +1105,652 @@ def word_recall(raw, cleaned):
     return 1.0 if not r else _matched(r, c) / len(r)
 
 
-LIGHT_MAX_MISSING = 12   # Light: more raw words than this missing is a lost sentence, whatever the percentage
+# ------------------------------------------------------- fidelity guard v2
+# Design: D1 section 3 of the 2026-10-05 review (cleanup-quality round; decision record in the documentation). Every
+# check below has a twin in Fidelity.java (Fidelity.check). Explicit character classes only (no \s, \b, \d) and ASCII
+# digits, so both languages read a text the same way.
+
+_WS = " \t\n\r\f\v"
+_G_FILLER_1 = frozenset(f for f in FILLERS if " " not in f and f not in NOISES)   # like, basically (Standard)
+_G_FILLER_2 = frozenset(f for f in FILLERS if " " in f)                          # you know, i mean, sort of, kind of
+# negations; a negative contraction counts as one ("don't" and "do not": the same count, different words)
+_NEG = frozenset({"not", "no", "never", "nothing", "none", "nobody", "nowhere", "neither", "nor", "without", "nahi",
+                  "nahin", "\u0928\u0939\u0940\u0902", "\u092e\u0924", "dont", "doesnt", "didnt", "cant", "cannot", "wont", "wouldnt", "shouldnt",
+                  "couldnt", "isnt", "arent", "wasnt", "werent", "havent", "hasnt", "hadnt", "mustnt", "neednt", "aint"})
+_MONTHS = frozenset({"january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+                     "november", "december", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct",
+                     "nov", "dec"})
+_WEEKDAYS = frozenset({"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"})
+# never a one-word "fix" of another word: negations, days, months, pronouns, opposites
+_PROTECTED = _NEG | _MONTHS | _WEEKDAYS | {"yes", "he", "she", "they", "we", "you", "i", "him", "her", "them", "us",
+                                           "before", "after", "more", "less", "first", "last", "left", "right"}
+_CONNECTORS = frozenset({"and", "but", "because", "so", "or", "then", "although", "while", "if"})
+_FREE_INS = frozenset({"a", "an", "the", "to", "of", "is", "are", "and", "it", "that", "in", "for", "on", "at", "i"})
+_SCALE_ZEROS = {"thousand": 3, "lakh": 5, "lakhs": 5, "million": 6, "crore": 7, "crores": 7, "billion": 9}
+# spoken commands: the symbols one of them may become in the cleaned text, between its neighbouring words
+_G_COMMANDS = {"new paragraph": ("\n",), "new line": ("\n",), "question mark": ("?",), "exclamation mark": ("!",),
+               "exclamation point": ("!",), "full stop": (".",), "period": (".",), "comma": (",",), "colon": (":",),
+               "semicolon": (";",), "slash": ("/",), "dash": ("-", "\u2013", "\u2014"), "hyphen": ("-",)}
+_LIST_CUES = frozenset({"point", "number", "item", "step", "bullet"})
+# self-correction cues (Standard): the words just before one may be replaced by the words after it
+_CUES_CLAUSE = frozenset({"scratch that", "forget that", "delete that", "strike that"})            # up to 15 back
+_CUES_2 = frozenset({"no wait", "wait no", "i mean", "i meant", "or rather", "make that", "nahi nahi", "no no",
+                     "sorry i"})                                                                    # up to 6 back
+_CUES_1 = frozenset({"actually", "sorry", "matlab", "rather"})                                      # up to 6 back
+_CUE_TAILS = frozenset({"make it", "make that", "change it", "change that", "it to", "that to", "lets say"})
+# one spelling for two; a contraction is not one ("don't" -> "do not" changes the speaker's words, both ways)
+_SPELLINGS = {"okay": "ok", "alright": "all right"}
+# pieces of the cleanup prompt: in an answer they are an echo of the instructions, unless the speaker said those words
+_SCAFFOLD = ("<about_speaker", "about_speaker>", "my_cleanup_rules", "spell these names", "never talking to you",
+             "the text will be typed into", "examples (the output", "rules:\n", "output:\n", "input:",
+             "keep fillers such as", "drop only pure noises", "you are a transcript", "speech-to-text transcript inside",
+             "standard written form", "about the speaker", "terms (spell", "\nstyle:", "\nlayout:", "\napp:")
+_PREAMBLES = ("sure", "certainly", "here is", "here's", "here are", "output", "cleaned", "cleaned text",
+              "cleaned transcript", "transcript", "result", "formatted text")
+_CUR_ABBR = {"rs": "\u20b9", "inr": "\u20b9", "usd": "$", "eur": "\u20ac", "gbp": "\u00a3"}
+_INFLECT = ("s", "es", "ed", "d", "ing")
+LCS_BAND = 30   # lcs_pairs looks at most this many tokens (plus the length difference) off the diagonal
+
+Verdict = namedtuple("Verdict", "ok empty reason")
+
+
+class _GTok:
+    """A guard token: normalised text, span in the NFKC text, kind (word, number, noise, filler, repeat, command,
+    symbol, listcue, datefill, decimal), the symbols that stand for it, optional (inside a self-correction), digits,
+    the words of the spoken command it is part of."""
+    __slots__ = ("t", "s", "e", "kind", "sym", "opt", "num", "cue", "say")
+
+    def __init__(self, t, s, e, kind="word", num=""):
+        self.t, self.s, self.e, self.kind, self.num = t, s, e, kind, num
+        self.sym, self.opt, self.cue, self.say = (), False, None, ""
+
+
+def _is_digit(ch):
+    return "0" <= ch <= "9"
+
+
+def _trim(text):
+    """text without the characters up to a space at both ends (Java's String.trim)."""
+    s = text or ""
+    i, j = 0, len(s)
+    while i < j and s[i] <= " ":
+        i += 1
+    while j > i and s[j - 1] <= " ":
+        j -= 1
+    return s[i:j]
+
+
+def _u16len(text):
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2   # the length Java sees
+
+
+def _digit_parts(tok):
+    """tok cut at letter/digit boundaries ("q3" = q, 3); a digit part keeps the , . : inside it (2,500)."""
+    out, i, n = [], 0, len(tok)
+    while i < n:
+        j, digit = i + 1, _is_digit(tok[i])
+        while j < n and (_is_digit(tok[j]) or (digit and tok[j] in ",.:")) == digit:
+            j += 1
+        out.append(tok[i:j])
+        i = j
+    return out
+
+
+def guard_split(text):
+    """(token, start, end) for the words of text: runs of letters, digits and marks, lowercase; an apostrophe inside a
+    word is dropped (what's = whats); , . : between two digits stay inside (2,500, 9:15, 5.50); letters and digits are
+    split (q3 = q 3) except an ordinal (3rd). Twin: Fidelity.split."""
+    s = text or ""
+    out, i, n = [], 0, len(s)
+    while i < n:
+        if not _is_word_char(s[i]):
+            i += 1
+            continue
+        j, buf = i, []
+        while j < n:
+            ch = s[j]
+            if _is_word_char(ch):
+                buf.append(ch)
+            elif ch in "'\u2019" and buf and j + 1 < n and _is_word_char(s[j + 1]):
+                pass
+            elif ch in ",.:" and buf and _is_digit(buf[-1]) and j + 1 < n and _is_digit(s[j + 1]):
+                buf.append(ch)
+            else:
+                break
+            j += 1
+        tok = "".join(buf).lower()
+        for part in [tok] if _ORDINAL_SUFFIX.match(tok) else _digit_parts(tok):
+            out.append((part, i, j))
+        i = j
+    return out
+
+
+def _g_isnum(t):
+    return t != "" and _is_digit(t[0]) and all(_is_digit(ch) or ch in ",.:" for ch in t)
+
+
+def _g_digits(t):
+    return "".join(ch for ch in t if _is_digit(ch))
+
+
+def _g_tokenize(text):
+    """(NFKC text, tokens): okay = ok, alright = all right, numbers as digit strings ("2,500" = 2500,
+    "2.5 million" = 25000000, twenty five = 25, third = 3, half past three = 330, quarter past three = 315, quarter to
+    four = 345, "one oh four" = 1 0 4), "point" between numbers a decimal point, "a m" = am, and a date "3 march" or
+    "3 of march" written as "march 3" (the "of" and a "the" before it may go)."""
+    s = unicodedata.normalize("NFKC", text or "")
+    raw = []
+    for w, a, b in guard_split(s):
+        for part in _SPELLINGS[w].split() if w in _SPELLINGS else (w,):
+            raw.append(_GTok(part, a, b))
+    words = [t.t for t in raw]
+    out, i, n = [], 0, len(raw)
+    while i < n:
+        t, w = raw[i], words[i]
+        if w == "quarter" and i + 2 < n and words[i + 1] in ("past", "to"):
+            nt = _number_token(words, i + 2)
+            if nt and _all_digits(nt[0]):
+                h = int(nt[0])
+                val = "%d15" % h if words[i + 1] == "past" else "%d45" % ((h - 1) or 12)
+                out.append(_GTok(val, t.s, raw[nt[1] - 1].e, "number", val))
+                i = nt[1]
+                continue
+        m = _ORDINAL_SUFFIX.match(w)
+        if m:
+            out.append(_GTok(m.group(1), t.s, t.e, "number", m.group(1)))
+            i += 1
+            continue
+        if _g_isnum(w):
+            d = _g_digits(w)
+            if i + 1 < n and words[i + 1] in _SCALE_ZEROS:
+                d += "0" * _SCALE_ZEROS[words[i + 1]]
+                out.append(_GTok(d, t.s, raw[i + 1].e, "number", d))
+                i += 2
+                continue
+            out.append(_GTok(d, t.s, t.e, "number", d))
+            i += 1
+            continue
+        if w in ("oh", "o") and out and out[-1].kind == "number" and len(out[-1].num) == 1 and i + 1 < n \
+                and _UNITS.get(words[i + 1], 99) < 10:
+            out.append(_GTok("0", t.s, t.e, "number", "0"))
+            i += 1
+            continue
+        if w == "point" and out and out[-1].kind == "number" and i + 1 < n \
+                and (_g_isnum(words[i + 1]) or words[i + 1] in _UNITS):
+            out.append(_GTok("point", t.s, t.e, "decimal"))
+            i += 1
+            continue
+        if w in ("a", "p") and i + 1 < n and words[i + 1] == "m":
+            out.append(_GTok(w + "m", t.s, raw[i + 1].e))
+            i += 2
+            continue
+        nt = None
+        if w != "a" or (i + 1 < n and (words[i + 1] == "hundred" or words[i + 1] in _SCALE_ZEROS)):
+            nt = _number_token(words, i)
+        if nt:
+            d = _ORDINAL_SUFFIX.sub(r"\1", nt[0])
+            if _all_digits(d):
+                out.append(_GTok(d, t.s, raw[nt[1] - 1].e, "number", d))
+                i = nt[1]
+                continue
+        out.append(_GTok(w, t.s, t.e))
+        i += 1
+    k = 0
+    while k + 1 < len(out):
+        a, b = out[k], out[k + 1]
+        if a.kind == "number" and len(a.num) <= 2 and b.t in _MONTHS:
+            out[k], out[k + 1] = b, a
+            k += 2
+            continue
+        if a.kind == "number" and len(a.num) <= 2 and b.t == "of" and k + 2 < len(out) and out[k + 2].t in _MONTHS:
+            b.kind = "datefill"
+            out[k], out[k + 1], out[k + 2] = out[k + 2], a, b
+            if k > 0 and out[k - 1].t == "the":
+                out[k - 1].kind = "datefill"
+            k += 3
+            continue
+        k += 1
+    return s, out
+
+
+def _g_mark(toks, standard):
+    """Kinds of the raw tokens: noises, spoken commands, symbol words (five dollars [and] fifty cents = $5.50, "to"
+    between numbers, at, dot), list cues; in Standard also fillers, immediate repeats and self-correction windows."""
+    n, w, i = len(toks), [t.t for t in toks], 0
+    while i < n:
+        t = toks[i]
+        two = w[i] + " " + w[i + 1] if i + 1 < n else None
+        if t.kind != "word":
+            i += 1
+            continue
+        if t.t in NOISES:
+            t.kind = "noise"
+        elif two in _G_COMMANDS:
+            t.kind = toks[i + 1].kind = "command"
+            t.sym = toks[i + 1].sym = _G_COMMANDS[two]
+            t.say = toks[i + 1].say = two
+            i += 2
+            continue
+        elif t.t in _G_COMMANDS:
+            t.kind, t.sym, t.say = "command", _G_COMMANDS[t.t], t.t
+        elif t.t in _SYMBOL_WORDS:
+            t.kind, t.sym = "symbol", (_SYMBOL_WORDS[t.t], "rs") if t.t.startswith("rupee") else (_SYMBOL_WORDS[t.t],)
+            j = i + 2 if i + 1 < n and toks[i + 1].t == "and" else i + 1
+            if j + 1 < n and toks[j].kind == "number" and toks[j + 1].t in _SUBUNITS:   # [and] fifty cents
+                for q in range(i + 1, j + 2):
+                    if q != j:
+                        toks[q].kind, toks[q].sym = "symbol", t.sym
+        elif t.t == "to" and 0 < i < n - 1 and toks[i - 1].kind == "number" and toks[i + 1].kind == "number":
+            t.kind, t.sym, t.say = "command", ("-", "\u2013", ":"), "to"
+        elif t.t in ("at", "dot"):
+            t.kind, t.sym = "symbol", ("@",) if t.t == "at" else (".",)
+        elif t.t in _LIST_CUES and (t.t == "bullet" or (i + 1 < n and toks[i + 1].kind == "number")):
+            t.kind = "listcue"
+        elif standard and t.t in _G_FILLER_1:
+            t.kind = "filler"
+        elif standard and two in _G_FILLER_2:
+            t.kind = toks[i + 1].kind = "filler"
+            i += 2
+            continue
+        elif standard and i > 0 and w[i - 1] == t.t:
+            t.kind = "repeat"
+        i += 1
+    if standard:
+        _g_corrections(toks)
+    return toks
+
+
+def _typed_value(t):
+    return t.kind == "number" or t.t in _WEEKDAYS or t.t in _MONTHS
+
+
+def _g_corrections(toks):
+    """Standard: a self-correction cue ("no wait", "actually", "scratch that", a bare "no" between two typed values)
+    and up to 6 tokens before it (15 for "scratch that", 3 for a bare "no") may be missing; checked later."""
+    n, w = len(toks), [t.t for t in toks]
+    for i in range(n):
+        two = w[i] + " " + w[i + 1] if i + 1 < n else None
+        if two in _CUES_CLAUSE:
+            cue_len, back = 2, 15
+        elif two in _CUES_2:
+            cue_len, back = 2, 6
+        elif w[i] in _CUES_1:
+            cue_len, back = 1, 6
+        elif w[i] == "no" and i + 1 < n and _typed_value(toks[i + 1]) \
+                and any(_typed_value(toks[k]) for k in range(max(0, i - 3), i)):
+            cue_len, back = 1, 3
+        else:
+            continue
+        while i + cue_len + 1 < n and w[i + cue_len] + " " + w[i + cue_len + 1] in _CUE_TAILS:
+            cue_len += 2   # "actually make it thursday", "sorry change that to friday"
+        if i + cue_len >= n:
+            continue
+        start = i
+        while start > 0 and i - start < back and toks[start - 1].kind != "command" and not toks[start - 1].opt:
+            start -= 1
+        for k in range(start, i + cue_len):
+            toks[k].opt = True
+        toks[i].cue = (start, i, i + cue_len)
+
+
+def lcs_pairs(a, b, band=LCS_BAND):
+    """The aligned (i, j) index pairs of a longest common subsequence of two token lists, ascending. The common suffix is
+    taken first (a repeated word binds to its later copy, the repair after a correction), then the common prefix; the
+    rest is a dynamic programme inside the band |i - j*N/M| <= band + |N - M| (cells outside it count as 0). Walking
+    back: a match when the tokens are equal and on an optimal path, else a step back in a when that keeps the score,
+    else in b. Twin: Fidelity.lcsPairs."""
+    n, m = len(a), len(b)
+    s = 0
+    while s < n and s < m and a[n - 1 - s] == b[m - 1 - s]:
+        s += 1
+    p = 0
+    while p < n - s and p < m - s and a[p] == b[p]:
+        p += 1
+    A, B = a[p:n - s], b[p:m - s]
+    N, M = len(A), len(B)
+    w = band + abs(N - M)
+    los, rows = [0] * (N + 1), [[] for _ in range(N + 1)]
+
+    def at(i, j):
+        k = j - los[i]
+        return rows[i][k] if 0 <= k < len(rows[i]) else 0
+
+    for i in range(1, N + 1):
+        jc = i * M // N
+        lo, hi = max(1, jc - w), min(M, jc + w)
+        los[i] = lo
+        ai, cur = A[i - 1], []
+        for j in range(lo, hi + 1):
+            if ai == B[j - 1]:
+                v = at(i - 1, j - 1) + 1
+            else:
+                up, left = at(i - 1, j), cur[-1] if cur else 0
+                v = up if up >= left else left
+            cur.append(v)
+        rows[i] = cur
+    mid, i, j = [], N, M
+    while i > 0 and j > 0:
+        if A[i - 1] == B[j - 1] and at(i, j) == at(i - 1, j - 1) + 1:
+            mid.append((p + i - 1, p + j - 1))
+            i, j = i - 1, j - 1
+        elif at(i - 1, j) >= at(i, j - 1):
+            i -= 1
+        else:
+            j -= 1
+    return [(k, k) for k in range(p)] + mid[::-1] + [(n - s + k, m - s + k) for k in range(s)]
+
+
+def _lev(a, b):
+    if a == b:
+        return 0
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+_PKEY_SUBS = (("sch", "sk"), ("ph", "f"), ("gh", "g"), ("ck", "k"), ("th", "t"), ("dh", "d"), ("bh", "b"), ("kh", "k"),
+              ("sh", "s"), ("ch", "c"), ("q", "k"), ("x", "ks"), ("z", "s"), ("w", "v"))
+
+
+def pkey(word):
+    """A small phonetic key (Metaphone-like, for Indian English too: aspirates dropped, v and w the same). Twin:
+    Fidelity.pkey."""
+    w = "".join(ch for ch in (word or "").lower() if "a" <= ch <= "z")
+    if not w:
+        return ""
+    for x, y in _PKEY_SUBS:
+        w = w.replace(x, y)
+    w = "".join("s" if ch == "c" and i + 1 < len(w) and w[i + 1] in "eiy" else "k" if ch == "c" else ch
+                for i, ch in enumerate(w))
+    rest = []
+    for ch in w[1:]:
+        if ch not in "aeiouyh" and (not rest or rest[-1] != ch):
+            rest.append(ch)
+    return (("A" if w[0] in "aeiouy" else w[0].upper()) + "".join(rest).upper())[:8]
+
+
+def _g_similar(x, y, rt, ct):
+    """A one-word spelling or grammar fix (never of a number, negation, day, month or pronoun)."""
+    if rt.kind != "word" or ct.kind != "word" or x in _PROTECTED or y in _PROTECTED:
+        return False
+    if any(x == y + s or y == x + s for s in _INFLECT):
+        return True
+    if len(x) >= 4 and len(y) >= 4 and _lev(x, y) <= (2 if min(len(x), len(y)) >= 6 else 1):
+        return True
+    return len(x) >= 3 and len(y) >= 3 and pkey(x) == pkey(y)
+
+
+def _g_align(r, c):
+    """(status per raw token, status per cleaned token, aligned pairs): 'eq', 'fix', 'moved', 'comp' or None (missing
+    or inserted). Compounds first (tail scale = tailscale, can not = cannot, and the reverse), then lcs_pairs (without
+    the spoken commands whose words the cleaned text does not have: they became symbols), then inside each gap such a
+    command equal to a cleaned word or a similar word (a fix), then equal words out of order (moved)."""
+    said = {t.t for t in c} | {c[j].t + " " + c[j + 1].t for j in range(len(c) - 1)}   # a command kept as words
+    rs, cs = [None] * len(r), [None] * len(c)
+    rw, cw = [t.t for t in r], [t.t for t in c]
+    cset, rset = set(cw), set(rw)
+    for i in range(len(r)):
+        for k in (3, 2):
+            if i + k <= len(r) and all(x is None for x in rs[i:i + k]):
+                j = "".join(rw[i:i + k])
+                if j in cset and j not in rset:
+                    for q in range(i, i + k):
+                        rs[q] = "comp"
+                    rw[i] = j
+                    for q in range(i + 1, i + k):
+                        rw[q] = "\0"
+                    break
+    for j in range(len(c)):
+        for k in (3, 2):
+            if j + k <= len(c) and "\0" not in cw[j:j + k]:
+                m = "".join(cw[j:j + k])
+                if m in rset and m not in cset:
+                    cw[j] = m
+                    for q in range(j + 1, j + k):
+                        cw[q], cs[q] = "\0", "comp"
+                    break
+    ri = [i for i in range(len(r)) if rw[i] != "\0" and (r[i].kind != "command" or r[i].say in said)]
+    ci = [j for j in range(len(c)) if cw[j] != "\0"]
+    pairs = []
+    for x, y in lcs_pairs([rw[i] for i in ri], [cw[j] for j in ci]):
+        rs[ri[x]] = rs[ri[x]] or "eq"
+        cs[ci[y]] = "eq"
+        pairs.append((ri[x], ci[y]))
+    bounds = [(-1, -1)] + pairs + [(len(r), len(c))]
+    for (i0, j0), (i1, j1) in zip(bounds, bounds[1:]):
+        used = set()
+        for i in range(i0 + 1, i1):
+            if rw[i] == "\0":
+                continue
+            cmd = r[i].kind == "command" and r[i].say not in said
+            for j in range(j0 + 1, j1):
+                if cw[j] == "\0" or j in used:
+                    continue
+                if (cw[j] == rw[i]) if cmd else _g_similar(rw[i], cw[j], r[i], c[j]):
+                    rs[i] = cs[j] = "eq" if cmd else "fix"
+                    used.add(j)
+                    pairs.append((i, j))
+                    break
+    left = {}
+    for j in range(len(c)):
+        if cs[j] is None and cw[j] != "\0":
+            left.setdefault(cw[j], []).append(j)
+    for i in range(len(r)):
+        if rs[i] is None and rw[i] != "\0" and left.get(rw[i]):
+            j = left[rw[i]].pop(0)
+            rs[i] = cs[j] = "moved"
+    for i in range(len(r)):
+        if rw[i] == "\0":
+            rs[i] = "comp"
+    return rs, cs, sorted(pairs)
+
+
+def _list_markers(text):
+    """(number of list-marker lines: "1." / "1)" / "-" / "*" / bullet then a space, start offsets of the numbered
+    markers' digits)."""
+    count, pos, i, n = 0, set(), 0, len(text)
+    while True:
+        j = i
+        while j < n and text[j] in " \t\r\f\v":
+            j += 1
+        k = j
+        while k < n and _is_digit(text[k]):
+            k += 1
+        if k > j and k + 1 < n and text[k] in ".)" and text[k + 1] in _WS:
+            count += 1
+            pos.add(j)
+        elif k == j and j + 1 < n and text[j] in "-*\u2022" and text[j + 1] in _WS:
+            count += 1
+        nl = text.find("\n", i)
+        if nl < 0:
+            return count, pos
+        i = nl + 1
+
+
+def _sentence_ends(text):
+    """Offsets just after each sentence end: a run of . ! ? followed by white space or the end, and each line break."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        if text[i] in ".!?":
+            j = i
+            while j < n and text[j] in ".!?":
+                j += 1
+            if j == n or text[j] in _WS:
+                out.append(j)
+            i = j
+        else:
+            if text[i] == "\n":
+                out.append(i + 1)
+            i += 1
+    return out
+
+
+def _preamble_word(text):
+    """The first word (apostrophe dropped) of a preamble such as "Sure, here is the text:" at the start of text, else
+    None: one of _PREAMBLES as a whole word, then at most 40 characters without a line break or colon, then a colon."""
+    low = text.lower()
+    for p in _PREAMBLES:
+        if low.startswith(p) and (len(low) == len(p) or not is_word(low[len(p)])):
+            k = len(p)
+            while k < len(low) and k - len(p) <= 40 and low[k] not in "\n:":
+                k += 1
+            if k < len(low) and low[k] == ":" and k - len(p) <= 40:
+                return p.split()[0].replace("'", "")
+    return None
+
+
+def _filler_only(raw, standard):
+    """True when every spoken word is one the strength lets the cleanup drop: pure noises, and fillers in Standard."""
+    return all(t.kind in ("noise", "filler") for t in _g_mark(_g_tokenize(raw)[1], standard))
+
+
+def fidelity_check(raw, cleaned, strength="light", finish_reason="", terms=(), repl=None):
+    """The fidelity guard: Verdict(ok, empty, reason) for a cleanup answer of the transcript raw. The reason never
+    holds a dictated word (it may be logged). empty: the answer is the empty result (blank or EMPTY) and raw has only
+    words the strength may drop, so nothing is typed. terms: the dictionary's spellings (one may never go missing);
+    repl: its "wrong => right" pairs, applied to both sides first. Light keeps every word but noises, spoken commands
+    and number/symbol formatting; Standard may also drop fillers, repeats, false starts and resolve self-corrections
+    ("thursday no wait friday" = "Friday"). Neither may answer, pad, reorder, change a number or a negation, or drop
+    content. Twin: Fidelity.check."""
+    standard = clean_strength(strength) == "standard"
+    if str(finish_reason or "").lower() in ("length", "content_filter"):
+        return Verdict(False, False, "finish_reason")
+    raw, c = raw or "", _trim(cleaned)
+    if c == "" or c.rstrip(".") == "EMPTY":
+        return Verdict(True, True, "empty") if _filler_only(raw, standard) else Verdict(False, False, "empty")
+    low = c.lower()
+    raw_words = {x for x, _, _ in guard_split(raw.lower())}
+    for m in _SCAFFOLD:
+        if m in low and not all(x in raw_words for x, _, _ in guard_split(m)):
+            return Verdict(False, False, "scaffold echo: " + m.strip())
+    first = _preamble_word(c)
+    if first is not None and first not in raw_words:
+        return Verdict(False, False, "preamble")
+    if 5 * _u16len(c) > 8 * _u16len(raw) + 200:   # longer than 1.6 times the transcript plus 40: an answer or padding
+        return Verdict(False, False, "too long")
+    if repl:
+        raw, c = apply_replacements(raw, repl), apply_replacements(c, repl)
+    r = _g_mark(_g_tokenize(raw)[1], standard)
+    csrc, ct = _g_tokenize(c)
+    rs, cs, pairs = _g_align(r, ct)
+    raw_to_c = dict(pairs)
+
+    def c_gap(i):
+        """The cleaned text between the partners of the nearest aligned raw tokens around raw token i."""
+        p = next((raw_to_c[k] for k in range(i - 1, -1, -1) if k in raw_to_c), None)
+        q = next((raw_to_c[k] for k in range(i + 1, len(r)) if k in raw_to_c), None)
+        return csrc[ct[p].e if p is not None else 0:ct[q].s if q is not None else len(csrc)]
+
+    sym_left = {"@": csrc.count("@"), ".": _inner_dots(csrc)}
+    markers, marker_pos = _list_markers(csrc)
+    has_rs = any(t.t == "rs" for t in ct)
+    for t in r:   # a correction counts only when the word after the cue is kept and the words gone end at the cue
+        if t.cue is None:
+            continue
+        start, cue, after = t.cue
+        nxt = next((k for k in range(after, len(r)) if r[k].kind not in ("noise", "filler")), None)
+        valid = nxt is not None and rs[nxt] is not None
+        if valid:
+            gone = [k for k in range(start, cue) if rs[k] is None]
+            valid = not gone or all(rs[k] is None for k in range(gone[0], cue))
+        if not valid:
+            for k in range(start, after):
+                r[k].opt = False
+    missing, run, longest, n_req = [], 0, 0, 0
+    for i, t in enumerate(r):
+        free = t.kind in ("noise", "filler", "repeat", "decimal", "datefill", "number")   # numbers: judged below
+        if t.kind == "command":
+            free = rs[i] is None and any(x in c_gap(i) for x in t.sym)
+        elif t.kind == "symbol" and t.t in ("at", "dot"):
+            if rs[i] is None and sym_left[t.sym[0]] > 0:
+                sym_left[t.sym[0]] -= 1
+                free = True
+        elif t.kind == "symbol":
+            free = rs[i] is None and (t.sym[0] in csrc or ("rs" in t.sym and has_rs))
+        elif t.kind == "listcue":
+            free = rs[i] is None and markers > 0
+        if free or t.opt:
+            continue
+        n_req += 1
+        if rs[i] is None:
+            missing.append(i)
+            run += 1
+            longest = max(longest, run)
+        else:
+            run = 0
+    if standard and missing:   # a dropped run that restarts with its own first word is a false start
+        keep, k = [], 0
+        while k < len(missing):
+            j = k
+            while j + 1 < len(missing) and missing[j + 1] == missing[j] + 1:
+                j += 1
+            a, b = missing[k], missing[j]
+            restart = (b - a + 1 <= 4 and b + 1 < len(r) and r[b + 1].t == r[a].t and rs[b + 1] is not None
+                       and not any(r[q].t in _CONNECTORS for q in range(a, b + 1)))
+            if not restart:
+                keep.extend(missing[k:j + 1])
+            k = j + 1
+        missing, longest, run, prev = keep, 0, 0, None
+        for i in missing:
+            run = run + 1 if prev is not None and all(
+                r[q].kind in ("noise", "filler", "repeat") or r[q].opt for q in range(prev + 1, i)) else 1
+            longest, prev = max(longest, run), i
+    critical = _WEEKDAYS | _MONTHS | {x.lower() for x in terms or ()}
+    if any(r[i].t in critical for i in missing):
+        return Verdict(False, False, "critical word dropped")
+    spoken_cur = {_SYMBOL_WORDS[t.t] for t in r if t.t in _SYMBOL_WORDS}
+    ins = {j for j, t in enumerate(ct) if cs[j] is None and t.kind == "word" and t.t not in _FREE_INS
+           and _CUR_ABBR.get(t.t) not in spoken_cur}
+    free_ins = sum(1 for j, t in enumerate(ct) if cs[j] is None and t.kind == "word" and t.t in _FREE_INS)
+    fixes, moved = rs.count("fix"), rs.count("moved")
+    rn = [(t.num, t.opt) for t in r if t.kind == "number"]
+
+    def digits_fit(cnum):   # the raw numbers' digits in order; a number inside a correction may be skipped
+        states = {0}
+        for d, opt in rn:
+            states = {p + len(d) for p in states if cnum.startswith(d, p)} | (states if opt else set())
+            if not states:
+                return False
+        return len(cnum) in states
+
+    if not (digits_fit("".join(t.num for t in ct if t.kind == "number"))
+            or digits_fit("".join(t.num for t in ct if t.kind == "number" and t.s not in marker_pos))):
+        return Verdict(False, False, "numbers changed")
+    c_neg = sum(1 for t in ct if t.t in _NEG)
+    if not sum(1 for t in r if t.t in _NEG and not t.opt) <= c_neg <= sum(1 for t in r if t.t in _NEG):
+        return Verdict(False, False, "negation changed")
+    ends = _sentence_ends(csrc)
+    sentences = {}
+    for j, t in enumerate(ct):
+        sentences.setdefault(bisect.bisect_right(ends, t.s), []).append(j)
+    for k in sorted(sentences):   # a sentence that is half new words: an answer, a sign-off, a preamble
+        idx = sentences[k]
+        added = sum(1 for j in idx if cs[j] is None and ct[j].kind in ("word", "number"))
+        if any(j in ins for j in idx) and added * 2 >= len(idx):
+            return Verdict(False, False, "added sentence")
+    n = max(n_req, 1)
+    got = (len(missing), longest, len(ins), free_ins, fixes, moved)
+    most = (1 + n // 15, 2, n // 40, 1 + n // 10, 1 + n // 10, n // 40) if standard else \
+        (n // 33, 1, n // 50, 1 + n // 20, 1 + n // 12, n // 50)
+    for name, g, lim in zip(("missing", "run", "ins", "free", "fixes", "moved"), got, most):
+        if g > lim:
+            return Verdict(False, False, "%s %d > %d" % (name, g, lim))
+    return Verdict(True, False, "ok")
 
 
 def fidelity_ok(raw, cleaned, strength="light"):
-    """True when the cleanup kept enough of the spoken words.
-
-    Light (anything but "standard"): only pure noises (um, uh, er...) may be missing; at least 97% of the words must be
-    there, at most LIGHT_MAX_MISSING (12) may be missing in total (97% of a long dictation is a whole paragraph) and the
-    text must not be shorter than 90% of the words minus one. Standard: fillers, filler phrases and
-    immediate repeats are not expected; 85% of the rest must be there and the text at least 60% as long. Under four
-    words the length rule is skipped."""
-    if not cleaned or not cleaned.strip():
-        return False
-    if _fidelity(raw, cleaned, strength, False):
-        return True
-    return bool(_DIGIT_COMMA.search(cleaned)) and _fidelity(raw, cleaned, strength, True)   # "March 3, 2026"
-
-
-def _fidelity(raw, cleaned, strength, split_dates):
-    standard = clean_strength(strength) == "standard"
-    r, c = _compare_tokens(raw, cleaned, split_dates)
-    r = _drop_fillers(r, standard)
-    kept = _matched(r, c)
-    if kept * 100 < (85 if standard else 97) * len(r):
-        return False
-    if not standard and len(r) - kept > LIGHT_MAX_MISSING:
-        return False
-    if len(r) < 4:
-        return True
-    return len(c) * 10 >= 6 * len(r) if standard else len(c) * 10 + 10 >= 9 * len(r)
+    """True when the cleanup kept the spoken words (fidelity_check without a dictionary)."""
+    return fidelity_check(raw, cleaned, strength).ok
 
 
 def looks_valid(raw, cleaned, strength="light"):
-    """Guards against the model replying to the transcript (too long) or summarising it (too few of the words)."""
-    if not (cleaned and cleaned.strip()) or len(cleaned) > len(raw) * 1.6 + 40:
-        return False
-    return fidelity_ok(raw, cleaned, strength)
+    """Guards against the model replying to the transcript, padding it, summarising it or echoing the prompt (the
+    fidelity guard under the name the callers and golden rows use)."""
+    return fidelity_check(raw, cleaned, strength).ok
 
 
 SILENCE = {"thank you", "thanks for watching", "thank you for watching", "you", "bye"}
@@ -1925,9 +2538,11 @@ def process_text(cfg, raw, exe, app_label, segments=None):
         _mark("llm_start")
         try:
             c = cleanup(cfg, raw, "code" if code else style, app_label)
-            if looks_valid(raw, c, cfg.get("cleanup_strength")):
-                out, cleaned = c, True
+            v = fidelity_check(raw, c, cfg.get("cleanup_strength"), "", dictionary_terms(cfg), replacements(cfg))
+            if v.ok:   # empty: only filler words were said (EMPTY or a blank answer), so nothing is typed
+                out, cleaned = "" if v.empty else c, True
             else:
+                log.info("fidelity guard: %s", v.reason)   # the reason holds no dictated word
                 error, rejected = "the cleanup answer looked wrong", True
         except (ApiError, requests.RequestException) as e:
             error = str(e)

@@ -276,17 +276,16 @@ def _without_block(words, start, n):
     return " ".join(words[:start] + words[start + n:])
 
 
-def test_light_loses_at_most_twelve_words_whatever_the_percentage():
-    """Review fix: 97% of 1000 words is 30 words, enough to drop a whole paragraph silently. Light also has an
-    absolute cap of 12 missing words (Fidelity.LIGHT_MAX_MISSING)."""
+def test_light_lets_no_two_words_in_a_row_go_whatever_the_length():
+    """Guard v2 (replaced the cap of 12 missing words): Light lets single scattered words go (n // 33 of them) but never
+    two in a row, so a dropped clause fails in any length; the old percentage alone would have passed it."""
     raw = long_text(1000)
     words = punctuate(raw).split()
-    assert core.fidelity_ok(raw, _without_block(words, 400, 12), "light")        # 12 missing: the limit
-    assert not core.fidelity_ok(raw, _without_block(words, 400, 13), "light")    # 13 missing
-    assert not core.fidelity_ok(raw, _without_block(words, 400, 25), "light")    # a dropped sentence or two
-    assert not core.fidelity_ok(raw, _without_block(words, 400, 30), "light")
-    assert core.word_recall(raw, _without_block(words, 400, 25)) >= 0.97         # the percentage alone would pass
-    assert not core.looks_valid(raw, _without_block(words, 400, 25), "light")
+    assert core.fidelity_ok(raw, _without_block(words, 410, 1), "light")
+    assert not core.fidelity_ok(raw, _without_block(words, 410, 2), "light")
+    assert not core.fidelity_ok(raw, _without_block(words, 410, 12), "light")
+    assert core.word_recall(raw, _without_block(words, 410, 25)) >= 0.97         # the percentage alone would pass
+    assert not core.looks_valid(raw, _without_block(words, 410, 25), "light")
 
 
 def test_the_light_cap_does_not_touch_short_dictations_and_noises_do_not_count():
@@ -297,11 +296,14 @@ def test_the_light_cap_does_not_touch_short_dictations_and_noises_do_not_count()
     assert not core.fidelity_ok(short, _without_block(punctuate(short).split(), 40, 4), "light")   # 4% still fails
 
 
-def test_standard_keeps_the_percentage_rule_only():
-    """Standard removes false starts and self-corrections, so no absolute cap: 4% of 1000 words may go."""
+def test_standard_lets_two_words_in_a_row_go_but_not_a_clause():
+    """Standard drops false starts and self-corrections: two missing words in a row pass (1 + n // 15 in all), three
+    in a row or a dropped clause fail."""
     raw = long_text(1000)
     words = punctuate(raw).split()
-    assert core.fidelity_ok(raw, _without_block(words, 400, 25), "standard")
+    assert core.fidelity_ok(raw, _without_block(words, 410, 2), "standard")
+    assert not core.fidelity_ok(raw, _without_block(words, 410, 3), "standard")
+    assert not core.fidelity_ok(raw, _without_block(words, 410, 25), "standard")
     assert not core.fidelity_ok(raw, _without_block(words, 400, 200), "standard")
 
 
