@@ -132,15 +132,20 @@ public final class ApiClient {
     public String transcribe(Upload up, String model, String language, List<String> terms, String context, List<String> people,
                              List<String> recent) throws IOException {
         String prompt = whisperPromptWith(terms, context, people, recent);
-        return transcriptOf(transcribeRaw(up, model, language, prompt), prompt);
+        return transcriptOf(transcribeRaw(up, model, language, prompt), prompt, context);
+    }
+
+    static String transcriptOf(String answer, String prompt) throws IOException {
+        return transcriptOf(answer, prompt, "");
     }
 
     /**
      * The transcript in a speech server's answer (json or verbose_json): the segments Whisper most likely made up are left
      * out ({@link #keptText}), and an answer that only reads the prompt back is "" ({@link #isPromptEcho}). Twin of the end
-     * of vox_core.transcribe. Pure (PlainJson), so it is unit-tested on a plain JDK.
+     * of vox_core.transcribe. Pure (PlainJson), so it is unit-tested on a plain JDK. {@code context}: the text before this
+     * piece that the prompt ends with (see the three-argument isPromptEcho).
      */
-    static String transcriptOf(String answer, String prompt) throws IOException {
+    static String transcriptOf(String answer, String prompt, String context) throws IOException {
         Object res;
         try {
             res = PlainJson.parse(answer);
@@ -155,7 +160,7 @@ public final class ApiClient {
         String text = (String) t;
         List<Segment> segs = segmentsOf(m.get("segments"));
         if (segs != null) text = keptText(text, segs);
-        return isPromptEcho(text, prompt) ? "" : text.trim();
+        return isPromptEcho(text, prompt, context) ? "" : text.trim();
     }
 
     /** The text of an answer org.json reads but strict JSON does not (the way every answer was read before). */
@@ -281,12 +286,27 @@ public final class ApiClient {
      * (also without them) in the same order (case and punctuation ignored).
      */
     static boolean isPromptEcho(String text, String prompt) {
+        return isPromptEcho(text, prompt, "");
+    }
+
+    /**
+     * The same, with the text before this piece that the prompt ends with (golden rows "echoctx"): a run that lies only
+     * inside it counts only when it reaches the prompt's end (what Whisper reads back), so a real piece that repeats a few
+     * words said earlier is kept.
+     */
+    static boolean isPromptEcho(String text, String prompt, String context) {
         List<String> t = new ArrayList<>(Fidelity.wordTokens(text)), p = new ArrayList<>(Fidelity.wordTokens(prompt));
         t.removeAll(ECHO_FRAME_WORDS);
         p.removeAll(ECHO_FRAME_WORDS);
-        if (t.size() < ECHO_MIN_WORDS || t.size() > p.size()) return false;
-        for (int i = 0; i + t.size() <= p.size(); i++) {
-            if (p.subList(i, i + t.size()).equals(t)) return true;
+        int n = t.size();
+        if (n < ECHO_MIN_WORDS || n > p.size()) return false;
+        List<String> c = new ArrayList<>(Fidelity.wordTokens(context == null ? "" : context));
+        c.removeAll(ECHO_FRAME_WORDS);
+        int tail = 0;   // the prompt's last words that are the earlier text
+        while (tail < Math.min(p.size(), c.size()) && p.get(p.size() - 1 - tail).equals(c.get(c.size() - 1 - tail))) tail++;
+        int head = p.size() - tail;
+        for (int i = 0; i + n <= p.size(); i++) {
+            if (p.subList(i, i + n).equals(t) && (i < head || i + n == p.size())) return true;
         }
         return false;
     }

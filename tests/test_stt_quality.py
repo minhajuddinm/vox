@@ -256,6 +256,15 @@ def test_an_answer_that_reads_the_prompt_back_is_dropped(monkeypatch):
     assert core.transcribe(cfg, b"RIFF") == "Groq"                          # one real word is never an echo
 
 
+def test_a_piece_that_repeats_words_of_the_text_before_is_kept(monkeypatch):
+    # leftovers (core review minor 1): the prompt ends with the earlier text; a run inside it is an echo only at its end
+    context = "we meet in the morning and then we have lunch with the client"
+    monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer({"text": "In the morning."}))
+    assert core.transcribe(_cfg(), b"RIFF", context) == "In the morning."
+    monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer({"text": "Lunch with the client."}))
+    assert core.transcribe(_cfg(), b"RIFF", context) == ""                  # the end of the prompt read back
+
+
 def test_the_echo_check_ignores_the_words_of_the_whisper_v2_sentence(monkeypatch):
     # integration of Whisper prompt v2 (a sentence) and the echo drop: the frame words do not count, on either side
     cfg = _cfg(dictionary=["Docker", "Groq"], people=["Priya"])

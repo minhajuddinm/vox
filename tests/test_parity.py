@@ -409,5 +409,7 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert core.kept_text(f[0], stt_segments(f[1])) == f[2]
     elif kind == "echo":   # transcript, Whisper prompt => whether it only reads the prompt back
         assert core.is_prompt_echo(f[0], f[1]) == (f[2] == "true")
+    elif kind == "echoctx":   # transcript, Whisper prompt, the earlier text it ends with => whether it reads the prompt back
+        assert core.is_prompt_echo(f[0], f[1], f[2]) == (f[3] == "true")
     else:
         pytest.fail(f"unknown case kind {kind}")

@@ -554,6 +554,9 @@ public final class ParityTest {
                 case "echo":   // transcript, Whisper prompt => only the prompt read back
                     eq(ln, kind, f[2], ApiClient.isPromptEcho(f[0], f[1]) ? "true" : "false");
                     break;
+                case "echoctx":   // transcript, Whisper prompt, the earlier text it ends with => only the prompt read back
+                    eq(ln, kind, f[3], ApiClient.isPromptEcho(f[0], f[1], f[2]) ? "true" : "false");
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);

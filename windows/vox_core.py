@@ -2766,16 +2766,24 @@ ECHO_MIN_WORDS = 3   # a shorter transcript is never called an echo: a one-word 
 ECHO_FRAME_WORDS = frozenset({"we", "talked", "with", "about", "and"})
 
 
-def is_prompt_echo(text, prompt):
+def is_prompt_echo(text, prompt, context=""):
     """True when the transcript is only a piece of the Whisper prompt read back (twin: ApiClient.isPromptEcho, golden rows
-    "echo"): Whisper, given silence or a very short clip, can answer with its prompt (the dictionary terms or the text
-    before). Without the sentence's own words (ECHO_FRAME_WORDS) it must be at least ECHO_MIN_WORDS words, all of them a
-    run of the prompt's words (also without them) in the same order."""
+    "echo" and "echoctx"): Whisper, given silence or a very short clip, can answer with its prompt (the dictionary terms
+    or the text before). Without the sentence's own words (ECHO_FRAME_WORDS) it must be at least ECHO_MIN_WORDS words,
+    all of them a run of the prompt's words (also without them) in the same order. `context` is the text before this
+    piece that the prompt ends with: a run that lies only inside it counts only when it reaches the prompt's end (what
+    Whisper reads back), so a real piece that repeats a few words said earlier ("to the client") is kept."""
     t = [w for w in word_tokens(text) if w not in ECHO_FRAME_WORDS]
     p = [w for w in word_tokens(prompt) if w not in ECHO_FRAME_WORDS]
-    if len(t) < ECHO_MIN_WORDS or len(t) > len(p):
+    n = len(t)
+    if n < ECHO_MIN_WORDS or n > len(p):
         return False
-    return any(p[i:i + len(t)] == t for i in range(len(p) - len(t) + 1))
+    c = [w for w in word_tokens(context) if w not in ECHO_FRAME_WORDS]
+    tail = 0   # the prompt's last words that are the earlier text
+    while tail < min(len(p), len(c)) and p[-1 - tail] == c[-1 - tail]:
+        tail += 1
+    head = len(p) - tail
+    return any(p[i:i + n] == t and (i < head or i + n == len(p)) for i in range(len(p) - n + 1))
 
 
 def shift_segments(segments, seconds):
@@ -2823,7 +2831,7 @@ def transcribe(cfg, wav_bytes, context=""):
             log.info("speech: dropped %d of %d segments as made up (silence or a loop)", len(segs) - len(kept), len(segs))
         text = kept_text(text, segs)
         _stt_local.segments = [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in kept] or None
-    if is_prompt_echo(text, prompt):
+    if is_prompt_echo(text, prompt, context):
         log.info("speech: the answer only repeated the prompt, dropped")
         _stt_local.segments = None
         return ""

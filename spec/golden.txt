@@ -2025,3 +2025,16 @@ sttkept	either the either the either the either the	either the either the either
 sttkept	Thank you. Bye.	Thank you.;0.8;-1.3;1|Bye.;0.9;-1.4;1	Thank you. Bye.
 sttkept	either the either the either the either the Thank you.	either the either the either the either the;0;-0.2;3.1|Thank you.;0.8;-1.3;1	Thank you.
 sttkept	go go go go go go go	go go go go go go go;0.7;-1.2;2.6	
+# lo: echoctx: transcript, Whisper prompt, the earlier text the prompt ends with => whether it only reads the prompt
+# back (vox_core.is_prompt_echo / ApiClient.isPromptEcho with a context). A run only inside the earlier text counts
+# only when it reaches the prompt's end, so a real piece that repeats a few words said before is kept.
+echoctx	we shipped the build	Ada, Grace. so today we shipped the build to staging	so today we shipped the build to staging	false
+echoctx	the build to staging	Ada, Grace. so today we shipped the build to staging	so today we shipped the build to staging	true
+echoctx	Ada, Grace, so today	Ada, Grace. so today we shipped the build to staging	so today we shipped the build to staging	true
+echoctx	we shipped the build	Ada, Grace. so today we shipped the build to staging		true
+echoctx	In the morning.	We talked about Ada and Grace. we meet in the morning and then we have lunch with the client	we meet in the morning and then we have lunch with the client	false
+echoctx	Lunch with the client.	We talked about Ada and Grace. we meet in the morning and then we have lunch with the client	we meet in the morning and then we have lunch with the client	true
+echoctx	Ada and Grace.	We talked about Ada and Grace. we meet in the morning and then we have lunch with the client	we meet in the morning and then we have lunch with the client	false
+echoctx	Ada, Grace, meet.	We talked about Ada and Grace. we meet in the morning and then we have lunch with the client	we meet in the morning and then we have lunch with the client	true
+echoctx	हम लोग दफ़्तर	We talked about Ada. कल सुबह हम लोग दफ़्तर जाएंगे	कल सुबह हम लोग दफ़्तर जाएंगे	false
+echoctx	लोग दफ़्तर जाएंगे	We talked about Ada. कल सुबह हम लोग दफ़्तर जाएंगे	कल सुबह हम लोग दफ़्तर जाएंगे	true
