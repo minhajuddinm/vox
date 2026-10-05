@@ -25,7 +25,25 @@ public final class ApiClient {
 
     public static class ApiException extends IOException {
         public final int code;
-        public ApiException(int code, String msg) { super(msg); this.code = code; }
+        /** The server's Retry-After in milliseconds, or -1 (absent, a date, or unreadable). */
+        public final long retryAfterMs;
+        public ApiException(int code, String msg) { this(code, msg, -1); }
+        public ApiException(int code, String msg, long retryAfterMs) {
+            super(msg);
+            this.code = code;
+            this.retryAfterMs = retryAfterMs;
+        }
+    }
+
+    /** The milliseconds of a Retry-After header given in seconds, or -1 (vox_core._retry_after). */
+    static long retryAfterMs(String header) {
+        if (header == null) return -1;
+        try {
+            double s = Double.parseDouble(header.trim());
+            return s >= 0 && !Double.isInfinite(s) ? (long) (s * 1000) : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
     /** The largest answer read into memory, as the relay's proxy (relay.py MAX_PROXY_REPLY). */
@@ -784,7 +802,7 @@ public final class ApiClient {
                 if (err instanceof JSONObject) msg = ((JSONObject) err).optString("message", body);
                 else if (err instanceof String) msg = (String) err;
             } catch (Exception ignored) { }
-            throw new ApiException(code, "API " + code + ": " + msg);
+            throw new ApiException(code, "API " + code + ": " + msg, retryAfterMs(c.getHeaderField("Retry-After")));
         }
         return body;
     }
