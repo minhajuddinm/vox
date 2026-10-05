@@ -25,7 +25,14 @@ final class Fidelity {
     private Fidelity() {}
 
     /** Pure noises: may be missing from the cleaned text even in Light strength. */
-    static final Set<String> NOISES = new HashSet<>(Arrays.asList("um", "uh", "er", "erm", "ah", "hmm", "hm", "mm", "uhm"));
+    static final Set<String> NOISES = new HashSet<>(Arrays.asList("um", "uh", "er", "erm", "ah", "hmm", "hm", "uhm"));
+    /** The guard reads drawn-out noises the way the rules layer drops them (umm, uhh, hmmm, ahh, err): letters only. */
+    private static final Pattern NOISE_WORD = Pattern.compile("(?:u+m+|u+h+m*|e+r+m*|a+h+|h+m+)");
+
+    /** True for a pure noise word (lowercase): um, umm, uh, uhh, uhm, er, erm, ah, ahh, hm, hmm, hmmm. Twin: is_noise. */
+    static boolean isNoise(String word) {
+        return word != null && NOISE_WORD.matcher(word).matches();
+    }
     /** Fillers and filler phrases (a space inside): not expected in the cleaned text in Standard strength. */
     static final Set<String> FILLERS = new HashSet<>(Arrays.asList(
             "um", "uh", "er", "erm", "ah", "hmm", "like", "basically", "you know", "i mean", "sort of", "kind of"));
@@ -768,7 +775,7 @@ final class Fidelity {
                 i++;
                 continue;
             }
-            if (NOISES.contains(t.t)) {
+            if (isNoise(t.t)) {
                 t.kind = "noise";
             } else if (two != null && COMMANDS.containsKey(two)) {
                 Tok u = toks.get(i + 1);
@@ -822,9 +829,18 @@ final class Fidelity {
         return t.kind.equals("number") || WEEKDAYS.contains(t.t) || MONTHS.contains(t.t);
     }
 
+    /** True when a self-correction cue word or phrase starts at token k. */
+    private static boolean isCue(List<Tok> toks, int k) {
+        String two = k + 1 < toks.size() ? toks.get(k).t + " " + toks.get(k + 1).t : null;
+        return (two != null && (CUES_CLAUSE.contains(two) || CUES_2.contains(two))) || CUES_1.contains(toks.get(k).t);
+    }
+
     /**
      * Standard: a self-correction cue ("no wait", "actually", "scratch that", a bare "no" between two typed values) and up
-     * to 6 tokens before it (15 for "scratch that", 3 for a bare "no") may be missing; checked later.
+     * to 6 tokens before it (15 for "scratch that", 3 for a bare "no") may be missing; checked later. A weak cue (actually,
+     * sorry, rather, matlab, "sorry i": also everyday words) opens the window only when the words around it look like a
+     * repair: a typed value before it and in the 6 tokens after it, the first word after it repeating a word of the window
+     * (a restart), a tail ("make it"), or another cue up to the first word after it.
      */
     private static void corrections(List<Tok> toks) {
         int n = toks.size();
@@ -833,28 +849,54 @@ final class Fidelity {
             String two = i + 1 < n ? w + " " + toks.get(i + 1).t : null;
             int cueLen;
             int back;
+            boolean weak = false;
             if (two != null && CUES_CLAUSE.contains(two)) {
                 cueLen = 2;
                 back = 15;
             } else if (two != null && CUES_2.contains(two)) {
                 cueLen = 2;
                 back = 6;
+                weak = two.equals("sorry i");
             } else if (CUES_1.contains(w)) {
                 cueLen = 1;
                 back = 6;
+                weak = true;
             } else if (w.equals("no") && i + 1 < n && typedValue(toks.get(i + 1)) && typedBefore(toks, i)) {
                 cueLen = 1;
                 back = 3;
             } else {
                 continue;
             }
+            boolean tail = false;
             while (i + cueLen + 1 < n && CUE_TAILS.contains(toks.get(i + cueLen).t + " " + toks.get(i + cueLen + 1).t)) {
                 cueLen += 2;   // "actually make it thursday", "sorry change that to friday"
+                tail = true;
             }
             if (i + cueLen >= n) continue;
             int start = i;
             while (start > 0 && i - start < back && !toks.get(start - 1).kind.equals("command") && !toks.get(start - 1).opt) {
                 start--;
+            }
+            int after = i + cueLen;
+            if (weak && !tail) {
+                int nxt = after;
+                for (int k = after; k < n; k++) {
+                    if (!toks.get(k).kind.equals("noise") && !toks.get(k).kind.equals("filler")) {
+                        nxt = k;
+                        break;
+                    }
+                }
+                boolean before = false;
+                boolean later = false;
+                boolean restart = false;
+                boolean chain = false;
+                for (int k = start; k < i; k++) {
+                    if (typedValue(toks.get(k))) before = true;
+                    if (toks.get(k).t.equals(toks.get(nxt).t)) restart = true;
+                }
+                for (int k = after; k < Math.min(n, after + 6); k++) if (typedValue(toks.get(k))) later = true;
+                for (int k = i + 1; k < Math.min(n, nxt + 1); k++) if (isCue(toks, k)) chain = true;
+                if (!((before && later) || restart || chain)) continue;   // an everyday "actually" / "sorry": ordinary words
             }
             for (int k = start; k < i + cueLen; k++) toks.get(k).opt = true;
             toks.get(i).cue = new int[]{start, i, i + cueLen};
@@ -1431,13 +1473,26 @@ final class Fidelity {
         if (!digitsFit(withMarkers.toString(), nums, opts) && !digitsFit(without.toString(), nums, opts)) {
             return reject("numbers changed");
         }
+        // negations that may go: a cue's own words, or in a window whose repair says one again or that "scratch that"
+        // deletes ("i do not think i mean i think" keeps its "not")
+        boolean[] negFree = new boolean[nr];
+        for (Tok t : r) {
+            if (t.cue == null || !r.get(t.cue[1]).opt) continue;
+            int start = t.cue[0];
+            int cue = t.cue[1];
+            int after = t.cue[2];
+            boolean clause = cue + 1 < nr && CUES_CLAUSE.contains(r.get(cue).t + " " + r.get(cue + 1).t);
+            boolean again = false;
+            for (int k = after; k < Math.min(nr, after + 6); k++) if (NEG.contains(r.get(k).t)) again = true;
+            for (int k = start; k < after; k++) if (NEG.contains(r.get(k).t) && (k >= cue || clause || again)) negFree[k] = true;
+        }
         int reqNeg = 0;
         int allNeg = 0;
         int cNeg = 0;
-        for (Tok t : r) {
-            if (NEG.contains(t.t)) {
+        for (int k = 0; k < nr; k++) {
+            if (NEG.contains(r.get(k).t)) {
                 allNeg++;
-                if (!t.opt) reqNeg++;
+                if (!negFree[k]) reqNeg++;
             }
         }
         for (Tok t : ct) if (NEG.contains(t.t)) cNeg++;

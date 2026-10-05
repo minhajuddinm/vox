@@ -1099,7 +1099,15 @@ def fallback_text(raw, style="neutral", strength="light"):
 
 FILLERS = frozenset({"um", "uh", "er", "erm", "ah", "hmm", "like", "basically", "you know", "i mean", "sort of",
                      "kind of"})
-NOISES = frozenset({"um", "uh", "er", "erm", "ah", "hmm", "hm", "mm", "uhm"})   # pure noises: may go even in Light
+NOISES = frozenset({"um", "uh", "er", "erm", "ah", "hmm", "hm", "uhm"})   # pure noises: may go even in Light ("mm": 5 mm)
+# the guard reads drawn-out noises the way the rules layer drops them (umm, uhh, hmmm, ahh, err): letters only
+_NOISE_WORD = re.compile("(?:u+m+|u+h+m*|e+r+m*|a+h+|h+m+)")
+
+
+def is_noise(word):
+    """True for a pure noise word (lowercase): um, umm, uh, uhh, uhm, er, erm, ah, ahh, hm, hmm, hmmm. Twin:
+    Fidelity.isNoise."""
+    return _NOISE_WORD.fullmatch(word or "") is not None
 
 _UNITS = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
           "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
@@ -1578,7 +1586,7 @@ def _g_mark(toks, standard):
         if t.kind != "word":
             i += 1
             continue
-        if t.t in NOISES:
+        if is_noise(t.t):
             t.kind = "noise"
         elif two in _G_COMMANDS:
             t.kind = toks[i + 1].kind = "command"
@@ -1619,30 +1627,50 @@ def _typed_value(t):
     return t.kind == "number" or t.t in _WEEKDAYS or t.t in _MONTHS
 
 
+def _is_cue(w, k):
+    """True when a self-correction cue word or phrase starts at token k."""
+    two = w[k] + " " + w[k + 1] if k + 1 < len(w) else None
+    return two in _CUES_CLAUSE or two in _CUES_2 or w[k] in _CUES_1
+
+
 def _g_corrections(toks):
     """Standard: a self-correction cue ("no wait", "actually", "scratch that", a bare "no" between two typed values)
-    and up to 6 tokens before it (15 for "scratch that", 3 for a bare "no") may be missing; checked later."""
+    and up to 6 tokens before it (15 for "scratch that", 3 for a bare "no") may be missing; checked later. A weak cue
+    (actually, sorry, rather, matlab, "sorry i": also everyday words) opens the window only when the words around it
+    look like a repair: a typed value before it and in the 6 tokens after it, the first word after it repeating a
+    word of the window (a restart), a tail ("make it"), or another cue up to the first word after it."""
     n, w = len(toks), [t.t for t in toks]
     for i in range(n):
         two = w[i] + " " + w[i + 1] if i + 1 < n else None
+        weak = False
         if two in _CUES_CLAUSE:
             cue_len, back = 2, 15
         elif two in _CUES_2:
-            cue_len, back = 2, 6
+            cue_len, back, weak = 2, 6, two == "sorry i"
         elif w[i] in _CUES_1:
-            cue_len, back = 1, 6
+            cue_len, back, weak = 1, 6, True
         elif w[i] == "no" and i + 1 < n and _typed_value(toks[i + 1]) \
                 and any(_typed_value(toks[k]) for k in range(max(0, i - 3), i)):
             cue_len, back = 1, 3
         else:
             continue
+        tail = False
         while i + cue_len + 1 < n and w[i + cue_len] + " " + w[i + cue_len + 1] in _CUE_TAILS:
-            cue_len += 2   # "actually make it thursday", "sorry change that to friday"
+            cue_len, tail = cue_len + 2, True   # "actually make it thursday", "sorry change that to friday"
         if i + cue_len >= n:
             continue
         start = i
         while start > 0 and i - start < back and toks[start - 1].kind != "command" and not toks[start - 1].opt:
             start -= 1
+        after = i + cue_len
+        if weak and not tail:
+            nxt = next((k for k in range(after, n) if toks[k].kind not in ("noise", "filler")), after)
+            repair = (any(_typed_value(toks[k]) for k in range(start, i))
+                      and any(_typed_value(toks[k]) for k in range(after, min(n, after + 6))))
+            restart = w[nxt] in w[start:i]
+            chain = any(_is_cue(w, k) for k in range(i + 1, min(n, nxt + 1)))
+            if not (repair or restart or chain):
+                continue   # an everyday "actually" / "sorry": its words are ordinary words
         for k in range(start, i + cue_len):
             toks[k].opt = True
         toks[i].cue = (start, i, i + cue_len)
@@ -1975,8 +2003,17 @@ def fidelity_check(raw, cleaned, strength="light", finish_reason="", terms=(), r
     if not (digits_fit("".join(t.num for t in ct if t.kind == "number"))
             or digits_fit("".join(t.num for t in ct if t.kind == "number" and t.s not in marker_pos))):
         return Verdict(False, False, "numbers changed")
+    neg_free = set()   # negations that may go: a cue's own words, or in a window whose repair says one again
+    for t in r:        # or that "scratch that" deletes ("i do not think i mean i think" keeps its "not")
+        if t.cue is None or not r[t.cue[1]].opt:
+            continue
+        start, cue, after = t.cue
+        clause = cue + 1 < len(r) and r[cue].t + " " + r[cue + 1].t in _CUES_CLAUSE
+        again = any(r[k].t in _NEG for k in range(after, min(len(r), after + 6)))
+        neg_free.update(k for k in range(start, after) if r[k].t in _NEG and (k >= cue or clause or again))
     c_neg = sum(1 for t in ct if t.t in _NEG)
-    if not sum(1 for t in r if t.t in _NEG and not t.opt) <= c_neg <= sum(1 for t in r if t.t in _NEG):
+    if not sum(1 for k, t in enumerate(r) if t.t in _NEG and k not in neg_free) <= c_neg \
+            <= sum(1 for t in r if t.t in _NEG):
         return Verdict(False, False, "negation changed")
     ends = _sentence_ends(csrc)
     sentences = {}
