@@ -79,6 +79,23 @@ final class SyncEngine {
         store.setMeta("relay_origin", origin);
     }
 
+    /**
+     * The same relay can lose its data (its data folder wiped, or restored from an older backup): its sequence numbers
+     * start again below this phone's cursor, so {@code /changes} would return nothing for ever and the notes, already
+     * marked as sent, would never go to it again. When the relay's newest number ({@code /health}) is below the cursor,
+     * the state is reset as for a new relay: everything is sent again. A relay that does not say its number is left alone.
+     */
+    private void followReset() throws RelayApi.RelayError {
+        long cursor = parseLong(store.getMeta("relay_cursor", "0"));
+        if (cursor <= 0) return;
+        long seq = api.relaySeq();
+        if (seq < 0 || seq >= cursor) return;
+        store.setMeta("relay_cursor", "0");
+        store.setMeta("profile_version", "0");
+        store.setMeta("profile_snapshot", "{}");
+        store.markAllDirty();
+    }
+
     /** What has happened so far in a run, kept outside the try block so a failure can still report it. */
     private static final class Run {
         int pushed;
@@ -98,6 +115,7 @@ final class SyncEngine {
         Run run = new Run();
         try {
             followRelay();
+            followReset();
             push(run);
             pull(run);
             run.profile = syncProfile();

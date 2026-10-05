@@ -37,9 +37,19 @@ final class HintGuard {
      * @param contentDesc the field's content description, or null
      */
     static boolean isPlaceholder(CharSequence text, CharSequence hint, boolean showingHint, CharSequence contentDesc) {
+        return isPlaceholder(text, hint, showingHint, contentDesc, -1);
+    }
+
+    /**
+     * The same, with where the caret is ({@code getTextSelectionStart}, -1 when unknown). A caret after the start means
+     * the user typed that text (an empty field that reports its placeholder has its caret at 0 or none): it is never
+     * treated as a placeholder, unless the platform itself says the hint is showing.
+     */
+    static boolean isPlaceholder(CharSequence text, CharSequence hint, boolean showingHint, CharSequence contentDesc, int selStart) {
         String t = norm(text);
         if (t.isEmpty()) return false;
         if (showingHint) return true;
+        if (selStart > 0) return false;
         if (t.equals(norm(hint)) || t.equals(norm(contentDesc))) return true;
         if (t.length() > MAX_LEN) return false;
         return PLACEHOLDERS.contains(t) || MESSAGE_TARGET.matcher(t).matches();

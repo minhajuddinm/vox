@@ -112,7 +112,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/Terms.java` | Parses the dictionary text into terms and replacements, and applies the terms' spellings to the final text (`fuzzy`). |
 | `android/src/com/minhaj/vox/Timing.java` | Pure Java twin of `windows/timing.py` (marks, stages, median, p90, biggest stage, "1.4 s" text, summary, `byModel`, `speedView` for the Speed card, `historyMap` the keys of a history row's timing); pinned by the `timing_*` rows of `spec/golden.txt`. |
 | `android/src/com/minhaj/vox/Segmenter.java` | Pure Java twin of `Segmenter` in `windows/vox_core.py`: cuts a recording that is still going on into pieces at pauses (12 s minimum, 28 s maximum, 0.6 s pause; with no pause by the maximum it cuts at the quietest 30 ms frame of the last 2 s); the `segcuts` golden rows prove it cuts where Windows does, whatever the block size. |
-| `android/src/com/minhaj/vox/StreamingStt.java` | Pure Java twin of `windows/streaming.py`: a worker thread cuts the audio with `Segmenter` and sends each piece to speech to text (with the end of the text before it as context) while the user is still talking; `finish` returns the text, or null when the caller should send the whole recording. The server call is a `Transcriber` callback, so it is tested with a fake. |
+| `android/src/com/minhaj/vox/StreamingStt.java` | Pure Java twin of `windows/streaming.py`: a worker thread cuts the audio with `Segmenter` and sends each piece to speech to text (with the end of the text before it as context) while the user is still talking; `finish` returns the text, or null when the caller should send the whole recording; `inPieces` (twin of `vox_core._transcribe_in_pieces`) sends a recording over `MAX_UPLOAD_BYTES` (20 MB) piece by piece on the caller's thread. The server call is a `Transcriber` callback, so it is tested with a fake. |
 | `android/src/com/minhaj/vox/Structure.java` | Pure Java twin of `format_structure` in `windows/structure.py`: lists from spoken cues after the cleanup (golden rows `structure`); no paragraph breaks on the phone. |
 | `android/src/com/minhaj/vox/Snippets.java` | Pure Java twin of `windows/snippets.py`: `clean` (caps) and `apply` (golden rows `snippets`); `ProfileMap` syncs the setting. |
 | `android/src/com/minhaj/vox/Latency.java` | Pure latency rules: 5 s connect timeout, speech and cleanup read timeouts that grow with the audio and the words, which failures count as "never reached the server" (the fast retry), the cleanup `max_tokens` bound (floor of 256, headroom for thinking models, the cut-off check), and when to warm the connection again. |
@@ -123,9 +123,11 @@ windows/                Windows app (Python) and its installer scripts
 | `android/src/com/minhaj/vox/OverlayDiag.java` | Pure bubble diagnostics: a ring buffer of the last 50 events that can make the bubble appear or vanish, its one-line event text, the service and battery lines and the copyable report, kept in memory and in a small private file (`files/overlay_diag.log`). |
 | `android/src/com/minhaj/vox/BubbleLogic.java` | Pure bubble rules: `clamp` keeps a saved position on the current screen, `shouldShow` is the visibility rule (only-typing, Always show, focused field, screen on, service ready), `action` is the watchdog's decision (none, add, remove, repair) and `WATCHDOG_MS` is its 30 s period. |
 | `android/src/com/minhaj/vox/NoteBubbleLogic.java` | Pure note bubble rules: `visible` (the persistent switch, a note recording, a note being saved) and `timer` (the recording time as `m:ss` or `h:mm:ss`). |
-| `android/src/com/minhaj/vox/InsertGuard.java` | Pure typing guard: never type a restored dictation (empty target package), refuse a switched app, the toast words, and `route` (type, copy to the clipboard when accessibility is off, or nothing for a cancelled job). |
+| `android/src/com/minhaj/vox/InsertGuard.java` | Pure typing guard: never type a restored dictation (empty target package), refuse a switched app, the toast words, `route` (type, copy to the clipboard when accessibility is off, or nothing for a cancelled job), the messages of a send (`emptyResult`, `sendFailed`, `networkFailed`, `crashed`: action first, server text capped) and the clipboard rules after a paste (`afterPaste`, `markSensitive`, `canClearClip`). |
+| `android/src/com/minhaj/vox/RecordLimit.java` | Pure recording limits: 360 s for a dictation, 18 minutes for a voice note (as on Windows), the warning half a minute before and the words at the limit. |
+| `android/src/com/minhaj/vox/WebNav.java` | Pure navigation rule of the settings WebView: the bundled files stay, an https link opens in the browser, everything else is refused. |
 | `android/src/com/minhaj/vox/MicChoice.java` | Pure microphone choice: the saved key (device type and product name, never the numeric id), labels, the deduplicated list for Settings, which connected device to prefer (or null for the phone default), and when to show the "not connected" notice once. |
-| `android/src/com/minhaj/vox/HintGuard.java` | Pure placeholder check: is the "text" an empty field reports only its hint ("Message" in WhatsApp and Telegram)? Typing then starts from an empty field. |
+| `android/src/com/minhaj/vox/HintGuard.java` | Pure placeholder check: is the "text" an empty field reports only its hint ("Message" in WhatsApp and Telegram)? Typing then starts from an empty field. A caret after the start of the text means the user typed it. |
 | `android/src/com/minhaj/vox/PinnedUrlConfig.java` | A `SyncConfig` with the relay address fixed for one sync run (the address is read once per run). |
 | `android/src/com/minhaj/vox/Endpoint.java` | Server address rules (which hosts may use plain http). |
 | `android/src/com/minhaj/vox/Pcm.java` | Silence gate for raw 16-bit audio. |
@@ -154,6 +156,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/res/values/strings.xml` | App name, the tile label and the accessibility service label and description. |
 | `android/res/xml/accessibility_config.xml` | Accessibility service configuration (event types, content access). |
 | `android/res/xml/network_security_config.xml` | Allows cleartext at OS level; the app enforces the private-host rule itself. |
+| `android/res/xml/data_extraction_rules.xml` | Android 12+ backup and phone-to-phone transfer rules: every domain left out of both. |
 | `android/res/drawable/ic_launcher_bg.xml` | Launcher icon background. |
 | `android/res/drawable/ic_launcher_fg.xml` | Launcher icon foreground. |
 | `android/res/drawable/ic_stat_mic.xml` | Notification icon. |
@@ -255,8 +258,10 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/ApiClientTest.java` | Prompt (role, About you first, strength, structure, examples), sanitize, replacements, retry policy, silence phrases. |
 | `android/test/com/minhaj/vox/EndpointTest.java` | Server address rules. |
 | `android/test/com/minhaj/vox/NotificationActionsTest.java` | Notification buttons (never more than three in any state), the Retry hint and the typing guard. |
-| `android/test/com/minhaj/vox/InsertGuardTest.java` | `InsertGuard.route` (typed, copied when no accessibility listener is attached, nothing for a cancelled job) and the existing typing check. |
-| `android/test/com/minhaj/vox/ManifestTest.java` | Reads `android/AndroidManifest.xml` as text: `.MainActivity` handles `orientation` and `screenSize` changes itself and not `uiMode`. |
+| `android/test/com/minhaj/vox/InsertGuardTest.java` | `InsertGuard.route` (typed, copied when no accessibility listener is attached, nothing for a cancelled job), the existing typing check, the send messages and the clipboard rules. |
+| `android/test/com/minhaj/vox/RecordLimitTest.java` | The recording limits and their words. |
+| `android/test/com/minhaj/vox/WebNavTest.java` | What the settings WebView may load. |
+| `android/test/com/minhaj/vox/ManifestTest.java` | Reads `android/AndroidManifest.xml` as text: `.MainActivity` handles `orientation` and `screenSize` changes itself and not `uiMode`; the data extraction rules leave every domain out of a device transfer and cloud backup. |
 | `android/test/com/minhaj/vox/MicChoiceTest.java` | Plain-Java checks for `MicChoice` (keys, labels, deduplication, `pick`, the one-time warning). |
 | `android/test/com/minhaj/vox/HintGuardTest.java` | Plain-Java checks for `HintGuard`: placeholders are recognised, real text is never mistaken for one. |
 | `android/test/com/minhaj/vox/PcmTest.java` | Silence gate. |
@@ -265,7 +270,7 @@ windows/                Windows app (Python) and its installer scripts
 | `android/test/com/minhaj/vox/StructureTest.java` | `Structure` beyond the golden rows: twice changes nothing on every row, the setting, every other word kept in order. |
 | `android/test/com/minhaj/vox/SnippetsTest.java` | `Snippets` beyond the golden rows: the caps (code points), the stored JSON form in `ProfileMap`, the profile field and the blank-map merge rule. |
 | `android/test/com/minhaj/vox/M4aFallbackTest.java` | A stand-in server that cannot read m4a (415, 422) or refuses everything (400), or fails (500): the upload is resent as WAV once, the server is remembered only when the WAV got through, a WAV upload or a 500 is not retried. |
-| `android/test/com/minhaj/vox/StreamingSttTest.java` | `StreamingStt` with a fake server: order and context, the first piece going out before the recording ends, only the tail left after, failure, slow server, silent and hallucinated pieces, cancel. |
+| `android/test/com/minhaj/vox/StreamingSttTest.java` | `StreamingStt` with a fake server: order and context, the first piece going out before the recording ends, only the tail left after, failure, slow server, silent and hallucinated pieces, cancel, and `inPieces`. |
 | `android/test/com/minhaj/vox/LatencyTest.java` | The timeout and token rules of `Latency`, the connect-failure classification and the `UploadFormat` rule. |
 | `android/test/com/minhaj/vox/CorrectionsTest.java` | Correction suggestions. |
 | `android/test/com/minhaj/vox/AutoLearnTest.java` | `AutoLearn` and `AutoLearnWatch`, mirroring `tests/test_autolearn.py`. |

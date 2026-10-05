@@ -24,6 +24,31 @@ final class StreamingStt {
     static final double MIN_TAIL_SECONDS = 0.3;
     /** How much of the text before goes into the request for the next piece. */
     static final int CONTEXT_CHARS = 150;
+    /** A recording bigger than this is sent in pieces (the speech servers refuse about 25 MB): vox_core.MAX_UPLOAD_BYTES. */
+    static final long MAX_UPLOAD_BYTES = 20000000L;
+
+    /** True when audio of this many bytes is too big for one upload (see {@link #inPieces}). */
+    static boolean needsPieces(long pcmBytes) {
+        return pcmBytes > MAX_UPLOAD_BYTES;
+    }
+
+    /**
+     * The text of a recording too big for one upload: cut at pauses ({@link Segmenter}) and sent piece by piece on the
+     * caller's thread, each with the end of the text before it as context (vox_core._transcribe_in_pieces). A silent piece
+     * is not sent; a silence phrase before any text is dropped. A failed piece fails the whole call.
+     */
+    static String inPieces(byte[] pcm, Transcriber t) throws IOException {
+        Segmenter seg = new Segmenter();
+        List<byte[]> pieces = new ArrayList<>(seg.feed(pcm));
+        pieces.add(seg.rest());
+        List<String> texts = new ArrayList<>();
+        for (byte[] piece : pieces) {
+            if (piece.length == 0 || Pcm.isSilent(piece)) continue;
+            String text = t.transcribe(piece, tail(texts));
+            if (text != null && !text.isEmpty() && (!texts.isEmpty() || !ApiClient.isSilenceHallucination(text))) texts.add(text);
+        }
+        return joined(texts).trim();
+    }
 
     /** Sends one piece of 16-bit mono 16 kHz audio to speech-to-text; returns its text ("" when there is none). */
     interface Transcriber {
@@ -149,11 +174,22 @@ final class StreamingStt {
     }
 
     private String context() {
+        return tail(texts);
+    }
+
+    /** The texts joined with spaces. */
+    private static String joined(List<String> texts) {
         StringBuilder b = new StringBuilder();
         for (String t : texts) {
             if (b.length() > 0) b.append(' ');
             b.append(t);
         }
-        return b.length() <= CONTEXT_CHARS ? b.toString() : b.substring(b.length() - CONTEXT_CHARS);
+        return b.toString();
+    }
+
+    /** The end of the texts so far, as the context of the next piece. */
+    private static String tail(List<String> texts) {
+        String b = joined(texts);
+        return b.length() <= CONTEXT_CHARS ? b : b.substring(b.length() - CONTEXT_CHARS);
     }
 }

@@ -42,3 +42,5 @@ android/src/com/minhaj/vox/HintGuard.java
 android/src/com/minhaj/vox/MicChoice.java
 android/src/com/minhaj/vox/Structure.java
 android/src/com/minhaj/vox/Snippets.java
+android/src/com/minhaj/vox/RecordLimit.java
+android/src/com/minhaj/vox/WebNav.java

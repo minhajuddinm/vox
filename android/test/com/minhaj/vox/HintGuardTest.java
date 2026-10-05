@@ -37,6 +37,18 @@ public final class HintGuardTest {
                 HintGuard.isPlaceholder("Message #general is where we post the weekly update for everyone on the team", null, false, null));
         eq("hint flag false and plain text", false, HintGuard.isPlaceholder("see you at five", "Message", false, "Message"));
 
+        // AND-7: the user's own "Search" or "Message" (a caret after the text) is never erased; an empty field that reports its
+        // placeholder has no caret after it (0 or -1). The platform's own showing-hint flag still wins.
+        eq("typed 'Search', caret after it", false, HintGuard.isPlaceholder("Search", null, false, null, 6));
+        eq("typed 'Message.', caret after it", false, HintGuard.isPlaceholder("Message.", null, false, null, 8));
+        eq("typed text equal to the hint, caret after it", false, HintGuard.isPlaceholder("add a caption", "Add a caption", false, null, 13));
+        eq("typed text equal to the content description, caret inside", false, HintGuard.isPlaceholder("type here", null, false, "Type here", 4));
+        eq("placeholder with the caret at 0", true, HintGuard.isPlaceholder("Message", null, false, null, 0));
+        eq("placeholder with no caret", true, HintGuard.isPlaceholder("Message", null, false, null, -1));
+        eq("hint equality with the caret at 0", true, HintGuard.isPlaceholder("Message", "Message", false, null, 0));
+        eq("the platform flag wins over a caret", true, HintGuard.isPlaceholder("Whatever", null, true, null, 8));
+        eq("no caret known: the old rule", true, HintGuard.isPlaceholder("Search", null, false, null));
+
         System.out.println("HintGuardTest OK");
     }
 }

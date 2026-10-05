@@ -195,6 +195,32 @@ public final class PendingQueueTest {
         eq("sweepUploads kept other files", true, keep.exists());
         eq("sweepUploads from a missing folder", 0, PendingQueue.sweepUploads(new java.io.File(cache, "nope"), sweepNow, tenMin));
 
+        // a fresh recording is not capped until its own send fails (AND-4): a send that works must not cost the oldest kept one
+        PendingQueue f = new PendingQueue();
+        for (int i = 1; i <= PendingQueue.MAX_KEPT; i++) f.add(e(i, "note"));
+        f.addFresh(e(6, "dictation"));
+        f.beginFresh(6);
+        eq("fresh: nothing dropped while it is sent", PendingQueue.MAX_KEPT + 1, f.size());
+        eq("fresh: the oldest is still kept", true, f.get(1) != null);
+        f.remove(6);   // sent
+        f.endJob();
+        eq("fresh sent: the five kept are all still there", PendingQueue.MAX_KEPT, f.size());
+        eq("fresh sent: oldest first", 1L, f.next().id);
+        eq("fresh sent: trim drops nothing", 0, f.trim().size());
+        // the same, but the send fails: now the cap applies and the oldest goes
+        f.addFresh(e(7, "dictation"));
+        f.beginFresh(7);
+        eq("fresh failed: not counted as a retry", false, f.onSendFailed(7));
+        List<PendingQueue.Entry> cut = f.trim();
+        eq("fresh failed: one dropped", 1, cut.size());
+        eq("fresh failed: the oldest dropped", 1L, cut.get(0).id);
+        eq("fresh failed: the failed one is kept for Retry", true, f.get(7) != null);
+        eq("fresh failed: capped", PendingQueue.MAX_KEPT, f.size());
+        // a cancel of the fresh one still discards only it
+        f.addFresh(e(8, "dictation"));
+        f.beginFresh(8);
+        eq("fresh cancelled: its id is discarded", 8L, f.onCancel());
+
         System.out.println("PendingQueueTest ok");
     }
 }
