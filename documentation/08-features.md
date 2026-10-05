@@ -94,7 +94,7 @@ Everything Vox does today. "Origin" is `orig` for the original author's work (up
 | Record your mic ("You") and the PC's audio ("Others") separately | `meeting._Source` |
 | Live transcript, about 10 to 15 s behind | `Meeting._transcribe_loop` |
 | Ask a question about the meeting so far | `Meeting.ask_live` (route `/meeting/ask`) |
-| Accurate final pass with `whisper-large-v3` | `Meeting._final_pass` |
+| Accurate final pass (`whisper-large-v3` on Groq, else the speech model or `final_stt_model`) | `Meeting._final_pass` |
 | Speaker naming from context and the attendee list | `Meeting.attribute_speakers` |
 | Structured notes (summary, discussion, decisions, action items, open questions, next steps, who said what) | `Meeting._notes`, `NOTES_PROMPT` |
 | Saved meetings: open, rename, your own notes, tick action items, delete, search across meetings | `meeting.detail`, `save_my_notes`, `set_done`, `rename`, `ask` |
