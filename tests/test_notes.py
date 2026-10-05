@@ -81,3 +81,37 @@ def test_store_survives_a_missing_fts5(monkeypatch):
     assert [x["id"] for x in notes.search("plain")] == [n["id"]]
     assert notes.update(n["id"], text="changed text")["text"] == "changed text"
     assert notes.delete(n["id"])
+
+
+# ---- a deleted or edited note leaves no text in the file (DAT-11 / PRV-9 of the v2 review) ---------------------------
+
+def _file_bytes():
+    import os
+    out = b""
+    for p in (notes.db_path(), notes.db_path() + "-wal"):
+        if os.path.exists(p):
+            with open(p, "rb") as f:
+                out += f.read()
+    return out
+
+
+def test_a_deleted_note_leaves_no_text_in_the_database_file():
+    keep = notes.add("shopping list with apples")
+    n = notes.add("my bank pin is ZQXJSECRETWORD 7781")
+    assert b"ZQXJSECRETWORD" in _file_bytes()
+    assert notes.delete(n["id"])
+    assert notes.search("ZQXJSECRETWORD") == [] and notes.get(keep["id"])
+    assert b"ZQXJSECRETWORD" not in _file_bytes()
+
+
+def test_the_old_text_of_an_edited_note_is_not_kept_in_the_file():
+    n = notes.add("the door code is QUOKKAZEBRA", title="Door")
+    notes.update(n["id"], text="no code here")
+    notes.wipe_free_space()
+    assert b"QUOKKAZEBRA" not in _file_bytes()
+
+
+def test_deleting_twice_or_an_unknown_note_is_false():
+    n = notes.add("x")
+    assert notes.delete(n["id"]) is True
+    assert notes.delete(n["id"]) is False and notes.delete("0" * 32) is False

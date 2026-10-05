@@ -103,3 +103,82 @@ def test_meeting_open_does_not_open_a_path_built_from_a_bad_id(api, monkeypatch)
     monkeypatch.setattr(ui_app.os, "startfile", lambda p: opened.append(p), raising=False)
     api.meeting_open("..")
     assert opened == []
+
+
+# ---- a save that fails is reported to the page (DAT-1) ---------------------------------------------------------------
+
+def test_a_failed_save_answers_false_and_keeps_the_file(api, monkeypatch):
+    on_disk("language", "de")
+
+    def busy(change):
+        raise OSError("another save of config.json is still running")
+
+    monkeypatch.setattr(core, "update_config", busy)
+    assert api.save_config({"language": "fr"}) is False
+
+
+def test_a_page_save_keeps_a_setting_saved_meanwhile_by_the_engine(api):
+    on_disk("dictionary", ["phone"])          # the sync thread, after the page was drawn
+    assert api.save_config({"language": "de"}) is True
+    cfg = core.load_config()
+    assert cfg["language"] == "de" and cfg["dictionary"] == ["phone"]
+
+
+def test_the_page_says_when_a_save_failed():
+    import os
+    import re
+    page = open(os.path.join(os.path.dirname(__file__), "..", "windows", "ui", "index.html"), encoding="utf-8").read()
+    save = re.search(r"async function save\(part, msg = \"Saved\"\) \{(.*?)\n\}", page, re.S).group(1)
+    assert "catch" in save and "ok === false" in save and "refresh()" in save
+    assert "Not saved" in save
+
+
+# ---- Copy buttons use Vox's clipboard markers (PRV-4) ----------------------------------------------------------------
+
+def test_copy_marks_the_text_like_a_dictation(api, monkeypatch):
+    import types
+    calls = []
+    fake = types.ModuleType("paste")
+    fake.SystemDeps = lambda: types.SimpleNamespace(clip_set=lambda text, history=False: calls.append((text, history)))
+    monkeypatch.setitem(sys.modules, "paste", fake)
+    on_disk("clipboard_history", False)
+    assert api.copy("a dictation") is True
+    on_disk("clipboard_history", True)
+    assert api.copy("another") is True
+    assert calls == [("a dictation", False), ("another", True)]   # never the cloud clipboard; Win+V as the switch says
+
+
+def test_copy_that_fails_answers_false(api, monkeypatch):
+    import types
+    fake = types.ModuleType("paste")
+
+    def busy(text, history=False):
+        raise OSError("clipboard busy")
+
+    fake.SystemDeps = lambda: types.SimpleNamespace(clip_set=busy)
+    monkeypatch.setitem(sys.modules, "paste", fake)
+    assert api.copy("x") is False
+
+
+# ---- snippets: one item at a time, like the dictionary (DAT-9) -------------------------------------------------------
+
+def test_adding_a_snippet_keeps_one_synced_from_another_device(api):
+    on_disk("snippets", {"my address": "Flat 4"})
+    on_disk("snippets", {"my address": "Flat 4", "sig": "Best, Ann"})   # the page still shows only "my address"
+    assert api.snippet_set("my phone", "0123") == {"my address": "Flat 4", "sig": "Best, Ann", "my phone": "0123"}
+    assert api.snippet_set("MY ADDRESS", "Flat 5") == {"sig": "Best, Ann", "my phone": "0123", "MY ADDRESS": "Flat 5"}
+    assert core.load_config()["snippets"] == {"sig": "Best, Ann", "my phone": "0123", "MY ADDRESS": "Flat 5"}
+
+
+def test_removing_a_snippet_removes_only_that_one(api):
+    on_disk("snippets", {"a b": "x", "sig": "Best, Ann"})
+    assert api.snippet_set("a b", None) == {"sig": "Best, Ann"}
+    assert core.load_config()["snippets"] == {"sig": "Best, Ann"}
+
+
+def test_the_page_edits_snippets_through_the_one_item_bridge_call():
+    import os
+    import re
+    page = open(os.path.join(os.path.dirname(__file__), "..", "windows", "ui", "index.html"), encoding="utf-8").read()
+    assert not re.search(r"save\(\s*\{\s*snippets\s*:", page)
+    assert page.count("api().snippet_set(") == 2

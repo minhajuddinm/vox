@@ -174,3 +174,14 @@ def test_a_stat_error_is_not_taken_for_a_missing_file(appdata, monkeypatch):
         core.load_config()
     with open(path, "rb") as f:
         assert f.read() == original
+
+
+def test_a_list_or_number_where_text_or_a_switch_belongs_falls_back_to_the_default(appdata):
+    # DAT-7 of the v2 review: a non-text default_style broke every dictation (codemode lower())
+    _write(appdata, json.dumps({"default_style": ["formal"], "user_context": 5, "language": {"x": 1},
+                                "cleanup": "no", "keep_history": 0}).encode())
+    cfg = core.load_config()
+    assert cfg["default_style"] == "neutral" and cfg["user_context"] == "" and cfg["language"] == ""
+    assert cfg["cleanup"] is True and cfg["keep_history"] is True
+    out = core.process_text(dict(cfg, cleanup=False), "hello there friend", "x.exe", "")
+    assert out[0]

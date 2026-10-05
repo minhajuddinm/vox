@@ -343,9 +343,8 @@ class Engine:
     def _save_setting(self, key, value):
         """Saves one setting to the file (and to our copy). False, after telling the user, when it cannot be saved."""
         try:
-            cfg = core.load_config()   # the file, not our copy: the window may have saved settings since we read it
-            cfg[key] = value
-            core.save_config(cfg)
+            # the file, not our copy: the window may have saved settings since we read it (one locked step)
+            core.update_config(lambda cfg: cfg.__setitem__(key, value))
         except Exception as e:
             log.exception("could not save %s", key)
             self.notify(f"Could not save the setting: {e}")
@@ -1388,9 +1387,8 @@ class Engine:
         action = improve.remind_action(self.cfg, now)
         if not action:
             return
-        cfg = core.load_config()   # the file, not our copy: the window may have saved settings since we read it
-        cfg["improve_remind_last"] = now
-        core.save_config(cfg)
+        # the file, not our copy: the window may have saved settings since we read it (one locked step)
+        core.update_config(lambda cfg: cfg.__setitem__("improve_remind_last", now))
         self.cfg["improve_remind_last"] = now
         if action == "remind":
             self.notify("It is time to look at Improve my cleanup (Vox > Settings). Nothing is sent until you press Run once and confirm.")

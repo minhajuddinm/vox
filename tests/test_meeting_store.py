@@ -319,3 +319,51 @@ def test_the_start_line_does_not_carry_the_title(meeting_mod):
     src = inspect.getsource(meeting_mod.Meeting._start)
     call = src.split("log.info", 1)[1].split("sc.default_microphone()", 1)[0]
     assert '"title"' not in call and "self.id" in call
+
+
+# ---- a live worker still busy at Stop must not write into the final transcript or the next meeting (DAT-14) ----------
+
+def _seg(text):
+    return {"start": 0.0, "text": text, "compression": 1.0, "logprob": -0.1, "no_speech": 0.0}
+
+
+def test_a_live_piece_that_comes_back_after_the_worker_was_stopped_is_dropped(meeting_mod, monkeypatch):
+    import queue
+    import threading
+    m = meeting_mod.Meeting(lambda: {})
+    m.id = "20261002-100000"
+    q, cancel = queue.Queue(), threading.Event()
+    q.put(("Others", 5, b"\x00\x00"))
+    q.put(("Others", 9, b"\x00\x00"))
+
+    def slow_stt(pcm, prompt, model=None):   # the answer arrives after _finish gave up waiting
+        cancel.set()
+        return [_seg("late words from the old meeting")]
+
+    monkeypatch.setattr(m, "_stt", slow_stt)
+    m._transcribe_loop(q, [], cancel)
+    assert m.entries == []
+    assert q.qsize() == 1   # stopped: the rest of the old queue is not sent either
+
+
+def test_a_new_meeting_gives_the_worker_its_own_queue_and_sources(meeting_mod):
+    import inspect
+    src = inspect.getsource(meeting_mod.Meeting._start)
+    assert "args=(self.q, list(self.sources), self._cancel)" in src
+
+
+def test_finish_stops_a_worker_that_is_still_busy_after_the_wait(meeting_mod, monkeypatch, tmp_path):
+    import threading
+    monkeypatch.setattr(meeting_mod, "notes_export_dir", lambda cfg: str(tmp_path))
+    m, _ = _finished_meeting(meeting_mod, monkeypatch, [{"t": 5, "who": "You", "text": " ".join(["w"] * 200)}], 60)
+
+    class Busy:
+        def join(self, timeout=None):
+            pass
+
+        def is_alive(self):
+            return True
+
+    m.worker, m._cancel = Busy(), threading.Event()
+    m._finish()
+    assert m._cancel.is_set()

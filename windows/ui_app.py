@@ -6,7 +6,6 @@ import sys
 import time
 import urllib.request
 
-import pyperclip
 import webview
 
 import audio_devices
@@ -20,6 +19,7 @@ import timing
 import vcalendar
 import providers
 import session
+import snippets as snippets_mod
 import vox_core as core
 
 log = logging.getLogger("vox.ui")
@@ -76,20 +76,25 @@ class Api:
 
     # ------------------------------------------------------------- writing
     def save_config(self, cfg):
-        merged = core.load_config()
-        merged.update(cfg)
-        core.save_config(merged)
+        """Saves the page's settings over the file as it is now. False when they could not be saved: the page then says so
+        and shows the settings as saved again."""
+        try:
+            self._save(cfg)
+        except Exception as e:
+            log.warning("settings not saved: %s", type(e).__name__)
+            return False
         return True
+
+    def _save(self, part):
+        core.update_config(lambda c: c.update(part))
 
     def _edit_list(self, key, change):
         """Changes one item of a list setting in the file as it is now (the sync thread may have added words from
         another device since the page was drawn) and returns the new list for the page."""
-        cfg = core.load_config()
-        items = [x for x in (cfg.get(key) or []) if isinstance(x, str)]
-        items = change(items)
-        cfg[key] = items
-        core.save_config(cfg)
-        return items
+        def edit(cfg):
+            cfg[key] = change([x for x in (cfg.get(key) or []) if isinstance(x, str)])
+            return cfg[key]
+        return core.update_config(edit)
 
     @staticmethod
     def _repl_of(line):
@@ -128,14 +133,31 @@ class Api:
     def learned_remove(self, t):
         """Removes the "Recently learned" entry made at `t` and the dictionary lines it added (Learn from my corrections).
         {"dictionary", "learned_log"} as saved, for the page."""
-        cfg = core.load_config()
-        try:
-            parts = autolearn.remove_learned(cfg, float(t))
-        except (TypeError, ValueError):
-            return {"dictionary": [x for x in cfg.get("dictionary") or [] if isinstance(x, str)], "learned_log": autolearn.learned_log(cfg)}
-        cfg.update(parts)
-        core.save_config(cfg)
-        return parts
+        def remove(cfg):
+            try:
+                parts = autolearn.remove_learned(cfg, float(t))
+            except (TypeError, ValueError):
+                return {"dictionary": [x for x in cfg.get("dictionary") or [] if isinstance(x, str)], "learned_log": autolearn.learned_log(cfg)}
+            cfg.update(parts)
+            return parts
+        return core.update_config(remove)
+
+    def snippet_set(self, trigger, text):
+        """Adds one snippet to the file's current map, or removes it when `text` is None, and returns the map for the page:
+        a snippet received from another device since the page was drawn is kept. An added trigger replaces one that
+        differs only in case and goes to the end (the page's snippetsAdd checked the limits first)."""
+        t = str(trigger or "")
+
+        def edit(cfg):
+            old = cfg.get("snippets") if isinstance(cfg.get("snippets"), dict) else {}
+            if text is None:
+                out = {k: v for k, v in old.items() if k != t}
+            else:
+                out = {k: v for k, v in old.items() if k.lower() != t.strip().lower()}
+                out[t.strip()] = str(text)
+            cfg["snippets"] = snippets_mod.clean_snippets(out)
+            return cfg["snippets"]
+        return core.update_config(edit)
 
     def people_add(self, name):
         n = str(name or "").strip()
@@ -184,7 +206,7 @@ class Api:
     def set_hotkey(self, hid):
         for h in HOTKEYS:
             if h["id"] == hid:
-                self.save_config({"hotkey": h["keys"]})
+                self._save({"hotkey": h["keys"]})
                 return h["label"]
         return None
 
@@ -193,7 +215,7 @@ class Api:
         or the reason it was refused (then nothing is saved and the value is empty)."""
         hk, problem = session.parse_note_hotkey(text, core.load_config().get("hotkey"))
         if not problem:
-            self.save_config({"note_hotkey": hk.text if hk else ""})
+            self._save({"note_hotkey": hk.text if hk else ""})
         return {"value": hk.text if hk else "", "label": hk.label if hk else "", "problem": problem}
 
     def note_hotkey_problem(self, text=None):
@@ -212,7 +234,7 @@ class Api:
         cfg[name] = text if isinstance(text, str) else ""
         chord, problem = hotkeys.check(cfg)[name]
         if not problem:
-            self.save_config({name: chord.text if chord else ""})
+            self._save({name: chord.text if chord else ""})
         return {"value": chord.text if chord else "", "label": chord.label if chord else "", "problem": problem}
 
     def shortcut_problems(self):
@@ -237,7 +259,14 @@ class Api:
         return [[w, r] for w, r in core.suggest_corrections(original, edited) if w.lower() not in known]
 
     def copy(self, text):
-        pyperclip.copy(text)
+        """The Copy buttons (History, voice notes, meetings): marked like a dictation, so it never goes to the cloud
+        clipboard, and stays out of Win+V when "Clipboard history" is off. False when the clipboard could not be written."""
+        import paste
+        try:
+            paste.SystemDeps().clip_set(str(text or ""), bool(core.load_config().get("clipboard_history", True)))
+        except OSError as e:
+            log.warning("copy failed: %s", type(e).__name__)
+            return False
         return True
 
     def get_speed(self):
@@ -271,20 +300,21 @@ class Api:
         problem = core.endpoint_error(cfg) or ("Add an API key for this server first." if core.key_missing(cfg) else "")
         if problem:
             return fail(problem)
-        days, pairs = improve.selection(core.read_history(), days, now, cfg.get("snippets"))
+        days, pairs = improve.selection(improve.usable_history(cfg, core.read_history()), days, now, cfg.get("snippets"))
         if (len(pairs), improve.estimate_cost(pairs, "")["chars"]) != (count, chars):
             return fail("Your history changed since the numbers were shown. They are updated: check them and run again.", True)
-        model = (model or "").strip() or improve.DEFAULT_MODEL
+        model = (model or "").strip() if isinstance(model, str) else ""
+        use = improve.model_for(dict(cfg, improve_model=model))   # blank: the model that fits the cleanup server
         messages = improve.build_request(pairs, cfg.get("user_context"), core.dictionary_terms(cfg), cfg.get("my_cleanup_rules"))
         try:
-            text = improve.ask(cfg, messages, model)
+            text = improve.ask(cfg, messages, use)
         except core.ApiError as e:
             return fail(providers.explain(e.code, "llm", str(e)[:160], via_relay=providers.uses_relay(cfg)))
         except core.requests.RequestException as e:
             log.warning("improve run failed: %s", e)
             return fail(f"Could not reach the server: {type(e).__name__}")
         self._proposal = proposal = improve.parse_proposal(text)
-        self.save_config({"improve_model": model, "improve_days": days, "improve_last_run": now})
+        self._save({"improve_model": model, "improve_days": days, "improve_last_run": now})
         return {"ok": True, "error": proposal.error, "stale": False, "items": proposal.items, "findings": proposal.findings}
 
     def improve_apply(self, ids):
@@ -293,31 +323,39 @@ class Api:
         proposal = self._proposal
         if proposal is None:
             return {"ok": False, "error": "There is no proposal to apply. Run once first."}
-        cfg = core.load_config()
-        new = improve.apply(proposal, ids if isinstance(ids, list) else [], cfg)
         def learned(c):   # dictionary lines and rule lines
             return len(c.get("dictionary") or []) + len([r for r in (c.get("my_cleanup_rules") or "").split("\n") if r.strip()])
 
-        applied = learned(new) - learned(cfg)
+        def apply(cfg):   # on the settings as they are on disk now, in one locked step
+            new = improve.apply(proposal, ids if isinstance(ids, list) else [], cfg)
+            applied = learned(new) - learned(cfg)
+            if applied:
+                self._take_learned(cfg, new)
+            return applied, new
+        applied, new = core.update_config(apply)
         if applied:
             self._proposal = None
-            self._save_learned(new)
         return {"ok": True, "applied": applied, "versions": improve.versions_view(new)}
 
     def improve_revert(self, index):
         """Undoes the applied change `index` (from improve_state's versions) and every later one."""
-        cfg = core.load_config()
-        new = improve.revert(cfg, index)
-        if len(new["my_cleanup_rules_versions"]) == len(cfg.get("my_cleanup_rules_versions") or []):
+        def revert(cfg):
+            new = improve.revert(cfg, index)
+            if len(new["my_cleanup_rules_versions"]) == len(cfg.get("my_cleanup_rules_versions") or []):
+                return None
+            self._take_learned(cfg, new)
+            return new
+        new = core.update_config(revert)
+        if new is None:
             return {"ok": False, "error": "That change is not in the list any more."}
-        self._save_learned(new)
         return {"ok": True, "versions": improve.versions_view(new)}
 
-    def _save_learned(self, cfg):
-        self.save_config({k: cfg[k] for k in ("dictionary", "my_cleanup_rules", "my_cleanup_rules_versions")})
+    @staticmethod
+    def _take_learned(cfg, new):
+        cfg.update({k: new[k] for k in ("dictionary", "my_cleanup_rules", "my_cleanup_rules_versions")})
 
     def delete_history(self, t):
-        core.write_history([h for h in core.read_history() if h.get("t") != t])
+        core.update_history(lambda entries: [h for h in entries if h.get("t") != t])
         return True
 
     def clear_history(self):
@@ -503,7 +541,7 @@ class Api:
         if res.get("ok") and res.get("email"):
             cfg = core.load_config()
             if not cfg.get("my_email"):
-                self.save_config({"my_email": res["email"]})
+                self._save({"my_email": res["email"]})
         return res
 
     def google_disconnect(self):
@@ -512,7 +550,10 @@ class Api:
         return True
 
     def connect_calendar(self, url):
-        self.save_config({"calendar_url": (url or "").strip()})
+        problem = vcalendar.url_problem(url)
+        if problem:   # the secret address is not saved, so it is never fetched in clear text
+            return dict(self.calendar(), error=problem)
+        self._save({"calendar_url": (url or "").strip()})
         return self.calendar(force=True)
 
     # ---------------------------------------------------------- autostart

@@ -45,6 +45,7 @@ def _connect():
     con = sqlite3.connect(db_path(), timeout=5)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA secure_delete=ON")   # the text of a deleted or edited note is overwritten in the file, not left in free space
     con.executescript(_SCHEMA)
     cols = {r[1] for r in con.execute("PRAGMA table_info(notes)")}
     if "dirty" not in cols:    # 1 = changed here and not yet sent to the relay (older notes count as changed)
@@ -55,7 +56,26 @@ def _connect():
         con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(id UNINDEXED, title, text)")
     except sqlite3.OperationalError:
         pass   # this SQLite has no FTS5: search falls back to LIKE
+    else:
+        _fts_secure_delete(con)
     return con
+
+
+def _fts_secure_delete(con):
+    """FTS5 keeps a deleted note's words in its index until a merge, unless its secure-delete option is on (SQLite 3.44
+    and later; an older one keeps that behaviour). Set once per database."""
+    try:
+        if con.execute("SELECT v FROM notes_fts_config WHERE k = 'secure-delete'").fetchone() is None:
+            with con:
+                con.execute("INSERT INTO notes_fts (notes_fts, rank) VALUES ('secure-delete', 1)")
+    except sqlite3.DatabaseError:
+        pass
+
+
+def _stamp(old):
+    """The time of a change made here: now, but always later than the version it changes. A PC clock that is behind the
+    device that wrote the note would otherwise date the change earlier, and the relay would keep the old version."""
+    return max(time.time(), (old or 0) + 0.001)
 
 
 def _has_fts(con):
@@ -136,7 +156,7 @@ def update(nid, title=None, text=None, tags=None):
         new_text = r["text"] if text is None else text.strip()
         new_tags = r["tags"] if tags is None else json.dumps(_tags(tags))
         con.execute("UPDATE notes SET title = ?, text = ?, tags = ?, updated_at = ?, dirty = 1 WHERE id = ?",
-                    (new_title, new_text, new_tags, time.time(), nid))
+                    (new_title, new_text, new_tags, _stamp(r["updated_at"]), nid))
         _index(con, nid, new_title, new_text)
         r = con.execute("SELECT * FROM notes WHERE id = ?", (nid,)).fetchone()
     return _row(r)
@@ -144,12 +164,33 @@ def update(nid, title=None, text=None, tags=None):
 
 def delete(nid):
     """Removes a note's content and keeps a marker row. True when a note was deleted."""
-    with contextlib.closing(_connect()) as con, con:
-        cur = con.execute("UPDATE notes SET deleted = 1, title = '', text = '', raw = '', tags = '[]', updated_at = ?, dirty = 1 "
-                          "WHERE id = ? AND deleted = 0", (time.time(), nid))
-        if _has_fts(con):
-            con.execute("DELETE FROM notes_fts WHERE id = ?", (nid,))
-        return cur.rowcount > 0
+    with contextlib.closing(_connect()) as con:
+        with con:
+            r = con.execute("SELECT updated_at FROM notes WHERE id = ? AND deleted = 0", (nid,)).fetchone()
+            if not r:
+                return False
+            con.execute("UPDATE notes SET deleted = 1, title = '', text = '', raw = '', tags = '[]', updated_at = ?, dirty = 1 "
+                        "WHERE id = ? AND deleted = 0", (_stamp(r["updated_at"]), nid))
+            if _has_fts(con):
+                con.execute("DELETE FROM notes_fts WHERE id = ?", (nid,))
+        _checkpoint(con)
+        return True
+
+
+def _checkpoint(con):
+    """Copies the write-ahead log into notes.db and empties it: the log still holds the pages as they were before."""
+    try:
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except sqlite3.DatabaseError:
+        pass   # another connection is reading: the next checkpoint does it
+
+
+def wipe_free_space():
+    """Rebuilds notes.db without free pages (VACUUM) and empties the log: text deleted or overwritten before secure_delete
+    was on is gone from the file too."""
+    with contextlib.closing(_connect()) as con:
+        con.execute("VACUUM")
+        _checkpoint(con)
 
 
 def search(query="", source=None, since=None, until=None, tag=None, limit=200):

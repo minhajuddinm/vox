@@ -59,8 +59,19 @@ def notes_export_dir(cfg):
     return d
 
 
+def notes_model(cfg):
+    """The chat model for notes, speaker naming and questions: `notes_model`, else the big Groq model on Groq, else the
+    cleanup model of the chosen server (core.feature_model)."""
+    return core.feature_model(cfg, "llm", "notes_model", DEFAULT_NOTES_MODEL)
+
+
+def final_stt_model(cfg):
+    """The speech model of the final pass: `final_stt_model`, else whisper-large-v3 on Groq, else the speech model."""
+    return core.feature_model(cfg, "stt", "final_stt_model", DEFAULT_FINAL_STT)
+
+
 def _llm(cfg, system, user, max_tokens=4096, effort="medium"):
-    model = cfg.get("notes_model") or DEFAULT_NOTES_MODEL
+    model = notes_model(cfg)
     body = {
         "model": model,
         "temperature": 0.2,
@@ -259,6 +270,7 @@ class Meeting:
         self.q = queue.Queue()
         self.sources = []
         self.worker = None
+        self._cancel = threading.Event()
         self.last_error = ""
         self.event = None          # calendar event dict or None
         self.qa = []               # live questions and answers
@@ -322,7 +334,9 @@ class Meeting:
         self.sources = [_Source("You", mic, self), _Source("Others", system, self)]
         for s in self.sources:
             s.start()
-        self.worker = threading.Thread(target=self._transcribe_loop, daemon=True, name="meeting-stt")
+        self._cancel = threading.Event()   # this meeting's worker: its own queue, sources and stop flag, never the next one's
+        self.worker = threading.Thread(target=self._transcribe_loop, args=(self.q, list(self.sources), self._cancel),
+                                       daemon=True, name="meeting-stt")
         self.worker.start()
         try:
             log.info("meeting %s started (%s); mic=%s speaker=%s", self.id, "calendar event" if event else "no event",
@@ -379,20 +393,24 @@ class Meeting:
                 time.sleep(3)
         return None
 
-    def _transcribe_loop(self):
-        while self.active or not self.q.empty() or any(s.is_alive() for s in self.sources):
+    def _transcribe_loop(self, q, sources, cancel):
+        """The live worker of one meeting. Once `cancel` is set (Stop gave up waiting for a long backlog) it sends nothing
+        more and drops an answer still on its way: the final pass has rebuilt the transcript, or another meeting runs."""
+        while not cancel.is_set() and (self.active or not q.empty() or any(s.is_alive() for s in sources)):
             try:
-                who, start, pcm = self.q.get(timeout=0.5)
+                who, start, pcm = q.get(timeout=0.5)
             except queue.Empty:
                 continue
             segs = self._stt(pcm, self._context_prompt(who))
-            if segs is None:
+            if segs is None or cancel.is_set():
                 continue
             self.last_error = ""
             segs = _dedupe_repeats([s for s in segs if _good(s)])
             new = [{"t": round(start + s["start"]), "who": who, "text": s["text"]} for s in segs]
             if new:
                 with self.lock:
+                    if cancel.is_set():
+                        break
                     self._add(new)
                 self._save_transcript()
 
@@ -416,7 +434,7 @@ class Meeting:
         """Re-transcribes the recorded speech with Whisper large-v3 in long pieces (more context, fewer
         errors at piece edges). Falls back to the live transcript for any source that fails."""
         cfg = self.get_cfg()
-        model = cfg.get("final_stt_model") or DEFAULT_FINAL_STT
+        model = final_stt_model(cfg)
         final = []
         for s in self.sources:
             live = [e for e in self.entries if e["who"] == s.who]
@@ -576,6 +594,9 @@ class Meeting:
                 s.join(timeout=5)
             if self.worker:
                 self.worker.join(timeout=300)
+                if self.worker.is_alive():   # still on a backlog: stop it before the final pass rebuilds the transcript
+                    log.warning("meeting %s: the live transcription was still busy after 300 s; stopped", self.id)
+                    self._cancel.set()
             duration = round(self.elapsed())
             self._save_transcript()
             if cfg.get("final_pass", True) and any(s.pieces for s in self.sources):

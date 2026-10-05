@@ -85,3 +85,32 @@ def test_real_dpapi_round_trip():
     p = secret.protect("gsk_real_test_value")
     assert p.startswith("dpapi:") and "gsk_real" not in p
     assert secret.unprotect(p) == "gsk_real_test_value"
+
+
+# ---- a protected value that cannot be opened for a moment is kept (DAT-12 of the v2 review) ---------------------------
+
+def test_a_secret_that_could_not_be_opened_is_written_back_unchanged(appdata, monkeypatch):
+    core.save_config(dict(core.load_config(), api_key="gsk_keep", relay_token="tok_keep"))
+    stored = on_disk(appdata)
+    enc, _ = fake_backend()
+
+    def refuse(b):
+        raise OSError(-1, "DPAPI call failed")   # e.g. at autostart, before the key store is ready
+
+    monkeypatch.setattr(secret, "_backend", (enc, refuse))
+    cfg = core.load_config()
+    assert cfg["api_key"] == "" and cfg["relay_token"] == ""
+    core.update_config(lambda c: c.__setitem__("language", "de"))   # any later save: a setting, auto-learn, sync
+    assert on_disk(appdata)["api_key"] == stored["api_key"] and on_disk(appdata)["relay_token"] == stored["relay_token"]
+    monkeypatch.setattr(secret, "_backend", fake_backend())
+    cfg = core.load_config()
+    assert (cfg["api_key"], cfg["relay_token"], cfg["language"]) == ("gsk_keep", "tok_keep", "de")
+
+
+def test_a_new_secret_typed_while_the_old_could_not_be_opened_replaces_it(appdata, monkeypatch):
+    core.save_config(dict(core.load_config(), api_key="gsk_old"))
+    enc, _ = fake_backend()
+    monkeypatch.setattr(secret, "_backend", (enc, lambda b: (_ for _ in ()).throw(OSError("DPAPI call failed"))))
+    core.update_config(lambda c: c.__setitem__("api_key", "gsk_new"))
+    monkeypatch.setattr(secret, "_backend", fake_backend())
+    assert core.load_config()["api_key"] == "gsk_new"

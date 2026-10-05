@@ -4,6 +4,7 @@ Offline-first: the notes always work locally; syncing is best effort and every f
 Protocol: documentation/14-relay.md. Rules: the newer `updated_at` wins, deletes travel as markers, the relay's
 sequence number is the cursor for "what is new".
 """
+import hashlib
 import json
 import logging
 import math
@@ -14,6 +15,7 @@ import time
 
 import requests
 
+import autolearn
 import notes
 import vox_core as core
 
@@ -81,10 +83,7 @@ def follow_relay(url):
     if origin == saved:
         return
     if saved:
-        notes.set_meta("relay_cursor", 0)
-        notes.set_meta("profile_version", 0)
-        notes.set_meta("profile_snapshot", "{}")
-        notes.mark_all_dirty()
+        _start_over()
     else:
         keys_on = core.load_config().get("relay_sync_keys")
         if core.config_is_fallback():
@@ -92,6 +91,29 @@ def follow_relay(url):
         if keys_on:
             notes.set_meta("profile_keys_sent", "1")
     notes.set_meta("relay_origin", origin)
+
+
+def _start_over():
+    """Forget what the relay was known to hold: every note and delete marker is sent again, everything is fetched again,
+    and the profile is merged as at a first sync."""
+    notes.set_meta("relay_cursor", 0)
+    notes.set_meta("profile_version", 0)
+    notes.set_meta("profile_snapshot", "{}")
+    notes.mark_all_dirty()
+
+
+def follow_reset(url, token, device):
+    """A relay that lost its data at the same address (reinstalled, a new Pi, another data folder) numbers its changes
+    from 1 again: its newest sequence number (GET /health `seq`) is then below the saved cursor, and asking for changes
+    after the cursor would return nothing until it caught up. Start over then, as for a new address."""
+    cursor = int(notes.get_meta("relay_cursor", "0") or 0)
+    if not cursor:
+        return
+    health = _request("GET", url, "/health", token, device)
+    seq = health.get("seq") if isinstance(health, dict) else None
+    if isinstance(seq, int) and not isinstance(seq, bool) and seq < cursor:
+        log.info("the relay holds fewer changes than this PC has seen (%d < %d): sending everything again", seq, cursor)
+        _start_over()
 
 
 def problem(url, token):
@@ -288,6 +310,34 @@ def merge3(base, local, remote):
     return out
 
 
+SNAPSHOT_HASHED = ("api_key", "stt_api_key", "llm_api_key")   # kept in notes.db only as a hash: the keys are protected in config.json
+_HASH = "sha256:"
+
+
+def _hashed(value):
+    return _HASH + hashlib.sha256(json.dumps(value).encode("utf-8")).hexdigest()
+
+
+def _save_snapshot(merged, old):
+    """Keeps the merged profile as the base of the next three-way merge. merge3 only compares the base with both sides,
+    so an API key is kept as its hash, never in plain text. An older snapshot that held a key in plain text is wiped from
+    the file's free pages too."""
+    notes.set_meta("profile_snapshot", json.dumps({k: _hashed(v) if k in SNAPSHOT_HASHED and v else v for k, v in merged.items()}))
+    if any(isinstance(old.get(k), str) and old[k] and not old[k].startswith(_HASH) for k in SNAPSHOT_HASHED):
+        notes.wipe_free_space()
+
+
+def _base_of(snapshot, local, remote):
+    """The snapshot as merge3's base: a hashed key stands for the value of the side it matches (when it matches neither,
+    both sides changed it)."""
+    base = dict(snapshot)
+    for k in SNAPSHOT_HASHED:
+        b = base.get(k)
+        if isinstance(b, str) and b.startswith(_HASH):
+            base[k] = next((v for v in (local.get(k), remote.get(k)) if v is not None and _hashed(v) == b), b)
+    return base
+
+
 def sync_profile(url, token, device):
     """Two-way sync of the shared settings with the relay's profile document. Returns "", "sent", "received" or
     "both" or PROFILE_SKIPPED (config.json cannot be opened: the defaults are not the user's settings, so nothing is sent or
@@ -302,17 +352,38 @@ def sync_profile(url, token, device):
         _, remote = _call("GET", url, "/profile", token, device)
         version, data = int(remote["version"]), dict(remote["data"])
         base_version = int(notes.get_meta("profile_version", "0") or 0)
-        base = json.loads(notes.get_meta("profile_snapshot", "{}") or "{}")
+        snapshot = json.loads(notes.get_meta("profile_snapshot", "{}") or "{}")
         local = {k: cfg[k] for k in fields if k in cfg}
         remote_shared = {k: v for k, v in data.items() if k in fields}
-        merged = local if version in (0, base_version) else merge3(base, local, remote_shared)
+        base = _base_of(snapshot, local, remote_shared)
+        merged = dict(local) if version in (0, base_version) else merge3(base, local, remote_shared)
+        for k, v in list(merged.items()):
+            if not core.type_ok(k, v):   # a value of the wrong type from the relay is not taken: this device's own goes back
+                if k in local:
+                    merged[k] = local[k]
+                else:
+                    del merged[k]
         received = {k: v for k, v in merged.items() if cfg.get(k) != v}
         if received:
-            live = core.load_config()
-            if core.config_is_fallback():
-                return PROFILE_SKIPPED
-            live.update(received)
-            core.save_config(live)
+            def take(live):   # the file as it is now, in one locked step: the window may have saved during the request
+                if any(live.get(k) != cfg.get(k) for k in received):
+                    return False   # a field we would write was changed here meanwhile: merge again with the new value
+                live.update(received)
+                if "dictionary" in received:   # "Recently learned" lists only words still in the received dictionary
+                    lines = {" => ".join(p.strip() for p in x.split("=>", 1)) for x in live["dictionary"]
+                             if isinstance(x, str) and "=>" in x}
+                    log_ = [e for e in autolearn.learned_log(live) if f"{e['wrong']} => {e['right']}" in lines]
+                    if log_ != autolearn.learned_log(live):
+                        live["learned_log"] = log_
+                return True
+            try:
+                taken = core.update_config(take)
+            except OSError:
+                if core.config_is_fallback():
+                    return PROFILE_SKIPPED
+                raise
+            if not taken:
+                continue
             received_any = True
         # Keys leave the relay only on this device's own on-to-off switch (it sent keys, now they are off). A device that
         # never sent keys leaves other devices' keys alone, or two devices would undo each other for ever.
@@ -325,7 +396,7 @@ def sync_profile(url, token, device):
             if keys_on:
                 notes.set_meta("profile_keys_sent", "1")
             notes.set_meta("profile_version", version)
-            notes.set_meta("profile_snapshot", json.dumps(merged))
+            _save_snapshot(merged, snapshot)
             return "received" if received_any else ""
         doc = {k: v for k, v in data.items() if k not in PROFILE_KEY_FIELDS or not stale_keys}   # keep fields other devices added, their keys too
         doc.update(merged)
@@ -337,7 +408,7 @@ def sync_profile(url, token, device):
         elif stale_keys:
             notes.set_meta("profile_keys_sent", "")
         notes.set_meta("profile_version", out["version"])
-        notes.set_meta("profile_snapshot", json.dumps(merged))
+        _save_snapshot(merged, snapshot)
         return "both" if received_any else "sent"
     raise SyncError("The profile keeps changing on the relay; it will be tried again later.")
 
@@ -355,6 +426,7 @@ def sync_once(cfg):
     refused = []   # what the relay said about each note it refuses for good: those notes are skipped, the rest goes on
     try:
         follow_relay(url)   # inside the try: a database error is a result, never a dead sync thread
+        follow_reset(url, token, device)
         handled = set()   # (id, updated_at) of every version sent or refused in this run, so none is tried twice in a run
         parked = 0        # refused notes: the only handled ones that stay dirty, so the only ones that need room in the batch
         while True:
@@ -385,7 +457,10 @@ def sync_once(cfg):
             for n in d["notes"]:
                 if notes.apply_remote(n):
                     pulled += 1
-            cursor = d["next"]
+            nxt = d.get("next")
+            if isinstance(nxt, bool) or not isinstance(nxt, int) or nxt <= cursor:
+                break   # a cursor that does not move on: stop, never ask for ever or save it (Android twin: SyncEngine)
+            cursor = nxt
             notes.set_meta("relay_cursor", cursor)
             if not d.get("more"):
                 break
