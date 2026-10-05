@@ -1948,3 +1948,34 @@ guard	standard	stop			umm uh hmm	EMPTY	empty	empty	-
 guard	light	stop			the gap is 5 mm	The gap is 5.	reject	missing 1 > 0	-
 guard	light	stop			the gap is 5 mm	The gap is 5 mm.	accept	ok	-
 guard	standard	stop			the gap is 5 mm	The gap is 5 mm.	accept	ok	-
+# cqf: the rules layer keeps a real "period" / "full stop" (a determiner, possessive or preposition up to 3 words before it
+# in the same sentence, unless a comma comes right before it); "new line" / "new paragraph" alone types the break; "Er" with a
+# capital is a title unless a comma follows (a noise between two commas still leaves one: "apples, um, pears" is a list);
+# a weak cue (sorry, actually) after a full stop is not a self-correction.
+rulelayer	neutral	light	It happened over a six-month period.	It happened over a six-month period.
+rulelayer	neutral	light	We are in the exam period.	We are in the exam period.
+rulelayer	neutral	light	It's the Victorian period.	It's the Victorian period.
+rulelayer	neutral	standard	During the cooling-off period.	During the cooling-off period.
+rulelayer	neutral	light	especially the menstrual period	Especially the menstrual period.
+rulelayer	neutral	light	The car came to a sudden full stop.	The car came to a sudden full stop.
+rulelayer	neutral	light	send it to priya period	Send it to priya.
+rulelayer	neutral	light	we are done period	We are done.
+rulelayer	neutral	light	we are done full stop	We are done.
+rulelayer	neutral	light	I'll send it to the team, period.	I'll send it to the team.
+rulelayer	neutral	light	the exam period. then we rest period	The exam period. Then we rest.
+rulelayer	neutral	light	New line.	\n
+rulelayer	neutral	light	New paragraph.	\n\n
+rulelayer	neutral	light	um new line	\n
+rulelayer	very_casual	light	New paragraph.	\n\n
+rulelayer	neutral	standard	Um, new line.	\n
+rulelayer	neutral	light	Um.	
+rulelayer	neutral	light	His name is Er Rahul Sharma	His name is Er Rahul Sharma.
+rulelayer	neutral	light	Er, I think so.	I think so.
+rulelayer	neutral	light	er i think so	I think so.
+rulelayer	neutral	light	we need apples, um, pears and plums	We need apples, pears and plums.
+rulelayer	neutral	standard	Call me at five. Sorry, six is better.	Call me at five. Sorry, six is better.
+rulelayer	neutral	standard	Call me at five. Actually six.	Call me at five. Actually six.
+rulelayer	neutral	standard	Call me at five. I mean six.	Call me at six.
+rulelayer	neutral	standard	call me at five sorry six	Call me at six.
+fallback	New line.	\n
+fallback	um new paragraph	\n\n

@@ -23,13 +23,13 @@ public final class InsertGuard {
     }
 
     /**
-     * What to tell the user when the cleanup step failed and the words are used as spoken, or null for nothing. A job that
+     * What to tell the user when the cleanup step failed and the rules layer's text is used (noises and spoken commands only), or null for nothing. A job that
      * is no longer current was cancelled (or replaced) while it was cleaning: nothing is typed or saved, so nothing is said.
      */
     public static String cleanupNotice(boolean current, boolean cleanupFailed, boolean note) {
         if (!current || !cleanupFailed) return null;
-        return note ? "Cleanup did not work, so Vox saved your words as spoken"
-                : "Cleanup did not work, so Vox typed your words as spoken";
+        return note ? "Cleanup did not work, so Vox saved your words with basic tidying only"
+                : "Cleanup did not work, so Vox typed your words with basic tidying only";
     }
 
     /**

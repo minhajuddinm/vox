@@ -31,7 +31,8 @@ final class RulesLayer {
     private static final String SP = "[ \\t]";
     private static final String OPEN = ".?!,;:\n";
 
-    private static final Pattern NOISE = Pattern.compile("(," + SP + "*)?" + L + "(?:[Uu](?:m+|h+|hm+)|[Ee]rm+|[Ee]r|[Aa]h+|[Hh]m+)" + R
+    /** Pure noises; "Er" with a capital only before a comma ("Er Rahul Sharma": the title for an engineer). */
+    private static final Pattern NOISE = Pattern.compile("(," + SP + "*)?" + L + "(?:[Uu](?:m+|h+|hm+)|[Ee]rm+|er|Er(?=,)|[Aa]h+|[Hh]m+)" + R
             + "([,.?!;:]?)" + SP + "*");
     private static final Pattern PUNCT = Pattern.compile("(?i)(" + SP + "*,?" + SP + "*)" + L + "(comma|period|full" + SP + "+stop|question"
             + SP + "+mark|exclamation" + SP + "+(?:mark|point))" + R + "([.,?!]?)");
@@ -49,6 +50,9 @@ final class RulesLayer {
             "a an the this that these those my your his her its our their each every any no one per same whole entire first last next "
             + "trial grace notice waiting free time probation billing cooling holding oxford serial big huge small extra missing single "
             + "short long given certain").split(" ")));
+    /** "period" / "full stop" with one of these up to 3 words before it in its sentence is the noun ("over a six-month period"). */
+    private static final Set<String> NOUN_NEAR = new HashSet<>(Arrays.asList((
+            "a an the this that these those my your our his her their its each every per over during for in of").split(" ")));
     private static final Pattern PREV_WORD = Pattern.compile("([A-Za-z]+)" + END);
     private static final Pattern NEXT_WORD = Pattern.compile(SP + "*([A-Za-z]+)");
 
@@ -60,9 +64,11 @@ final class RulesLayer {
     private static final String AMPM = "(?:a\\.m\\.|p\\.m\\.|a" + SP + "?m|p" + SP + "?m)";
     private static final String NUM = "(?:[0-9]+(?:[:.,][0-9]+)*|(?:" + NUMW + ")(?:" + SP + "+(?:" + NUMW + "))*)(?:" + SP + "*" + AMPM + ")?";
     private static final String VALUE = "(" + DAYS + "|" + MONTHS + "|" + NUM + ")";
-    private static final String CUE = "(?:no[,.]?" + SP + "+wait|wait[,.]?" + SP + "+no|no[,.]?" + SP + "+no|nahi[,.]?" + SP + "+nahi|i" + SP
-            + "+mean|sorry|actually)";
-    private static final Pattern CORRECTION = Pattern.compile("(?i)" + L + VALUE + "[,.]?" + SP + "+" + CUE + "[,.]?" + SP + "+" + VALUE + R);
+    private static final String STRONG_CUE = "(?:no[,.]?" + SP + "+wait|wait[,.]?" + SP + "+no|no[,.]?" + SP + "+no|nahi[,.]?" + SP
+            + "+nahi|i" + SP + "+mean)";
+    /** A weak cue (sorry, actually) only inside the sentence: "Call me at five. Sorry, six is better." is no correction. */
+    private static final Pattern CORRECTION = Pattern.compile("(?i)" + L + VALUE + "(?:,?" + SP + "+(?:" + STRONG_CUE + "|sorry|actually)|\\."
+            + SP + "+" + STRONG_CUE + ")[,.]?" + SP + "+" + VALUE + R);
     private static final Set<String> DAY_SET = new HashSet<>(Arrays.asList(DAYS.split("\\|")));
     private static final Set<String> MONTH_SET = new HashSet<>(Arrays.asList(MONTHS.split("\\|")));
 
@@ -86,7 +92,7 @@ final class RulesLayer {
     /**
      * The rules layer on a transcript whose spoken line breaks are already applied. style: neutral, formal, casual or
      * very_casual (anything else counts as neutral); strength "standard" also takes typed-value self-corrections. Filler-only
-     * input gives "". Twin of rules_cleanup in windows/rules_layer.py.
+     * input gives "" (spoken line breaks alone give those breaks). Twin of rules_cleanup in windows/rules_layer.py.
      */
     static String clean(String text, String style, String strength) {
         String t = dropNoises(text == null ? "" : text);
@@ -103,7 +109,11 @@ final class RulesLayer {
         t = tidy(t);
         boolean onlyMarks = true;
         for (int i = 0; i < t.length() && onlyMarks; i++) onlyMarks = ONLY_MARKS.indexOf(t.charAt(i)) >= 0;
-        if (onlyMarks) return "";
+        if (onlyMarks) {   // "new line" / "new paragraph" alone still types the break
+            StringBuilder breaks = new StringBuilder();
+            for (int i = 0; i < t.length(); i++) if (t.charAt(i) == '\n') breaks.append('\n');
+            return breaks.toString();
+        }
         if (veryCasual) {   // like a text message: no capitals added, sentence capitals undone, no final period
             Matcher m = LOWER_START.matcher(t);
             StringBuffer sb = new StringBuffer();
@@ -163,6 +173,8 @@ final class RulesLayer {
         Matcher prev = PREV_WORD.matcher(prefix);
         if (prev.find() && NOUN_AFTER.contains(prev.group(1).toLowerCase(Locale.ROOT))) return m.group(0);
         String name = String.join(" ", m.group(2).toLowerCase(Locale.ROOT).trim().split("[ \\t]+"));
+        // "the exam period", "a sudden full stop": a comma before it makes it the command
+        if ((name.equals("period") || name.equals("full stop")) && m.group(1).indexOf(',') < 0 && nounNear(prefix)) return m.group(0);
         String rest = t.substring(m.end());
         Matcher next = NEXT_WORD.matcher(rest);
         String nxt = next.lookingAt() ? next.group(1).toLowerCase(Locale.ROOT) : "";
@@ -170,6 +182,17 @@ final class RulesLayer {
         String after = lstrip(rest, " \t");
         if (name.equals("period") && !(!m.group(3).isEmpty() || after.isEmpty() || after.charAt(0) == '\n')) return m.group(0);
         return MARKS.get(name) + (!rest.isEmpty() && " \t\n".indexOf(rest.charAt(0)) < 0 ? " " : "");
+    }
+
+    /** True when one of NOUN_NEAR is among the last 3 words of prefix's sentence. */
+    private static boolean nounNear(String prefix) {
+        String[] parts = prefix.split("[.?!\\n]", -1);
+        String sentence = lstrip(rstrip(parts[parts.length - 1], " \t"), " \t");
+        String[] words = sentence.split("[ \\t]+", -1);
+        for (int i = Math.max(0, words.length - 3); i < words.length; i++) {
+            if (NOUN_NEAR.contains(words[i].toLowerCase(Locale.ROOT).replaceAll("[^a-z]", ""))) return true;
+        }
+        return false;
     }
 
     private static String kind(String value) {

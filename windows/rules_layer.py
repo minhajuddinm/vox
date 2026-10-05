@@ -20,8 +20,9 @@ _END = "(?![\\s\\S])"                # the end of the text ($ also matches befor
 _SP = "[ \t]"
 _OPEN = ".?!,;:\n"                     # text ending in one of these has nothing a mark could follow
 
-# pure noises, lowercase or with a capital only (so "ER" or "AH" as an abbreviation stay); "mm" is left (5 mm)
-_NOISE = re.compile("(," + _SP + "*)?" + _L + "(?:[Uu](?:m+|h+|hm+)|[Ee]rm+|[Ee]r|[Aa]h+|[Hh]m+)" + _R
+# pure noises, lowercase or with a capital only (so "ER" or "AH" as an abbreviation stay); "mm" is left (5 mm); "Er" with a
+# capital only before a comma ("Er Rahul Sharma": the title for an engineer)
+_NOISE = re.compile("(," + _SP + "*)?" + _L + "(?:[Uu](?:m+|h+|hm+)|[Ee]rm+|er|Er(?=,)|[Aa]h+|[Hh]m+)" + _R
                     + "([,.?!;:]?)" + _SP + "*")
 _PUNCT = re.compile("(" + _SP + "*,?" + _SP + "*)" + _L + "(comma|period|full" + _SP + "+stop|question" + _SP
                     + "+mark|exclamation" + _SP + "+(?:mark|point))" + _R + "([.,?!]?)", re.I | re.A)
@@ -31,6 +32,9 @@ _MARKS = {"comma": ",", "period": ".", "full stop": ".", "question mark": "?", "
 _NOUN_AFTER = frozenset("a an the this that these those my your his her its our their each every any no one per same "
                         "whole entire first last next trial grace notice waiting free time probation billing cooling "
                         "holding oxford serial big huge small extra missing single short long given certain".split())
+# "period" / "full stop" with one of these up to 3 words before it in its sentence is the noun ("over a six-month period")
+_NOUN_NEAR = frozenset("a an the this that these those my your our his her their its each every per over during for in "
+                       "of".split())
 _PREV_WORD = re.compile("([A-Za-z]+)" + _END)
 _NEXT_WORD = re.compile(_SP + "*([A-Za-z]+)")
 
@@ -43,9 +47,11 @@ _AMPM = "(?:a\\.m\\.|p\\.m\\.|a" + _SP + "?m|p" + _SP + "?m)"
 _NUM = ("(?:[0-9]+(?:[:.,][0-9]+)*|(?:" + _NUMW + ")(?:" + _SP + "+(?:" + _NUMW + "))*)(?:" + _SP + "*" + _AMPM
         + ")?")
 _VALUE = "(" + _DAYS + "|" + _MONTHS + "|" + _NUM + ")"
-_CUE = ("(?:no[,.]?" + _SP + "+wait|wait[,.]?" + _SP + "+no|no[,.]?" + _SP + "+no|nahi[,.]?" + _SP + "+nahi|i" + _SP
-        + "+mean|sorry|actually)")
-_CORRECTION = re.compile(_L + _VALUE + "[,.]?" + _SP + "+" + _CUE + "[,.]?" + _SP + "+" + _VALUE + _R, re.I | re.A)
+_STRONG_CUE = ("(?:no[,.]?" + _SP + "+wait|wait[,.]?" + _SP + "+no|no[,.]?" + _SP + "+no|nahi[,.]?" + _SP + "+nahi|i"
+               + _SP + "+mean)")
+# a weak cue (sorry, actually) only inside the sentence: "Call me at five. Sorry, six is better." is no correction
+_CORRECTION = re.compile(_L + _VALUE + "(?:,?" + _SP + "+(?:" + _STRONG_CUE + "|sorry|actually)|\\." + _SP + "+"
+                         + _STRONG_CUE + ")[,.]?" + _SP + "+" + _VALUE + _R, re.I | re.A)
 _DAY_SET = frozenset(_DAYS.split("|"))
 _MONTH_SET = frozenset(_MONTHS.split("|"))
 
@@ -82,6 +88,13 @@ def _drop_noises(t):
     return _NOISE.sub(fix, t)
 
 
+def _noun_near(prefix):
+    """True when one of _NOUN_NEAR is among the last 3 words of prefix's sentence."""
+    sentence = re.split("[.?!\n]", prefix)[-1]
+    words = [re.sub("[^a-z]", "", w.lower()) for w in re.split("[ \t]+", sentence.strip(" \t"))]
+    return any(w in _NOUN_NEAR for w in words[-3:])
+
+
 def _spoken_marks(t):
     def fix(m):
         prefix = t[:m.start()].rstrip(" \t")
@@ -91,6 +104,8 @@ def _spoken_marks(t):
         if prev and prev.group(1).lower() in _NOUN_AFTER:
             return m.group(0)
         name = " ".join(m.group(2).lower().split())
+        if name in ("period", "full stop") and "," not in m.group(1) and _noun_near(prefix):
+            return m.group(0)   # "the exam period", "a sudden full stop": a comma before it makes it the command
         rest = t[m.end():]
         nxt = _NEXT_WORD.match(rest)
         if name == "comma" and nxt and nxt.group(1).lower() in ("separated", "delimited", "splice"):
@@ -143,7 +158,7 @@ def _final_mark(t, style):
 def rules_cleanup(text, style="neutral", strength="light"):
     """The rules layer on a transcript whose spoken line breaks are already applied (see the module docstring).
     style: neutral, formal, casual or very_casual (anything else counts as neutral); strength: "standard" also takes
-    typed-value self-corrections. Filler-only input gives ""."""
+    typed-value self-corrections. Filler-only input gives "" (spoken line breaks alone give those breaks)."""
     t = _drop_noises(text or "")
     if str(strength or "").strip().lower() == "standard":
         t = _corrections(t)
@@ -152,7 +167,7 @@ def rules_cleanup(text, style="neutral", strength="light"):
         t = _NAMES.sub(lambda m: m.group(1).capitalize(), _I.sub("I", t))
     t = _tidy(t)
     if all(c in _ONLY_MARKS for c in t):
-        return ""
+        return "\n" * t.count("\n")   # "new line" / "new paragraph" alone still types the break
     if style == "very_casual":   # like a text message: no capitals added, Whisper's sentence capitals undone, no final period
         t = _LOWER_START.sub(lambda m: m.group(1) + m.group(2).lower(), t)
         return t[:-1] if t.endswith(".") and not t.endswith("..") else t

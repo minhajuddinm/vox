@@ -407,3 +407,9 @@ def test_key_down_is_marked_at_the_time_of_the_key_event(eng, monkeypatch):
     eng.event_t = engine_mod.time.time() - 0.5   # the key event waited half a second in the hotkey queue
     eng.start()
     assert eng.timing.get("rec_start") - eng.timing.get("key_down") >= 450
+
+
+def test_a_noise_only_phrase_whose_cleanup_failed_gets_one_notice(eng, monkeypatch):
+    # the rules layer left nothing (noises only): "no usable words" alone, not also "Cleanup did not work" (cqf M1)
+    dictate(eng, monkeypatch, result=core.Result("Um, uh, um, hmm.", "", False, "timed out", True))
+    assert len(eng.messages) == 1 and eng.messages[0].startswith("Vox heard no usable words")

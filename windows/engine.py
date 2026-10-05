@@ -1118,10 +1118,10 @@ class Engine:
             if not text:   # silence phrases ("Thank you.") and empty answers are dropped: never without a word
                 self.notify("Vox heard no usable words in that recording (a lone \"Thank you\" counts as silence). Speak a little longer, or check the microphone.")
                 outcome = "error"
-            if res.fidelity_fallback:
-                log.warning("fidelity guard: the cleanup answer lost the spoken words, used the raw words (%d words)", len(raw.split()))
-            if res.cleanup_error:
-                self.notify(("Cleanup did not work, so Vox saved your words as spoken: " if note else "Cleanup did not work, so Vox pasted your words as spoken: ") + res.cleanup_error[:120])
+            if res.fidelity_fallback and text:   # nothing left (noises only): the "no usable words" notice says it all
+                log.warning("fidelity guard: the cleanup answer lost the spoken words, used the rules layer's text (%d words)", len(raw.split()))
+            if res.cleanup_error and text:
+                self.notify(("Cleanup did not work, so Vox saved your words with basic tidying only: " if note else "Cleanup did not work, so Vox pasted your words with basic tidying only: ") + res.cleanup_error[:120])
             if text and note:
                 self.save_note(text, raw, secs)
                 delivered = True

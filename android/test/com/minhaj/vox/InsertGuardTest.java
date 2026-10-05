@@ -28,8 +28,8 @@ public final class InsertGuardTest {
         eq("check in the same app", InsertGuard.TYPE, InsertGuard.check("a.b", "a.b"));
 
         // cleanupNotice: "Cleanup did not work" is only said while the job is still the current one (a cancel during cleanup says nothing)
-        eq("a failed cleanup of a dictation is reported", "Cleanup did not work, so Vox typed your words as spoken", InsertGuard.cleanupNotice(true, true, false));
-        eq("a failed cleanup of a note is reported", "Cleanup did not work, so Vox saved your words as spoken", InsertGuard.cleanupNotice(true, true, true));
+        eq("a failed cleanup of a dictation is reported", "Cleanup did not work, so Vox typed your words with basic tidying only", InsertGuard.cleanupNotice(true, true, false));
+        eq("a failed cleanup of a note is reported", "Cleanup did not work, so Vox saved your words with basic tidying only", InsertGuard.cleanupNotice(true, true, true));
         eq("no failure, no notice", null, InsertGuard.cleanupNotice(true, false, false));
         eq("a cancelled job says nothing about a failed cleanup", null, InsertGuard.cleanupNotice(false, true, false));
         eq("a cancelled note says nothing about a failed cleanup", null, InsertGuard.cleanupNotice(false, true, true));

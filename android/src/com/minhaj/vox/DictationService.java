@@ -867,9 +867,9 @@ public class DictationService extends Service {
                             p.userContext(), strength, p.myCleanupRules(), p.structure());
                     Fidelity.Verdict v = Fidelity.check(raw, c, strength, "", p.dictionaryTerms(), p.replacements());
                     if (v.ok) { out = v.empty ? "" : c; cleaned = true; }   // empty: only filler words were said (EMPTY)
-                    else { cleanupFailed = rejected = true; Log.w("vox", "fidelity guard: " + v.reason + ", used the raw words"); }   // the reason holds no dictated word
+                    else { cleanupFailed = rejected = true; Log.w("vox", "fidelity guard: " + v.reason + ", used the rules layer's text"); }   // the reason holds no dictated word
                 } catch (IOException e) {
-                    // Cleanup failure should never lose the dictation. Fall back to the raw transcript.
+                    // Cleanup failure should never lose the dictation: the rules layer's text is used below.
                     cleanupFailed = true;
                 } finally {
                     if (tm != null) tm.mark("llm_done");
@@ -878,6 +878,7 @@ public class DictationService extends Service {
             // wanted but skipped as short, failed or rejected: the rules layer; cleanup off or the raw style: as spoken
             if (!cleaned) out = p.cleanupEnabled() && !"raw".equals(style)
                     ? ApiClient.fallbackText(out, style, p.cleanupStrength()) : ApiClient.applySpokenCommands(out);
+            if (!isCurrent(job)) return;   // cancelled during the cleanup: no toast, and a Retry keeps its file
             if (out.isEmpty()) {   // EMPTY for filler-only speech, or the rules layer left no word: nothing to type, as for silence (Windows: `if not text`)
                 discard(entry.id);
                 postError(InsertGuard.emptyResult(note));

@@ -35,8 +35,10 @@ def test_light_drops_only_noises_and_spoken_commands_and_adds_nothing():
     assert len(rows) > 40
     for raw, out in rows:
         kept = Counter(words(out))
-        spoken = Counter(w.lower() for w in re.split(r"[^\w'’-]+", raw)
-                         if w and not (NOISE.match(w.lower()) and w[1:] == w[1:].lower()))   # "ER" is no noise
+        # "ER" is no noise, nor is "Er" without a comma after it (a title: "Er Rahul Sharma")
+        spoken = Counter(m.group().lower() for m in re.finditer(r"[\w'’-]+", raw)
+                         if not (NOISE.match(m.group().lower()) and m.group()[1:] == m.group()[1:].lower()
+                                 and not (m.group() == "Er" and raw[m.end():m.end() + 1] != ",")))
         assert not kept - spoken, (raw, out)   # nothing added
         command_words = set(" ".join(COMMANDS).split())
         assert all(w in command_words for w in spoken - kept), (raw, out)   # only spoken command words went
@@ -55,3 +57,13 @@ def test_actually_for_emphasis_stays_in_both_strengths():
 def test_an_unknown_or_missing_style_counts_as_neutral():
     assert core.fallback_text("um hello there", None, None) == "Hello there."
     assert rules_layer.rules_cleanup("hello there", "banana") == "Hello there."
+
+
+def test_new_line_alone_types_the_break_through_the_whole_pipeline(monkeypatch):
+    # a short "New paragraph." skips the AI (under cleanup_min_words) and the rules layer keeps the break, so the engine
+    # pastes it instead of treating it as silence; a lone noise still gives ""
+    monkeypatch.setattr(core, "cleanup", lambda *a: (_ for _ in ()).throw(AssertionError("no AI for a short phrase")))
+    cfg = dict(core.DEFAULT_CONFIG, api_key="k")
+    assert core.process_text(cfg, "New paragraph.", "notepad.exe", "Notepad").text == "\n\n"
+    assert core.process_text(cfg, "um new line", "notepad.exe", "Notepad").text == "\n"
+    assert core.process_text(cfg, "Um.", "notepad.exe", "Notepad").text == ""
