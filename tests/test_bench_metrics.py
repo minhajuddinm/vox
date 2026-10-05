@@ -1,0 +1,214 @@
+"""The reference metrics of the benchmark (tools/bench_metrics.py): WER, formatted WER, punctuation and case F1, term
+recall, over-edits, self-corrections, answered-or-obeyed, the guard confusion on labelled pairs, the pasted-text summary
+and the paired bootstrap. Small hand-computed cases; pure functions, no files, no network."""
+import json
+import os
+import sys
+
+import pytest
+
+ROOT = os.path.join(os.path.dirname(__file__), "..")
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+
+import bench_metrics as m   # noqa: E402
+import vox_core as core     # noqa: E402
+from bench import legacy    # noqa: E402
+
+GUARD_SET = os.path.join(ROOT, "tools", "bench", "guard_set.jsonl")
+
+
+# ------------------------------------------------------------------ WER
+
+def test_norm_words_is_whisper_style():
+    assert m.norm_words("Um, so I DON'T know... uh twenty five!") == ["so", "i", "dont", "know", "25"]
+    assert m.norm_words("It costs $25 or ₹40, 10% off.") == ["it", "costs", "25", "dollars", "or", "40", "rupees", "10",
+                                                             "percent", "off"]
+    assert m.norm_words("one dollar") == m.norm_words("1 dollars")
+    assert m.norm_words("") == []
+
+
+def test_wer_counts_substitutions_deletions_and_insertions():
+    assert m.wer("the cat sat", "The cat sat.") == 0.0
+    assert m.wer("the cat sat", "the dog sat") == pytest.approx(1 / 3)
+    assert m.wer("the cat sat", "the sat") == pytest.approx(1 / 3)
+    assert m.wer("the cat sat", "the cat sat down there") == pytest.approx(2 / 3)
+    assert m.wer("it costs twenty five dollars", "It costs $25.") == 0.0
+    assert m.wer_counts("a b c d", "a x c") == (2, 4)
+    assert m.wer("", "") == 0.0 and m.wer("", "words") == 1.0
+
+
+def test_wer_reads_hinglish_in_both_scripts_as_words():
+    assert m.wer("kal meeting hai", "Kal meeting hai.") == 0.0
+    assert m.wer("मैं कल आऊँगा", "मैं कल आऊँगा।") == 0.0          # a Devanagari vowel sign is part of the word
+    assert m.wer("मैं कल आऊँगा", "मैं आज आऊँगा") == pytest.approx(1 / 3)
+
+
+def test_formatted_wer_counts_case_and_each_mark():
+    assert m.format_tokens("Hi, Priya.\n\n- Item") == ["Hi", ",", "Priya", ".", "-", "Item"]
+    assert m.format_tokens("don’t") == ["don't"]
+    assert m.wer_formatted("Hi, Priya.", "Hi, Priya.") == 0.0
+    assert m.wer_formatted("Hi, Priya.", "hi priya") == pytest.approx(4 / 4)        # 2 cases + 2 marks of 4 tokens
+    assert m.wer_formatted("Hi, Priya.", "Hi Priya.") == pytest.approx(1 / 4)
+
+
+# ------------------------------------------------------------------ punctuation, case, terms
+
+def test_punct_f1_compares_the_mark_after_each_shared_word():
+    assert m.punct_counts("Hi, Priya. Ok?", "hi priya, ok?") == (1, 1, 2)
+    assert m.punct_f1("Hi, Priya. Ok?", "hi priya, ok?") == pytest.approx(2 / 5)
+    assert m.punct_f1("no marks here", "No marks here") == 1.0
+    assert m.punct_f1("Done.", "Done!") == 0.0
+    assert m.punct_counts("Send it, then call.", "Send it then call. Thanks.") == (1, 0, 1)   # the extra word is not scored
+
+
+def test_case_f1_compares_capitals_of_shared_words():
+    assert m.case_counts("Hi Priya", "hi Priya") == (1, 0, 1)
+    assert m.case_f1("Hi Priya", "Hi Priya") == 1.0
+    assert m.case_counts("see you", "See You") == (0, 2, 0)
+
+
+def test_term_recall_ignores_case_but_needs_whole_words():
+    assert m.term_recall("met priya and anirudh menon", ["Priya", "Anirudh Menon"]) == 1.0
+    assert m.term_recall("met priyanka", ["Priya"]) == 0.0
+    assert m.term_recall("anything", []) == 1.0
+
+
+# ------------------------------------------------------------------ over-edits, self-corrections, answers
+
+def test_over_edits_count_added_and_lost_words_the_reference_does_not_allow():
+    raw = "um so can you send me the report by friday"
+    assert m.over_edit_counts(raw, "So can you send me the report by Friday?") == (0, 9)
+    assert m.over_edit_counts(raw, "Can you please send me the report by Friday?") == (2, 9)        # "so" lost, "please" added
+    assert m.over_edit_counts(raw, "Can you send the report by Friday?", "Can you send me the report by Friday?") == (1, 9)   # "so" dropped by both: allowed; "me" lost
+    assert m.over_edit_rate(raw, "So can you send me the report by Friday?") == 0.0
+
+
+def test_over_edits_without_a_reference_allow_the_strengths_fillers():
+    raw = "so like i think we can ship it"
+    assert m.over_edit_counts(raw, "So I think we can ship it.", strength="standard") == (0, 8)
+    assert m.over_edit_counts(raw, "So I think we can ship it.", strength="light") == (1, 8)
+
+
+def test_self_correction_is_scored_against_the_intended_text():
+    raw, want = "meet on thursday no wait friday at five", "Meet on Friday at five."
+    assert m.has_self_correction(raw) and not m.has_self_correction("no problem wait for me")
+    assert m.self_correction_ok(raw, "Meet on Friday at five.", want) is True
+    assert m.self_correction_ok(raw, "Meet on Thursday, no wait, Friday at five.", want) is False   # kept the retracted words
+    assert m.self_correction_ok(raw, "Friday.", want) is False                                      # lost the rest
+    assert m.self_correction_ok("meet on friday at five", "Meet on Friday at five.", want) is None    # no cue
+    assert m.self_correction_ok(raw, "x", None) is None
+    assert m.has_self_correction("kal nahi parso milte hain")
+
+
+def test_answered_or_obeyed_spots_an_answer_or_a_reply():
+    assert m.answered_or_obeyed("what is the capital of france", "The capital of France is Paris, a city in Europe.")
+    assert m.answered_or_obeyed("write a poem about rain", "Sure! Here is a poem about rain.")
+    assert not m.answered_or_obeyed("what is the capital of france", "What is the capital of France?")
+    assert not m.answered_or_obeyed("sure i can do that", "Sure, I can do that.")             # the speaker said it
+    assert not m.answered_or_obeyed("send it", "Send it.", "Send it.")
+
+
+# ------------------------------------------------------------------ pasted text and summaries
+
+def row(**kw):
+    r = {"id": "c1", "raw": "meet on thursday no wait friday at five", "style": "neutral", "terms": [], "about": "",
+         "must_keep_terms": ["Friday"], "ref_intended": "Meet on Friday at five."}
+    r.update(kw)
+    return r
+
+
+def test_score_pasted_uses_the_answer_when_accepted_and_the_fallback_when_not():
+    good = m.score_pasted(row(), "Meet on Friday at five.", True, "standard", core.fallback_text)
+    assert good["accepted"] and good["fwer"] == [0, 6] and good["self_correction"] is True and good["terms"] == 1.0
+    assert good["over_edit"] == [0, 8] and good["answered"] is False and good["punct"] == [1, 0, 0]
+    fell = m.score_pasted(row(), "Meet on Friday at five.", False, "standard", core.fallback_text)
+    assert not fell["accepted"] and fell["self_correction"] is False and fell["fwer"][0] > 0
+
+
+def test_score_pasted_reads_a_bare_empty_answer_as_nothing_pasted():
+    s = m.score_pasted(row(raw="um uh", ref_intended="", must_keep_terms=[]), "EMPTY", True, "standard", core.fallback_text)
+    assert s["fwer"] == [0, 0] and s["over_edit"] == [0, 0]
+
+
+def test_score_pasted_without_references_keeps_only_the_reference_free_numbers():
+    s = m.score_pasted({"raw": "send the report", "must_keep_terms": []}, "Send the report.", True, "light", core.fallback_text)
+    assert "fwer" not in s and s["over_edit"] == [0, 3] and s["terms"] is None and s["self_correction"] is None
+
+
+def result(pasted, ms=1000, error="", usage=None):
+    return {"id": "x", "ms": ms, "error": error, "cleaned": "", "usage": usage,
+            "score": None if error else {"pasted": {"g": pasted}}}
+
+
+def test_summarize_pasted_adds_up_counts_into_micro_averages():
+    a = {"accepted": True, "fwer": [1, 10], "wer": [0, 8], "punct": [2, 0, 0], "case": [1, 1, 0], "terms": 1.0,
+         "over_edit": [0, 8], "self_correction": True, "answered": False}
+    b = {"accepted": False, "fwer": [3, 10], "wer": [2, 2], "punct": [0, 1, 1], "case": [1, 0, 0], "terms": None,
+         "over_edit": [2, 2], "self_correction": None, "answered": True}
+    s = m.summarize_pasted([result(a), result(b), result(None, error="boom")], "g")
+    assert s["rows"] == 3 and s["errors"] == 1 and s["guard_pass"] == 0.5
+    assert s["fwer"] == pytest.approx(4 / 20) and s["wer"] == pytest.approx(2 / 10) and s["over_edit"] == pytest.approx(2 / 10)
+    assert s["punct_f1"] == pytest.approx(4 / 6) and s["case_f1"] == pytest.approx(4 / 5)
+    assert s["term_accuracy"] == 1.0 and s["self_correction"] == 1.0 and s["self_correction_rows"] == 1 and s["answered"] == 0.5
+    assert m.row_values([result(a), result(b), result(None, error="x")], "g", "fwer") == [0.1, 0.3, None]
+    assert m.row_values([result(a, ms=700)], "g", "ms") == [700]
+
+
+def test_summarize_pasted_without_references_shows_none():
+    s = m.summarize_pasted([result({"accepted": True, "over_edit": [0, 3], "answered": False, "terms": None,
+                                    "self_correction": None})], "g")
+    assert s["fwer"] is None and s["punct_f1"] is None and s["self_correction"] is None and s["over_edit"] == 0.0
+
+
+def test_summarize_usage_gives_means_and_the_cached_share():
+    rs = [result({}, usage={"prompt_tokens": 1000, "completion_tokens": 50, "cached_tokens": 800, "reasoning_tokens": 30}),
+          result({}, usage={"prompt_tokens": 1000, "completion_tokens": 70, "cached_tokens": 0, "reasoning_tokens": None}),
+          result({}, usage=None)]
+    u = m.summarize_usage(rs)
+    assert u == {"answers": 2, "prompt_tokens": 1000, "completion_tokens": 60, "reasoning_tokens": 30, "cached_share": 0.4}
+    assert m.summarize_usage([result({})])["cached_share"] is None
+
+
+# ------------------------------------------------------------------ the guard on labelled pairs
+
+def test_guard_confusion_counts_a_rejected_bad_cleanup_as_a_hit():
+    rows = [{"raw": "a b c d", "cleaned": "A b c d.", "light": "g", "standard": "g"},
+            {"raw": "a b c d", "cleaned": "A b.", "light": "b", "standard": "b"},
+            {"raw": "a b c d", "cleaned": "A b c d e f g h i j.", "light": "b", "standard": "b"},
+            {"raw": "a b c d", "cleaned": "A b c d.", "light": "b", "standard": "g", "finish": "length"}]
+    c = m.guard_confusion(rows, legacy.looks_valid, "light")
+    assert (c["tp"], c["fn"], c["fp"], c["tn"]) == (2, 1, 0, 1)    # the cut-off answer is rejected before any guard
+    assert c["precision"] == 1.0 and c["recall"] == pytest.approx(2 / 3) and c["false_accept"] == 0.5
+    c = m.guard_confusion(rows, lambda *a: True, "standard")
+    assert (c["tp"], c["fn"], c["fp"], c["tn"]) == (0, 2, 1, 1)     # accepts all: no bad one caught
+
+
+def test_guard_confusion_reads_a_verdict_object():
+    class Verdict:
+        def __init__(self, ok):
+            self.ok = ok
+    rows = [{"raw": "a", "cleaned": "A.", "light": "g", "standard": "g"}]
+    assert m.guard_confusion(rows, lambda *a: Verdict(False), "light")["fp"] == 1
+
+
+def test_the_guard_set_is_the_labelled_d1_set():
+    with open(GUARD_SET, encoding="utf-8") as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    assert len(rows) == 189 and len({r["id"] for r in rows}) == 189
+    for r in rows:
+        assert r["light"] in "gb" and r["standard"] in "gb" and r["split"] in ("main", "heldout") and r["raw"]
+    c = m.guard_confusion(rows, legacy.looks_valid, "standard")
+    assert c["tp"] + c["fn"] + c["fp"] + c["tn"] == 189
+
+
+# ------------------------------------------------------------------ paired bootstrap
+
+def test_paired_bootstrap_gives_the_mean_difference_and_an_interval():
+    a, b = [0.2, 0.3, 0.1, 0.4, 0.2, 0.3], [0.1, 0.2, 0.1, 0.3, 0.1, 0.2]
+    r = m.paired_bootstrap(a, b, reps=500)
+    assert r["n"] == 6 and r["delta"] == pytest.approx(-5 / 60) and r["lo"] <= r["delta"] <= r["hi"] <= 0
+    assert m.paired_bootstrap(a, b, reps=500) == r                       # a fixed seed: the same every run
+    assert m.paired_bootstrap([1, None, 3], [2, 5, None])["n"] == 1      # only rows both runs have
+    assert m.paired_bootstrap([None], [1]) is None
+    noisy = m.paired_bootstrap([0, 1, 0, 1, 0, 1], [1, 0, 1, 0, 0, 1], reps=500)
+    assert noisy["lo"] < 0 < noisy["hi"]                                  # no real difference: the interval holds 0
