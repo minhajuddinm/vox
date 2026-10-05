@@ -98,3 +98,16 @@ def test_an_answer_cut_off_at_max_tokens_falls_back_to_the_spoken_words(monkeypa
                                            ("my-thinking-model", True), ("llama-3.3-70b-versatile", False), ("", False)])
 def test_which_models_may_think(model, thinks):
     assert core.may_think(model) is thinks
+
+
+def test_line_breaks_inside_a_transcript_become_spaces(monkeypatch):
+    """whisper.cpp's server puts a line break after every segment: a dictation of two sentences must not be two lines."""
+    class R:
+        status_code, text = 200, ""
+
+        def json(self):
+            return {"text": " List the files in this folder.\n Then show me the git status.\n"}
+
+    monkeypatch.setattr(core.requests, "post", lambda url, **kw: R())
+    assert core.transcribe({"api_key": "k"}, core.pcm_to_wav(b"\x00\x00" * 1600)) == \
+        "List the files in this folder. Then show me the git status."

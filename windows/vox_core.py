@@ -1279,7 +1279,9 @@ def transcribe(cfg, wav_bytes, context=""):
         raise ApiError(0, "The speech server sent an answer Vox could not read")
     if data["response_format"] == "verbose_json":
         _stt_local.segments = _segments_of(res)
-    return text.strip()
+    # whisper.cpp's server ends every segment with a line break. Speech never holds one (a spoken "new line" is a
+    # command, applied later), and a break pasted into a terminal would run a command (SEC-1).
+    return re.sub(r"\s*[\r\n]+\s*", " ", text.strip())
 
 
 def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):

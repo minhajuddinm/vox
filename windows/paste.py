@@ -16,6 +16,7 @@ The real clipboard, window and key calls live in SystemDeps; tests pass their ow
 import ctypes
 import logging
 import os
+import re
 import time
 from ctypes import wintypes
 
@@ -171,6 +172,20 @@ def paste_chord(exe):
     if exe in SHIFT_INSERT_TERMINALS:
         return ("shift", "insert")
     return ("ctrl", "shift", "v") if exe in TERMINALS else ("ctrl", "v")
+
+
+# What a paste into a terminal must not carry (SEC-1): a line break runs the line before it in shells without bracketed
+# paste (cmd and PowerShell in conhost, old bash), and ESC or a C1 control can end bracketed paste early.
+_LINE_BREAKS = re.compile(r"[ \t]*(?:\r\n|[\r\n\x0b\x0c\x85  ])[ \t]*")
+_CONTROLS = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]")
+
+
+def terminal_text(text):
+    """`text` as it may be pasted into a terminal: every line break (and tab) becomes a space and the other control
+    characters (ESC included) are dropped, so the paste never presses Enter. The user presses Enter. A break at the very
+    end is dropped rather than made a space."""
+    text = text.rstrip("\r\n\x0b\x0c\x85  ")
+    return _CONTROLS.sub("", _LINE_BREAKS.sub(" ", text).replace("\t", " "))
 
 
 def wait_released(is_down, clock, sleep, limit, step=0.02):
@@ -423,7 +438,8 @@ def _window_changed(target_exe, current):
 def paste_text(text, target_exe, keep_clipboard, deps=None, clipboard_history=True):
     """Pastes `text` into the focused app. Returns "pasted"; "copied" when the focused window is no longer
     `target_exe` ("" means any window); "blocked" when it runs as administrator and Vox does not. In the last two
-    cases the text is left on the clipboard and no paste keys are sent. `clipboard_history` (the setting) lets
+    cases the text is left on the clipboard and no paste keys are sent. Into a terminal the text goes as one line
+    (terminal_text). `clipboard_history` (the setting) lets
     Windows clipboard history (Win+V) keep the dictation; the old text put back afterwards is never added to it."""
     deps = deps or SystemDeps()
     deps.wait_modifiers_released()
@@ -431,6 +447,8 @@ def paste_text(text, target_exe, keep_clipboard, deps=None, clipboard_history=Tr
     if _window_changed(target_exe, current):
         deps.clip_set(text, clipboard_history)
         return COPIED
+    if (current or target_exe or "").lower() in TERMINALS:
+        text = terminal_text(text)   # SEC-1: no line break that would run a command the user never confirmed
     if _blocked(deps):
         deps.clip_set(text, clipboard_history)
         return BLOCKED
