@@ -209,6 +209,13 @@ def test_nothing_heard_flashes_error_and_keeps_its_balloon(eng, monkeypatch):
     assert eng.messages and eng.messages[0].startswith("Vox did not hear anything")
 
 
+def test_an_empty_result_from_loud_audio_is_announced_not_dropped(eng, monkeypatch):
+    # a lone "Thank you." is filtered as a silence hallucination; with real sound in the recording say so
+    dictate(eng, monkeypatch, result=core.Result("", "", False, ""))
+    assert eng.active_flash() == "error"
+    assert eng.messages and eng.messages[0].startswith("Vox heard no usable words")
+
+
 def test_a_too_short_recording_flashes_nothing(eng):
     eng.recording = True
     eng.chunks = [b"\x00\x00" * 10]
