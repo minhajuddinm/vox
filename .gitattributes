@@ -3,3 +3,6 @@
 *.list text eol=lf
 # Windows batch files need CRLF in the working tree on every OS (cmd.exe can mis-find a label in an LF file).
 *.bat text eol=crlf
+
+# Windows command scripts too (tools/bench_wizard.cmd).
+*.cmd text eol=crlf
