@@ -28,6 +28,9 @@ public final class ApiClient {
         public ApiException(int code, String msg) { super(msg); this.code = code; }
     }
 
+    /** The largest answer read into memory, as the relay's proxy (relay.py MAX_PROXY_REPLY). */
+    static final int MAX_ANSWER = 8_000_000;
+
     private final String apiKey;
     private final String base;
     private volatile HttpURLConnection active;   // the request in flight, so abort() can cut it
@@ -46,6 +49,7 @@ public final class ApiClient {
         if (problem != null) throw new IOException(problem);   // the same address rule as every other call: never send the key to a refused address
         relayProof();
         HttpURLConnection c = (HttpURLConnection) new URL(base + "/models").openConnection();
+        c.setInstanceFollowRedirects(false);   // a redirect would take the key to an address no rule checked (SEC-6)
         c.setConnectTimeout(15000);
         c.setReadTimeout(15000);
         if (!apiKey.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + apiKey);
@@ -678,6 +682,7 @@ public final class ApiClient {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         active = c;
         if (aborted) throw new IOException("cancelled");
+        c.setInstanceFollowRedirects(false);   // (SEC-6)
         c.setConnectTimeout(5000);
         c.setReadTimeout(5000);
         if (!apiKey.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + apiKey);
@@ -695,6 +700,7 @@ public final class ApiClient {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         active = c;
         if (aborted) throw new IOException("cancelled");   // abort() came between the two checks
+        c.setInstanceFollowRedirects(false);   // a redirect would send the audio or the text to an address no rule checked (SEC-6)
         c.setRequestMethod("POST");
         c.setConnectTimeout(Latency.CONNECT_MS);
         c.setReadTimeout(readMs);
@@ -724,6 +730,10 @@ public final class ApiClient {
     /** The answer body of a finished request; an ApiException (with the server's own message) for a 4xx or 5xx. */
     private static String readBody(HttpURLConnection c) throws IOException {
         int code = c.getResponseCode();
+        if (code >= 300 && code < 400) {
+            c.disconnect();
+            throw new ApiException(code, "API " + code + ": the server answered with a redirect, which Vox does not follow");
+        }
         InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
         String body = in == null ? "" : readAll(in);   // read to the end and not disconnected: the connection is reused
         if (code >= 400) {
@@ -742,7 +752,13 @@ public final class ApiClient {
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
         int n;
-        while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+        while ((n = in.read(buf)) > 0) {
+            bo.write(buf, 0, n);
+            if (bo.size() > MAX_ANSWER) {   // a broken or hostile server must not run the phone out of memory (SEC-9)
+                in.close();
+                throw new IOException("The server's answer was too large.");
+            }
+        }
         in.close();
         return bo.toString("UTF-8");
     }

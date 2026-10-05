@@ -1042,6 +1042,7 @@ _session = requests.Session()   # keeps connections open, so a dictation does no
 
 
 def _post(url, **kw):
+    kw.setdefault("allow_redirects", False)   # a redirect would send the audio or the text to an address no rule checked (SEC-6)
     return _session.post(url, **kw)
 
 
@@ -1060,7 +1061,7 @@ def warm(cfg):
             return      # the relay did not prove it holds the token: nothing goes there
         for base, headers in targets.items():
             try:
-                _session.get(f"{base}/models", headers=headers, timeout=3)
+                _session.get(f"{base}/models", headers=headers, timeout=3, allow_redirects=False)
             except Exception:
                 pass
 
@@ -1149,6 +1150,8 @@ def _error_message(r):
 def check_response(r, via_relay=False):
     """The JSON answer, or an ApiError. `via_relay`: the request went through the relay (see providers.role_settings),
     so a 401 or 403 also says where to look."""
+    if 300 <= r.status_code < 400:      # redirects are not followed (SEC-6)
+        raise ApiError(r.status_code, f"API {r.status_code}: the server answered with a redirect, which Vox does not follow")
     if r.status_code >= 400:
         msg = _error_message(r)
         if via_relay and r.status_code in (401, 403):

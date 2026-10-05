@@ -154,3 +154,59 @@ def test_https_connections_are_not_affected():
     import urllib3.connectionpool
     assert urllib3.connectionpool.HTTPSConnectionPool.ConnectionCls is not core.PrivatePeerConnection
     assert urllib3.connectionpool.HTTPConnectionPool.ConnectionCls is core.PrivatePeerConnection
+
+
+# ------------------------------------------------------------- bf-e: SEC-6, a redirect is never followed
+def _redirecting_pair():
+    """(server that answers every request with 307 to the other one, list of what the other one received, stop)."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    other, seen = _local_server()
+
+    class R(BaseHTTPRequestHandler):
+        def _go(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            if n:
+                self.rfile.read(n)
+            self.send_response(307)
+            self.send_header("Location", f"http://localhost:{other.server_address[1]}/elsewhere")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        do_GET = do_POST = do_PUT = _go
+
+        def log_message(self, *a):
+            pass
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), R)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    def stop():
+        for s in (srv, other):
+            s.shutdown()
+            s.server_close()
+    return srv, seen, stop
+
+
+@pytest.mark.real_session
+def test_ai_requests_do_not_follow_a_redirect_with_the_audio_or_the_text():
+    srv, seen, stop = _redirecting_pair()
+    try:
+        cfg = dict(core.DEFAULT_CONFIG, base_url=f"http://127.0.0.1:{srv.server_address[1]}/v1", api_key="k")
+        with pytest.raises(core.ApiError) as e:
+            core.transcribe(cfg, b"RIFF" + b"\0" * 64)
+        assert e.value.code == 307 and "redirect" in str(e.value)
+        core.warm(cfg).join(5)
+        import providers
+        assert not providers.test(cfg, "llm")["ok"] and providers.list_models(cfg, "llm")["error"]
+        assert seen == []
+    finally:
+        stop()
+
+
+def test_the_sync_does_not_follow_a_redirect_with_the_notes():
+    import sync
+    srv, seen, stop = _redirecting_pair()
+    try:
+        out = sync.test_relay(f"http://127.0.0.1:{srv.server_address[1]}", "tok")
+        assert not out["ok"] and seen == []
+    finally:
+        stop()

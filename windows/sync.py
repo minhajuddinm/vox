@@ -192,7 +192,7 @@ def _call(method, url, path, token, device, headers=None, allow=(), **kw):
     h = {"Authorization": "Bearer " + token, "X-Vox-Device": _ascii_name(device)}   # a header is latin-1: spelled as Android does
     h.update(headers or {})
     try:
-        r = _session.request(method, url + path, headers=h, timeout=TIMEOUT, **kw)
+        r = _session.request(method, url + path, headers=h, timeout=TIMEOUT, allow_redirects=False, **kw)   # (SEC-6)
     except requests.RequestException as e:
         forget_proof(url)
         if core.refused_plain_http(e):

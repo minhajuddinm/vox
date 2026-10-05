@@ -175,6 +175,46 @@ public final class ApiClientTest {
             eq("local checkKey does not throw", null, e.toString());
         }
 
+        // bf-e SEC-6 and SEC-9: a redirect is not followed, and an endless answer is cut off
+        try {
+            final int[] other = new int[1];
+            com.sun.net.httpserver.HttpServer elsewhere = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+            elsewhere.createContext("/", ex -> { other[0]++; ex.sendResponseHeaders(200, -1); ex.close(); });
+            elsewhere.start();
+            com.sun.net.httpserver.HttpServer srv = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+            srv.createContext("/v1/models", ex -> {
+                ex.getResponseHeaders().add("Location", "http://127.0.0.1:" + elsewhere.getAddress().getPort() + "/v1/models");
+                ex.sendResponseHeaders(302, -1);
+                ex.close();
+            });
+            srv.createContext("/big/models", ex -> {
+                ex.sendResponseHeaders(200, 0);
+                byte[] chunk = new byte[65536];
+                try (java.io.OutputStream o = ex.getResponseBody()) {
+                    for (int i = 0; i < 200; i++) o.write(chunk);   // 13 MB, more than MAX_ANSWER
+                } catch (IOException gone) { }
+                ex.close();
+            });
+            srv.start();
+            String at = "http://127.0.0.1:" + srv.getAddress().getPort();
+            try {
+                new ApiClient("k", at + "/v1").listModels("llm");
+                eq("a redirect fails", true, false);
+            } catch (IOException e) {
+                eq("a redirect is not followed", 0, other[0]);
+            }
+            try {
+                new ApiClient("k", at + "/big").listModels("llm");
+                eq("an endless answer fails", true, false);
+            } catch (IOException e) {
+                eq("an endless answer is cut off", "The server's answer was too large.", e.getMessage());
+            }
+            srv.stop(0);
+            elsewhere.stop(0);
+        } catch (IOException e) {
+            eq("redirect test does not fail on its own", null, e.toString());
+        }
+
         // abort: a send that is waiting for a server that never answers ends at once (cancel must not leave the worker stuck)
         try (java.net.ServerSocket silent = new java.net.ServerSocket(0, 5, java.net.InetAddress.getByName("127.0.0.1"))) {
             java.io.File wav = java.io.File.createTempFile("vox-abort-test", ".wav");
