@@ -39,6 +39,7 @@ The engine and window modes set DPI awareness, install `sys.excepthook` / `threa
 5. `stop` calls `_end_recording` (atomic under `_rec_lock`, because the audio callback and the hotkey thread can both stop), joins the chunks, then:
    - shorter than 0.4 s (`MIN_SECONDS`): back to idle;
    - `core.is_silent(pcm)` (peak below 655 of 32768): notification "Vox did not hear anything (loudest sound N of 32768)…" and a red ! on the pill, back to idle;
+   - an empty result after the speech and cleanup steps (a lone "Thank you.", "Bye." or "You" is filtered as a silence hallucination, or the server returned no words): notification "Vox heard no usable words in that recording…" and a red ! on the pill; no history entry and no paste (before 2026-10-05 this case was silent);
    - otherwise `busy`, and `_process` runs on a new thread.
 
 ### Processing and paste (`_process`, `paste`)

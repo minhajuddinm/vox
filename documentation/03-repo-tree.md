@@ -301,7 +301,7 @@ windows/                Windows app (Python) and its installer scripts
 
 | Path | What it is |
 |---|---|
-| `docs/index.html` | Landing page (GitHub Pages) for 2.0: download buttons, what is new, features, how it works, the screenshots, a privacy summary, links and credits. Static HTML and CSS only: it loads nothing from other sites. Open Graph and Twitter card tags point at `docs/screenshots/og.png`. |
+| `docs/index.html` | Landing page (GitHub Pages) for 2.0, kept short: download buttons, a status note, six feature cards, four screenshots, a privacy paragraph and links. Static HTML and CSS only: it loads nothing from other sites. Open Graph and Twitter card tags point at `docs/screenshots/og.png`. |
 | `docs/privacy.html` | Privacy policy (it also covers the optional Google Calendar use); the header links back to the landing page. |
 | `docs/style.css` | Styles for the two pages (system fonts, light and dark through `prefers-color-scheme`, works down to 360 px). |
 | `docs/favicon.svg` | Site icon. |
