@@ -4,6 +4,9 @@ All notable changes to Vox. Format follows [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Fixed
+- Windows: a dictation that yields no usable text (for example a lone "Thank you.", filtered as a silence phrase) now shows the error mark and a balloon instead of vanishing silently.
+
 ### Changed
 - README, project site, release notes and GitHub issues condensed. The detailed 2.0 entries previously in this file are in git history (`aeb9be3`).
 
