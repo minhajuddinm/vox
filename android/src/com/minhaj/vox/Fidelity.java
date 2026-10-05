@@ -27,9 +27,18 @@ final class Fidelity {
     /** Light: more raw words than this missing is a lost sentence, whatever the percentage (twin of LIGHT_MAX_MISSING). */
     static final int LIGHT_MAX_MISSING = 12;
 
-    /** Spoken commands (see the prompt): "new line", "new paragraph" and the punctuation names become breaks and symbols. */
-    private static final Set<String> COMMAND_PHRASES = new HashSet<>(Arrays.asList("new line", "new paragraph", "question mark"));
-    private static final Set<String> COMMAND_WORDS = new HashSet<>(Arrays.asList("comma", "period", "colon"));
+    /**
+     * Spoken commands (see the prompt): "new line", "new paragraph" and the punctuation names become breaks and symbols; one
+     * counts as kept only while the cleaned text has its symbol left for it.
+     */
+    private static final Map<String, Character> COMMAND_PHRASES = new HashMap<>();
+    private static final Map<String, Character> COMMAND_WORDS = new HashMap<>();
+    private static final Set<String> CURRENCY_WORDS = new HashSet<>(Arrays.asList(
+            "dollar", "dollars", "euro", "euros", "pound", "pounds", "rupee", "rupees"));
+    /** "five dollars and fifty cents" = "$5.50". */
+    private static final Set<String> SUBUNITS = new HashSet<>(Arrays.asList("cent", "cents", "paise", "paisa", "pence"));
+    /** "March 3, 2026": two numbers, not one. */
+    private static final Pattern DIGIT_COMMA = Pattern.compile("(?<=[0-9]),[ \\t]+(?=[0-9])");
 
     private static final Map<String, Integer> UNITS = new HashMap<>();
     private static final Map<String, Integer> TENS = new HashMap<>();
@@ -38,6 +47,12 @@ final class Fidelity {
     private static final Map<String, String> SYMBOL_WORDS = new HashMap<>();
 
     static {
+        COMMAND_PHRASES.put("new line", '\n');
+        COMMAND_PHRASES.put("new paragraph", '\n');
+        COMMAND_PHRASES.put("question mark", '?');
+        COMMAND_WORDS.put("comma", ',');
+        COMMAND_WORDS.put("period", '.');
+        COMMAND_WORDS.put("colon", ':');
         String[] units = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
                 "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"};
         for (int i = 0; i < units.length; i++) UNITS.put(units[i], i);
@@ -221,7 +236,8 @@ final class Fidelity {
      * "55512" = "555-12" and "twenty twenty six" = "2026"; "five million" = "5000000", "five lakh" = "500000"; ordinals are
      * "21st" ("twenty first"), "half past three" = "330" (3:30). "point" between two numbers is the decimal point ("three
      * point five" = "3.5" = "35") and "p m" / "a m" are "pm" / "am". An ordinal's suffix is dropped last ("21st" = "21"),
-     * so the plain written date "May 3" matches "may third".
+     * so the plain written date "May 3" matches "may third". "oh" or "o" between two single digits is 0 ("one oh four" =
+     * "104").
      */
     private static List<String> mergeNumbers(List<String> tokens) {
         List<String> out = new ArrayList<>();
@@ -240,6 +256,10 @@ final class Fidelity {
             } else if ((t.equals("a") || t.equals("p")) && i + 1 < n && tokens.get(i + 1).equals("m")) {
                 t = t + "m";
                 i += 2;
+            } else if ((t.equals("oh") || t.equals("o")) && i > 0 && i < n - 1 && singleDigit(tokens.get(i - 1))
+                    && singleDigit(tokens.get(i + 1))) {
+                t = "0";   // "one oh four" = "104"
+                i++;
             } else {
                 i++;
             }
@@ -253,14 +273,28 @@ final class Fidelity {
         return out;
     }
 
-    /** Spoken commands are not words to keep: the cleanup turns them into line breaks and punctuation. */
-    private static List<String> withoutCommands(List<String> tokens) {
+    private static boolean singleDigit(String t) {
+        Integer u = UNITS.get(t);
+        return (u != null && u <= 9) || (t.length() == 1 && t.charAt(0) >= '0' && t.charAt(0) <= '9');
+    }
+
+    /**
+     * Spoken commands are not words to keep: the cleanup turns them into line breaks and punctuation. Each one is let go
+     * only while cleaned has its symbol (or a line break) left for it, so "put a comma here" -> "Put a here." misses one.
+     */
+    private static List<String> withoutCommands(List<String> tokens, String cleaned) {
+        Map<Character, Integer> left = new HashMap<>();
+        for (char sym : new char[]{'\n', '?', ',', '.', ':'}) left.put(sym, count(cleaned, sym));
         List<String> out = new ArrayList<>();
         int i = 0;
         while (i < tokens.size()) {
-            if (i + 1 < tokens.size() && COMMAND_PHRASES.contains(tokens.get(i) + " " + tokens.get(i + 1))) {
+            Character sym = i + 1 < tokens.size() ? COMMAND_PHRASES.get(tokens.get(i) + " " + tokens.get(i + 1)) : null;
+            Character word = COMMAND_WORDS.get(tokens.get(i));
+            if (sym != null && left.get(sym) > 0) {
+                left.put(sym, left.get(sym) - 1);
                 i += 2;
-            } else if (COMMAND_WORDS.contains(tokens.get(i))) {
+            } else if (word != null && left.get(word) > 0) {
+                left.put(word, left.get(word) - 1);
                 i++;
             } else {
                 out.add(tokens.get(i));
@@ -291,13 +325,43 @@ final class Fidelity {
         return n;
     }
 
+    private static boolean symbolKept(String t, String cleaned, List<String> cWords) {
+        return cleaned.contains(SYMBOL_WORDS.get(t)) || (t.startsWith("rupee") && cWords.contains("rs"));
+    }
+
+    private static boolean numberWord(String t) {
+        return allDigits(t) || UNITS.containsKey(t) || TENS.containsKey(t);
+    }
+
+    /**
+     * Positions of the "and" and the cent word of "N dollars [and] M cents" when cleaned has the currency symbol and not
+     * the cent word ("$5.50"): they are part of the written amount.
+     */
+    private static Set<Integer> moneyWords(List<String> tokens, String cleaned, List<String> cWords) {
+        Set<Integer> out = new HashSet<>();
+        for (int i = 0; i < tokens.size(); i++) {
+            if (!SUBUNITS.contains(tokens.get(i)) || cWords.contains(tokens.get(i))) continue;
+            int j = i - 1;
+            while (j >= 0 && numberWord(tokens.get(j))) j--;
+            int k = j >= 0 && tokens.get(j).equals("and") ? j - 1 : j;
+            if (j < i - 1 && k >= 0 && CURRENCY_WORDS.contains(tokens.get(k)) && symbolKept(tokens.get(k), cleaned, cWords)) {
+                out.add(i);
+                if (k != j) out.add(j);
+            }
+        }
+        return out;
+    }
+
     private static List<String> rawTokens(String raw, String cleaned) {
+        List<String> cWords = wordTokens(cleaned);
         int ats = count(cleaned, '@');   // spoken "at" / "dot" are kept when cleaned has the symbol
         int dots = innerDots(cleaned);
+        List<String> toks = withoutCommands(wordTokens(raw), cleaned);
+        Set<Integer> money = moneyWords(toks, cleaned, cWords);
         List<String> r = new ArrayList<>();
-        for (String t : withoutCommands(wordTokens(raw))) {
-            String sym = SYMBOL_WORDS.get(t);
-            if (sym != null && (cleaned.contains(sym) || (t.startsWith("rupee") && wordTokens(cleaned).contains("rs")))) continue;
+        for (int i = 0; i < toks.size(); i++) {
+            String t = toks.get(i);
+            if (money.contains(i) || (SYMBOL_WORDS.containsKey(t) && symbolKept(t, cleaned, cWords))) continue;
             if (t.equals("at") && ats > 0) {
                 ats--;
             } else if (t.equals("dot") && dots > 0) {
@@ -368,9 +432,20 @@ final class Fidelity {
      */
     static boolean ok(String raw, String cleaned, String strength) {
         if (cleaned == null || cleaned.trim().isEmpty()) return false;
+        if (ok(raw, cleaned, strength, false)) return true;
+        return DIGIT_COMMA.matcher(cleaned).find() && ok(raw, cleaned, strength, true);   // "March 3, 2026"
+    }
+
+    /** ok with splitDates: digit groups after ", " in cleaned stay apart ("March 3, 2026" is 3 and 2026, not 32026). */
+    private static boolean ok(String raw, String cleaned, String strength, boolean splitDates) {
         boolean standard = cleanStrength(strength).equals("standard");
         List<String> r = dropFillers(rawTokens(raw, cleaned), standard);
-        List<String> c = mergeNumbers(wordTokens(cleaned));
+        List<String> c = new ArrayList<>();
+        if (splitDates) {
+            for (String part : DIGIT_COMMA.split(cleaned, -1)) c.addAll(mergeNumbers(wordTokens(part)));
+        } else {
+            c = mergeNumbers(wordTokens(cleaned));
+        }
         int kept = matched(r, c);
         if ((long) kept * 100 < (long) (standard ? 85 : 97) * r.size()) return false;
         if (!standard && r.size() - kept > LIGHT_MAX_MISSING) return false;

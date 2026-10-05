@@ -661,13 +661,17 @@ _ORDINALS = {w: n for n, w in enumerate("first second third fourth fifth sixth s
                                         "thirteenth fourteenth fifteenth sixteenth seventeenth eighteenth nineteenth "
                                         "twentieth".split(), 1)}
 _ORDINALS["thirtieth"] = 30
-# spoken commands (see the prompt): "new line", "new paragraph" and the punctuation names become breaks and symbols
-_COMMAND_PHRASES = frozenset({"new line", "new paragraph", "question mark"})
-_COMMAND_WORDS = frozenset({"comma", "period", "colon"})
+# spoken commands (see the prompt): "new line", "new paragraph" and the punctuation names become breaks and symbols; one
+# counts as kept only while the cleaned text has its symbol left for it
+_COMMAND_PHRASES = {"new line": "\n", "new paragraph": "\n", "question mark": "?"}
+_COMMAND_WORDS = {"comma": ",", "period": ".", "colon": ":"}
 # words a symbol replaces ("five dollars" -> "$5"): they count as kept when cleaned has the symbol
 _SYMBOL_WORDS = {"dollar": "$", "dollars": "$", "euro": "\u20ac", "euros": "\u20ac", "pound": "\u00a3",
                  "pounds": "\u00a3", "rupee": "\u20b9", "rupees": "\u20b9", "percent": "%", "degree": "\u00b0",
                  "degrees": "\u00b0"}
+_CURRENCY_WORDS = frozenset({"dollar", "dollars", "euro", "euros", "pound", "pounds", "rupee", "rupees"})
+_SUBUNITS = frozenset({"cent", "cents", "paise", "paisa", "pence"})   # "five dollars and fifty cents" = "$5.50"
+_DIGIT_COMMA = re.compile(r"(?<=[0-9]),[ \t]+(?=[0-9])")   # "March 3, 2026": two numbers, not one
 
 
 def _is_word_char(ch):
@@ -774,7 +778,8 @@ def _merge_numbers(tokens):
     "55512" = "555-12" and "twenty twenty six" = "2026"; "five million" = "5000000", "five lakh" = "500000"; ordinals are
     "21st" ("twenty first"), "half past three" = "330" (3:30). "point" between two numbers is the decimal point ("three
     point five" = "3.5" = "35") and "p m" / "a m" are "pm" / "am". An ordinal's suffix is dropped last ("21st" = "21"),
-    so the plain written date "May 3" matches "may third"."""
+    so the plain written date "May 3" matches "may third". "oh" or "o" between two single digits is 0 ("one oh four" =
+    "104")."""
     out, i, n = [], 0, len(tokens)
     while i < n:
         t = tokens[i]
@@ -786,6 +791,8 @@ def _merge_numbers(tokens):
             continue
         elif t in ("a", "p") and i + 1 < n and tokens[i + 1] == "m":
             t, i = t + "m", i + 2
+        elif t in ("oh", "o") and 0 < i < n - 1 and _single_digit(tokens[i - 1]) and _single_digit(tokens[i + 1]):
+            t, i = "0", i + 1   # "one oh four" = "104"
         else:
             i += 1
         if _all_digits(t) and out and _all_digits(out[-1]):
@@ -795,13 +802,22 @@ def _merge_numbers(tokens):
     return [_ORDINAL_SUFFIX.sub(r"\1", t) for t in out]
 
 
-def _without_commands(tokens):
-    """Spoken commands are not words to keep: the cleanup turns them into line breaks and punctuation."""
+def _single_digit(t):
+    return t in _UNITS and _UNITS[t] <= 9 or len(t) == 1 and "0" <= t <= "9"
+
+
+def _without_commands(tokens, cleaned):
+    """Spoken commands are not words to keep: the cleanup turns them into line breaks and punctuation. Each one is let go
+    only while `cleaned` has its symbol (or a line break) left for it, so "put a comma here" -> "Put a here." misses one."""
+    left = {sym: cleaned.count(sym) for sym in ("\n", "?", ",", ".", ":")}
     out, i = [], 0
     while i < len(tokens):
-        if i + 1 < len(tokens) and (tokens[i] + " " + tokens[i + 1]) in _COMMAND_PHRASES:
+        sym = _COMMAND_PHRASES.get(tokens[i] + " " + tokens[i + 1]) if i + 1 < len(tokens) else None
+        if sym and left[sym] > 0:
+            left[sym] -= 1
             i += 2
-        elif tokens[i] in _COMMAND_WORDS:
+        elif tokens[i] in _COMMAND_WORDS and left[_COMMAND_WORDS[tokens[i]]] > 0:
+            left[_COMMAND_WORDS[tokens[i]]] -= 1
             i += 1
         else:
             out.append(tokens[i])
@@ -815,13 +831,37 @@ def _inner_dots(text):
                if text[i] == "." and _is_word_char(text[i - 1]) and _is_word_char(text[i + 1]))
 
 
-def _compare_tokens(raw, cleaned):
-    """(tokens of raw, tokens of cleaned) ready to compare."""
+def _symbol_kept(t, c_text, c_words):
+    return _SYMBOL_WORDS[t] in c_text or (t[:5] == "rupee" and "rs" in c_words)
+
+
+def _money_words(tokens, c_text, c_words):
+    """Positions of the "and" and the cent word of "N dollars [and] M cents" when cleaned has the currency symbol and not
+    the cent word ("$5.50"): they are part of the written amount."""
+    out = set()
+    for i, t in enumerate(tokens):
+        if t not in _SUBUNITS or t in c_words:
+            continue
+        j = i - 1
+        while j >= 0 and (_all_digits(tokens[j]) or tokens[j] in _UNITS or tokens[j] in _TENS):
+            j -= 1
+        k = j - 1 if j >= 0 and tokens[j] == "and" else j
+        if j < i - 1 and k >= 0 and tokens[k] in _CURRENCY_WORDS and _symbol_kept(tokens[k], c_text, c_words):
+            out |= {i, j} if k != j else {i}
+    return out
+
+
+def _compare_tokens(raw, cleaned, split_dates=False):
+    """(tokens of raw, tokens of cleaned) ready to compare. split_dates: digit groups after ", " in cleaned stay apart
+    ("March 3, 2026" is 3 and 2026, not 32026)."""
     c_text = cleaned or ""
+    c_words = word_tokens(c_text)
     ats, dots = c_text.count("@"), _inner_dots(c_text)   # spoken "at" / "dot" are kept when cleaned has the symbol
+    toks = _without_commands(word_tokens(raw), c_text)
+    money = _money_words(toks, c_text, c_words)
     r = []
-    for t in _without_commands(word_tokens(raw)):
-        if t in _SYMBOL_WORDS and (_SYMBOL_WORDS[t] in c_text or (t[:5] == "rupee" and "rs" in word_tokens(c_text))):
+    for i, t in enumerate(toks):
+        if i in money or (t in _SYMBOL_WORDS and _symbol_kept(t, c_text, c_words)):
             continue
         if t == "at" and ats > 0:
             ats -= 1
@@ -829,7 +869,9 @@ def _compare_tokens(raw, cleaned):
             dots -= 1
         else:
             r.append(t)
-    return _merge_numbers(r), _merge_numbers(word_tokens(c_text))
+    if split_dates:
+        return _merge_numbers(r), [x for part in _DIGIT_COMMA.split(c_text) for x in _merge_numbers(word_tokens(part))]
+    return _merge_numbers(r), _merge_numbers(c_words)
 
 
 def _drop_fillers(tokens, standard):
@@ -881,8 +923,14 @@ def fidelity_ok(raw, cleaned, strength="light"):
     words the length rule is skipped."""
     if not cleaned or not cleaned.strip():
         return False
+    if _fidelity(raw, cleaned, strength, False):
+        return True
+    return bool(_DIGIT_COMMA.search(cleaned)) and _fidelity(raw, cleaned, strength, True)   # "March 3, 2026"
+
+
+def _fidelity(raw, cleaned, strength, split_dates):
     standard = clean_strength(strength) == "standard"
-    r, c = _compare_tokens(raw, cleaned)
+    r, c = _compare_tokens(raw, cleaned, split_dates)
     r = _drop_fillers(r, standard)
     kept = _matched(r, c)
     if kept * 100 < (85 if standard else 97) * len(r):
