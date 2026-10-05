@@ -310,6 +310,18 @@ def _fix_types(cfg):
                 cfg[k] = snippets_mod.clean_snippets(v)
         elif isinstance(default, str) and v is None:
             cfg[k] = ""
+        elif isinstance(default, (str, bool)) and not type_ok(k, v):   # a list where text belongs, "no" for a switch
+            cfg[k] = default
+
+
+def type_ok(key, value):
+    """False when a setting holds a value of another type than its default (a list or a number where text belongs, text
+    where a switch belongs). Settings without a default, and numbers, are not judged."""
+    default = DEFAULT_CONFIG.get(key)
+    for kind in (bool, str, list, dict):   # bool first: True is an int too
+        if isinstance(default, kind):
+            return isinstance(value, kind)
+    return True
 
 
 _config_unread = False   # True while the last load_config could not OPEN config.json: its defaults must not be saved
