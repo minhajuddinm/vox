@@ -3,7 +3,8 @@
   Vox.exe            start the background engine (tray, hotkey, overlay). If it is already running, open the window.
   Vox.exe --window   open the main window.
   Vox.exe --relay    run the relay server (no tray, no window); the options after it are relay.py's (--data-dir, --port, ...).
-  Vox.exe --selfcheck [REPORT]   import every module of the app and load FLAC and pythonnet, write what happened to
+  Vox.exe --selfcheck [REPORT]   import every module of the app and the libraries it loads later (the window backend,
+                     meetings, calendar), load FLAC, pythonnet and a time zone, write what happened to
                      REPORT (else stdout), exit 0 when all of it worked, else 1. Nothing is started (CI3: CI runs it on
                      the built exe).
 """
@@ -16,19 +17,26 @@ import threading
 
 import vox_core as core
 
-# Every module of windows/ (tests/test_selfcheck.py keeps the list complete), the relay built into the exe, and the two
-# libraries that fail silently when the build leaves them out: soundfile's libsndfile (FLAC uploads quietly become WAV)
-# and pythonnet's clr (Learn from my corrections quietly does nothing).
+# Every module of windows/ (tests/test_selfcheck.py keeps the list complete), the relay built into the exe, the libraries
+# the app imports only when a feature runs (SELFCHECK_LIBS), and the two libraries that fail silently when the build leaves
+# them out: soundfile's libsndfile (FLAC uploads quietly become WAV) and pythonnet's clr (Learn from my corrections
+# quietly does nothing).
+SELFCHECK_LIBS = (
+    # imported inside functions (tests/test_selfcheck.py finds them): meetings, the calendar, paste, the microphone list
+    "soundcard", "icalendar", "recurring_ical_events", "numpy", "pyperclip", "pynput", "pynput._util.win32",
+    "sounddevice",
+    # the window's backend, which webview.start() loads (WinForms with WebView2), and the time zones the calendar reads
+    "webview.platforms.winforms", "webview.platforms.edgechromium", "tzdata")
 SELFCHECK_MODULES = (
     "audio_devices", "autolearn", "codemode", "command", "correction_watch", "engine", "gcal", "hotkeys", "improve",
     "listen", "logo", "meeting", "notes", "overlay", "overlay_guard", "overlay_mode", "paste", "providers", "relay_host",
     "rules_layer", "secret", "session", "snippets", "streaming", "structure", "sync", "timing", "ui_app", "vcalendar",
-    "vox_core", "warm_mic", "relay", "soundfile", "clr")
+    "vox_core", "warm_mic", "relay") + SELFCHECK_LIBS + ("soundfile", "clr")
 
 
 def selfcheck(report=None, modules=SELFCHECK_MODULES):
-    """Imports `modules` and checks that FLAC can be written; 0 when everything worked, else 1. One line per check goes
-    to the file `report` (the windowed exe has no console), or to stdout."""
+    """Imports `modules` and checks that FLAC can be written and a time zone read (tzdata's files); 0 when everything
+    worked, else 1. One line per check goes to the file `report` (the windowed exe has no console), or to stdout."""
     if not getattr(sys, "frozen", False):   # from source the relay sits next to windows/
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "relay"))
     lines, failed = [], 0
@@ -43,7 +51,15 @@ def selfcheck(report=None, modules=SELFCHECK_MODULES):
         flac = core.flac_available()
         failed += not flac
         lines.append(("ok" if flac else "FAIL") + " flac")
-    text = "\n".join(lines + ["selfcheck: %s" % ("FAILED" if failed else "ok")]) + "\n"
+    if "tzdata" in modules:   # Windows has no zone files of its own: they come from tzdata (--collect-data tzdata)
+        try:
+            import zoneinfo
+            zoneinfo.ZoneInfo("Europe/London")
+            lines.append("ok zoneinfo")
+        except Exception as e:
+            failed += 1
+            lines.append("FAIL zoneinfo: %s: %s" % (type(e).__name__, e))
+    text ="\n".join(lines + ["selfcheck: %s" % ("FAILED" if failed else "ok")]) + "\n"
     if report:
         with open(report, "w", encoding="utf-8") as f:
             f.write(text)
