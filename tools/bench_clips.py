@@ -23,6 +23,16 @@ MANIFEST = "manifest.jsonl"
 _CLIP = re.compile(r"^clip-(\d{3,})\.wav$")
 
 
+def safe_console():
+    """Printing never ends a run: a character the console's code page cannot show (a piped or redirected pwsh output is
+    cp1252) prints as ? instead of raising UnicodeEncodeError."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):   # not a text stream that can be reconfigured: leave it
+            pass
+
+
 def clips_dir():
     return os.path.join(core.data_dir(), "bench", "clips")
 
@@ -126,6 +136,20 @@ def save_stt(folder, clip_id, data):
     with open(path + ".tmp", "w", encoding="utf-8") as f:
         json.dump(data, f, indent=1, ensure_ascii=False)
     os.replace(path + ".tmp", path)
+
+
+def best_stt_label(folder, rows):
+    """The cached transcript setting to clean by default: the one that covers the most of these clips, then one with the
+    prompt on (the app always sends its dictionary prompt), then the newest. None when no clip has a transcript."""
+    seen = {}
+    for r in rows:
+        for label, hit in load_stt(folder, r["id"]).items():
+            if isinstance(hit, dict) and hit.get("text") is not None:
+                n, when = seen.get(label, (0, ""))
+                seen[label] = (n + 1, max(when, str(hit.get("when", ""))))
+    if not seen:
+        return None
+    return max(seen, key=lambda k: (seen[k][0], "prompt-on" in k, seen[k][1]))
 
 
 def all_terms(rows):

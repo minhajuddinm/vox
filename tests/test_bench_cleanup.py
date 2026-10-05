@@ -487,7 +487,7 @@ def test_a_note_says_when_the_apps_prompt_is_still_v1(monkeypatch):
 
 def test_compare_guard_scores_each_answer_under_each_guard_without_more_requests(app, monkeypatch, capsys):
     tmp_path, _ = app
-    monkeypatch.setattr(core, "looks_valid", lambda raw, cleaned, strength="light": False)   # a "v2" that rejects all
+    monkeypatch.setattr(core, "fidelity_check", lambda *a: core.Verdict(False, False, "test"))   # a "v2" that rejects all
     calls = []
     out = tmp_path / "o.json"
     code = bench.main(["--corpus", small_corpus(tmp_path), "--pause", "0", "--out", str(out), "--compare-guard", "v1,v2"],
@@ -542,7 +542,7 @@ def test_clip_rows_take_the_newest_transcript_and_the_whole_benchmark_dictionary
 
 def test_main_cleans_the_clips_when_they_are_transcribed(app, monkeypatch, capsys):
     tmp_path, _ = app
-    monkeypatch.setattr(core, "looks_valid", lambda *a: True)   # whatever the app's guard is by then
+    monkeypatch.setattr(core, "fidelity_check", lambda *a: core.Verdict(True, False, "ok"))   # whatever the guard is by then
     write_clips(os.path.join(str(tmp_path), "Vox", "bench", "clips"),
                 [("clip-001", "meet priya on thursday no wait friday", "Meet Priya on Friday.", ["Priya"], "2026-10-05T10:00:00")])
     out = tmp_path / "o.json"
@@ -574,7 +574,8 @@ def test_the_real_cleanup_calls_of_both_prompts_reach_a_fake_server_and_log_thei
                            "completion_tokens_details": {"reasoning_tokens": 10}})
     monkeypatch.setattr(core.requests, "post", post)
     out = tmp_path / "o.json"
-    code = bench.main(["--corpus", small_corpus(tmp_path), "--pause", "0", "--out", str(out), "--compare-prompt", "v1,current"])
+    code = bench.main(["--corpus", small_corpus(tmp_path), "--pause", "0", "--out", str(out), "--compare-prompt", "v1,current", "--tpm", "0",
+                       "--no-cache"])
     assert code == 0 and len(prompts) == 6
     assert prompts[0] == bench.legacy.system_prompt("neutral", ["Report"], "", "", "light", "", "auto")
     saved = json.loads(out.read_text(encoding="utf-8"))
@@ -592,3 +593,246 @@ def test_a_note_says_when_the_apps_guard_is_still_v1(app, monkeypatch, capsys):
     monkeypatch.setattr(core, "looks_valid", lambda *a: True)
     bench.main(["--guard-only", "--compare-guard", "v1,v2", "--out", str(tmp_path / "g.json")])
     assert "still gives the v1 verdicts" not in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------ fixes of the final review (guard parity, fallback,
+# bootstrap statistic, cache and pacing, the tuning-round output)
+
+LEDGERLY = "please send the final quarterly report to ledgerly before the meeting on friday so we can review it"
+
+
+def one_row_corpus(tmp_path, raw, terms=(), name="one.jsonl", **extra):
+    p = tmp_path / name
+    rows = [dict({"id": "r0", "raw": raw, "style": "neutral", "terms": list(terms), "about": "", "must_keep_terms": []}, **extra)]
+    p.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    return str(p)
+
+
+def test_the_current_guard_is_called_as_the_app_calls_it_with_the_dictionary(app):
+    tmp_path, _ = app
+    out = tmp_path / "o.json"
+    dropped = "Please send the final quarterly report before the meeting on Friday so we can review it."
+    code = bench.main(["--corpus", one_row_corpus(tmp_path, LEDGERLY, ["Ledgerly"]), "--pause", "0", "--out", str(out),
+                       "--compare-guard", "v1,v2", "--strength", "standard"], call=lambda *a: dropped)
+    assert code == 0
+    row = json.loads(out.read_text(encoding="utf-8"))["models"][core.DEFAULT_LLM]["rows"][0]
+    assert row["score"]["verdicts"]["v2"] == {"ok": False, "reason": "critical word dropped"}
+    assert row["score"]["pasted"]["v2"]["accepted"] is False and row["score"]["guard"] is False
+    assert row["raw"] == LEDGERLY and row["score"]["words"] == 18
+
+
+def test_a_rejected_answer_in_standard_is_scored_with_the_standard_rules_layer(app):
+    tmp_path, _ = app
+    out = tmp_path / "o.json"
+    raw = "meet on thursday no wait friday at five"
+    corpus = one_row_corpus(tmp_path, raw, ref_intended="Meet on Friday at five.")
+    bench.main(["--corpus", corpus, "--pause", "0", "--out", str(out), "--strength", "standard"],
+               call=lambda *a: "Sure! Here is your text: meet on friday at five.")
+    s = json.loads(out.read_text(encoding="utf-8"))["models"][core.DEFAULT_LLM]["rows"][0]["score"]
+    assert core.fallback_text(raw, "neutral", "standard") == "Meet on Friday at five."
+    assert s["pasted"]["current"]["accepted"] is False and s["pasted"]["current"]["fwer"] == [0, 6]   # Standard's text
+    assert s["rules"]["fwer"] == [0, 6]
+
+
+def test_a_phrase_under_the_minimum_words_pastes_the_rules_layer_as_the_app_does(app):
+    tmp_path, _ = app
+    out = tmp_path / "o.json"
+    corpus = one_row_corpus(tmp_path, "sounds good", ref_intended="Sounds good.")
+    bench.main(["--corpus", corpus, "--pause", "0", "--out", str(out)], call=lambda *a: "sounds good")
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    s = saved["models"][core.DEFAULT_LLM]["rows"][0]["score"]
+    assert s["short"] and s["pasted"]["current"]["skipped"] and s["pasted"]["current"]["fwer"] == [0, 3]
+    assert s["guarded"]["current"]["fwer"] == [2, 3]   # the answer itself, for the min-words decision
+    assert saved["min_words"] == 4 and saved["by_words"][core.DEFAULT_LLM]["1-3"]["rows"] == 1
+
+
+def test_compare_bootstraps_the_same_micro_rate_the_table_shows():
+    def res(rows):
+        return [{"id": str(i), "ms": ms, "error": "", "score": {"pasted": {"g": {"fwer": f, "over_edit": [0, f[1]]}}}}
+                for i, (f, ms) in enumerate(rows)]
+    a, b = res([([1, 2], 100), ([0, 100], 300)]), res([([0, 2], 200), ([10, 100], 400)])
+    per_row = {k: {mm: m.row_values(r, "g", mm) for mm in ("fwer", "over_edit", "ms")} for k, r in (("A", a), ("B", b))}
+    base, c = bench.compare({"A": {}, "B": {}}, per_row, reps=200)
+    assert base == "A" and c["B"]["fwer"]["delta"] == pytest.approx(9 / 102)   # micro: B is worse, as in the table
+    assert c["B"]["ms"]["delta"] == 100                                        # the median time
+
+
+class EchoReply:
+    """A chat answer that types the transcript back, with a token usage."""
+    status_code, text = 200, ""
+
+    def __init__(self, raw):
+        self.raw = raw
+
+    def json(self):
+        return {"choices": [{"message": {"content": self.raw.capitalize() + "."}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1000, "completion_tokens": 20}}
+
+
+def fake_server(monkeypatch):
+    posts = []
+
+    def post(url, **kw):
+        posts.append(kw)
+        return EchoReply(kw["json"]["messages"][1]["content"].split("\n")[1])
+    monkeypatch.setattr(core.requests, "post", post)
+    return posts
+
+
+def distinct_corpus(tmp_path, n=3):
+    p = tmp_path / "distinct.jsonl"
+    rows = [{"id": f"d{i}", "raw": f"send me report number {i} today please", "style": "neutral", "terms": [], "about": "",
+             "must_keep_terms": []} for i in range(n)]
+    p.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    return str(p)
+
+
+def test_answers_are_cached_so_a_second_run_sends_nothing(app, monkeypatch, capsys):
+    tmp_path, _ = app
+    posts = fake_server(monkeypatch)
+    argv = ["--corpus", distinct_corpus(tmp_path), "--pause", "0", "--tpm", "0", "--compare-prompt", "v1,v3"]
+    assert bench.main(argv + ["--out", str(tmp_path / "a.json")]) == 0 and len(posts) == 6
+    first = json.loads((tmp_path / "a.json").read_text(encoding="utf-8"))
+    assert bench.main(argv + ["--out", str(tmp_path / "b.json"), "--strength", "light"]) == 0 and len(posts) == 6
+    second = json.loads((tmp_path / "b.json").read_text(encoding="utf-8"))
+    assert second["requests"] == {"sent": 0, "from_cache": 6}
+    assert all(r["cached"] for r in second["models"]["prompt v1"]["rows"])
+    assert [r["ms"] for r in second["models"]["prompt v1"]["rows"]] == [r["ms"] for r in first["models"]["prompt v1"]["rows"]]
+    assert second["models"]["prompt v3"]["summary"]["prompt_tokens"] == 1000   # the usage comes back from the cache
+    cache = (tmp_path / "Vox" / "bench" / "cleanup-cache.jsonl").read_text(encoding="utf-8")
+    assert len(cache.splitlines()) == 6 and "SECRET-KEY-123" not in cache
+    bench.main(argv + ["--out", str(tmp_path / "c.json"), "--strength", "standard"])   # another strength: other prompts
+    assert len(posts) == 12
+    bench.main(argv + ["--out", str(tmp_path / "d.json"), "--no-cache"])
+    assert len(posts) == 18
+    assert "answered from the cache" in capsys.readouterr().err
+
+
+def test_the_sender_paces_real_requests_by_tokens_a_minute_and_never_a_cached_one(tmp_path):
+    sleeps, t = [], [0.0]
+
+    def clock():
+        return t[0]
+
+    def sleep(s):
+        sleeps.append(round(s, 3))
+        t[0] += s
+
+    def real(cfg, body, timeout=60, retry_timeouts=True):
+        core._llm_local.usage = {"prompt_tokens": 900, "completion_tokens": 100}
+        t[0] += 1.0
+        return "Answer " + body["messages"][1]["content"], "stop"
+
+    def body(text):
+        return {"model": "m", "messages": [{"role": "system", "content": "p"}, {"role": "user", "content": text}]}
+    s = bench.Sender(str(tmp_path / "c.jsonl"), pause=2.0, tpm=6000, sleep=sleep, clock=clock, real=real)
+    cfg = dict(core.DEFAULT_CONFIG, api_key="k")
+    assert s(cfg, body("a")) == ("Answer a", "stop") and sleeps == []
+    s(cfg, body("b"))
+    assert sleeps == [10.0]                  # 1,000 tokens at 6,000 a minute: 10 s after the last request
+    assert s(cfg, body("a")) == ("Answer a", "stop") and s.served()["cached"] and sleeps == [10.0]
+    assert (s.sent, s.hits) == (2, 1)
+    again = bench.Sender(str(tmp_path / "c.jsonl"), real=lambda *a: 1 / 0)
+    assert again(cfg, body("b")) == ("Answer b", "stop")   # read back from the file
+
+
+def test_a_rate_limit_that_stays_stops_the_run_and_keeps_what_was_done():
+    rows = [{"id": str(i), "raw": f"row {i} has some words"} for i in range(6)]
+    calls = []
+
+    def limited(row):
+        calls.append(row["id"])
+        if row["id"] == "0":
+            return "Row 0 has some words."
+        raise core.ApiError(429, "rate limit reached for tokens per minute", retry_after=0)
+    state, saves = {}, []
+    out = bench.run_variants(rows, {"A": limited}, lambda r, t: {}, sleep=lambda s: None, usage=lambda: None,
+                             on_row=lambda o: saves.append(len(o["A"])), state=state)
+    assert state["stopped"] == "rate limit" and len(out["A"]) == 4 and saves == [1, 2, 3, 4]
+    assert len(calls) == 1 + 3 * (core.RATE_LIMIT_TRIES + 1)   # three rows waited out, then the run stopped
+
+    def daily(row):
+        raise core.ApiError(429, "Rate limit reached: tokens per day (TPD)", retry_after=0)
+    state = {}
+    out = bench.run_variants(rows, {"A": daily}, lambda r, t: {}, sleep=lambda s: None, usage=lambda: None, state=state)
+    assert state["stopped"] == "rate limit" and len(out["A"]) == 1   # a daily limit: stop at once
+
+
+def test_ctrl_c_keeps_the_rows_every_variant_answered():
+    rows = [{"id": str(i), "raw": "x"} for i in range(3)]
+    n = []
+
+    def b(row):
+        n.append(1)
+        if len(n) == 2:
+            raise KeyboardInterrupt
+        return "x"
+    state = {}
+    out = bench.run_variants(rows, {"A": lambda r: "x", "B": b}, lambda r, t: {}, usage=lambda: None, state=state)
+    assert state["stopped"] == "interrupted" and len(out["A"]) == len(out["B"]) == 1
+
+
+def test_main_saves_the_rows_so_far_and_says_how_to_continue_after_a_daily_limit(app, monkeypatch, capsys):
+    tmp_path, _ = app
+    monkeypatch.setattr(bench.time, "sleep", lambda s: None)
+
+    def busy(*a):
+        raise core.ApiError(429, "Rate limit reached: tokens per day (TPD)", retry_after=0)
+    out = tmp_path / "o.json"
+    assert bench.main(["--corpus", distinct_corpus(tmp_path, 5), "--pause", "0", "--out", str(out)], call=busy) == 1
+    err = capsys.readouterr().err
+    assert "daily token limit" in err and "run the same command again" in err
+    assert json.loads(out.read_text(encoding="utf-8"))["stopped"] == "rate limit"
+
+
+def test_the_output_carries_what_the_tuning_round_needs(app, capsys):
+    tmp_path, _ = app
+    out = tmp_path / "o.json"
+    corpus = one_row_corpus(tmp_path, "um so can you send me the report by friday", ["Ledgerly"],
+                            ref_intended="So can you send me the report by Friday?")
+    assert bench.main(["--corpus", corpus, "--pause", "0", "--out", str(out), "--compare-guard", "v1,v2"],
+                      call=lambda *a: "So can you please send me the report by Friday?") == 0
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    row = saved["models"][core.DEFAULT_LLM]["rows"][0]
+    s = row["score"]
+    assert row["ref_intended"] == "So can you send me the report by Friday?" and s["words"] == 10
+    assert set(s["verdicts"]) == {"v1", "v2"} and s["verdicts"]["v2"]["reason"]
+    assert s["guard_counts"]["ins"] == 1 and "limits" in s["guard_counts"]   # "please" was inserted
+    assert s["answer"]["over_edit"][0] == 1 and s["rules"]["fwer"] is not None
+    assert saved["real_pairs"][core.DEFAULT_LLM]["v2"]["rows"] == 1 and saved["rules_only"]["guard_pass"] is None
+    assert saved["insertions"][core.DEFAULT_LLM]["with_insertions"] == 1
+    shown = capsys.readouterr().out
+    assert "Decision summary" in shown and "rules only" in shown and "formatted WER by length" in shown
+    assert "guard pass (current)" in shown and "insertions" in shown
+
+
+def test_self_corrections_show_a_dash_in_light(app, capsys):
+    tmp_path, _ = app
+    out = tmp_path / "o.json"
+    corpus = one_row_corpus(tmp_path, "meet on thursday no wait friday at five", ref_intended="Meet on Friday at five.")
+    bench.main(["--corpus", corpus, "--pause", "0", "--out", str(out)], call=lambda *a: "Meet on Friday at five.")
+    pasted = json.loads(out.read_text(encoding="utf-8"))["models"][core.DEFAULT_LLM]["pasted"]["current"]
+    assert pasted["self_correction"] is None
+    bench.main(["--corpus", corpus, "--pause", "0", "--out", str(out), "--strength", "standard"],
+               call=lambda *a: "Meet on Friday at five.")
+    pasted = json.loads(out.read_text(encoding="utf-8"))["models"][core.DEFAULT_LLM]["pasted"]["current"]
+    assert pasted["self_correction"] == 1.0
+
+
+def test_the_default_transcript_is_the_one_covering_the_most_clips_and_left_out_clips_are_named(app, capsys):
+    import bench_clips as clips
+    tmp_path, _ = app
+    folder = str(tmp_path / "myclips")
+    write_clips(folder, [("clip-001", "meet priya on friday", "Meet Priya on Friday.", ["Priya"], "2026-10-05T10:00:00"),
+                         ("clip-002", "ship ledgerly today", "Ship Ledgerly today.", ["Ledgerly"], "2026-10-05T10:00:00"),
+                         ("clip-003", "call me back", "Call me back.", [], None)])
+    newer = {"text": "x", "when": "2026-10-06T00:00:00"}
+    clips.save_stt(folder, "clip-001", dict(clips.load_stt(folder, "clip-001"), **{"groq m prompt-off": newer}))
+    rows, label = bench.clip_rows(folder)
+    assert label == "groq m prompt-on" and len(rows) == 2   # two clips beat one newer transcript
+    clips.save_stt(folder, "clip-002", dict(clips.load_stt(folder, "clip-002"), **{"groq m prompt-off": newer}))
+    assert bench.clip_rows(folder)[1] == "groq m prompt-on"   # a tie: the prompt on, as the app sends it
+    out = tmp_path / "o.json"
+    assert bench.main(["--folder", folder, "--pause", "0", "--out", str(out)], call=lambda cfg, raw, *a: raw) == 0
+    assert "1 of 3 typed clips have no transcript" in capsys.readouterr().err
+    assert "your clips" in json.loads(out.read_text(encoding="utf-8"))["corpus"]
