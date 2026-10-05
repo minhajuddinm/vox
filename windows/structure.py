@@ -140,7 +140,8 @@ def _match(text, words, i):
         if _verb_follows(text, words, i + 2):
             return None
         return "num", _NUMBERS[nxt], i + 2, CLAUSE, w == "number" and not _item_follows(text, words, i + 2)
-    if w in _ORD and nxt == "of" and i + 2 < len(words) and words[i + 2][0] == "all"             and _only_space(text[words[i + 1][2]:words[i + 2][1]]):
+    if w in _ORD and nxt == "of" and i + 2 < len(words) and words[i + 2][0] == "all" \
+            and _only_space(text[words[i + 1][2]:words[i + 2][1]]):
         return ("ord", 1, i + 3, CLAUSE, False) if w == "first" else None
     if w in _ORD:
         if not w.endswith("ly") and _verb_follows(text, words, i + 1):

@@ -599,7 +599,8 @@ class Engine:
             self._check_gap()
             if key == keyboard.Key.ctrl_l and key not in self.pressed:
                 self._ctrl_l_t = self.event_t
-            elif key in (keyboard.Key.alt_gr, keyboard.Key.alt_r) and keyboard.Key.ctrl_l in self.pressed                     and self.event_t - self._ctrl_l_t <= ALTGR_GAP:
+            elif key in (keyboard.Key.alt_gr, keyboard.Key.alt_r) and keyboard.Key.ctrl_l in self.pressed \
+                    and self.event_t - self._ctrl_l_t <= ALTGR_GAP:
                 self.pressed.discard(keyboard.Key.ctrl_l)   # AltGr's made-up Left Ctrl, when the hook filter missed it
             if self.combo_was_down and not any(key in group for group in self.hotkey):
                 self.combo_other_key = True
