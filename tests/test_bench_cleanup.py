@@ -296,7 +296,7 @@ def test_main_compare_runs_every_model_on_the_same_rows(app, capsys):
     code = bench.main(["--corpus", small_corpus(tmp_path), "--out", str(out), "--pause", "0",
                        "--compare", "model-a,model-b", "--strength", "standard"], call=call)
     shown = capsys.readouterr().out
-    assert code == 0 and seen == ["model-a"] * 3 + ["model-b"] * 3
+    assert code == 0 and seen == ["model-a", "model-b", "model-b", "model-a", "model-a", "model-b"]   # taking turns
     assert "model-a" in shown and "model-b" in shown
     assert set(json.loads(out.read_text(encoding="utf-8"))["models"]) == {"model-a", "model-b"}
 
@@ -365,3 +365,230 @@ def test_main_exit_code_is_1_when_every_row_failed(app):
     def boom(*a):
         raise core.ApiError(500, "API 500: down")
     assert bench.main(["--corpus", small_corpus(tmp_path), "--pause", "0", "--out", str(tmp_path / "o.json")], call=boom) == 1
+
+
+# ------------------------------------------------------------------ token usage (vox_core.last_usage)
+
+class UsageReply:
+    status_code, text = 200, ""
+
+    def __init__(self, usage):
+        self.usage = usage
+
+    def json(self):
+        body = {"choices": [{"message": {"content": "Hello there."}, "finish_reason": "stop"}]}
+        if self.usage is not None:
+            body["usage"] = self.usage
+        return body
+
+
+def test_chat_reply_keeps_the_answers_cached_and_reasoning_tokens(monkeypatch):
+    usage = {"prompt_tokens": 900, "completion_tokens": 40, "prompt_tokens_details": {"cached_tokens": 768},
+             "completion_tokens_details": {"reasoning_tokens": 25}}
+    monkeypatch.setattr(core.requests, "post", lambda url, **kw: UsageReply(usage))
+    core.cleanup(dict(core.DEFAULT_CONFIG, api_key="k"), "hello there", "neutral", "")
+    assert core.last_usage() == {"prompt_tokens": 900, "completion_tokens": 40, "cached_tokens": 768, "reasoning_tokens": 25}
+
+
+@pytest.mark.parametrize("usage", [None, "junk", {"prompt_tokens": "9", "prompt_tokens_details": None}])
+def test_chat_reply_without_usable_usage_gives_none_counts(monkeypatch, usage):
+    monkeypatch.setattr(core.requests, "post", lambda url, **kw: UsageReply(usage))
+    core.chat_reply(dict(core.DEFAULT_CONFIG, api_key="k"), {"model": "llama-3.3-70b-versatile", "messages": []})
+    got = core.last_usage()
+    assert got is None or set(got.values()) == {None}
+
+
+# ------------------------------------------------------------------ variants, rate limits, the key
+
+def test_run_variants_takes_turns_and_scores_every_answer():
+    order = []
+    rows = [{"id": str(i), "raw": "one two three four"} for i in range(3)]
+    variants = {"A": lambda row: order.append("A") or "One two three four.", "B": lambda row: order.append("B") or "x"}
+    out = bench.run_variants(rows, variants, lambda row, text: {"len": len(text)}, usage=lambda: {"prompt_tokens": 5})
+    assert order == ["A", "B", "B", "A", "A", "B"]
+    assert [r["id"] for r in out["A"]] == ["0", "1", "2"] and out["B"][0]["score"] == {"len": 1}
+    assert out["A"][0]["usage"] == {"prompt_tokens": 5}
+
+
+def test_run_variants_waits_out_a_rate_limit_and_does_not_time_the_wait():
+    clock, sleeps, tries = Clock(0.1), [], []
+
+    def flaky(row):
+        tries.append(1)
+        if len(tries) == 1:
+            raise core.ApiError(429, "API 429: slow down", retry_after=7)
+        return "Fine."
+    out = bench.run_variants([{"id": "a", "raw": "fine"}], {"A": flaky}, lambda r, t: {}, sleep=sleeps.append, clock=clock,
+                             usage=lambda: None)
+    assert sleeps == [7] and len(tries) == 2
+    assert out["A"][0]["error"] == "" and out["A"][0]["ms"] == 100
+
+
+def test_run_variants_records_other_errors_and_gives_up_on_a_rate_limit_that_stays():
+    sleeps = []
+
+    def busy(row):
+        raise core.ApiError(429, "API 429")
+    out = bench.run_variants([{"id": "a", "raw": "x"}], {"A": busy}, lambda r, t: {}, sleep=sleeps.append, usage=lambda: None)
+    assert out["A"][0]["error"] == "API 429" and out["A"][0]["score"] is None
+    assert len(sleeps) == core.RATE_LIMIT_TRIES
+
+
+def test_redact_masks_the_key_and_keeps_an_api_errors_status():
+    e = bench.redact(core.ApiError(429, "bad key SECRET in url", retry_after=3), "SECRET")
+    assert isinstance(e, core.ApiError) and e.code == 429 and e.retry_after == 3 and "SECRET" not in str(e)
+    assert str(bench.redact(ValueError("SECRET"), "SECRET")) == "***"
+    assert str(bench.redact(ValueError("plain"), "")) == "plain"
+
+
+def test_a_key_in_an_error_text_never_reaches_the_output(app, capsys):
+    tmp_path, _ = app
+    out = tmp_path / "o.json"
+
+    def leaky(cfg, raw, style, app_label):
+        raise core.ApiError(500, "server said SECRET-KEY-123 is odd")
+    bench.main(["--corpus", small_corpus(tmp_path), "--pause", "0", "--out", str(out)], call=leaky)
+    shown = capsys.readouterr()
+    assert "SECRET-KEY-123" not in shown.out + shown.err + out.read_text(encoding="utf-8")
+
+
+# ------------------------------------------------------------------ --compare-prompt and --compare-guard
+
+def test_compare_prompt_sends_v1_through_the_frozen_cleanup_and_the_rest_through_the_app(app, capsys):
+    tmp_path, _ = app
+    calls = []
+
+    def current(cfg, raw, style, app_label):
+        calls.append("current")
+        return raw.capitalize() + "."
+
+    def frozen(cfg, raw, style, app_label):
+        calls.append("v1")
+        return raw.capitalize() + "."
+    out = tmp_path / "o.json"
+    code = bench.main(["--corpus", small_corpus(tmp_path), "--pause", "0", "--out", str(out), "--compare-prompt", "v1,v3"],
+                      call=current, legacy_call=frozen)
+    assert code == 0 and calls == ["v1", "current", "current", "v1", "v1", "current"]
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert set(saved["models"]) == {"prompt v1", "prompt v3"}
+    assert saved["models"]["prompt v1"]["prompt"] == "v1" and "compare" in saved
+    shown = capsys.readouterr()
+    assert "What gets pasted" in shown.out and "Against prompt v1" in shown.out
+
+
+def test_a_note_says_when_the_apps_prompt_is_still_v1(monkeypatch):
+    monkeypatch.setattr(core, "system_prompt", bench.legacy.system_prompt)
+    assert bench._same_prompt()
+    monkeypatch.setattr(core, "system_prompt", lambda *a: "another prompt")
+    assert not bench._same_prompt()
+    monkeypatch.setattr(core, "system_prompt", lambda style: "a changed signature")
+    assert not bench._same_prompt()
+
+
+def test_compare_guard_scores_each_answer_under_each_guard_without_more_requests(app, monkeypatch, capsys):
+    tmp_path, _ = app
+    monkeypatch.setattr(core, "looks_valid", lambda raw, cleaned, strength="light": False)   # a "v2" that rejects all
+    calls = []
+    out = tmp_path / "o.json"
+    code = bench.main(["--corpus", small_corpus(tmp_path), "--pause", "0", "--out", str(out), "--compare-guard", "v1,v2"],
+                      call=lambda *a: calls.append(1) or "Send me the report today please.")
+    assert code == 0 and len(calls) == 3
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    pasted = saved["models"][core.DEFAULT_LLM]["pasted"]
+    assert pasted["v1"]["guard_pass"] == 1.0 and pasted["v2"]["guard_pass"] == 0.0
+    assert set(saved["guard_set"]) == {"v1", "v2"} and saved["guard_set"]["v1"]["light"]["rows"] == 189
+    shown = capsys.readouterr().out
+    assert "Guards on the labelled pairs" in shown and "guard v2" in shown
+
+
+def test_guard_only_needs_no_key_and_sends_nothing(app, capsys):
+    tmp_path, write = app
+    write(api_key="")
+    out = tmp_path / "g.json"
+    assert bench.main(["--guard-only", "--compare-guard", "v1,v2", "--out", str(out)], call=lambda *a: 1 / 0) == 0
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["guard_set"]["v1"]["standard"]["heldout"]["rows"] == 30 and saved["models"] == {}
+
+
+def test_two_names_for_the_current_code_are_refused(app, capsys):
+    tmp_path, _ = app
+    assert bench.main(["--corpus", small_corpus(tmp_path), "--compare-prompt", "v2,v3"], call=echo) == 2
+    assert "only v1" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------ the clips as the source
+
+def write_clips(folder, entries):
+    import bench_clips as clips
+    os.makedirs(folder, exist_ok=True)
+    for cid, raw, intended, terms, when in entries:
+        clips.append_row(folder, {"id": cid, "audio": cid + ".wav", "kind": "chat", "ref_verbatim": raw,
+                                  "ref_intended": intended, "terms": terms})
+        if when:
+            clips.save_stt(folder, cid, {"groq m prompt-on": {"text": raw, "when": when, "ms": 300}})
+
+
+def test_clip_rows_take_the_newest_transcript_and_the_whole_benchmark_dictionary(tmp_path):
+    folder = str(tmp_path / "clips")
+    write_clips(folder, [("clip-001", "meet priya on friday", "Meet Priya on Friday.", ["Priya"], "2026-10-05T10:00:00"),
+                         ("clip-002", "ship ledgerly today", "Ship Ledgerly today.", ["Ledgerly"], "2026-10-05T11:00:00"),
+                         ("clip-003", "not transcribed", "Not transcribed.", [], None)])
+    rows, label = bench.clip_rows(folder)
+    assert label == "groq m prompt-on" and [r["id"] for r in rows] == ["clip-001", "clip-002"]
+    assert rows[0]["terms"] == ["Priya", "Ledgerly"] and rows[0]["must_keep_terms"] == ["Priya"]
+    assert rows[0]["ref_intended"] == "Meet Priya on Friday." and rows[0]["about"] == "" and rows[0]["style"] == "neutral"
+    assert bench.clip_rows(folder, "other label")[0] == []
+
+
+def test_main_cleans_the_clips_when_they_are_transcribed(app, monkeypatch, capsys):
+    tmp_path, _ = app
+    monkeypatch.setattr(core, "looks_valid", lambda *a: True)   # whatever the app's guard is by then
+    write_clips(os.path.join(str(tmp_path), "Vox", "bench", "clips"),
+                [("clip-001", "meet priya on thursday no wait friday", "Meet Priya on Friday.", ["Priya"], "2026-10-05T10:00:00")])
+    out = tmp_path / "o.json"
+    code = bench.main(["--pause", "0", "--out", str(out), "--strength", "standard"], call=lambda *a: "Meet Priya on Friday.")
+    assert code == 0
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["stt"] == "groq m prompt-on" and "your clips" in saved["corpus"]
+    p = saved["models"][core.DEFAULT_LLM]["pasted"]["current"]
+    assert p["self_correction"] is not None and p["term_accuracy"] == 1.0 and p["fwer"] is not None
+
+
+def test_main_without_clips_uses_the_text_corpus_and_the_clips_flag_says_what_to_do(app, capsys):
+    tmp_path, _ = app
+    out = tmp_path / "o.json"
+    assert bench.main(["--pause", "0", "--out", str(out)], call=lambda cfg, raw, *a: raw) == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["corpus"] == "corpus.jsonl"
+    assert bench.main(["--clips"], call=echo) == 2
+    assert "bench_record.py" in capsys.readouterr().err
+
+
+def test_the_real_cleanup_calls_of_both_prompts_reach_a_fake_server_and_log_their_usage(app, monkeypatch, capsys):
+    tmp_path, _ = app
+    prompts = []
+
+    def post(url, **kw):
+        prompts.append(kw["json"]["messages"][0]["content"])
+        n = len(prompts)
+        return UsageReply({"prompt_tokens": 1000, "completion_tokens": 20, "prompt_tokens_details": {"cached_tokens": 900 * (n > 2)},
+                           "completion_tokens_details": {"reasoning_tokens": 10}})
+    monkeypatch.setattr(core.requests, "post", post)
+    out = tmp_path / "o.json"
+    code = bench.main(["--corpus", small_corpus(tmp_path), "--pause", "0", "--out", str(out), "--compare-prompt", "v1,current"])
+    assert code == 0 and len(prompts) == 6
+    assert prompts[0] == bench.legacy.system_prompt("neutral", ["Report"], "", "", "light", "", "auto")
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    v1 = saved["models"]["prompt v1"]
+    assert v1["rows"][0]["usage"] == {"prompt_tokens": 1000, "completion_tokens": 20, "cached_tokens": 0, "reasoning_tokens": 10}
+    assert v1["summary"]["prompt_tokens"] == 1000 and v1["summary"]["cached_share"] == pytest.approx(0.6)
+    assert "cached share" in capsys.readouterr().out
+
+
+def test_a_note_says_when_the_apps_guard_is_still_v1(app, monkeypatch, capsys):
+    tmp_path, _ = app
+    monkeypatch.setattr(core, "looks_valid", bench.legacy.looks_valid)
+    bench.main(["--guard-only", "--compare-guard", "v1,v2", "--out", str(tmp_path / "g.json")])
+    assert "still gives the v1 verdicts" in capsys.readouterr().err
+    monkeypatch.setattr(core, "looks_valid", lambda *a: True)
+    bench.main(["--guard-only", "--compare-guard", "v1,v2", "--out", str(tmp_path / "g.json")])
+    assert "still gives the v1 verdicts" not in capsys.readouterr().err
