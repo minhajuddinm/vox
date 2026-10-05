@@ -889,9 +889,10 @@ class Engine:
     def _close_stream(self):
         if self.warm is not None and self.warm.detach():
             return   # the recording was fed by the warm microphone: it stays open for the next one
+        stream = self.stream   # read once: a slow stop must not close a stream a newer recording opened meanwhile
         try:
-            self.stream.stop()
-            self.stream.close()
+            stream.stop()
+            stream.close()
         except Exception:
             pass
 

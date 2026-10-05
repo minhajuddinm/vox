@@ -430,3 +430,40 @@ def test_a_cancelled_type_session_types_nothing_more(monkeypatch):
     lis.stop()
     assert lis.done.wait(20)
     assert host.pasted == [] and host.notes == []
+
+
+# ------------------------------------------------------------------ ENG-4: busy never comes after idle
+def test_the_pill_goes_busy_before_the_microphone_is_closed():
+    """A slow close_mic used to run first: a session that ended meanwhile (a second stop, the silent-microphone timeout)
+    set idle, and the first stop then set busy for good, so every shortcut was ignored until Quit."""
+    order = []
+    host = Host()
+    host.close_mic = lambda: order.append("close")
+    host.listen_state = lambda name: order.append(name)
+    lis = listen.Listening(host, NOCLEAN, "note", focus=lambda: "notepad.exe")
+    lis._halt()
+    lis._halt()
+    assert order == ["busy", "close"]
+
+
+def test_a_stop_still_closing_the_microphone_when_the_session_ends_leaves_it_idle(monkeypatch):
+    monkeypatch.setattr(core, "transcribe", Script(["hello there"]))
+    host = Host()
+    closing, release = threading.Event(), threading.Event()
+
+    def slow_close():
+        closing.set()
+        release.wait(10)   # a Bluetooth driver whose stop hangs
+
+    host.close_mic = slow_close
+    lis = listen.Listening(host, NOCLEAN, "note", focus=lambda: "notepad.exe")
+    lis.start()
+    lis.audio(utterances(1), 0, 0, None)
+    stopper = threading.Thread(target=lis.stop)
+    stopper.start()
+    assert closing.wait(10)
+    lis._q.put(None)              # the session ends while the first stop is still inside close_mic
+    assert lis.done.wait(20)
+    release.set()
+    stopper.join(10)
+    assert host.states[-1] == "idle"

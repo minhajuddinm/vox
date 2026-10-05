@@ -111,8 +111,10 @@ class Listening:
             if self._halted:
                 return
             self._halted = True
+            # "busy" before the microphone is closed and under the lock: a slow close_mic must not set it after the
+            # session already ended and set "idle" (ENG-4), which left every shortcut ignored until Quit
+            self.host.listen_state("busy")
         self.host.close_mic()
-        self.host.listen_state("busy")
 
     def _window(self):
         try:
