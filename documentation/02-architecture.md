@@ -123,7 +123,7 @@ The same functions exist in both languages:
 | Whisper spelling hint | `whisper_prompt` | `ApiClient.whisperPrompt` |
 | Strip model tags/quotes | `sanitize` | `ApiClient.sanitize` |
 | Reject runaway or word-losing cleanup answers | `looks_valid`, `fidelity_ok`, `word_recall` | `ApiClient.looksValid`, `Fidelity.ok`, `Fidelity.wordRecall` |
-| The text used when the guard rejects an answer; the strength setting as light or standard | `fallback_text`, `clean_strength` | `ApiClient.fallbackText`, `Fidelity.cleanStrength` |
+| The text used when the AI cleanup gives none (skipped as short, failed, rejected): the rules layer; the strength setting as light or standard | `fallback_text`, `rules_layer.rules_cleanup`, `clean_strength` | `ApiClient.fallbackText`, `RulesLayer.clean`, `Fidelity.cleanStrength` |
 | Dictionary replacements | `apply_replacements` | `ApiClient.applyReplacements` |
 | Dictionary terms | `dictionary_terms` | `Terms.terms` |
 | Spoken "new line" | `apply_spoken_commands` | `ApiClient.applySpokenCommands` |
