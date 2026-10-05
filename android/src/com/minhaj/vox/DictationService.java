@@ -5,7 +5,6 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Intent;
@@ -852,7 +851,7 @@ public class DictationService extends Service {
                 if (route == InsertGuard.ROUTE_TYPE) {
                     listener.onResult(result, pkg);
                 } else if (route == InsertGuard.ROUTE_CLIPBOARD) {   // nothing can type it (accessibility is off): the text is not lost
-                    ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Vox", result));
+                    ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(VoxAccessibilityService.dictationClip(result));
                     Toast.makeText(this, InsertGuard.noListenerMessage(), Toast.LENGTH_LONG).show();
                 }
                 // The history entry is written after the text went in, so its timing includes the insertion; the

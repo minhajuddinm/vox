@@ -70,6 +70,28 @@ public final class InsertGuard {
         return t.substring(0, cut) + "...";
     }
 
+    /** What happens to the clipboard after a paste fallback (see {@link #afterPaste}). */
+    public static final int CLIP_RESTORE = 0, CLIP_CLEAR = 1;
+
+    /**
+     * After the dictation was pasted through the clipboard it must not stay there. The old clip is put back when it could
+     * be read; Android 10+ never lets a background service read it, so then the clip is cleared instead (the old one is
+     * lost either way: Android gave Vox no copy of it).
+     */
+    public static int afterPaste(boolean oldClipReadable) {
+        return oldClipReadable ? CLIP_RESTORE : CLIP_CLEAR;
+    }
+
+    /** Android 13 (API 33) and later can mark a clip as sensitive, so the clipboard preview and keyboards hide it. */
+    public static boolean markSensitive(int sdk) {
+        return sdk >= 33;
+    }
+
+    /** ClipboardManager.clearPrimaryClip exists from Android 9 (API 28); before that an empty clip is put over it. */
+    public static boolean canClearClip(int sdk) {
+        return sdk >= 28;
+    }
+
     /** The toast when the text was copied because nothing could type it. */
     public static String noListenerMessage() {
         return "Vox could not type (accessibility is off). Text copied to clipboard.";

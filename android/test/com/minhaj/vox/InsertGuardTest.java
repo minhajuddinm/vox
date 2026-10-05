@@ -60,6 +60,14 @@ public final class InsertGuardTest {
         eq("the message never carries the exception's own text (it can hold the key)", false,
                 InsertGuard.crashed(new IllegalArgumentException("Bearer gsk_secret")).contains("gsk_secret"));
 
+        // afterPaste: the dictation must not stay on the clipboard once it was pasted (#63, PRV-10). Android 10+ never lets a
+        // background service read the old clip, so it is put back only when it could be read; otherwise the clip is cleared.
+        eq("a readable old clip is put back", InsertGuard.CLIP_RESTORE, InsertGuard.afterPaste(true));
+        eq("an unreadable or empty old clip: the dictation is cleared", InsertGuard.CLIP_CLEAR, InsertGuard.afterPaste(false));
+        eq("Android 13+ marks a dictation on the clipboard as sensitive", true, InsertGuard.markSensitive(33));
+        eq("older versions have no such flag", false, InsertGuard.markSensitive(32));
+        eq("the clear needs Android 9 (API 28)", true, InsertGuard.canClearClip(28) && !InsertGuard.canClearClip(27));
+
         System.out.println("OK: " + checks + " checks passed");
     }
 }
