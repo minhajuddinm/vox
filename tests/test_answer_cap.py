@@ -87,6 +87,24 @@ def test_a_huge_cleanup_answer_falls_back_to_the_rules_layer(server, monkeypatch
     assert r.text == "Please send the report to the team today."
 
 
+@pytest.mark.parametrize("error", ["broken", "over"])
+def test_a_body_that_breaks_off_drops_the_connection_too(error):
+    # review 7: only the over-cap error closed the answer; a body that broke off halfway left the connection open
+    import requests
+    r, closed = requests.Response(), []
+
+    def chunks(size):
+        yield b"x" * 10
+        if error == "broken":
+            raise requests.exceptions.ChunkedEncodingError("connection broken")
+        yield b"y" * 100
+
+    r.iter_content, r.close = chunks, lambda: closed.append(True)
+    with pytest.raises(requests.exceptions.ChunkedEncodingError if error == "broken" else core.ApiError):
+        core.read_capped(r, cap=50)
+    assert closed == [True]
+
+
 def test_a_stand_in_answer_of_a_test_passes_through():
     class R:
         status_code = 200

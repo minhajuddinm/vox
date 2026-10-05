@@ -2344,9 +2344,10 @@ def _post(url, **kw):
     return read_capped(_session.post(url, stream=True, **kw))
 
 
-def read_capped(r, cap=MAX_ANSWER_BYTES):
-    """`r` with its body read, at most `cap` bytes: a broken or hostile server that sends gigabytes would otherwise fill
-    the memory (SEC-9). Raises ApiError (not retried) and drops the connection when the answer is bigger."""
+def read_capped(r, cap=MAX_ANSWER_BYTES, too_big=TOO_BIG):
+    """`r` (asked for with stream=True) with its body read, at most `cap` bytes: a broken or hostile server that sends
+    gigabytes would otherwise fill the memory (SEC-9; also the calendar and the relay's proof). Raises ApiError(0,
+    `too_big`) (not retried) and drops the connection when the answer is bigger."""
     if not isinstance(r, requests.Response):   # a stand-in answer of a test: its body is there already
         return r
     body, size = [], 0
@@ -2354,9 +2355,9 @@ def read_capped(r, cap=MAX_ANSWER_BYTES):
         for chunk in r.iter_content(65536):
             size += len(chunk)
             if size > cap:
-                raise ApiError(0, TOO_BIG)
+                raise ApiError(0, too_big)
             body.append(chunk)
-    except ApiError:
+    except Exception:   # over the cap, or the body broke off (ChunkedEncodingError, a read timeout)
         r.close()   # not all read: the connection is dropped
         raise
     r._content = b"".join(body)   # what r.content, r.text and r.json() read from now on
