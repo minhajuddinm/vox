@@ -1156,7 +1156,7 @@ whisper	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 # vox_core.suggest_corrections / Corrections.suggest, at most 3 words a side).
 autocorrect	we use node.js node.js daily	we use node.js nkde.js daily	node.js=>nkde.js
 autocorrect	mail john@x.com john@x.com now	mail john@x.coz john@x.com now	john@x.com=>john@x.coz
-autocorrect	the grok grok grok api	the Groq grok grok api	the grok=>Groq
+autocorrect	the grok grok grok api	the Groq grok grok api	grok=>Groq
 suggest	the grok grok grok api	the Groq grok grok api	grok=>Groq
 suggest	so naive naive nahi it is	so naiv naive Nahi it is	naive nahi=>Nahi
 suggest	kubernetis: you) you two second	kubernetis: You) you Question question second	you two=>Question question
@@ -2050,3 +2050,8 @@ guard	standard	stop			please send the invoice to amit actually the invoice is re
 guard	standard	stop			send it to the team actually send it to everyone	Send it to everyone.	accept	ok	-
 guard	standard	stop			book the hotel actually book the flight	Book the flight.	accept	ok	-
 guard	standard	stop			two actually three	Three.	accept	ok	-
+# lo: autocorrect: an anchor of a repeated word stands at each of its shifts, so the typed text is found where
+# its length fits (the row "the grok grok grok api" above learned the lossy "the grok=>Groq" before).
+autocorrect	call the grok grok grok now	call the grok grok Groq now	grok=>Groq
+autocorrect	we use grok grok grok	we use Groq grok grok	
+autocorrect	ask ada ada ada later	ask Ada ada ada later	
