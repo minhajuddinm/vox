@@ -254,6 +254,12 @@ def confirm_text(count, chars, provider):
     return f"This sends {count} transcript{'' if count == 1 else 's'} (about {chars:,} characters) to {provider}"
 
 
+def usable_history(cfg, history):
+    """The history a run may look at: none while history is off, also the dictations saved before it was switched off
+    (the person switched it off to keep their dictations to themselves)."""
+    return [] if cfg.get("keep_history") is False else history
+
+
 def selection(history, days, now, snippets=None):
     """(days, transcripts): `days` as one of the offered ranges (7 when it is not one) and what a run over it would send
     (snippets' saved texts put back as their trigger phrases)."""
@@ -274,7 +280,7 @@ def preview(cfg, history, days, now):
     """What the card shows before anything is sent, from local data only: how many transcripts and characters a run over
     the last `days` days (0 = all) would send, the model and server, a token estimate, the sentence to confirm and the
     versions already applied. `extra` is the characters of About you, the dictionary and the rules that go along."""
-    days, pairs = selection(history, days, now, cfg.get("snippets"))
+    days, pairs = selection(usable_history(cfg, history), days, now, cfg.get("snippets"))
     model = model_for(cfg)
     provider = provider_label(cfg)
     extra = (len(core.clean_context(cfg.get("user_context") or "")) + sum(len(t) for t in core.dictionary_terms(cfg))

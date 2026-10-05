@@ -276,7 +276,7 @@ class Api:
         problem = core.endpoint_error(cfg) or ("Add an API key for this server first." if core.key_missing(cfg) else "")
         if problem:
             return fail(problem)
-        days, pairs = improve.selection(core.read_history(), days, now, cfg.get("snippets"))
+        days, pairs = improve.selection(improve.usable_history(cfg, core.read_history()), days, now, cfg.get("snippets"))
         if (len(pairs), improve.estimate_cost(pairs, "")["chars"]) != (count, chars):
             return fail("Your history changed since the numbers were shown. They are updated: check them and run again.", True)
         model = (model or "").strip() if isinstance(model, str) else ""

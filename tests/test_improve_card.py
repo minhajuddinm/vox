@@ -400,3 +400,14 @@ def test_a_run_with_an_empty_model_box_uses_the_cleanup_model_of_another_provide
     for typed in ("", "openai/gpt-oss-120b"):   # the box empty, or still showing the old default
         assert api.improve_run(7, typed, s["count"], s["chars"])["ok"] is True
     assert sent == [("https://api.openai.com/v1/chat/completions", "gpt-4o-mini")] * 2
+
+
+def test_with_history_off_older_saved_dictations_are_not_sent(api, monkeypatch):
+    # PRV-7 of the v2 review: "If history is off there is nothing to send"
+    seed(keep_history=False)
+    sent = []
+    monkeypatch.setattr(core.requests, "post", lambda url, **kw: sent.append(url) or Reply(content="{}"))
+    s = api.improve_state()
+    assert s["count"] == 0 and s["can_run"] is False and "History is off" in s["note"]
+    assert api.improve_run(7, "", 3, 60)["ok"] is False
+    assert sent == []
