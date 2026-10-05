@@ -284,6 +284,10 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert relay.is_private_host(f[0]) == (f[1] == "true")
     elif kind == "retry":   # status (0 = no answer), request timeout, via the relay, whether the same request is sent again
         assert core.retryable(int(f[0]), f[1] == "true", f[2] == "true") == (f[3] == "true")
+    elif kind == "maxtokens":   # transcript, model, max_tokens of its cleanup request (with headroom when the model may think)
+        assert core.cleanup_max_tokens(f[0], core.may_think(f[1])) == int(f[2])
+    elif kind == "llmread":   # words, how long to wait for the cleanup answer (ms)
+        assert core.cleanup_read_ms(int(f[0])) == int(f[1])
     elif kind == "timing_median":
         assert str(timing.median(numbers(f[0]))) == f[1]
     elif kind == "timing_p90":

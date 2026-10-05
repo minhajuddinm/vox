@@ -66,7 +66,7 @@ Threads in the engine process:
 | `improve` | `Engine.run` | `_watch_improve`: the weekly reminder for Improve my cleanup (a tray message only) |
 | `relay-watch` | `RelayHost.start` | waits for the relay child process and reports an early exit |
 
-Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording) -> `busy` (sending) -> `idle`. `hands_free` is a flag on `rec`. `Engine.pending` holds `(pcm, exe)` of a dictation that failed to send. A dictation's end is also signalled on the pill for a moment (`Engine.flash`: a green check or a red !) without changing `Engine.state`; see [04-windows-app.md](04-windows-app.md#result-signal-on-the-pill).
+Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording) -> `busy` (sending) -> `idle`. `hands_free` is a flag on `rec`. `Engine.pending` is a list (oldest first, at most 5) of the `(pcm, exe, note)` of dictations that failed to send. A dictation's end is also signalled on the pill for a moment (`Engine.flash`: a green check or a red !) without changing `Engine.state`; see [04-windows-app.md](04-windows-app.md#result-signal-on-the-pill).
 
 ## Windows dictation flow
 
@@ -88,7 +88,7 @@ Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording)
               lists from spoken cues and pause paragraphs (structure.py; not in a code app)
            -> paste (Ctrl+V), history line (unless keep_history is off)
               or, in note mode (tray / Voice notes page): save to notes.db and ask the sync worker to send it
-           on error: keep (pcm, exe, note) in Engine.pending, notify, tray "Retry last dictation"
+           on error: add (pcm, exe, note) to Engine.pending, notify, tray "Retry last dictation"
 ```
 
 Details: [04-windows-app.md](04-windows-app.md), [06-pipeline.md](06-pipeline.md).

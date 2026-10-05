@@ -36,6 +36,9 @@ LEVEL_GAIN = 30             # how fast the meter fills as the voice gets louder
 SILENCE_PEAK = 655          # 16-bit peak (about -34 dBFS) below which a recording is treated as silence
 MAX_UPLOAD_BYTES = 20_000_000  # a recording bigger than this is sent in pieces (the speech servers refuse about 25 MB)
 RETRY_STATUS =(500, 502, 503, 504)   # server trouble worth retrying; 429 is left to the callers
+RATE_LIMIT_TRIES = 3        # a recording sent in pieces waits out a rate limit (429) this many times per piece (ENG-7)
+RATE_LIMIT_WAIT = 20        # seconds to wait then when the server does not say how long (Retry-After)
+RATE_LIMIT_MAX_WAIT = 60    # and never longer than this
 
 DEFAULT_CONFIG = {
     "api_key": "",
@@ -944,10 +947,18 @@ class Segmenter:
 
 
 def peak_level(pcm_bytes):
-    """Loudest sample (0 to 32768) of a 16-bit mono recording."""
+    """Loudest sample (0 to 32768) of a 16-bit mono recording. With numpy (the Windows app has it) in milliseconds; the
+    plain loop took 0.2 s for 6 minutes and held the GIL meanwhile (ENG-11)."""
     n = len(pcm_bytes) // 2
     if n == 0:
         return 0
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
+    if np is not None:
+        s = np.frombuffer(pcm_bytes, dtype="<i2", count=n)
+        return max(int(s.max()), -int(s.min()))
     samples = array.array("h")
     samples.frombytes(pcm_bytes[: n * 2])
     if sys.byteorder == "big":
@@ -1029,11 +1040,13 @@ def upload_audio(cfg, pcm_bytes):
 # ---------------------------------------------------------------------- groq
 
 class ApiError(Exception):
-    """The speech or cleanup server answered with an error status."""
+    """The speech or cleanup server answered with an error status. `retry_after`: the seconds its Retry-After header
+    asked for, or None."""
 
-    def __init__(self, code, msg):
+    def __init__(self, code, msg, retry_after=None):
         super().__init__(msg)
         self.code = code
+        self.retry_after = retry_after
 
 
 _session = requests.Session()   # keeps connections open, so a dictation does not pay the TLS handshake again
@@ -1076,10 +1089,11 @@ def retryable(status, timeout, via_relay):
     return status == 0 or status in RETRY_STATUS
 
 
-def post_with_retry(url, retries=2, via_relay=False, **kw):
+def post_with_retry(url, retries=2, via_relay=False, retry_timeouts=True, **kw):
     """POST with a quick retry on dropped connections (flaky Wi-Fi, VPNs, antivirus TLS inspection)
-    and on temporary server errors (see `retryable`; `via_relay` says the relay is the server). The last response is
-    returned as it is."""
+    and on temporary server errors (see `retryable`; `via_relay` says the relay is the server). `retry_timeouts` False:
+    a wait for the answer that ran out is not sent again (the cleanup, which falls back to the spoken words). The last
+    response is returned as it is."""
     for attempt in range(retries + 1):
         try:
             if "files" in kw:   # file objects must be re-sent from the start
@@ -1089,7 +1103,7 @@ def post_with_retry(url, retries=2, via_relay=False, **kw):
             r = _post(url, **kw)
         except (requests.ConnectionError, requests.Timeout) as e:
             timed_out = isinstance(e, requests.Timeout) and not isinstance(e, requests.ConnectTimeout)   # (not "could not connect")
-            if attempt == retries or not retryable(0, timed_out, via_relay):
+            if attempt == retries or not retryable(0, timed_out, via_relay) or (timed_out and not retry_timeouts):
                 raise
         else:
             if not retryable(r.status_code, False, via_relay) or attempt == retries:
@@ -1133,8 +1147,17 @@ def check_response(r, via_relay=False):
         msg = _error_message(r)
         if via_relay and r.status_code in (401, 403):
             msg = f"{msg} ({providers.RELAY_HINT})"
-        raise ApiError(r.status_code, f"API {r.status_code}: {msg}")
+        raise ApiError(r.status_code, f"API {r.status_code}: {msg}", _retry_after(r))
     return r.json()
+
+
+def _retry_after(r):
+    """The seconds of a Retry-After header, or None (absent, an HTTP date, or unreadable)."""
+    try:
+        v = float((getattr(r, "headers", None) or {}).get("Retry-After"))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return v if v >= 0 else None
 
 
 # An explicit list, not ip.is_private: that also holds 6to4 (2002::/16), Teredo (2001::/32) and reserved IPv4 ranges, which
@@ -1278,7 +1301,9 @@ def transcribe(cfg, wav_bytes, context=""):
         raise ApiError(0, "The speech server sent an answer Vox could not read")
     if data["response_format"] == "verbose_json":
         _stt_local.segments = _segments_of(res)
-    return text.strip()
+    # whisper.cpp's server ends every segment with a line break. Speech never holds one (a spoken "new line" is a
+    # command, applied later), and a break pasted into a terminal would run a command (SEC-1).
+    return re.sub(r"\s*[\r\n]+\s*", " ", text.strip())
 
 
 def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
@@ -1317,30 +1342,68 @@ def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
 def chat_text(cfg, body, timeout=60):
     """The text of one chat answer from the cleanup server (or the relay): `body` is the request (model, messages, ...).
     Reasoning fields are added for gpt-oss models and dropped, once, for a server that refuses them. Raises ApiError."""
+    return chat_reply(cfg, body, timeout)[0]
+
+
+def chat_reply(cfg, body, timeout=60, retry_timeouts=True):
+    """chat_text, plus the answer's finish_reason ("" when the server sent none)."""
     base = providers.role_settings(cfg, "llm")[0]
     via_relay = providers.uses_relay(cfg)
     extra = providers.reasoning_params(cfg, base, body["model"])
     body.update(extra)
-    r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout, via_relay=via_relay)
+    r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout,
+                        via_relay=via_relay, retry_timeouts=retry_timeouts)
     if extra and r.status_code in (400, 422):   # this server does not know the reasoning fields: retry without them
         providers.remember_rejected(base, body["model"])
         for k in extra:
             body.pop(k, None)
-        r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout, via_relay=via_relay)
+        r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout,
+                            via_relay=via_relay, retry_timeouts=retry_timeouts)
     data = check_response(r, via_relay)
     try:
-        content = data["choices"][0]["message"].get("content")
+        choice = data["choices"][0]
+        content = choice["message"].get("content")
+        finish = choice.get("finish_reason")
     except (KeyError, IndexError, TypeError, AttributeError):
         raise ApiError(0, "The cleanup server sent an answer Vox could not read")
-    return providers.strip_think(content or "")
+    return providers.strip_think(content or ""), finish if isinstance(finish, str) else ""
+
+
+# The bounds of a cleanup request, the same as the phone's (android Latency.java; golden rows maxtokens and llmread).
+REASONING_HEADROOM = 768   # hidden reasoning tokens of thinking models count against max_tokens even when not returned
+MIN_TOKENS = 256           # the smallest max_tokens, so that a short dictation is never cut off by a tiny bound
+
+
+def may_think(model):
+    """Whether a model may spend tokens on thinking before it answers (gpt-oss, Qwen3, QwQ, DeepSeek R1, *think*, *reasoner*)."""
+    m = (model or "").lower()
+    return any(k in m for k in ("gpt-oss", "qwen3", "qwq", "deepseek-r1", "think", "reasoner"))
+
+
+def cleanup_max_tokens(raw, thinks):
+    """Twice the estimated tokens of the text plus 64, at least MIN_TOKENS, plus REASONING_HEADROOM when the model may
+    think. The estimate is the larger of two per word and half the characters for ASCII text, else one per character
+    (counted in UTF-16 units, as Java does)."""
+    raw = raw or ""
+    chars = len(raw.encode("utf-16-le")) // 2
+    est = max(len(raw.split()) * 2, (chars + 1) // 2) if raw.isascii() else chars
+    return max(MIN_TOKENS, 2 * est + 64) + (REASONING_HEADROOM if thinks else 0)
+
+
+def cleanup_read_ms(words):
+    """How long to wait for a cleanup answer: 20 s plus 60 ms per word, at most 60 s (then the spoken words are used)."""
+    return min(60000, 20000 + max(0, words) * 60)
 
 
 def cleanup(cfg, raw, style, app_label):
-    model = providers.role_settings(cfg, "llm")[2]
+    """The cleaned text. Raises ApiError (or a requests error) when it failed, an answer cut off at max_tokens included.
+    A wait that ran out is not repeated: the caller then uses the spoken words."""
+    base, _, model = providers.role_settings(cfg, "llm")
+    thinks = may_think(model) or bool(providers.reasoning_params(cfg, base, model))
     body = {
         "model": model,
-        "temperature": 0.2,
-        "max_tokens": max(1024, len(raw) * 2),
+        "temperature": 0,
+        "max_tokens": cleanup_max_tokens(raw, thinks),
         "messages": [
             {"role": "system",
              "content": system_prompt(style, dictionary_terms(cfg), app_label, cfg.get("user_context", ""),
@@ -1348,24 +1411,53 @@ def cleanup(cfg, raw, style, app_label):
             {"role": "user", "content": f"<transcript>\n{raw}\n</transcript>"},
         ],
     }
-    return sanitize(chat_text(cfg, body))
+    text, finish = chat_reply(cfg, body, cleanup_read_ms(len(raw.split())) / 1000, retry_timeouts=False)
+    if finish.lower() == "length":
+        raise ApiError(0, "the cleanup answer was cut off (max_tokens)")
+    return sanitize(text)
 
 
 Result = namedtuple("Result", "raw text cleaned cleanup_error fidelity_fallback", defaults=(False,))
 
 
-def _transcribe_in_pieces(cfg, pcm_bytes):
+def _transcribe_in_pieces(cfg, pcm_bytes, context=""):
     """A recording too big for one upload (the server limit is 25 MB, about 13 minutes) is cut at pauses and sent piece by
-    piece, each with the end of the text before it as context (the same as streaming.py, which imports this module)."""
+    piece, each with the end of the text before it as context (the same as streaming.py, which imports this module).
+    `context`: the text of the audio before `pcm_bytes`, when there is some. A rate limit is waited out (ENG-7)."""
     seg = Segmenter()
     texts = []
     for piece in seg.feed(pcm_bytes) + [seg.rest()]:
         if not piece or is_silent(piece):
             continue
-        text = transcribe(cfg, upload_audio(cfg, piece), " ".join(texts)[-150:])
-        if text and not (not texts and is_silence_hallucination(text)):
+        text = _transcribe_waiting(cfg, piece, " ".join([context] + texts).strip()[-150:])
+        if text and not (not texts and not context and is_silence_hallucination(text)):
             texts.append(text)
     return " ".join(texts).strip()
+
+
+def _transcribe_waiting(cfg, pcm_bytes, context):
+    """transcribe, but a rate limit (429: pieces sent back to back hit a per-minute limit) is waited out and the same
+    piece sent again, up to RATE_LIMIT_TRIES times: Retry-After seconds, else RATE_LIMIT_WAIT, at most
+    RATE_LIMIT_MAX_WAIT. Before, the 429 dropped every piece already transcribed."""
+    for attempt in range(RATE_LIMIT_TRIES + 1):
+        try:
+            return transcribe(cfg, upload_audio(cfg, pcm_bytes), context)
+        except ApiError as e:
+            if e.code != 429 or attempt == RATE_LIMIT_TRIES:
+                raise
+            wait = min(RATE_LIMIT_MAX_WAIT, RATE_LIMIT_WAIT if e.retry_after is None else e.retry_after)
+            log.info("rate limited while sending a long recording in pieces, waiting %.0f s", wait)
+            time.sleep(wait)
+
+
+def transcribe_rest(cfg, pcm_bytes, context):
+    """The text of the end of a recording whose start already is text (`context`): what is left after a streamed piece
+    failed (ENG-7). One upload, or pieces when it is too big; "" for a blip or silence."""
+    if len(pcm_bytes) < SAMPLE_RATE * 2 * 0.3 or is_silent(pcm_bytes):
+        return ""
+    if len(pcm_bytes) > MAX_UPLOAD_BYTES:
+        return _transcribe_in_pieces(cfg, pcm_bytes, context)
+    return transcribe(cfg, upload_audio(cfg, pcm_bytes), context[-150:])
 
 
 def process_detailed(cfg, pcm_bytes, exe, app_label):

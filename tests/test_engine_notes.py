@@ -23,7 +23,7 @@ def eng(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     e = object.__new__(engine_mod.Engine)
     e.recording = e.busy = e.hands_free = e.note_mode = False
-    e.chunks, e.cfg, e.target, e.pending = [], {"keep_history": False}, "notepad.exe", None
+    e.chunks, e.cfg, e.target, e.pending = [], {"keep_history": False}, "notepad.exe", []
     e.messages, e.pasted, e.states = [], [], []
     e.streaming = None
     e.sync = type("S", (), {"triggered": 0, "trigger": lambda self: setattr(self, "triggered", self.triggered + 1)})()
@@ -98,10 +98,10 @@ def test_failed_note_is_kept_for_retry_as_a_note(eng, monkeypatch):
     eng.toggle_note()
     eng.chunks = speech()
     eng.stop()
-    assert eng.pending[2] is True and notes.count() == 0
+    assert eng.pending[0][2] is True and notes.count() == 0
     monkeypatch.setattr(core, "process_detailed", lambda cfg, pcm, exe, label: ok_result("Second try."))
     eng.retry_last()
-    assert eng.pending is None and [n["text"] for n in notes.search("")] == ["Second try."] and eng.pasted == []
+    assert eng.pending == [] and [n["text"] for n in notes.search("")] == ["Second try."] and eng.pasted == []
 
 
 def test_silent_note_is_not_saved(eng, monkeypatch):
@@ -178,3 +178,23 @@ def test_a_401_through_the_relay_tells_the_user_to_check_the_relay_token(eng, mo
     eng.chunks = speech()
     eng.stop()
     assert eng.messages[-1].startswith("The server rejected the API key. Check Vox > Settings.")
+
+
+def test_a_failed_piece_sends_only_the_audio_after_the_text_that_came_back(eng, monkeypatch):
+    """ENG-7: the pieces already transcribed are kept; only the rest is sent, with their text as context."""
+    def whole(*a, **k):
+        raise AssertionError("the whole recording should not be sent again")
+
+    monkeypatch.setattr(core, "process_detailed", whole)
+    sent = []
+    monkeypatch.setattr(core, "transcribe", lambda cfg, wav, context="": sent.append((len(wav), context)) or "and the rest")
+    monkeypatch.setattr(core, "process_text", lambda cfg, raw, exe, label, segments=None: core.Result(raw, raw, False, ""))
+    eng.start()
+    streamer = eng.streaming = FakeStreamer(None)
+    pcm = b"".join(speech(3))
+    streamer.partial = lambda: ("the first part", len(pcm) - core.SAMPLE_RATE * 2)   # all but the last second came back
+    eng.chunks = [pcm]
+    eng.stop()
+    assert eng.pasted == ["the first part and the rest"]
+    (size, context), = sent
+    assert context == "the first part" and size < len(pcm)

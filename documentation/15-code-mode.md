@@ -74,7 +74,7 @@ Whole words only, case ignored: `dotted`, `tabby` or `starboard` are never touch
 | plus | `+` | kept | kept |
 | minus | `-` | kept | kept |
 | tilde | `~` | kept | no |
-| new line | line break | no | no |
+| new line | line break (in a terminal a space: Vox never presses Enter there, see `paste.terminal_text`) | no | no |
 | tab | tab | no | no |
 
 Examples (from the tests): `print open paren quote hello quote close paren` types `print("hello")`; `def snake case load config open paren path close paren colon` types `def load_config(path):`; `git commit dash m quote fix the build quote` types `git commit -m "fix the build"`; `cd tilde slash projects` types `cd ~/projects`.

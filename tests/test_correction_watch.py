@@ -302,3 +302,107 @@ def test_make_provider_loads_nothing_until_the_first_read(monkeypatch):
 def test_tests_never_get_the_real_ui_automation():
     """conftest.py swaps make_provider for every test: nothing reads the real desktop."""
     assert cw.make_provider() is None
+
+
+# ---- ENG-2: no .NET property is read across processes (pythonnet holds the GIL in a getter), no reads while recording --------
+
+class FakeProperty:
+    def __init__(self, get):
+        self.get = get
+
+    def GetValue(self, obj, index):
+        return self.get(obj)
+
+
+class FakeType:
+    """What reflection sees: GetProperty(name).GetValue(obj, None), a method call that releases the GIL."""
+
+    def __init__(self, **props):
+        self.props = props
+
+    def GetProperty(self, name):
+        return FakeProperty(self.props[name])
+
+
+class FakeRange:
+    def GetText(self, limit):
+        return "text of the page"
+
+
+class FakeTextPattern:
+    """Has no DocumentRange attribute: only reflection can read it."""
+
+    def GetType(self):
+        return FakeType(DocumentRange=lambda obj: FakeRange())
+
+
+class FakePatterns:
+    TEXT, VALUE = "TextPattern.Pattern", "ValuePattern.Pattern"
+
+
+class FakeElement:
+    """Has no Current attribute: IsPassword and Value must come through GetCurrentPropertyValue (a method)."""
+
+    def __init__(self, password=False, text_pattern=True):
+        self.password, self.text_pattern = password, text_pattern
+
+    def GetCurrentPropertyValue(self, prop):
+        return {"IsPasswordProperty": self.password, "ValueProperty": "value of the field"}[prop]
+
+    def GetCurrentPattern(self, pattern):
+        if pattern == FakePatterns.TEXT and self.text_pattern:
+            return FakeTextPattern()
+        if pattern == FakePatterns.VALUE:
+            return object()   # the ValuePattern: its Current.Value is a property, so it is not used
+        raise RuntimeError("pattern not supported")
+
+
+def uia_with(element):
+    """A UiaProvider whose .NET classes are fakes without the cross-process properties (FocusedElement, Current,
+    DocumentRange): touching one fails the test."""
+    element_cls = type("AutomationElement", (), {"IsPasswordProperty": "IsPasswordProperty"})
+    text_cls = type("TextPattern", (), {"Pattern": FakePatterns.TEXT})
+    value_cls = type("ValuePattern", (), {"Pattern": FakePatterns.VALUE, "ValueProperty": "ValueProperty"})
+    p = cw.UiaProvider()
+    p._uia = (element_cls, text_cls, value_cls, lambda cls: FakeType(FocusedElement=lambda obj: element))
+    return p
+
+
+def test_the_text_is_read_through_methods_only():
+    assert uia_with(FakeElement()).focused_text() == ("text of the page", False)
+
+
+def test_a_field_without_a_text_pattern_is_read_through_its_value_property():
+    assert uia_with(FakeElement(text_pattern=False)).focused_text() == ("value of the field", False)
+
+
+def test_a_password_field_is_never_read_through_methods_either():
+    assert uia_with(FakeElement(password=True)).focused_text() == (None, True)
+
+
+def test_nothing_focused():
+    assert uia_with(None).focused_text() == (None, False)
+
+
+def test_no_read_while_vox_records(setup):
+    w, desk, clock, said = setup
+    recording = [True]
+    w.quiet = lambda: recording[0]
+    w.arm(TYPED, start_thread=False)
+    desk.text = TYPED
+    w.poll_once()
+    assert desk.reads == 0 and w.watch.armed
+    recording[0] = False
+    w.poll_once()
+    assert desk.reads == 1
+
+
+def test_module_arm_passes_the_recording_check(monkeypatch):
+    desk = FakeDesktop()
+    monkeypatch.setattr(cw, "make_provider", lambda: desk)
+    monkeypatch.setattr(cw, "_watcher", None)
+    monkeypatch.setattr(cw, "_tried", False)
+    busy = lambda: True   # noqa: E731
+    cw.arm(TYPED, {"auto_learn": True}, quiet=busy)
+    assert cw._watcher.quiet is busy
+    cw._watcher.end()

@@ -51,6 +51,17 @@ AUDIO_REFRESH_SECONDS = 30   # PortAudio's device list is rebuilt at most this o
 # in android/src/com/minhaj/vox/BubbleView.java (tests/test_flash_constants.py checks it).
 FLASH_SECONDS = {"sent": 0.7, "error": 1.8}
 STUCK_MARGIN = 60       # a recording this long past its longest limit (hands-free) means the audio callback stopped
+MAX_PENDING = 5         # failed recordings kept for Retry, oldest first (as Android's PendingQueue.MAX_KEPT)
+QUIT_BUSY_WAIT = 120          # seconds Quit waits for a dictation that is still being sent (issue 63)
+PASTE_RESTORE_QUIT_WAIT = 3.0   # seconds Quit waits for the old clipboard of the last paste to be put back
+BUSY_TOLD_GAP = 5.0     # seconds between two "still sending" balloons for presses ignored while busy
+# The once-a-second watchdog ran this late: Python was frozen for longer than Windows' keyboard hook timeout (at most 1 s
+# since Windows 10 1709), and Windows removes a hook that times out without telling anyone, so it is installed again (ENG-2).
+HOOK_STALL_SECONDS = 2.0
+# AltGr reaches the hook as a Left Ctrl that Windows makes up (scan code 0x21D) and a Right Alt at the same moment: that
+# Ctrl is not the user's, so AltGr is never Ctrl+Alt (ENG-6, issue 63). ALTGR_GAP: the most time between the two.
+ALTGR_CTRL_SCAN = 0x21D
+ALTGR_GAP = 0.02
 
 KEY_ALIASES = {
     "ctrl": {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r},
@@ -129,6 +140,7 @@ class Engine:
     flash_until = 0.0
     timing = None   # the timing.Timing of the recording in progress (the Speed card); None when there is none
     listening = None   # the listen.Listening of the keep-listening session in progress (also while it saves); None when none
+    busy = False       # a recording is being sent (or a session saves): presses, Retry and recovery wait
     note_hotkey = None   # the session.NoteHotkey of the note shortcut; None when it is off or unusable
     note_key_down = False   # its main key is held (a key repeat must not toggle again)
     state_since = 0.0   # time.monotonic() when set_state last ran (the overlay watchdog's stuck-state check)
@@ -150,14 +162,15 @@ class Engine:
 
     def __init__(self):
         self.cfg = core.load_config()
-        self.cfg_mtime = self._mtime()
+        # None after a load that could not open config.json (issue 63): the next tick of _watch_config reads it again
+        self.cfg_mtime = None if core.config_is_fallback() else self._mtime()
         self.hotkey = self._hotkey()
         self.note_hotkey = self._note_hotkey()
         self.chords = self._chords()
         self.pressed = set()
         self.recording = False
         self.busy = False
-        self.pending = None           # (pcm, exe, note) of a dictation that could not be sent; kept for Retry
+        self.pending = []             # [(pcm, exe, note)] of the dictations that could not be sent, oldest first; for Retry
         self._rec_lock = threading.Lock()
         self.chunks = []
         self.stream = None
@@ -185,7 +198,7 @@ class Engine:
             "Vox", ICONS["idle"], "Vox",
             menu=pystray.Menu(
                 pystray.MenuItem("Open Vox", lambda *_: open_window(), default=True),
-                pystray.MenuItem("Retry last dictation", self.retry_last, visible=lambda _: self.pending is not None),
+                pystray.MenuItem(lambda _: self.retry_label(), self.retry_last, visible=lambda _: bool(self.pending)),
                 pystray.MenuItem(lambda _: "Finish voice note" if self.note_mode and self.recording else "New voice note",
                                  self.toggle_note),
                 pystray.MenuItem(lambda _: "Stop meeting notes" if self.meeting.active else "Start meeting notes",
@@ -233,8 +246,12 @@ class Engine:
     def reload_if_changed(self):
         m = self._mtime()
         if m != self.cfg_mtime:
+            cfg = core.load_config()
+            if core.config_is_fallback():   # could not open it for a moment: keep what we have and try again next tick
+                log.warning("settings not reloaded: config.json could not be opened, trying again")
+                return
             self.cfg_mtime = m
-            self.cfg = core.load_config()
+            self.cfg = cfg
             self.hotkey = self._hotkey()
             self.note_hotkey = self._note_hotkey()
             self.chords = self._chords()
@@ -267,6 +284,12 @@ class Engine:
             deadline = time.time() + 180
             while self.listening and time.time() < deadline:
                 time.sleep(0.5)
+        if self.busy:   # a dictation still being sent: let it land instead of losing its audio (issue 63)
+            self.notify("Finishing your dictation before quitting...")
+            deadline = time.time() + QUIT_BUSY_WAIT
+            while self.busy and time.time() < deadline:
+                time.sleep(0.2)
+        paste_mod.wait_restored(PASTE_RESTORE_QUIT_WAIT)   # the old clipboard of the last paste is put back first
         if self.warm is not None:
             self.warm.close()   # the microphone is let go, and the audio it held with it
         self.sync.stop()
@@ -339,6 +362,42 @@ class Engine:
                 dumped = self.check_overlay(time.monotonic(), stuck, dumped)
             except Exception:
                 log.exception("overlay watchdog failed")
+            try:
+                self.check_hook(time.monotonic())
+            except Exception:
+                log.exception("keyboard hook check failed")
+
+    _listener = None      # the pynput keyboard.Listener (the low-level keyboard hook); None before run()
+    _hook_check_t = None  # time.monotonic() of the last check_hook
+
+    def install_hook(self):
+        """Installs the keyboard hook (a new pynput listener), stopping the old one first."""
+        old, self._listener = self._listener, None
+        if old is not None:
+            try:
+                old.stop()
+            except Exception:
+                log.exception("could not stop the old keyboard hook")
+        lis = keyboard.Listener(on_press=self.on_press, on_release=self.on_release, win32_event_filter=self._hook_filter)
+        lis.daemon = True
+        lis.start()
+        self._listener = lis
+
+    def check_hook(self, now):
+        """Every second (the watchdog thread): installs the keyboard hook again when its listener stopped, or when this
+        check itself ran HOOK_STALL_SECONDS late. Python was frozen then (a .NET property read, a long GIL hold), and
+        Windows silently removes a hook that did not answer within its timeout; the shortcut would be dead until a
+        restart. Installing it again when it was not removed costs nothing (ENG-2)."""
+        last, self._hook_check_t = self._hook_check_t, now
+        lis = self._listener
+        if lis is None:
+            return
+        stalled = last is not None and now - last > HOOK_STALL_SECONDS
+        if lis.is_alive() and not stalled:
+            return
+        log.warning("keyboard hook %s: installing it again", "may have been removed after %.1f s without Python" %
+                    (now - last) if stalled else "stopped")
+        self.install_hook()
 
     def check_overlay(self, now, stuck, dumped):
         """Once a second (daemon thread): logs every thread's stack once when the pill's Tk tick has not run for
@@ -429,7 +488,20 @@ class Engine:
         except Exception:
             log.exception("start-menu tap failed")
 
-    def on_press(self, key):
+    @staticmethod
+    def _hook_filter(msg, data):
+        """win32_event_filter of the keyboard listener, inside the hook (quick, never raises): False drops the event
+        before Vox sees it (Windows still gets it). Drops the Left Ctrl that Windows makes up for AltGr."""
+        try:
+            return not (data.vkCode in (0x11, 0xA2) and data.scanCode == ALTGR_CTRL_SCAN)
+        except Exception:
+            return True
+
+    def on_press(self, key, injected=False):
+        # pynput passes `injected` (a key sent by a program: Vox's own paste keys, its Start-menu tap). They are never
+        # the user's shortcut (ENG-5): with the Ctrl+Shift preset Vox's Ctrl+Shift+V started a recording.
+        if injected:
+            return
         self._hook_tap(key, True)
         q = self._hotkey_q
         if q is not None:
@@ -440,7 +512,9 @@ class Engine:
         except Exception:   # pynput stops the listener when a handler raises: keep the hotkey alive
             self._hotkey_failed()
 
-    def on_release(self, key):
+    def on_release(self, key, injected=False):
+        if injected:
+            return
         self._hook_tap(key, False)
         q = self._hotkey_q
         if q is not None:
@@ -500,10 +574,19 @@ class Engine:
         out = [("note_hotkey", self.note_hotkey)] if self.note_hotkey and self.note_hotkey.vk == vk else []
         return out + [(n, c) for n, c in self.chords.items() if c.vk is not None and c.vk == vk]
 
+    combo_other_key = False   # another key went down while the dictation keys were held: that press was another shortcut
+    _ctrl_l_t = float("-inf")  # when the Left Ctrl last went down (AltGr check)
+
     def _on_press(self, key, t=None):
         self.event_t = time.time() if t is None else t
         try:
             self._check_gap()
+            if key == keyboard.Key.ctrl_l and key not in self.pressed:
+                self._ctrl_l_t = self.event_t
+            elif key in (keyboard.Key.alt_gr, keyboard.Key.alt_r) and keyboard.Key.ctrl_l in self.pressed                     and self.event_t - self._ctrl_l_t <= ALTGR_GAP:
+                self.pressed.discard(keyboard.Key.ctrl_l)   # AltGr's made-up Left Ctrl, when the hook filter missed it
+            if self.combo_was_down and not any(key in group for group in self.hotkey):
+                self.combo_other_key = True
             keyed = self._keyed(key_vk(key))
             if keyed:   # the main key of a shortcut: never kept in `pressed` (its char varies with the modifiers)
                 for name, chord in keyed:
@@ -516,7 +599,7 @@ class Engine:
                 self.cancel_any()
                 return
             if self.combo_down() and not self.combo_was_down:
-                self.combo_was_down = True
+                self.combo_was_down, self.combo_other_key = True, False
                 self.on_combo_down()
             if self._command_down() and not self.command_was_down:
                 self.command_was_down = True
@@ -564,6 +647,7 @@ class Engine:
     def on_combo_down(self):
         # The tap that keeps the Start menu closed is sent in the hook (_hook_tap), not here.
         if self.busy:
+            self._say_busy()
             return
         now = self._now()
         if self.listening:   # one press could be part of another shortcut (Ctrl+Win+arrows): ending takes a double press
@@ -592,6 +676,15 @@ class Engine:
             else:
                 self.start()
 
+    _busy_told_t = float("-inf")
+
+    def _say_busy(self):
+        """A press while the last recording is still being sent does nothing: say so (at most every BUSY_TOLD_GAP s)."""
+        now = time.monotonic()
+        if now - self._busy_told_t >= BUSY_TOLD_GAP:
+            self._busy_told_t = now
+            self.notify("Vox is still sending the last recording. Press again when the pill is gone.")
+
     def on_combo_up(self):
         if not self.recording or self.hands_free:
             return
@@ -599,6 +692,9 @@ class Engine:
         action = hotkeys.tap_action(hotkeys.style(self.cfg), now - self.press_t, self.command_mode)
         if action == "stop":
             self.stop()
+            return
+        if self.combo_other_key:   # a short press with another key in it was another shortcut (Ctrl+Win+Left, ...): no tap
+            self.cancel()
             return
         self.last_tap_t = now   # a tap: wait for a possible second tap
         if action == "latch":
@@ -681,6 +777,7 @@ class Engine:
             return
         try:
             if copy_only:
+                paste_mod.wait_restored()   # a restore still to come would put the old clipboard over it
                 paste_mod.SystemDeps().clip_set(text, self.cfg.get("clipboard_history", True))
                 self.notify("Your last dictation is on the clipboard.")
                 return
@@ -694,7 +791,8 @@ class Engine:
     # ------------------------------------------------------------ recording
     def start(self):
         tm = timing_mod.Timing()
-        tm.mark("key_down")
+        t = self.event_t   # the key event's time.time(): it may have waited in the hotkey queue (ENG-10)
+        tm.mark("key_down", None if t is None else (time.monotonic() - max(0.0, time.time() - t)) * 1000)
         if not self._ready():
             return
         self.target = foreground_app()
@@ -801,16 +899,23 @@ class Engine:
             self.notify("Your chosen microphone is not connected. Using the Windows default one.")
 
     def _start_stream(self, device, callback):
-        self.stream = sd.InputStream(samplerate=core.SAMPLE_RATE, channels=1, dtype="int16",
-                                     device=device, callback=callback)
-        self.stream.start()
+        stream = sd.InputStream(samplerate=core.SAMPLE_RATE, channels=1, dtype="int16", device=device, callback=callback)
+        try:
+            stream.start()
+        except Exception:   # sounddevice has no __del__: a stream that did not start stays open unless closed (ENG-12)
+            try:
+                stream.close()
+            except Exception:
+                pass
+            raise
+        self.stream = stream
 
     def _refresh_audio(self):
         """PortAudio lists the devices once, when it starts. Starts it again so a microphone plugged in later shows up.
         Only while none of our streams is open, and at most once every AUDIO_REFRESH_SECONDS (restarting PortAudio takes
         time, and a missing microphone would otherwise restart it for every dictation); True when it was done."""
         now = time.monotonic()
-        if self.recording or self.listening or now - self._audio_refresh_t < AUDIO_REFRESH_SECONDS                 or (self.warm is not None and self.warm.is_open):   # restarting PortAudio would kill the warm stream
+        if self.recording or self.listening or now - self._audio_refresh_t < AUDIO_REFRESH_SECONDS                 or (self.warm is not None and (self.warm.is_open or self.warm.busy)):   # restarting PortAudio would kill the warm stream, or pull it from under its open (ENG-13)
             return False
         self._audio_refresh_t = now
         try:
@@ -834,9 +939,10 @@ class Engine:
     def _close_stream(self):
         if self.warm is not None and self.warm.detach():
             return   # the recording was fed by the warm microphone: it stays open for the next one
+        stream = self.stream   # read once: a slow stop must not close a stream a newer recording opened meanwhile
         try:
-            self.stream.stop()
-            self.stream.close()
+            stream.stop()
+            stream.close()
         except Exception:
             pass
 
@@ -879,6 +985,7 @@ class Engine:
             streamer.cancel()
             streamer = None
         pcm = b"".join(self.chunks)
+        self.chunks = []   # up to 35 MB after a long recording: not kept until the next one (ENG-12)
         if len(pcm) - self._preroll < core.SAMPLE_RATE * 2 * MIN_SECONDS:   # the 400 ms before the key do not count
             if streamer:
                 streamer.cancel()
@@ -919,16 +1026,36 @@ class Engine:
         self.sync.trigger()
         self.notify("Note saved: " + saved["title"], private=True)
 
-    def retry_last(self, *_):
-        """Sends again the last recording that could not be sent."""
-        if self.busy or self.recording or self.listening or self.pending is None:
-            return
-        pcm, exe, note = self.pending
-        self.busy = True
-        self.set_state("busy")
-        threading.Thread(target=self._process, args=(pcm, exe, note), daemon=True).start()
+    def retry_label(self):
+        """The tray item that sends a kept recording again; it says how many wait when there is more than one."""
+        n = len(self.pending)
+        return "Retry last dictation" if n <= 1 else "Retry dictation (%d waiting)" % n
 
-    def _process(self, pcm, exe, note=False, streamer=None, tm=None):
+    def retry_last(self, *_):
+        """Sends again the oldest recording that could not be sent (ENG-1: each failed one is kept until it is delivered)."""
+        if self.busy or self.recording or self.listening or not self.pending:
+            return
+        kept = self.pending[0]
+        pcm, exe, note = kept
+        self.busy = True
+        self.target = exe   # the paste checks the window of that recording, not the one of the last recording started
+        self.set_state("busy")
+        threading.Thread(target=self._process, args=(pcm, exe, note, None, None, kept), daemon=True).start()
+
+    def _keep(self, pcm, exe, note, kept):
+        """Keeps a recording that could not be sent. A retried one (`kept`) goes to the back of the line, a new one is
+        added; at most MAX_PENDING are kept (the oldest goes). A dictation that succeeds never clears another one."""
+        if kept is not None:
+            self.pending = [p for p in self.pending if p is not kept] + [kept]
+            return
+        self.pending = (self.pending + [(pcm, exe, note)])[-MAX_PENDING:]
+
+    def _delivered(self, kept):
+        """The retried recording `kept` (None: a new dictation) got through: only it leaves the kept ones."""
+        if kept is not None:
+            self.pending = [p for p in self.pending if p is not kept]
+
+    def _process(self, pcm, exe, note=False, streamer=None, tm=None, kept=None):
         secs = len(pcm) / (core.SAMPLE_RATE * 2)
         keep = " Your recording is kept: tray icon > Retry last dictation."
         delivered = False   # the text was pasted or the note saved: nothing left to retry
@@ -947,8 +1074,16 @@ class Engine:
                         tm.mark("stt_done")
                 else:
                     raw_streamed = None
+                partial = streamer.partial() if raw_streamed is None and hasattr(streamer, "partial") else None
                 if raw_streamed is not None:   # with the pieces' segment times, so pauses still make paragraphs
                     res = core.process_text(self.cfg, raw_streamed, label, label, segments=getattr(streamer, "segments", None))
+                elif partial:   # a piece failed: keep the text before it, send only the rest (ENG-7)
+                    said, done = partial
+                    log.info("streaming: a piece failed, sending only the rest (%d of %d bytes)", len(pcm) - done, len(pcm))
+                    raw = (said + " " + core.transcribe_rest(self.cfg, pcm[done:], said)).strip()
+                    if tm:
+                        tm.mark("stt_done")
+                    res = core.process_text(self.cfg, raw, label, label)
                 else:
                     res = core.process_detailed(self.cfg, pcm, label, label)
             raw, text = res.raw, res.text
@@ -991,15 +1126,15 @@ class Engine:
                     except Exception:   # the text already landed: log it, never flash error over "sent"
                         log.exception("could not save the history entry")
             if keep_pending:
-                self.pending = (pcm, exe, note)
+                self._keep(pcm, exe, note, kept)
             else:
-                self.pending = None
+                self._delivered(kept)
                 delivered = True
             if outcome:
                 self.flash(outcome)
         except core.ApiError as e:
             log.error("api error: %s", e)
-            self.pending = (pcm, exe, note)
+            self._keep(pcm, exe, note, kept)
             if e.code == 401:
                 if core.providers.uses_relay(self.cfg):
                     self.notify(core.providers.explain(401, "llm", via_relay=True) + keep)
@@ -1011,13 +1146,13 @@ class Engine:
                 self.notify(str(e) + keep)
             self.flash("error")
         except requests.RequestException as e:
-            self.pending = (pcm, exe, note)
+            self._keep(pcm, exe, note, kept)
             self.notify(f"Network error: {e}." + keep)
             self.flash("error")
         except Exception as e:
             log.exception("processing failed")
             if not delivered:   # a dictation is never thrown away on an unexpected error
-                self.pending = (pcm, exe, note)
+                self._keep(pcm, exe, note, kept)
                 self.notify("Something went wrong (%s)." % type(e).__name__ + keep)
             self.flash("error")
         finally:
@@ -1030,15 +1165,18 @@ class Engine:
         # paste.py checks the window is still the one the dictation started in, sends Ctrl+V, and restores the
         # old clipboard only when keep_clipboard is off and the clipboard still holds our text. Every dictation goes
         # through here (hold-to-talk, the keep-listening Type target, a recovered session), so clipboard_history applies to all.
+        # It returns once the paste keys are sent: the old clipboard comes back on a thread (ENG-3), and the next paste or
+        # copy waits for it (paste.wait_restored).
         result = paste_mod.paste_text(text, self.target, self.cfg.get("keep_clipboard", False),
-                                      clipboard_history=self.cfg.get("clipboard_history", True))
+                                      clipboard_history=self.cfg.get("clipboard_history", True), background=True)
         if result == paste_mod.COPIED:
             self.notify("Copied; the window changed")
             return False
         if result == paste_mod.BLOCKED:
             self._say_elevated()
             return False
-        correction_watch.arm(text, self.cfg, self.notify)   # Learn from my corrections: watch this field for the user's fixes
+        correction_watch.arm(text, self.cfg, self.notify,   # Learn from my corrections: watch this field for the user's fixes
+                             quiet=lambda: self.recording or self.listening is not None)   # no reads while recording (ENG-2)
         return True
 
     def _say_elevated(self):
@@ -1332,9 +1470,7 @@ class Engine:
             log.exception("could not recover unfinished meetings")
         self._hotkey_q = queue.Queue()   # from here on the hook only queues the keys (R2-M1)
         threading.Thread(target=self._hotkey_loop, daemon=True, name="vox-hotkey").start()
-        listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
-        listener.daemon = True
-        listener.start()
+        self.install_hook()
         threading.Thread(target=self._watch_config, daemon=True).start()
         threading.Thread(target=self._serve, daemon=True, name="control").start()
         threading.Thread(target=self._watch_calendar, daemon=True, name="calendar").start()

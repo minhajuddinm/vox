@@ -8,6 +8,9 @@ under the lock, reads without it, and uses the answer only if the watch is still
 read through Windows UI Automation (the .NET UIAutomationClient, through pythonnet, which pywebview already brings), behind
 the small Provider interface so tests use a fake. Password controls are never read. A control that exposes no text
 (terminals, many Electron apps) ends the watch quietly; this is logged once. Nothing here logs text: only counts.
+Only .NET methods reach into the other app (ENG-2): pythonnet holds the GIL while a property getter runs, so a slow app
+answering a property would freeze all of Vox (the keyboard hook, the audio callback, the pill). Nothing is read while
+Vox records (`quiet`).
 """
 import importlib.util
 import logging
@@ -52,25 +55,28 @@ class UiaProvider(Provider):
             for name in self.ASSEMBLIES:
                 clr.AddReference(name + ", Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35")
             from System.Windows.Automation import AutomationElement, TextPattern, ValuePattern
-            self._uia = (AutomationElement, TextPattern, ValuePattern)
+            self._uia = (AutomationElement, TextPattern, ValuePattern, clr.GetClrType)
         return self._uia
 
     def focused_text(self):
-        element_cls, text_pattern, value_pattern = self._load()
-        el = element_cls.FocusedElement
+        """Methods only: GetCurrentPropertyValue and GetCurrentPattern, and reflection (PropertyInfo.GetValue, a method)
+        for the two properties that have no method (FocusedElement, DocumentRange). A .NET method call releases the GIL,
+        a property getter does not (ENG-2)."""
+        element_cls, text_pattern, value_pattern, clr_type = self._load()
+        el = clr_type(element_cls).GetProperty("FocusedElement").GetValue(None, None)
         if el is None:
             return None, False
-        if el.Current.IsPassword:
+        if el.GetCurrentPropertyValue(element_cls.IsPasswordProperty):
             return None, True
         text = None
         try:   # TextPattern: Word, browsers' text areas, rich edit controls
             pat = el.GetCurrentPattern(text_pattern.Pattern)
             pat = getattr(pat, "__implementation__", pat)
-            text = pat.DocumentRange.GetText(autolearn.MAX_TEXT + 1)
+            text = pat.GetType().GetProperty("DocumentRange").GetValue(pat, None).GetText(autolearn.MAX_TEXT + 1)
         except Exception:
             try:   # ValuePattern: single-line edits, many simple fields
-                pat = el.GetCurrentPattern(value_pattern.Pattern)
-                text = getattr(pat, "__implementation__", pat).Current.Value
+                el.GetCurrentPattern(value_pattern.Pattern)   # raises when the control has none
+                text = el.GetCurrentPropertyValue(value_pattern.ValueProperty)
             except Exception:
                 text = None
         return (None if text is None else str(text)), False
@@ -94,6 +100,7 @@ class Watcher:
         self._wake = threading.Event()
         self._thread = None
         self._told_no_text = False
+        self.quiet = lambda: False   # True while Vox records: nothing is read then (set by arm)
 
     def arm(self, text, start_thread=True):
         """Vox just pasted `text` into the foreground window: watch it (a running watch ends first and is learned from)."""
@@ -116,7 +123,10 @@ class Watcher:
 
     def poll_once(self):
         """One look at the desktop. Reads the focused control only while the pasted-into window is in front. The desktop
-        is asked without the lock; if the watch ended or a new one was armed meanwhile, the answer is dropped."""
+        is asked without the lock; if the watch ended or a new one was armed meanwhile, the answer is dropped. Skipped
+        while Vox records (`quiet`): a slow answer must not cost the recording its audio."""
+        if self.quiet():
+            return
         with self.lock:
             if not self.watch.armed:
                 return
@@ -197,8 +207,9 @@ def _get():
         return _watcher
 
 
-def arm(text, cfg, notify=None):
-    """The engine pasted `text`: watch for the user's fixes (setting auto_learn). Never raises."""
+def arm(text, cfg, notify=None, quiet=None):
+    """The engine pasted `text`: watch for the user's fixes (setting auto_learn). `quiet()` is True while Vox records
+    (nothing is read then). Never raises."""
     try:
         w = _get()
         if w is None:
@@ -207,6 +218,8 @@ def arm(text, cfg, notify=None):
             w.end()
             return
         w.notify = notify
+        if quiet is not None:
+            w.quiet = quiet
         w.arm(text)
     except Exception:
         log.exception("auto-learn could not start")

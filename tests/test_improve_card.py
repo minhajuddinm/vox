@@ -169,7 +169,7 @@ def test_cleanup_still_sends_the_same_request(monkeypatch):
     monkeypatch.setattr(core.requests, "post", lambda url, **kw: seen.append(kw) or Reply(content="Hello there."))
     assert core.cleanup(cfg_of(api_key="k"), "hello there", "neutral", "") == "Hello there."
     body = seen[0]["json"]
-    assert body["temperature"] == 0.2 and body["max_tokens"] == 1024 and body["reasoning_effort"] == "low"
+    assert body["temperature"] == 0 and body["max_tokens"] == 1024 and body["reasoning_effort"] == "low"
     assert body["messages"][1] == {"role": "user", "content": "<transcript>\nhello there\n</transcript>"}
 
 

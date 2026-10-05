@@ -129,3 +129,28 @@ def test_the_microphone_is_opened_on_the_hotkey_thread_not_in_the_keyboard_hook(
     monkeypatch.setattr(eng, "on_combo_down", lambda: opened.append("mic"), raising=False)
     eng.on_press(engine_mod.keyboard.Key.cmd)                          # what the hook runs
     assert opened == [] and eng._hotkey_q.qsize() == 1
+
+
+# ---- ENG-12 / ENG-13 ------------------------------------------------------------------------------------------------------
+def test_a_stream_that_fails_to_start_is_closed(eng, monkeypatch):
+    closed = []
+
+    class Sd(FakeSd):
+        def InputStream(self, **kw):
+            def start():
+                raise self.PortAudioError("Unanticipated host error")
+            return types.SimpleNamespace(start=start, close=lambda: closed.append(kw["device"]))
+
+    monkeypatch.setattr(engine_mod, "sd", Sd())
+    with pytest.raises(FakeSd.PortAudioError):
+        eng._start_stream(None, lambda *a: None)
+    assert closed == [None] and eng.stream is None
+
+
+def test_portaudio_is_not_restarted_while_the_warm_microphone_is_being_opened(eng, monkeypatch):
+    sd = FakeSd()
+    monkeypatch.setattr(engine_mod, "sd", sd)
+    eng.warm = types.SimpleNamespace(is_open=False, busy=True)   # the config thread is inside Pa_OpenStream
+    assert eng._refresh_audio() is False and sd.terminated == 0
+    eng.warm = types.SimpleNamespace(is_open=False, busy=False)
+    assert eng._refresh_audio() is True and sd.terminated == 1
