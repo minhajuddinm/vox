@@ -1202,3 +1202,5 @@ autocorrect	the meeting is at noon	the meetings are at noon
 autocorrect	the meeting is.	the meetings are.	
 autocorrect	we use dock daily	we use docker daily	
 autocorrect	we use dock daily	we use Docker daily	dock=>Docker
+autocorrect	the child is here	the children are here	
+autocorrect	the knife is sharp	the knives are sharp	

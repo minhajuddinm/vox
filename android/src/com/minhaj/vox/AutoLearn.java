@@ -274,7 +274,7 @@ final class AutoLearn {
         if (a.size() != b.size()) return false;
         for (int i = 0; i < a.size(); i++) {
             String x = wordChars(a.get(i)), y = wordChars(b.get(i));
-            if (x.equals(y) || (a.size() > 1 && common(x) && common(y) && noCapital(b.get(i)))) continue;   // not a word made a name
+            if (x.equals(y) || (a.size() > 1 && common(x) && noCapital(b.get(i)))) continue;   // not a word made a name
             Set<String> common = stems(x);
             common.retainAll(stems(y));
             if (common.isEmpty()) return false;

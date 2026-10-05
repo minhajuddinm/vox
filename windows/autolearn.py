@@ -175,7 +175,7 @@ def grammar_edit(wrong, right):
     def common(w):
         return w in core.COMMON_WORDS or w in SHORT_WORDS
     return len(a) == len(b) and all(x == y or _stems(x) & _stems(y)
-                                    or (len(a) > 1 and common(x) and common(y) and not any(c.isupper() for c in r))
+                                    or (len(a) > 1 and common(x) and not any(c.isupper() for c in r))
                                     for x, y, r in zip(a, b, tb))
 
 
