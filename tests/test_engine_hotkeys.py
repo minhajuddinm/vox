@@ -32,7 +32,7 @@ def eng(tmp_path, monkeypatch):
     e = object.__new__(engine_mod.Engine)
     e.cfg = {"keep_history": False, "hotkey": ["ctrl_l", "cmd"], "note_hotkey": "", "hands_free_hotkey": "ctrl+cmd+space"}
     e.recording = e.busy = e.hands_free = e.note_mode = False
-    e.listening, e.pending, e.streaming, e.timing, e.target = None, None, None, None, ""
+    e.listening, e.pending, e.streaming, e.timing, e.target = None, [], None, None, ""
     e.pressed, e.last_tap_t, e.press_t, e.combo_was_down = set(), 0.0, 0.0, False
     e.hotkey = [engine_mod.KEY_ALIASES["ctrl"], engine_mod.KEY_ALIASES["cmd"]]
     e.note_hotkey = None

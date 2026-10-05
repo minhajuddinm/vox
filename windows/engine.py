@@ -51,6 +51,7 @@ AUDIO_REFRESH_SECONDS = 30   # PortAudio's device list is rebuilt at most this o
 # in android/src/com/minhaj/vox/BubbleView.java (tests/test_flash_constants.py checks it).
 FLASH_SECONDS = {"sent": 0.7, "error": 1.8}
 STUCK_MARGIN = 60       # a recording this long past its longest limit (hands-free) means the audio callback stopped
+MAX_PENDING = 5         # failed recordings kept for Retry, oldest first (as Android's PendingQueue.MAX_KEPT)
 
 KEY_ALIASES = {
     "ctrl": {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r},
@@ -157,7 +158,7 @@ class Engine:
         self.pressed = set()
         self.recording = False
         self.busy = False
-        self.pending = None           # (pcm, exe, note) of a dictation that could not be sent; kept for Retry
+        self.pending = []             # [(pcm, exe, note)] of the dictations that could not be sent, oldest first; for Retry
         self._rec_lock = threading.Lock()
         self.chunks = []
         self.stream = None
@@ -185,7 +186,7 @@ class Engine:
             "Vox", ICONS["idle"], "Vox",
             menu=pystray.Menu(
                 pystray.MenuItem("Open Vox", lambda *_: open_window(), default=True),
-                pystray.MenuItem("Retry last dictation", self.retry_last, visible=lambda _: self.pending is not None),
+                pystray.MenuItem(lambda _: self.retry_label(), self.retry_last, visible=lambda _: bool(self.pending)),
                 pystray.MenuItem(lambda _: "Finish voice note" if self.note_mode and self.recording else "New voice note",
                                  self.toggle_note),
                 pystray.MenuItem(lambda _: "Stop meeting notes" if self.meeting.active else "Start meeting notes",
@@ -919,16 +920,36 @@ class Engine:
         self.sync.trigger()
         self.notify("Note saved: " + saved["title"], private=True)
 
-    def retry_last(self, *_):
-        """Sends again the last recording that could not be sent."""
-        if self.busy or self.recording or self.listening or self.pending is None:
-            return
-        pcm, exe, note = self.pending
-        self.busy = True
-        self.set_state("busy")
-        threading.Thread(target=self._process, args=(pcm, exe, note), daemon=True).start()
+    def retry_label(self):
+        """The tray item that sends a kept recording again; it says how many wait when there is more than one."""
+        n = len(self.pending)
+        return "Retry last dictation" if n <= 1 else "Retry dictation (%d waiting)" % n
 
-    def _process(self, pcm, exe, note=False, streamer=None, tm=None):
+    def retry_last(self, *_):
+        """Sends again the oldest recording that could not be sent (ENG-1: each failed one is kept until it is delivered)."""
+        if self.busy or self.recording or self.listening or not self.pending:
+            return
+        kept = self.pending[0]
+        pcm, exe, note = kept
+        self.busy = True
+        self.target = exe   # the paste checks the window of that recording, not the one of the last recording started
+        self.set_state("busy")
+        threading.Thread(target=self._process, args=(pcm, exe, note, None, None, kept), daemon=True).start()
+
+    def _keep(self, pcm, exe, note, kept):
+        """Keeps a recording that could not be sent. A retried one (`kept`) goes to the back of the line, a new one is
+        added; at most MAX_PENDING are kept (the oldest goes). A dictation that succeeds never clears another one."""
+        if kept is not None:
+            self.pending = [p for p in self.pending if p is not kept] + [kept]
+            return
+        self.pending = (self.pending + [(pcm, exe, note)])[-MAX_PENDING:]
+
+    def _delivered(self, kept):
+        """The retried recording `kept` (None: a new dictation) got through: only it leaves the kept ones."""
+        if kept is not None:
+            self.pending = [p for p in self.pending if p is not kept]
+
+    def _process(self, pcm, exe, note=False, streamer=None, tm=None, kept=None):
         secs = len(pcm) / (core.SAMPLE_RATE * 2)
         keep = " Your recording is kept: tray icon > Retry last dictation."
         delivered = False   # the text was pasted or the note saved: nothing left to retry
@@ -991,15 +1012,15 @@ class Engine:
                     except Exception:   # the text already landed: log it, never flash error over "sent"
                         log.exception("could not save the history entry")
             if keep_pending:
-                self.pending = (pcm, exe, note)
+                self._keep(pcm, exe, note, kept)
             else:
-                self.pending = None
+                self._delivered(kept)
                 delivered = True
             if outcome:
                 self.flash(outcome)
         except core.ApiError as e:
             log.error("api error: %s", e)
-            self.pending = (pcm, exe, note)
+            self._keep(pcm, exe, note, kept)
             if e.code == 401:
                 if core.providers.uses_relay(self.cfg):
                     self.notify(core.providers.explain(401, "llm", via_relay=True) + keep)
@@ -1011,13 +1032,13 @@ class Engine:
                 self.notify(str(e) + keep)
             self.flash("error")
         except requests.RequestException as e:
-            self.pending = (pcm, exe, note)
+            self._keep(pcm, exe, note, kept)
             self.notify(f"Network error: {e}." + keep)
             self.flash("error")
         except Exception as e:
             log.exception("processing failed")
             if not delivered:   # a dictation is never thrown away on an unexpected error
-                self.pending = (pcm, exe, note)
+                self._keep(pcm, exe, note, kept)
                 self.notify("Something went wrong (%s)." % type(e).__name__ + keep)
             self.flash("error")
         finally:

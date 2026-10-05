@@ -51,7 +51,7 @@ def eng(tmp_path, monkeypatch):
     FakeListening.made = []
     e = object.__new__(engine_mod.Engine)
     e.recording = e.busy = e.hands_free = e.note_mode = False
-    e.cfg, e.target, e.pending, e.streaming = {"keep_history": False}, "", None, None
+    e.cfg, e.target, e.pending, e.streaming = {"keep_history": False}, "", [], None
     e.pressed, e.last_tap_t, e.press_t, e.combo_was_down = set(), 0.0, 0.0, False
     e.hotkey = [engine_mod.KEY_ALIASES["ctrl"], engine_mod.KEY_ALIASES["cmd"]]
     e.messages, e.states, e.flashes, e.opened = [], [], [], []
@@ -156,9 +156,9 @@ def test_notes_and_retries_wait_while_a_session_runs(eng):
     eng.listening = FakeListening(eng, {}, "note")
     eng.toggle_note()
     assert not eng.note_mode
-    eng.pending = (b"x", "a.exe", False)
+    eng.pending = [(b"x", "a.exe", False)]
     eng.retry_last()
-    assert eng.states == [] and eng.pending is not None
+    assert eng.states == [] and eng.pending
 
 
 # ------------------------------------------------------------------ starting and stopping

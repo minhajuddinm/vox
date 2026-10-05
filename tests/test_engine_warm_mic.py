@@ -69,7 +69,7 @@ def eng(sd, monkeypatch):
     e.recording = e.busy = e.hands_free = e.note_mode = False
     e.listening, e.stream, e.streaming = None, None, None
     e.cfg = {"warm_mic": True, "input_device": "", "stream_stt": False, "keep_history": False}
-    e.chunks, e.target, e.pending, e.timing = [], "notepad.exe", None, None
+    e.chunks, e.target, e.pending, e.timing = [], "notepad.exe", [], None
     e.started_at = 0.0
     e.level = 0.0
     e.messages, e.states = [], []

@@ -23,7 +23,7 @@ def eng(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     e = object.__new__(engine_mod.Engine)
     e.recording = e.busy = e.hands_free = e.note_mode = False
-    e.chunks, e.cfg, e.target, e.pending = [], {"keep_history": False}, "notepad.exe", None
+    e.chunks, e.cfg, e.target, e.pending = [], {"keep_history": False}, "notepad.exe", []
     e.messages, e.pasted, e.states = [], [], []
     e.streaming = None
     e.sync = type("S", (), {"triggered": 0, "trigger": lambda self: setattr(self, "triggered", self.triggered + 1)})()
@@ -98,10 +98,10 @@ def test_failed_note_is_kept_for_retry_as_a_note(eng, monkeypatch):
     eng.toggle_note()
     eng.chunks = speech()
     eng.stop()
-    assert eng.pending[2] is True and notes.count() == 0
+    assert eng.pending[0][2] is True and notes.count() == 0
     monkeypatch.setattr(core, "process_detailed", lambda cfg, pcm, exe, label: ok_result("Second try."))
     eng.retry_last()
-    assert eng.pending is None and [n["text"] for n in notes.search("")] == ["Second try."] and eng.pasted == []
+    assert eng.pending == [] and [n["text"] for n in notes.search("")] == ["Second try."] and eng.pasted == []
 
 
 def test_silent_note_is_not_saved(eng, monkeypatch):

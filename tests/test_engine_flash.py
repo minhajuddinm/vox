@@ -32,7 +32,7 @@ def eng(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     e = object.__new__(engine_mod.Engine)
     e.recording = e.busy = e.hands_free = e.note_mode = False
-    e.chunks, e.cfg, e.target, e.pending = [], {"keep_history": False, "stream_stt": False}, "notepad.exe", None
+    e.chunks, e.cfg, e.target, e.pending = [], {"keep_history": False, "stream_stt": False}, "notepad.exe", []
     e.messages = []
     e.state, e.level = "idle", 0.0
     e.streaming = None
@@ -180,7 +180,7 @@ def test_a_failed_send_flashes_error_and_keeps_its_balloon(eng, monkeypatch):
     dictate(eng, monkeypatch, raises=core.ApiError(401, "no"))
     assert eng.active_flash() == "error" and eng.state == "idle"
     assert eng.messages and eng.messages[0].startswith("The server rejected the API key")
-    assert eng.pending is not None
+    assert eng.pending
 
 
 @pytest.mark.parametrize("error", [core.ApiError(429, "slow down"), core.ApiError(503, "down"),
@@ -267,7 +267,7 @@ def test_a_history_failure_after_a_successful_paste_still_flashes_sent(eng, monk
 
     monkeypatch.setattr(core, "add_history", boom)
     dictate(eng, monkeypatch)
-    assert eng.active_flash() == "sent" and eng.state == "idle" and eng.pending is None
+    assert eng.active_flash() == "sent" and eng.state == "idle" and eng.pending == []
 
 
 def test_history_keeps_the_raw_words_and_flags_a_guard_fallback(eng, monkeypatch):
