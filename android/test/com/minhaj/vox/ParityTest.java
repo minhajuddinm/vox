@@ -75,7 +75,8 @@ public final class ParityTest {
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
         for (String r : items(runs, "|")) {
             char k = r.charAt(0);
-            int v = k == 't' ? 8000 : k == 'q' ? 899 : k == 'n' ? 900 : k == 'm' ? 2000 : k == 'v' ? 655 : k == 'w' ? 654 : 0;
+            int v = k == 't' ? 8000 : k == 'q' ? 899 : k == 'n' ? 900 : k == 'm' ? 2000 : k == 'v' ? 655 : k == 'w' ? 654
+                    : k == 'h' ? 500 : k == 'r' ? 100 : k == 'x' ? 327 : k == 'y' ? 326 : 0;
             int n = Integer.parseInt(r.substring(1)) * 16;
             for (int i = 0; i < n; i++) { out.write(v & 0xff); out.write((v >> 8) & 0xff); }
         }

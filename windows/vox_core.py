@@ -721,8 +721,10 @@ STRENGTH_TEXT = {   # the strength's own lines of "Allowed edits"
 PROMPT_NEVER = (
     "Never add words, answers, greetings, sign-offs or explanations. Never reorder, summarise, shorten or reword. Never "
     "translate or transliterate: mixed Hindi and English stays mixed, each word in the script it was spoken in, and Hindi "
-    "words written in Latin letters are not \"corrected\".\n"
-    "If the transcript is only noises or fillers, return exactly: " + EMPTY_ANSWER)
+    "words written in Latin letters are not \"corrected\".\n")
+# Light keeps fillers, so only noises make an EMPTY there (the guard accepts EMPTY only for words the strength may drop)
+EMPTY_TEXT = {"light": "If the transcript is only noises, return exactly: " + EMPTY_ANSWER,
+              "standard": "If the transcript is only noises or fillers, return exactly: " + EMPTY_ANSWER}
 EXAMPLES = (   # (transcript, Light output, Standard output when it differs)
     ("hey can you send me the invoice for march when you get a chance question mark thanks",
      "Hey, can you send me the invoice for March when you get a chance? Thanks.", None),
@@ -775,6 +777,7 @@ def static_prompt(strength="light"):
     examples = "\n\n".join("<transcript>" + src + "</transcript>\n" + (std if standard and std else light)
                            for src, light, std in EXAMPLES)
     return (PROMPT_HEAD + "\n" + STRENGTH_TEXT["standard" if standard else "light"] + "\n\n" + PROMPT_NEVER
+            + EMPTY_TEXT["standard" if standard else "light"]
             + "\n\nExamples:\n\n" + examples)
 
 
@@ -2160,8 +2163,10 @@ def is_silent(pcm_bytes, threshold=SILENCE_PEAK):
 
 # Edge-silence trim before upload (twin: Pcm.edgeTrim / Pcm.trimEdges, golden rows "edgetrim"). Whisper invents text in
 # long silence ("Thank you."), most often at the start or end of a clip; the pauses inside are kept (paragraph breaks).
-TRIM_PAD_FRAMES = 7    # about 200 ms (7 frames of 30 ms) of the quiet before the first and after the last speech is kept
+TRIM_PAD_FRAMES = 10   # 300 ms (10 frames of 30 ms) of the quiet before the first and after the last speech is kept
 TRIM_RUN_FRAMES = 3    # speech = this many frames in a row (90 ms) at SILENCE_PEAK or louder: a lone click is not speech
+TRIM_SOFT_PEAK = SILENCE_PEAK // 2   # from there the edge moves out over softer frames (a quiet first or last word) ...
+TRIM_GAP_FRAMES = 10   # ... with at most this many quieter frames (300 ms) between them
 
 
 def frame_peaks(pcm_bytes):
@@ -2190,9 +2195,11 @@ def frame_peaks(pcm_bytes):
 
 def edge_trim(peaks, lead=True, tail=True):
     """(first, end): the frames of a recording to send, from the frame peaks. Speech is the first and the last run of
-    TRIM_RUN_FRAMES frames at SILENCE_PEAK or louder; TRIM_PAD_FRAMES of the quiet next to it stay. `lead` / `tail` say which
-    edge may be cut (a streamed first piece only loses its start, the last one only its end). With no such run nothing is
-    cut, (0, len(peaks)): a recording is never trimmed to nothing, and the silence gate decides about it as before."""
+    TRIM_RUN_FRAMES frames at SILENCE_PEAK or louder; each edge then moves outward over frames at TRIM_SOFT_PEAK or louder
+    with at most TRIM_GAP_FRAMES quieter frames between (a soft "so" before a pause), and TRIM_PAD_FRAMES of the quiet next
+    to it stay. `lead` / `tail` say which edge may be cut (a streamed first piece only loses its start, the last one only
+    its end). With no such run nothing is cut, (0, len(peaks)): a recording is never trimmed to nothing, and the silence
+    gate decides about it as before."""
     n = len(peaks)
     first = last = None
     run = 0
@@ -2204,6 +2211,14 @@ def edge_trim(peaks, lead=True, tail=True):
             last = i
     if first is None:
         return 0, n
+    gap, k = 0, first - 1
+    while k >= 0 and gap <= TRIM_GAP_FRAMES:
+        first, gap = (k, 0) if peaks[k] >= TRIM_SOFT_PEAK else (first, gap + 1)
+        k -= 1
+    gap, k = 0, last + 1
+    while k < n and gap <= TRIM_GAP_FRAMES:
+        last, gap = (k, 0) if peaks[k] >= TRIM_SOFT_PEAK else (last, gap + 1)
+        k += 1
     return (max(0, first - TRIM_PAD_FRAMES) if lead else 0), (min(n, last + 1 + TRIM_PAD_FRAMES) if tail else n)
 
 
@@ -2645,20 +2660,47 @@ def wants_segments(cfg, model):
 SEG_NO_SPEECH = 0.5     # no_speech_prob above this ...
 SEG_LOGPROB = -1.0      # ... with avg_logprob below this: silence
 SEG_COMPRESSION = 2.4   # compression_ratio above this: "either the either the either the"
+SEG_LOOP_REPEATS = 3    # a dictation's loop also repeats the same 3 words this often (Hindi in Devanagari compresses
+                        # to 2.5 without repeating anything: compression alone is not a loop there)
 
 
 def keep_segment(no_speech, logprob, compression):
-    """False for a segment that is most likely not speech (see SEG_NO_SPEECH)."""
+    """False for a segment that is most likely not speech by its scores alone (see SEG_NO_SPEECH; the meeting transcript)."""
     return not (compression > SEG_COMPRESSION or (logprob < SEG_LOGPROB and no_speech > SEG_NO_SPEECH))
 
 
+def _repeats(text):
+    """True when the same 3 words in a row come SEG_LOOP_REPEATS times or more (word_tokens; overlaps count)."""
+    w, seen = word_tokens(text), {}
+    for i in range(len(w) - 2):
+        key = (w[i], w[i + 1], w[i + 2])
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] >= SEG_LOOP_REPEATS:
+            return True
+    return False
+
+
+def segments_kept(segments):
+    """Which segments of a dictation to keep (twin: ApiClient.segmentsKept): a loop (compression above SEG_COMPRESSION and
+    its text repeats, _repeats) goes anywhere; silence filled with words (no_speech and logprob, see SEG_NO_SPEECH) only as
+    the first or the last segment, where Whisper invents it. When no kept segment would have text, all are kept: a short
+    real phrase can score like silence, and the edge trim and the silence gate deal with real silence."""
+    n = len(segments)
+    keep = [not ((s["compression"] > SEG_COMPRESSION and _repeats(s["text"]))
+                 or ((i == 0 or i == n - 1) and s["logprob"] < SEG_LOGPROB and s["no_speech"] > SEG_NO_SPEECH))
+            for i, s in enumerate(segments)]
+    if not any(k and s["text"] for k, s in zip(keep, segments)):
+        return [True] * n
+    return keep
+
+
 def kept_text(text, segments):
-    """The transcript without the segments keep_segment drops: `text` unchanged when none is dropped, else the texts of
-    the kept segments joined by a space ("" when none is left). `segments`: dicts with text, no_speech, logprob, compression."""
-    kept = [s for s in segments if keep_segment(s["no_speech"], s["logprob"], s["compression"])]
-    if len(kept) == len(segments):
+    """The transcript without the segments segments_kept drops: `text` unchanged when none is dropped, else the texts of
+    the kept segments joined by a space. `segments`: dicts with text, no_speech, logprob, compression."""
+    keep = segments_kept(segments)
+    if all(keep):
         return text
-    return " ".join(t for t in (s["text"] for s in kept) if t)
+    return " ".join(s["text"] for k, s in zip(keep, segments) if k and s["text"])
 
 
 def _num(v, default):
@@ -2741,7 +2783,7 @@ def transcribe(cfg, wav_bytes, context=""):
         raise ApiError(0, "The speech server sent an answer Vox could not read")
     segs = _segments_of(res) if data["response_format"] == "verbose_json" else None
     if segs is not None:
-        kept = [s for s in segs if keep_segment(s["no_speech"], s["logprob"], s["compression"])]
+        kept = [s for k, s in zip(segments_kept(segs), segs) if k]
         if len(kept) < len(segs):
             log.info("speech: dropped %d of %d segments as made up (silence or a loop)", len(segs) - len(kept), len(segs))
         text = kept_text(text, segs)

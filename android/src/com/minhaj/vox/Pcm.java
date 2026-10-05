@@ -30,10 +30,14 @@ final class Pcm {
 
     // Edge-silence trim before upload: the twin of vox_core.trim_edges (golden rows "edgetrim"). Whisper invents text in long
     // silence, most often at the start or end of a clip; the pauses inside are kept.
-    /** About 200 ms (7 frames of 30 ms) of the quiet before the first and after the last speech is kept. */
-    static final int TRIM_PAD_FRAMES = 7;
+    /** 300 ms (10 frames of 30 ms) of the quiet before the first and after the last speech is kept. */
+    static final int TRIM_PAD_FRAMES = 10;
     /** Speech = this many frames in a row (90 ms) at {@link #SILENCE_PEAK} or louder: a lone click is not speech. */
     static final int TRIM_RUN_FRAMES = 3;
+    /** From there the edge moves out over softer frames (a quiet first or last word) ... */
+    static final int TRIM_SOFT_PEAK = SILENCE_PEAK / 2;
+    /** ... with at most this many quieter frames (300 ms) between them. */
+    static final int TRIM_GAP_FRAMES = 10;
 
     /** The loudest sample of every 30 ms frame ({@link Segmenter#FRAME} samples); a short last frame counts too. */
     static int[] framePeaks(byte[] pcm) {
@@ -50,8 +54,10 @@ final class Pcm {
 
     /**
      * {first, end}: the frames to send. Speech is the first and the last run of TRIM_RUN_FRAMES frames at SILENCE_PEAK or
-     * louder; TRIM_PAD_FRAMES of the quiet next to it stay. Only the edges asked for are cut. With no such run nothing is
-     * cut: a recording is never trimmed to nothing, and the silence gate decides about it as before.
+     * louder; each edge then moves outward over frames at TRIM_SOFT_PEAK or louder with at most TRIM_GAP_FRAMES quieter
+     * frames between (a soft "so" before a pause), and TRIM_PAD_FRAMES of the quiet next to it stay. Only the edges asked
+     * for are cut. With no such run nothing is cut: a recording is never trimmed to nothing, and the silence gate decides
+     * about it as before.
      */
     static int[] edgeTrim(int[] peaks, boolean lead, boolean tail) {
         int n = peaks.length, first = -1, last = -1, run = 0;
@@ -63,6 +69,12 @@ final class Pcm {
             }
         }
         if (first < 0) return new int[]{0, n};
+        for (int k = first - 1, gap = 0; k >= 0 && gap <= TRIM_GAP_FRAMES; k--) {
+            if (peaks[k] >= TRIM_SOFT_PEAK) { first = k; gap = 0; } else gap++;
+        }
+        for (int k = last + 1, gap = 0; k < n && gap <= TRIM_GAP_FRAMES; k++) {
+            if (peaks[k] >= TRIM_SOFT_PEAK) { last = k; gap = 0; } else gap++;
+        }
         return new int[]{lead ? Math.max(0, first - TRIM_PAD_FRAMES) : 0, tail ? Math.min(n, last + 1 + TRIM_PAD_FRAMES) : n};
     }
 

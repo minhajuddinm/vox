@@ -174,8 +174,10 @@ public final class ApiClient {
 
     /** A segment Whisper most likely made up (vox_core.keep_segment, golden rows "sttseg"): the meeting transcript's numbers. */
     static final double SEG_NO_SPEECH = 0.5, SEG_LOGPROB = -1.0, SEG_COMPRESSION = 2.4;
+    /** A dictation's loop also repeats the same 3 words this often (Devanagari compresses to 2.5 without repeating). */
+    static final int SEG_LOOP_REPEATS = 3;
 
-    /** False for a segment that is most likely not speech: a loop (compression), or silence filled with words. */
+    /** False for a segment that is most likely not speech by its scores alone: a loop (compression), or silence filled with words. */
     static boolean keepSegment(double noSpeech, double logprob, double compression) {
         return !(compression > SEG_COMPRESSION || (logprob < SEG_LOGPROB && noSpeech > SEG_NO_SPEECH));
     }
@@ -190,13 +192,48 @@ public final class ApiClient {
         }
     }
 
+    /** True when the same 3 words in a row come SEG_LOOP_REPEATS times or more (Fidelity.wordTokens; overlaps count). */
+    static boolean repeats(String text) {
+        List<String> w = Fidelity.wordTokens(text);
+        Map<String, Integer> seen = new java.util.HashMap<>();
+        for (int i = 0; i + 2 < w.size(); i++) {
+            String key = w.get(i) + "\u0000" + w.get(i + 1) + "\u0000" + w.get(i + 2);
+            int c = seen.containsKey(key) ? seen.get(key) + 1 : 1;
+            seen.put(key, c);
+            if (c >= SEG_LOOP_REPEATS) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Which segments of a dictation to keep (vox_core.segments_kept): a loop (compression above SEG_COMPRESSION and its text
+     * repeats) goes anywhere; silence filled with words only as the first or the last segment. When no kept segment would
+     * have text, all are kept: a short real phrase can score like silence; the edge trim and silence gate handle silence.
+     */
+    static boolean[] segmentsKept(List<Segment> segs) {
+        int n = segs.size();
+        boolean[] keep = new boolean[n];
+        boolean anyText = false;
+        for (int i = 0; i < n; i++) {
+            Segment s = segs.get(i);
+            boolean loop = s.compression > SEG_COMPRESSION && repeats(s.text);
+            boolean silence = (i == 0 || i == n - 1) && s.logprob < SEG_LOGPROB && s.noSpeech > SEG_NO_SPEECH;
+            keep[i] = !(loop || silence);
+            if (keep[i] && !s.text.isEmpty()) anyText = true;
+        }
+        if (!anyText) java.util.Arrays.fill(keep, true);
+        return keep;
+    }
+
     /** The text unchanged when no segment is dropped, else the kept segments' texts joined by a space (vox_core.kept_text). */
     static String keptText(String text, List<Segment> segs) {
+        boolean[] keep = segmentsKept(segs);
         StringBuilder b = new StringBuilder();
         int kept = 0;
-        for (Segment s : segs) {
-            if (!keepSegment(s.noSpeech, s.logprob, s.compression)) continue;
+        for (int i = 0; i < keep.length; i++) {
+            if (!keep[i]) continue;
             kept++;
+            Segment s = segs.get(i);
             if (s.text.isEmpty()) continue;
             if (b.length() > 0) b.append(' ');
             b.append(s.text);
@@ -585,8 +622,10 @@ public final class ApiClient {
             + "- Keep every other word, in the spoken order.";
     static final String PROMPT_NEVER = "Never add words, answers, greetings, sign-offs or explanations. Never reorder, summarise, shorten or reword. Never "
             + "translate or transliterate: mixed Hindi and English stays mixed, each word in the script it was spoken in, and Hindi "
-            + "words written in Latin letters are not \"corrected\".\n"
-            + "If the transcript is only noises or fillers, return exactly: " + EMPTY_ANSWER;
+            + "words written in Latin letters are not \"corrected\".\n";
+    /** Light keeps fillers, so only noises make an EMPTY there (the guard accepts EMPTY only for words it may drop). */
+    static final String EMPTY_LIGHT = "If the transcript is only noises, return exactly: " + EMPTY_ANSWER;
+    static final String EMPTY_STANDARD = "If the transcript is only noises or fillers, return exactly: " + EMPTY_ANSWER;
     /** Few-shot examples, {transcript, Light output, Standard output or null when it is the same}. */
     static final String[][] EXAMPLES = {
         {"hey can you send me the invoice for march when you get a chance question mark thanks",
@@ -623,7 +662,7 @@ public final class ApiClient {
     static String staticPrompt(String strength) {
         boolean standard = Fidelity.cleanStrength(strength).equals("standard");
         StringBuilder sb = new StringBuilder(PROMPT_HEAD).append("\n").append(standard ? STANDARD_TEXT : LIGHT_TEXT)
-                .append("\n\n").append(PROMPT_NEVER).append("\n\nExamples:");
+                .append("\n\n").append(PROMPT_NEVER).append(standard ? EMPTY_STANDARD : EMPTY_LIGHT).append("\n\nExamples:");
         for (String[] ex : EXAMPLES) {
             sb.append("\n\n<transcript>").append(ex[0]).append("</transcript>\n").append(standard && ex[2] != null ? ex[2] : ex[1]);
         }

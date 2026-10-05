@@ -60,15 +60,26 @@ def test_frame_peaks_are_the_same_with_and_without_numpy(monkeypatch):
     assert len(with_np) == -(-len(audio) // FRAME_BYTES) and 32768 in with_np
 
 
-def test_the_silent_edges_go_and_about_200_ms_of_quiet_stays():
+def test_the_silent_edges_go_and_about_300_ms_of_quiet_stays():
     audio = silence(2) + tone(1) + silence(0.8) + tone(1) + silence(3)
     out, head = core.trim_edges(audio)
     pad = core.TRIM_PAD_FRAMES * FRAME_BYTES
-    assert 0.18 <= pad / (RATE * 2) <= 0.22
+    assert 0.28 <= pad / (RATE * 2) <= 0.32
     assert head == pytest.approx(2.0 - pad / (RATE * 2), abs=0.031)
     assert audio[int(head * RATE * 2):][:len(out)] == out
     assert silence(0.8) in out                                   # the pause inside is untouched
     assert len(out) == pytest.approx(len(tone(1) + silence(0.8) + tone(1)) + 2 * pad, abs=2 * FRAME_BYTES)
+
+
+def test_a_quiet_first_and_last_word_are_sent():
+    # cqf: a soft "so" (peak 500, under SILENCE_PEAK) 300 ms before the speech and a soft "thanks" (600) after a pause
+    soft_in, soft_out = tone(0.24, amp=500), tone(0.3, amp=600)
+    audio = silence(1) + soft_in + silence(0.3) + tone(1) + silence(0.24) + soft_out + silence(1.5)
+    out, head = core.trim_edges(audio)
+    assert soft_in in out and soft_out in out and head > 0 and len(out) < len(audio)   # the silence beyond still goes
+    room = tone(1, amp=250)                                     # room noise under TRIM_SOFT_PEAK is still cut
+    out, head = core.trim_edges(room + tone(1) + room)
+    assert head > 0.5 and len(out) < len(room + tone(1))
 
 
 @pytest.mark.parametrize("audio", [silence(3), silence(1) + tone(0.03) + silence(1), b"", b"\x01"],
@@ -81,7 +92,7 @@ def test_only_the_edge_asked_for_is_cut():
     audio = silence(2) + tone(1) + silence(2)
     lead, h1 = core.trim_edges(audio, lead=True, tail=False)
     tail, h2 = core.trim_edges(audio, lead=False, tail=True)
-    assert lead.endswith(silence(2)) and h1 > 1.7 and audio.endswith(lead)
+    assert lead.endswith(silence(2)) and h1 > 1.6 and audio.endswith(lead)
     assert tail.startswith(silence(1.7)) and h2 == 0.0 and audio.startswith(tail) and len(tail) < len(audio)
 
 
@@ -101,14 +112,15 @@ def test_process_detailed_sends_the_trimmed_audio_and_moves_the_segment_times_ba
     r = core.process_detailed(_cfg(cleanup=False), audio, "x.exe", "x")
     assert len(sent[0]) < len(audio) - 4 * RATE * 2                  # about 4.6 s of silence not sent
     assert r.text == a + "\n\n" + b + " " + c                         # the paragraph break is still at the pause
-    head = (len(audio) - len(sent[0]) - (2 - 0.21) * RATE * 2) / (RATE * 2)
-    assert head == pytest.approx(2.79, abs=0.04)
+    pad = core.TRIM_PAD_FRAMES * 0.03
+    head = (len(audio) - len(sent[0]) - (2 - pad) * RATE * 2) / (RATE * 2)
+    assert head == pytest.approx(3 - pad, abs=0.04)
 
 
 def test_process_detailed_hands_on_segment_times_of_the_whole_recording(monkeypatch):
     seen = {}
     monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer(
-        {"text": "hi", "segments": [{"start": 0.21, "end": 1.0, "text": "hi"}]}))
+        {"text": "hi", "segments": [{"start": core.TRIM_PAD_FRAMES * 0.03, "end": 1.0, "text": "hi"}]}))
     monkeypatch.setattr(core, "process_text", lambda cfg, raw, exe, label, segments=None: seen.setdefault("s", segments))
     core.process_detailed(_cfg(), silence(3) + tone(1) + silence(1), "x.exe", "x")
     assert seen["s"][0]["start"] == pytest.approx(3.0, abs=0.031)   # where the speech starts in the recording
@@ -168,7 +180,7 @@ def test_streamed_segment_times_count_the_trimmed_start():
     audio = silence(2) + tone(7) + silence(1) + tone(3)
     s, _ = run(SegStt(["one", "two"]), audio)
     first, second = s.segments
-    assert first["start"] == pytest.approx(2.0 - 0.21 + 0.25, abs=0.031)       # where it is in the recording
+    assert first["start"] == pytest.approx(2.0 - core.TRIM_PAD_FRAMES * 0.03 + 0.25, abs=0.031)   # where it is in the recording
     assert second["start"] == pytest.approx(s.piece_starts[1] + 0.25)
 
 
@@ -191,11 +203,29 @@ def test_made_up_segments_are_dropped_from_the_text_and_the_times(monkeypatch):
     assert core.last_segments() == [{"start": 0.0, "end": 2.0, "text": "Send it today."}]
 
 
-def test_an_answer_of_only_made_up_segments_is_nothing(monkeypatch):
+def test_an_answer_the_filter_would_empty_is_kept_and_the_silence_phrase_check_still_runs(monkeypatch):
+    # cqf: a short real phrase can score like silence ("Haan theek hai, kal milte hain.": no_speech 0.62, logprob -1.15);
+    # the filter never empties a dictation, and a lone made-up phrase is still dropped later (is_silence_hallucination)
+    body = {"text": "Haan theek hai, kal milte hain.", "segments": [{"start": 0, "end": 2, "text": "Haan theek hai, kal milte hain.",
+                                                                    "avg_logprob": -1.15, "no_speech_prob": 0.62, "compression_ratio": 1}]}
+    monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer(body))
+    assert core.transcribe(_cfg(), b"RIFF") == "Haan theek hai, kal milte hain." and core.last_segments()
     body = {"text": "Thanks for watching!", "segments": [
         {"start": 0, "end": 2, "text": "Thanks for watching!", "avg_logprob": -1.5, "no_speech_prob": 0.9, "compression_ratio": 1}]}
     monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer(body))
-    assert core.transcribe(_cfg(), b"RIFF") == "" and core.last_segments() is None
+    assert core.transcribe(_cfg(), b"RIFF") == "Thanks for watching!"
+    assert core.process_text(_cfg(cleanup=False), "Thanks for watching!", "x.exe", "x").text == ""
+
+
+def test_hindi_in_devanagari_is_not_a_loop_and_a_quiet_middle_segment_stays(monkeypatch):
+    hindi = "कल सुबह हम लोग दफ़्तर जाएंगे और फिर दोपहर में मीटिंग होगी जिसके बाद रिपोर्ट भेजनी है"
+    body = {"text": "Okay. " + hindi + " Done.", "segments": [
+        {"start": 0, "end": 1, "text": "Okay.", "avg_logprob": -0.2, "no_speech_prob": 0.1, "compression_ratio": 1},
+        {"start": 1, "end": 25, "text": hindi, "avg_logprob": -1.2, "no_speech_prob": 0.6, "compression_ratio": 2.5},
+        {"start": 25, "end": 26, "text": "Done.", "avg_logprob": -0.2, "no_speech_prob": 0.1, "compression_ratio": 1}]}
+    monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer(body))
+    assert core.transcribe(_cfg(), b"RIFF") == "Okay. " + hindi + " Done."
+    assert len(core.last_segments()) == 3
 
 
 def test_segments_without_scores_are_kept_and_unreadable_scores_drop_nothing(monkeypatch):

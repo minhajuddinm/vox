@@ -99,8 +99,14 @@ public final class SttQualityTest {
         byte[] audio = cat(level(2, 0), level(1, 8000), level(0.8, 0), level(1, 8000), level(3, 0));
         byte[] out = Pcm.trimEdges(audio, true, true);
         int[] r = Pcm.trimRange(audio, true, true);
-        eq("about 200 ms of quiet stays before the speech", (2 * 32000 / 960 - 7) * 960, r[0]);   // from the frame the speech starts in
-        eq("and after it", (int) (4.8 * 32000) + 7 * 960, r[1]);
+        eq("300 ms of quiet stays before the speech", (2 * 32000 / 960 - Pcm.TRIM_PAD_FRAMES) * 960, r[0]);   // from the frame the speech starts in
+        eq("and after it", (int) (4.8 * 32000) + Pcm.TRIM_PAD_FRAMES * 960, r[1]);
+        // a soft first word (peak 500) 300 ms before the speech and a soft last word (600) after a pause are sent
+        byte[] softIn = level(0.24, 500), softOut = level(0.3, 600);
+        byte[] soft = cat(level(1, 0), softIn, level(0.3, 0), level(1, 8000), level(0.24, 0), softOut, level(1.5, 0));
+        int[] sr = Pcm.trimRange(soft, true, true);
+        eq("a soft first word is sent", true, sr[0] > 0 && sr[0] <= 32000);
+        eq("a soft last word is sent", true, sr[1] >= (int) (3.08 * 32000) && sr[1] < soft.length);
         eq("the trimmed audio is that range", Arrays.toString(Arrays.copyOfRange(audio, r[0], r[1])), Arrays.toString(out));
         byte[] silent = level(3, 0), click = cat(level(1, 0), level(0.03, 8000), level(1, 0));
         eq("silence is never trimmed to nothing", true, Pcm.trimEdges(silent, true, true) == silent);
@@ -125,6 +131,9 @@ public final class SttQualityTest {
 
         // ---- the answer
         eq("made-up segments are dropped", "Send it today.", ApiClient.transcriptOf(MADE_UP, ""));
+        eq("a short real phrase that scores like silence is kept", "Haan theek hai, kal milte hain.", ApiClient.transcriptOf(
+                "{\"text\":\"Haan theek hai, kal milte hain.\",\"segments\":[{\"start\":0,\"end\":2,\"text\":\"Haan theek hai, kal milte hain.\","
+                + "\"avg_logprob\":-1.15,\"no_speech_prob\":0.62,\"compression_ratio\":1}]}", ""));
         eq("plain json is read as before", "hi", ApiClient.transcriptOf("{\"text\":\" hi \"}", ""));
         eq("no text is nothing", "", ApiClient.transcriptOf("{}", ""));
         eq("segments without scores drop nothing", "a b",
