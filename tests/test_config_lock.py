@@ -87,6 +87,37 @@ def test_update_config_refuses_while_the_file_could_not_be_opened(appdata, monke
         assert json.load(f)["language"] == "de"
 
 
+def test_another_threads_good_load_does_not_let_a_failed_load_save_defaults(appdata, monkeypatch):
+    """Final review W-M2: update_config judges by its own load. Thread A's open fails (defaults, unread); the sync
+    thread's load then succeeds and clears the process-wide flag; A must still refuse to save defaults over the file."""
+    import threading
+    core.save_config(dict(core.DEFAULT_CONFIG, language="de"))
+    path = core.config_path()
+    real_read, real_load = core._read_config_file, core._load_config
+    me = threading.current_thread()
+
+    def read(p):
+        if threading.current_thread() is me:
+            raise PermissionError(13, "sharing violation")
+        return real_read(p)
+
+    def load(p):
+        out = real_load(p)
+        if threading.current_thread() is me:
+            t = threading.Thread(target=real_load, args=(path,))   # the other thread reads the file fine meanwhile
+            t.start()
+            t.join()
+            assert core.config_is_fallback() is False
+        return out
+    monkeypatch.setattr(core, "_read_config_file", read)
+    monkeypatch.setattr(core, "_load_config", load)
+    with pytest.raises(OSError):
+        core.update_config(lambda c: c.__setitem__("cleanup", False))
+    monkeypatch.setattr(core, "_read_config_file", real_read)
+    with open(path, encoding="utf-8") as f:
+        assert json.load(f)["language"] == "de"
+
+
 def test_a_replace_refused_for_a_moment_is_retried(appdata, monkeypatch):
     real, calls = os.replace, {"n": 0}
 

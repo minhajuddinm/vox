@@ -237,8 +237,13 @@ def save_config(cfg):
     from what is on disk goes through update_config, so it is not lost to a save made meanwhile."""
     if _config_unread:
         raise OSError("config.json could not be opened a moment ago; not saving over it")
+    _save(cfg, _unopened)
+
+
+def _save(cfg, unopened):
+    """save_config with the protected values that the load this save starts from could not open (`unopened`)."""
     path = config_path()
-    on_disk = dict(cfg, **{k: secret.protect(cfg.get(k) or "") or _unopened.get(k, "") for k in KEY_FIELDS})
+    on_disk = dict(cfg, **{k: secret.protect(cfg.get(k) or "") or unopened.get(k, "") for k in KEY_FIELDS})
     with file_lock(path):
         _replace_file(path, lambda f: json.dump(on_disk, f, indent=2))
 
@@ -250,13 +255,17 @@ def update_config(change):
     ago, another save holds the lock too long, the disk refuses)."""
     path = config_path()
     with file_lock(path):
+        _tls.unread = _tls.unopened = None
         cfg = load_config()
-        if _config_unread:
+        # what THIS load found, not what another thread's load since then left in the globals (final review W-M2)
+        unread = _config_unread if _tls.unread is None else _tls.unread
+        unopened = _unopened if _tls.unopened is None else _tls.unopened
+        if unread:
             raise OSError("config.json could not be opened a moment ago; not saving over it")
         before = copy.deepcopy(cfg)
         out = change(cfg)
         if cfg != before:
-            save_config(cfg)
+            _save(cfg, unopened)
         return out
 
 
@@ -356,6 +365,7 @@ def type_ok(key, value):
 
 _config_unread = False   # True while the last load_config could not OPEN config.json: its defaults must not be saved
 _unopened = {}           # protected values the last load_config could not open: written back as they were unless replaced
+_tls = threading.local()  # the same two for the last load of this thread (another thread's load cannot change them)
 _OPEN_TRIES = 4          # another process may be replacing the file for a moment (sharing violation, antivirus)
 _OPEN_PAUSE = 0.05
 
@@ -387,7 +397,7 @@ def load_config():
             with file_lock(path):
                 merged, plain = _load_config(path)
                 if plain:
-                    save_config(merged)
+                    _save(merged, _tls.unopened or {})
         except OSError:
             log.warning("config.json could not be rewritten (read-only?); keys stay as typed")
     return merged
@@ -396,10 +406,11 @@ def load_config():
 def _load_config(path):
     """(settings, True when a key in the file is still plain text and could be protected)."""
     global _config_unread
+    _tls.unread, _tls.unopened = None, {}
     try:
         os.stat(path)
     except FileNotFoundError:
-        _config_unread = False
+        _config_unread = _tls.unread = False
         with file_lock(path):
             if not os.path.exists(path):   # still missing now that no one else can be writing it
                 save_config(DEFAULT_CONFIG)
@@ -413,29 +424,32 @@ def _load_config(path):
     except OSError as e:
         # could not open it: a good file may be there. Touch nothing; use the defaults for this run only and refuse to
         # save them (save_config) until the file has been read again.
-        _config_unread = True
+        _config_unread = _tls.unread = True
         log.warning("config.json could not be opened (%s); using the defaults for now and leaving the file alone",
                     type(e).__name__)
         return dict(DEFAULT_CONFIG), False
     except ValueError as e:   # includes bad UTF-8 and bad JSON: the file was read and it is damaged
         # a bad file must not stop Vox from starting: keep it aside and carry on with the defaults
-        _config_unread = False
+        _config_unread = _tls.unread = False
         log.warning("config.json could not be read (%s); keeping it as .bad and using the defaults", type(e).__name__)
         try:
             os.replace(path, path + ".bad-%d" % time.time())
         except OSError:
             log.warning("config.json could not be moved aside")
         return dict(DEFAULT_CONFIG), False
-    _config_unread = False
+    _config_unread = _tls.unread = False
     merged = dict(DEFAULT_CONFIG)
     merged.update(cfg)
     _fix_types(merged)
     stored = {k: merged.get(k) or "" for k in KEY_FIELDS}
-    _unopened.clear()
+    unopened = {}
     for k, v in stored.items():
         merged[k] = secret.unprotect(v)
         if secret.is_protected(v) and not merged[k]:
-            _unopened[k] = v   # could not be opened now (DPAPI not ready, another user): saving "" must not erase it
+            unopened[k] = v   # could not be opened now (DPAPI not ready, another user): saving "" must not erase it
+    _unopened.clear()
+    _unopened.update(unopened)
+    _tls.unopened = unopened
     return merged, secret.available() and any(v and not secret.is_protected(v) for v in stored.values())
 
 
