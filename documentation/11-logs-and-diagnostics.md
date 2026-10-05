@@ -45,7 +45,7 @@ Messages worth knowing:
 | `uncaught` / `thread crashed` | A bug; read the traceback that follows |
 | `relay started on port N (pid P)` / `relay stopped` in `vox.log` | The engine started or stopped the relay child process (tray item "Run relay on this PC") |
 | `relay ended right after starting (exit code N)` in `vox.log`, with a tray notification | The relay process exited within 10 s; `relay.log` has the traceback (for example an unwritable data folder) |
-| Tray notification "Port N is already in use ... Vox did not start its own" | Something already answers on the relay port (often a relay started by hand); stop it, or change `relay_port`, or untick "Run relay on this PC" |
+| Tray notification "Port N is already in use by another program, so Vox did not start its relay ..." | Something already answers on the relay port: often a relay started by hand, but if you did not start one, something may be waiting for your devices' relay token (the apps check the relay's proof first, so they do not send it). Find it with `netstat -ano | findstr :N`, stop it, or change `relay_port`, or untick "Run relay on this PC" |
 | `KeyboardInterrupt` traceback in `overlay.run` | Ctrl+C in the launching terminal (the engine now quits cleanly on it) |
 | `WebView2 initialization failed ... Invalid window handle` in `window.log` | The window was started somewhere WebView2 cannot attach (for example a hidden desktop session); start Vox from the user's own terminal |
 
