@@ -621,3 +621,14 @@ def test_a_folder_owned_by_someone_else_is_refused(tmp_path, monkeypatch):
     with pytest.raises(relay.DataDirError):
         relay.load_config(str(tmp_path / "data"))
 
+
+
+# ------------------------------------------------------------- bf-e: SEC-8
+def test_a_refused_request_leaves_no_text_of_its_own_in_the_activity_log(server):
+    path = "/Relay-moved-see-http--evil.example-" + "x" * 5000
+    assert call(server, "GET", path, token="wrong")[0] == 401
+    assert call(server, "GET", path, token=False)[0] == 401
+    _, a = call(server, "GET", "/admin/activity")
+    refused = [e for e in a["events"] if e["status"] == 401]
+    assert len(refused) == 2 and all(e["route"] == "(refused)" and e["device"] == "" for e in refused)
+    assert "evil" not in json.dumps(a["events"])

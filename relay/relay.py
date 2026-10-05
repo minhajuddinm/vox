@@ -848,7 +848,8 @@ class Handler(BaseHTTPRequestHandler):
         if method == "GET" and parts == ["favicon.ico"]:
             return self._send(204, b"", "image/x-icon")
         if not self._authorised():
-            self.server.record(method, ID_IN_PATH.sub("{id}", u.path), self._status, "")
+            # the path of a refused request is the sender's own text: it is not shown on the management page
+            self.server.record(method, "(refused)", self._status, "")
             return
         device =(self.headers.get("X-Vox-Device") or "").strip()[:60]
         if device:
