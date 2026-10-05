@@ -43,6 +43,10 @@ class SyncError(Exception):
         return 400 <= self.status < 500 and self.status not in (401, 403, 429)
 
 
+class RelayUnreachable(SyncError):
+    """No answer from the relay (a dropped connection, Tailscale down): worth one more try."""
+
+
 def device_name(cfg):
     """The name this PC shows on the relay's page and puts on the notes it records."""
     return ((cfg.get("device_name") or "").strip() or platform.node() or "windows-pc")[:60]
@@ -135,7 +139,12 @@ def problem(url, token):
 # HMAC-SHA256(token, "vox-relay-proof:" + N). Whatever squats on the relay's port while the relay is down gets nothing.
 # A relay from before /proof answers 401: it is still used (with a warning) until its address has once proved itself;
 # from then on a missing proof is refused. Android twin: RelayProof.java.
-PROOF_TTL = 120           # seconds a proof (or "an old relay") is trusted before the relay is asked again
+# Seconds a proof (or "an old relay") is trusted before the relay is asked again. Short: a program that takes the port
+# the moment the relay stops causes no failed connection, so only this time bounds how long the token could still go
+# there (it covers one sync run; a dictation proves on key-down, in core.warm). A connection failure or a 502, 503 or
+# 504 (tailscale serve with the relay stopped) forgets it at once (forget_proof).
+PROOF_TTL = 10
+GATEWAY_DOWN = (502, 503, 504)
 NOT_PROVEN = ("The relay did not prove it holds this token, so the token was not sent. Either the token is wrong, or "
               "another program is answering at the relay's address.")
 NO_LONGER = ("This relay proved it holds the token before and now does not, so the token was not sent: another program may "
@@ -182,7 +191,7 @@ def prove_relay(url, token):
     except requests.RequestException as e:
         if core.refused_plain_http(e):
             raise SyncError(core.PLAIN_HTTP_ELSEWHERE)
-        raise SyncError("Cannot reach the relay (is Tailscale running?): " + type(e).__name__)
+        raise RelayUnreachable("Cannot reach the relay (is Tailscale running?): " + type(e).__name__)
     pinned = key[0] in _proven_origins()
     if r.status_code == 200:
         try:
@@ -219,6 +228,8 @@ def _call(method, url, path, token, device, headers=None, allow=(), **kw):
         if core.refused_plain_http(e):
             raise SyncError(core.PLAIN_HTTP_ELSEWHERE)
         raise SyncError("Cannot reach the relay (is Tailscale running?): " + type(e).__name__)
+    if r.status_code in GATEWAY_DOWN:
+        forget_proof(url)   # tailscale serve answers so while the relay is stopped: prove again before the next request
     if r.status_code not in allow:
         if r.status_code == 401:
             raise SyncError("The relay refused the token.", 401)

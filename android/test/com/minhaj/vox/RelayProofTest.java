@@ -29,7 +29,9 @@ public final class RelayProofTest {
     }
 
     private static final String TOKEN = "REAL-TOKEN-A";
-    private static volatile String mode = "wrong";      // wrong (a proof that does not match), old (401 like a relay from before), good
+    // wrong (a proof that does not match), old (401 like a relay from before), good, gateway (good proofs, but every other
+    // request answered 502 like tailscale serve while the relay behind it is stopped)
+    private static volatile String mode = "wrong";
     private static final List<String> auth = Collections.synchronizedList(new ArrayList<String>());
     private static final List<String> proofs = Collections.synchronizedList(new ArrayList<String>());
 
@@ -50,7 +52,11 @@ public final class RelayProofTest {
                 proofs.add(x.getRequestURI().getRawQuery());
                 String q = x.getRequestURI().getRawQuery();
                 if (mode.equals("old")) reply(x, 401, "{\"error\": \"missing or wrong token\"}");
-                else reply(x, 200, "{\"proof\": \"" + (mode.equals("good") ? RelayProof.proofOf(TOKEN, q.substring(q.indexOf('=') + 1)) : "00") + "\"}");
+                else reply(x, 200, "{\"proof\": \"" + (mode.equals("good") || mode.equals("gateway") ? RelayProof.proofOf(TOKEN, q.substring(q.indexOf('=') + 1)) : "00") + "\"}");
+                return;
+            }
+            if (mode.equals("gateway")) {
+                reply(x, 502, "{\"error\": \"upstream down\"}");
                 return;
             }
             reply(x, 200, "{\"ok\": true, \"notes\": 0, \"version\": 0, \"data\": {}, \"devices\": [], \"next\": 0, \"more\": false, \"text\": \"hi\"}");
@@ -105,6 +111,40 @@ public final class RelayProofTest {
             RelayProof.forget(base);
             new RelayClient(base, TOKEN, "Pixel").getProfile();
             eq("forget: asked again", 2, proofs.size());
+
+            // final review RC-I1: the proof is kept for seconds, and a 502, 503 or 504 forgets it
+            eq("the proof is trusted for 10 s at most", true, RelayProof.TTL_MS <= 10_000);
+            RelayProof.reset();
+            proofs.clear();
+            new RelayClient(base, TOKEN, "Pixel").getProfile();
+            mode = "gateway";
+            try {
+                new RelayClient(base, TOKEN, "Pixel").getProfile();
+                eq("a 502 from the relay throws", true, false);
+            } catch (RelayApi.RelayError e) {
+                eq("a 502 from the relay: the status", 502, e.status);
+            }
+            mode = "good";
+            new RelayClient(base, TOKEN, "Pixel").getProfile();
+            eq("after a 502 the sync proves again", 2, proofs.size());
+            RelayProof.reset();
+            proofs.clear();
+            java.io.File wav = java.io.File.createTempFile("vox-proof", ".wav");
+            try {
+                java.nio.file.Files.write(wav.toPath(), new byte[44 + 3200]);
+                mode = "gateway";
+                try {
+                    new ApiClient(TOKEN, base + "/proxy/stt").transcribeRaw(wav, "m", "", new ArrayList<String>());
+                    eq("a 502 through the relay throws", true, false);
+                } catch (ApiClient.ApiException e) {
+                    eq("a 502 through the relay: the status", 502, e.code);
+                }
+                mode = "good";
+                new ApiClient(TOKEN, base + "/proxy/stt").transcribeRaw(wav, "m", "", new ArrayList<String>());
+                eq("after a 502 a dictation through the relay proves again", 2, proofs.size());
+            } finally {
+                wav.delete();
+            }
         } finally {
             s.stop(0);
         }

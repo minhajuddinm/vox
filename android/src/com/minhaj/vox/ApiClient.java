@@ -144,7 +144,7 @@ public final class ApiClient {
     }
 
     private String post(Upload up, String model, String language, String prompt) throws IOException {
-        return connectRetry(() -> {
+        return connectRetry(() -> relayWatch(() -> {
             String boundary = "----vox" + System.nanoTime();
             Multipart body = new Multipart(boundary)
                     .field("model", model)
@@ -162,7 +162,7 @@ public final class ApiClient {
                 body.writeTo(out, in);
             }
             return readBody(c);
-        });
+        }));
     }
 
     /** One try of something that talks to the server. */
@@ -680,7 +680,7 @@ public final class ApiClient {
 
     /** One chat request; a connection that cannot be opened is tried once more at once (see connectRetry). */
     private JSONObject postChat(JSONObject body, int readMs) throws IOException {
-        return connectRetry(() -> {
+        return connectRetry(() -> relayWatch(() -> {
             HttpURLConnection c = open(base + "/chat/completions", readMs);
             c.setRequestProperty("Content-Type", "application/json");
             c.setDoOutput(true);
@@ -688,7 +688,7 @@ public final class ApiClient {
                 out.write(body.toString().getBytes(StandardCharsets.UTF_8));
             }
             return readJson(c);
-        });
+        }));
     }
 
     private HttpURLConnection get(String url) throws IOException {
@@ -725,14 +725,38 @@ public final class ApiClient {
         return c;
     }
 
+    /** The relay's own address when this client talks to the relay as the AI server, else null. */
+    private String relayBase() {
+        if (!base.endsWith("/proxy/stt") && !base.endsWith("/proxy/llm")) return null;
+        return base.substring(0, base.length() - "/proxy/stt".length());
+    }
+
+    /**
+     * Runs one request; with the relay as the AI server, a failed connection or a 502, 503 or 504 makes the next request
+     * ask the relay to prove itself again (it may have stopped, and something else may take its port; SEC-2).
+     */
+    private <T> T relayWatch(Call<T> call) throws IOException {
+        String relay = relayBase();
+        try {
+            return call.run();
+        } catch (ApiException e) {
+            if (relay != null && RelayProof.gatewayDown(e.code)) RelayProof.forget(relay);
+            throw e;
+        } catch (IOException e) {
+            if (relay != null) RelayProof.forget(relay);
+            throw e;
+        }
+    }
+
     /**
      * With the relay as the AI server (the address is {relay}/proxy/stt or /proxy/llm, Providers.proxyUrl) the key is the
      * relay token: the relay proves it holds it first (RelayProof, SEC-2), or nothing is sent.
      */
     private void relayProof() throws IOException {
-        if (!base.endsWith("/proxy/stt") && !base.endsWith("/proxy/llm")) return;
+        String relay = relayBase();
+        if (relay == null) return;
         try {
-            RelayProof.check(base.substring(0, base.length() - "/proxy/stt".length()), apiKey);
+            RelayProof.check(relay, apiKey);
         } catch (RelayApi.RelayError e) {
             throw new IOException(e.message);
         }

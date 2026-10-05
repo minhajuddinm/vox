@@ -123,6 +123,107 @@ def test_a_proof_is_kept_for_a_while_and_asked_again_after_a_connection_failure(
     assert len(asked) == 2
 
 
+# ------------------------------------------------------------------ final review RC-I1: the relay stops, a squatter takes the port
+def _age_proofs(seconds):
+    for k, (t, result) in list(sync._proofs.items()):
+        sync._proofs[k] = (t - seconds, result)
+
+
+class Gateway(Squatter):
+    """tailscale serve while the relay behind it is stopped: 502 for everything, and it records what it gets."""
+    def __init__(self, port):
+        ThreadingHTTPServer.__init__(self, ("127.0.0.1", port), _GatewayHandler)
+        self.mode, self.seen = "gateway", []
+
+
+class _GatewayHandler(_SquatHandler):
+    def _any(self):
+        self.server.seen.append((self.command, self.path.split("?")[0], self.headers.get("Authorization")))
+        self._answer(502, {"error": "upstream down"})
+
+    do_GET = do_PUT = do_POST = _any
+
+
+def test_a_proof_is_trusted_for_seconds_not_minutes():
+    assert sync.PROOF_TTL <= 10
+
+
+def test_a_squatter_on_the_stopped_relays_port_gets_no_token_once_the_short_proof_ran_out(tmp_path):
+    real = start(relay.make_server(str(tmp_path / "relay"), port=0))
+    port = real.server_address[1]
+    url = "http://127.0.0.1:%d" % port
+    assert sync.prove_relay(url, real.token) == "proven"
+    real.shutdown()
+    real.server_close()
+    sq = Squatter("wrong")
+    ThreadingHTTPServer.__init__(sq, ("127.0.0.1", port), _SquatHandler)   # takes the port at once: no failed connection
+    start(sq)
+    try:
+        _age_proofs(sync.PROOF_TTL + 1)
+        assert "token was not sent" in sync.sync_once(sync_cfg(url, real.token))["error"]
+        assert tokens(sq) == []
+    finally:
+        sq.shutdown()
+        sq.server_close()
+
+
+def test_a_502_from_tailscale_serve_forgets_the_proof(tmp_path):
+    real = start(relay.make_server(str(tmp_path / "relay"), port=0))
+    port = real.server_address[1]
+    url = "http://127.0.0.1:%d" % port
+    sync.prove_relay(url, real.token)
+    real.shutdown()
+    real.server_close()
+    gw = start(Gateway(port))
+    try:
+        with pytest.raises(sync.SyncError):
+            sync._request("GET", url, "/changes?since=0", real.token, "pc")
+        assert not [k for k in sync._proofs if k[0] == sync.origin_of(url)]   # the next request proves again
+    finally:
+        gw.shutdown()
+        gw.server_close()
+
+
+@pytest.mark.real_session
+def test_dictation_through_the_relay_proves_again_before_it_sends_again(tmp_path, monkeypatch):
+    """A retry after a 502 or a dropped connection proves again first, so a squatter that took the port meanwhile gets no
+    token and no audio."""
+    real = start(relay.make_server(str(tmp_path / "relay"), port=0))
+    port = real.server_address[1]
+    url = "http://127.0.0.1:%d" % port
+    sync.prove_relay(url, real.token)
+    real.shutdown()
+    real.server_close()
+    gw = start(Gateway(port))
+    monkeypatch.setattr(core.time, "sleep", lambda s: None)
+    try:
+        with pytest.raises(core.ApiError):
+            core.post_with_retry(url + "/proxy/stt/audio/transcriptions", via_relay=True, data=b"audio",
+                                 headers={"Authorization": "Bearer " + real.token})
+        assert [a for _, path, a in gw.seen if not path.startswith("/proof")] == ["Bearer " + real.token]   # the 1st try only
+        assert [path for _, path, _ in gw.seen][1:] and all(path == "/proof" for _, path, _ in gw.seen[1:])
+    finally:
+        gw.shutdown()
+        gw.server_close()
+
+
+def test_a_proof_request_that_got_no_answer_is_tried_again(monkeypatch):
+    """Final review W-M1: a Tailscale blip on the /proof GET does not cost the dictation at once."""
+    calls = []
+
+    def prove(url, token):
+        calls.append(url)
+        if len(calls) == 1:
+            raise sync.RelayUnreachable("Cannot reach the relay (is Tailscale running?): ConnectionError")
+        return "proven"
+    monkeypatch.setattr(sync, "prove_relay", prove)
+    monkeypatch.setattr(core.time, "sleep", lambda s: None)
+    monkeypatch.setattr(core, "_post", lambda url, **kw: type("R", (), {"status_code": 200})())
+    assert core.post_with_retry("http://127.0.0.1:9/proxy/stt/x", via_relay=True,
+                                headers={"Authorization": "Bearer t"}).status_code == 200
+    assert len(calls) == 2
+
+
 # ------------------------------------------------------------------ a squatter gets nothing
 def test_a_squatter_with_a_wrong_proof_gets_no_token_from_any_relay_call(squatter):
     out = sync.test_relay(squatter.url, "REAL-TOKEN-A")

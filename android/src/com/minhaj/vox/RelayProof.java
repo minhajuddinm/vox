@@ -28,7 +28,17 @@ import javax.crypto.spec.SecretKeySpec;
 final class RelayProof {
     private RelayProof() { }
 
-    static final long TTL_MS = 120_000;
+    /**
+     * Short: a program that takes the port the moment the relay stops causes no failed connection, so only this bounds how
+     * long the token could still go there. A failed connection or a 502, 503 or 504 forgets the proof at once (forget).
+     * Twin of PROOF_TTL in windows/sync.py.
+     */
+    static final long TTL_MS = 10_000;
+
+    /** tailscale serve's answers while the relay behind it is stopped: the next request proves again. */
+    static boolean gatewayDown(int status) {
+        return status == 502 || status == 503 || status == 504;
+    }
     static final String PROVEN = "proven";
     static final String OLD = "old relay";
     static final String NOT_PROVEN = "The relay did not prove it holds this token, so the token was not sent. Either the token is wrong, or "

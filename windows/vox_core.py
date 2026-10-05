@@ -1357,29 +1357,47 @@ def retryable(status, timeout, via_relay):
     return status == 0 or status in RETRY_STATUS
 
 
-def relay_proof_problem(url, headers):
-    """'' when the relay behind `url` (its address, or one of its /proxy/ addresses) has proved it holds the token in
-    `headers` (sync.prove_relay, SEC-2), else why the token must not go there."""
+def _relay_proof_error(url, headers):
+    """None when the relay behind `url` (its address, or one of its /proxy/ addresses) has proved it holds the token in
+    `headers` (sync.prove_relay, SEC-2), else the sync.SyncError that says why the token must not go there."""
     import sync
     token = ((headers or {}).get("Authorization") or "")[len("Bearer "):]
     try:
         sync.prove_relay(url.split("/proxy/", 1)[0], token)
     except sync.SyncError as e:
-        return str(e)
-    return ""
+        return e
+    return None
+
+
+def relay_proof_problem(url, headers):
+    """'' when the relay behind `url` has proved it holds the token in `headers`, else why the token must not go there."""
+    e = _relay_proof_error(url, headers)
+    return "" if e is None else str(e)
+
+
+def _forget_relay_proof(url):
+    """The relay behind `url` must prove itself again before the next request (it may have stopped: SEC-2)."""
+    import sync
+    sync.forget_proof(url.split("/proxy/", 1)[0])
 
 
 def post_with_retry(url, retries=2, via_relay=False, retry_timeouts=True, **kw):
     """POST with a quick retry on dropped connections (flaky Wi-Fi, VPNs, antivirus TLS inspection)
     and on temporary server errors (see `retryable`; `via_relay` says the relay is the server). `retry_timeouts` False:
     a wait for the answer that ran out is not sent again (the cleanup, which falls back to the spoken words). The last
-    response is returned as it is. Through the relay, the relay first proves it holds the token (ApiError when it does
-    not)."""
+    response is returned as it is. Through the relay, the relay proves it holds the token before every try (ApiError when
+    it does not; a proof request that got no answer is tried again like the POST), and a dropped connection or a 502, 503
+    or 504 makes the next try ask for a new proof: the relay may have stopped, and something else may take its port."""
     if via_relay:
-        problem = relay_proof_problem(url, kw.get("headers"))
-        if problem:
-            raise ApiError(0, problem)
+        import sync
     for attempt in range(retries + 1):
+        if via_relay:
+            err = _relay_proof_error(url, kw.get("headers"))
+            if err is not None:
+                if attempt == retries or not (isinstance(err, sync.RelayUnreachable) or err.status in sync.GATEWAY_DOWN):
+                    raise ApiError(0, str(err))
+                time.sleep(0.7 * (attempt + 1))
+                continue
         try:
             if "files" in kw:   # file objects must be re-sent from the start
                 for name, spec in kw["files"].items():
@@ -1387,10 +1405,14 @@ def post_with_retry(url, retries=2, via_relay=False, retry_timeouts=True, **kw):
                         spec[1].seek(0)
             r = _post(url, **kw)
         except (requests.ConnectionError, requests.Timeout) as e:
+            if via_relay:
+                _forget_relay_proof(url)
             timed_out = isinstance(e, requests.Timeout) and not isinstance(e, requests.ConnectTimeout)   # (not "could not connect")
             if attempt == retries or not retryable(0, timed_out, via_relay) or (timed_out and not retry_timeouts):
                 raise
         else:
+            if via_relay and r.status_code in sync.GATEWAY_DOWN:
+                _forget_relay_proof(url)
             if not retryable(r.status_code, False, via_relay) or attempt == retries:
                 return r
         time.sleep(0.7 * (attempt + 1))

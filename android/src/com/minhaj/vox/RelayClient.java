@@ -253,6 +253,7 @@ final class RelayClient implements RelayApi {
                     in.close();
                 }
             }
+            if (RelayProof.gatewayDown(status)) RelayProof.forget(base);   // the relay may have stopped: prove again first
             if (status < 200 || status > 299) throw new RelayError(status, failure(status, errorDetail(text)));
             try {
                 return PlainJson.parse(text);
