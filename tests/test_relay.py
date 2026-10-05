@@ -363,3 +363,27 @@ def test_a_database_of_an_older_relay_gets_the_order_column_and_keeps_its_notes(
     assert store.get_note(n["id"])["text"] == "kept from before"
     stored, applied = store.upsert_note(dict(n, text="edited", updated_at=n["updated_at"] + 1))
     assert applied and stored["text"] == "edited" and "order_at" not in stored
+
+
+# --------------------------------------------------------------- bf-e: issue #63
+@pytest.mark.parametrize("body", [b'{"a": NaN}', b'{"a": Infinity}', b'{"a": -Infinity}', b'{"a": [1e999]}'])
+def test_a_profile_with_nan_or_infinity_is_refused_so_later_reads_stay_valid_json(cl, body):
+    st, out = cl.call("PUT", "/profile", raw=body, headers={"If-Match": "0", "Content-Type": "application/json"})
+    assert st == 400
+    c = http.client.HTTPConnection("127.0.0.1", cl.port, timeout=10)
+    c.request("GET", "/profile", headers={"Authorization": "Bearer " + cl.token})
+    text = c.getresponse().read().decode()
+    c.close()
+    json.loads(text, parse_constant=lambda name: pytest.fail("the relay sent " + name))
+    assert json.loads(text) == {"version": 0, "data": {}}
+
+
+@pytest.mark.parametrize("since", [str(2 ** 63), "-" + str(2 ** 63 + 1), "9" * 40])
+def test_a_cursor_beyond_64_bits_is_a_400_not_a_500(cl, since):
+    st, out = cl.call("GET", "/changes?since=" + since)
+    assert st == 400 and out["error"]
+
+
+def test_the_largest_64_bit_cursor_is_fine(cl):
+    st, out = cl.call("GET", "/changes?since=" + str(2 ** 63 - 1))
+    assert st == 200 and out["notes"] == []

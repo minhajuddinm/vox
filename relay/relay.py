@@ -116,6 +116,27 @@ def _number(value, name):
     return f
 
 
+def _no_constant(name):
+    """json.loads hook: NaN, Infinity and -Infinity are not JSON. Stored, they would make every later answer invalid JSON."""
+    raise ValueError("not JSON: " + name)
+
+
+def _finite_float(text):
+    """json.loads hook: a number too large for a float (1e999) would come back as Infinity, so it is refused too."""
+    f = float(text)
+    if not math.isfinite(f):
+        raise ValueError("number out of range")
+    return f
+
+
+def _cursor(text):
+    """A sequence number from a query string: a whole number that fits in SQLite's 64-bit integer (else BadRequest)."""
+    n = int(text)
+    if not -2 ** 63 <= n < 2 ** 63:
+        raise BadRequest("since is out of range")
+    return n
+
+
 def _time_field(value, name):
     """A note time in seconds. More than a day ahead of the relay is refused (that is a clock in milliseconds or a
     broken one: such a note would win over every later edit and delete)."""
@@ -784,7 +805,7 @@ class Handler(BaseHTTPRequestHandler):
             self._drain(n)
             raise BodyTooLarge()
         try:
-            return json.loads(self.rfile.read(n) or b"null")
+            return json.loads(self.rfile.read(n) or b"null", parse_constant=_no_constant, parse_float=_finite_float)
         except (ValueError, UnicodeDecodeError):
             raise BadRequest("the body is not valid JSON")
 
@@ -856,7 +877,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"devices": [{k: d[k] for k in ("name", "first_seen", "last_seen", "requests", "login")}
                                                     for d in store.devices()]})   # newest first; no events, no notes
             if parts == ["changes"] and method == "GET":
-                return self._send(200, store.changes(int(q.get("since", 0)), int(q.get("limit", 200))))
+                return self._send(200, store.changes(_cursor(q.get("since", 0)), int(q.get("limit", 200))))
             if parts == ["notes"] and method == "GET":
                 since = float(q["from"]) if "from" in q else None
                 until = float(q["to"]) if "to" in q else None
