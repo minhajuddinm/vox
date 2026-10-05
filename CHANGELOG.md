@@ -4,6 +4,9 @@ All notable changes to Vox. Format follows [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Changed
+- **Project site and README for 2.0:** the landing page (`docs/index.html`) is rewritten for 2.0 with download buttons, what is new, features, the screenshots, a privacy summary and links, and loads nothing from other sites; the README has a licence badge, a "What is new in 2.0" section, a link to the site and real screenshots, rendered from the apps' own pages with sample data by the new `tools/render_screenshots.py`.
+
 ## [2.0.0] - 2026-10-05 (tag `v2.0.0`)
 
 Vox 2.0.0 is the first release with all of the v2 work. In plain words:

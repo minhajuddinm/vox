@@ -2,6 +2,7 @@
 
 [![build](https://github.com/minhajuddinm/vox/actions/workflows/build.yml/badge.svg)](https://github.com/minhajuddinm/vox/actions/workflows/build.yml)
 [![latest release](https://img.shields.io/github/v/release/minhajuddinm/vox?label=release)](../../releases/latest)
+[![licence: MIT](https://img.shields.io/github/license/minhajuddinm/vox?label=licence)](LICENSE)
 
 Voice dictation for **Windows** and **Android**. Speak, and cleaned-up text appears in whatever app you are typing in: email, chat, documents, code editors, browsers.
 
@@ -9,7 +10,26 @@ Vox has no server and no account of its own. It sends your audio to a speech-to-
 
 Vox was written by Muhammad Minhajuddin ([minhajuddinm](https://github.com/minhajuddinm)). The v2 work (providers, voice notes, the relay, keep listening and more) was added by [Yuvi-5](https://github.com/Yuvi-5) with Claude Code. See [CHANGELOG.md](CHANGELOG.md).
 
-**Jump to:** [Features](#features) · [Status and known limits](#status-and-known-limits) · [Install](#install) · [Using Vox](#using-vox-on-windows) · [Privacy](#privacy) · [Build and test](#build-and-test-from-source) · [Contributing](#contributing) · [License](#license)
+**Project site:** [minhajuddinm.github.io/vox](https://minhajuddinm.github.io/vox/) (download buttons, screenshots, privacy policy).
+
+**Jump to:** [What is new in 2.0](#what-is-new-in-20) · [Features](#features) · [Screenshots](#screenshots) · [Status and known limits](#status-and-known-limits) · [Install](#install) · [Using Vox](#using-vox-on-windows) · [Privacy](#privacy) · [Build and test](#build-and-test-from-source) · [Contributing](#contributing) · [License](#license)
+
+---
+
+## What is new in 2.0
+
+[Release v2.0.0](../../releases/tag/v2.0.0) (2026-10-05) is the first release with all of the v2 work:
+
+- Any OpenAI-compatible provider, with separate speech and cleanup servers and your own key for each.
+- Cleanup that keeps your words: if the cleaned text lost words, Vox types your words as spoken.
+- Spoken lists, code mode (Windows) and snippets.
+- New Windows shortcuts (tap or hold, hands-free, paste and copy last), keep listening for up to 60 minutes, and voice notes.
+- Learn from my corrections, on both apps.
+- Android: note mode with a note bubble, a bubble that stays up, diagnostics and an Install help card.
+- The optional relay, also as standalone programs for Windows and Linux (Raspberry Pi 5 with a 64-bit system).
+- Open-source documentation, CI on every pull request and the MIT licence.
+
+Much of it is checked by tests and CI builds, not yet on every real device: see [Status and known limits](#status-and-known-limits). Every change is in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -51,22 +71,31 @@ Vox was written by Muhammad Minhajuddin ([minhajuddinm](https://github.com/minha
 
 ## Screenshots
 
-No screenshots are in the repository yet. These are the ones to take (made-up text only: no real names, keys, tokens, host names or personal dictations). Save them under `docs/screenshots/` with these names:
+Rendered from the app's own pages with sample data, not photos of a device; the recording pill and notification parts are not shown. The images are made by [tools/render_screenshots.py](tools/render_screenshots.py) and live in [docs/screenshots/](docs/screenshots/); the sample data is made up (Sam, Acme).
 
-| File | What it shows |
+| Windows | |
+|---|---|
+| ![Windows, Home: the shortcut hint, the Status card and the Speed card](docs/screenshots/windows-home.png) | ![Windows, Settings: AI provider, server address, API key, voice and cleanup models](docs/screenshots/windows-settings.png) |
+| Home: Status and Speed | Settings: AI providers and voice |
+| ![Windows, Voice notes: three sample notes and the search box](docs/screenshots/windows-voice-notes.png) | ![Windows, Settings, Privacy: what leaves the PC and the privacy switches](docs/screenshots/windows-privacy.png) |
+| Voice notes | Settings: Privacy |
+
+The Dictionary page (About you, words, people, replacements, snippets): [docs/screenshots/windows-dictionary.png](docs/screenshots/windows-dictionary.png).
+
+| Android | | | |
+|---|---|---|---|
+| ![Android, Home: ready message, Status card and Speed card](docs/screenshots/android-home.png) | ![Android, Settings: provider, server address, API key](docs/screenshots/android-settings.png) | ![Android, Voice notes with two sample notes](docs/screenshots/android-notes.png) | ![Android, Settings, Install help opened](docs/screenshots/android-install-help.png) |
+| Home | Settings | Notes | Install help |
+
+Not there yet, because they show parts drawn outside the app's pages or need a real device (made-up text only when you take one: no real names, keys, tokens, host names or personal dictations):
+
+| File | What it would show |
 |---|---|
 | `windows-pill.png` | The recording pill at the bottom of the screen, with the live waveform, while dictating into a text editor |
-| `windows-home.png` | The Vox window, Home: the Status card and the Speed card |
-| `windows-providers.png` | Settings, AI providers: a preset, the model list and a passed Test |
-| `windows-dictionary.png` | Dictionary: Words, People, Replacements and the About you box |
 | `windows-keep-listening.png` | The pill showing `Listening m:ss` with the stop square |
-| `windows-voice-notes.png` | The Voice notes page with two or three notes and the search box |
 | `windows-improve.png` | Settings, Improve my cleanup, at the confirm step ("This sends N transcripts ...") |
 | `windows-meeting.png` | Notes (meeting notes, beta) with a live transcript of a made-up meeting |
 | `android-bubble.png` | The mic bubble next to a text field in a messaging app |
-| `android-home.png` | The Android Home tab: setup steps and the Status card |
-| `android-install-help.png` | Settings, System, Install help, opened |
-| `android-notes.png` | The Android Notes page |
 | `relay-page.png` | The relay's management page, Status tab (token not shown) |
 
 ---
@@ -213,9 +242,9 @@ Never commit `config.json`, `google_client.json`, `.env` files, `relay.json`, `r
 | `spec/golden.txt` | Expected results shared by the Python and Java tests, so both apps behave the same |
 | `tests/` | pytest tests |
 | `ui-shared/` | Styles and helpers shared by both apps' pages (generated into them by `tools/sync_ui.py`) |
-| `tools/` | Repo scripts: the shared-UI generator and the cleanup benchmark |
+| `tools/` | Repo scripts: the shared-UI generator, the cleanup benchmark and the screenshot renderer |
 | `documentation/` | Developer documentation: architecture, every file and setting, features, security, decisions, specs. Start at [documentation/README.md](documentation/README.md) |
-| `docs/` | The public website (GitHub Pages) and privacy policy |
+| `docs/` | The public website (GitHub Pages, [minhajuddinm.github.io/vox](https://minhajuddinm.github.io/vox/)), the privacy policy and the screenshots |
 | `.github/` | CI workflow, issue forms and the pull request template |
 
 Coding agents: start at [AGENTS.md](AGENTS.md).

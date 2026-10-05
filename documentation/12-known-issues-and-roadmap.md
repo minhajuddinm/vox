@@ -27,7 +27,7 @@ Checked against `main` at `288fe59` (the merge of PR 54). **Release:** v2.0.0 wa
 **Open GitHub issues** (16, from `gh issue list --state open`):
 - device tests: #26 cleanup that keeps your words, #27 Speed card and Android speed work, #28 relay set-up help, Test connection and Devices list, #29 Android bubble, #30 keep listening and the note shortcut, #31 Improve my cleanup, #32 note bubble, #33 install help;
 - roadmap: #34;
-- starter tasks: #35 screenshots for the README, #36 golden rows for spoken-number formats (51 rows were added in the leftovers branch, see the changelog; the issue is still open), #37 Hindi translation of the README sections;
+- starter tasks: #35 screenshots for the README (done on branch `docs/github-presence`: nine screenshots of the apps' pages rendered with sample data are in `docs/screenshots/` and the README; the pill, the bubble, meeting notes, Improve and the relay page are still to take on a real device; the issue is still open until that branch is merged), #36 golden rows for spoken-number formats (51 rows were added in the leftovers branch, see the changelog; the issue is still open), #37 Hindi translation of the README sections;
 - leftovers from the review rounds: #38 (Windows engine and config), #44 (relay), #45 (CI, build and tests), #49 (final review, medium). Which of their items are still open was not re-triaged here. Two of #49's Windows items are fixed on `feat/fast-talker` (not merged yet): the correction watcher no longer holds its lock during UI Automation calls, and PuTTY and mintty paste with Shift+Insert.
 - An outside contributor opened pull request 55 ("test: cover spoken-number fidelity formats", 2026-10-02). It has **not been reviewed**; its CI run shows `action_required` (inferred: a first-time contributor's workflow waiting for approval). From its title it is probably about #36 (inferred).
 
@@ -174,10 +174,10 @@ Each had a short spec, tests first, a docs sync and its own branch. Suggested or
 The README, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, the issue forms and the PR template exist. Still to do:
 
 1. **Turn on GitHub private vulnerability reporting** (repository Settings, Code security). It was still off on 2026-10-02 (checked with the API), so `SECURITY.md` tells reporters what to do without it.
-2. **Take the screenshots** listed in the README (`docs/screenshots/`, made-up text only) and link them from the README.
+2. ~~Take the screenshots~~ Mostly done (branch `docs/github-presence`, issue #35): `tools/render_screenshots.py` renders nine pages of the two apps with sample data into `docs/screenshots/`, and the README and the site show them. Still to take on a real device: the recording pill, keep listening on the pill, the Android bubble, Improve my cleanup at the confirm step, meeting notes and the relay page (listed in the README).
 3. ~~Tag a new release~~ Done: v2.0.0 (2026-10-05) is the first release with the v2 work, so the README's install steps give the current app.
 4. ~~Neutral example values in the app pages~~ Done: the relay address examples read `your-pi.your-tailnet.ts.net` in `ui-shared/relay-steps.txt` and both pages, and a test (`tests/test_ui_static.py`) fails if a private machine name comes back.
-5. **The public site's contact address.** `docs/index.html` and `docs/privacy.html` give the original author's personal email as the contact; the owner may prefer the repository's issues or private reporting.
+5. **The public site's contact address.** (The site was rewritten for 2.0 on `docs/github-presence`; the footer contact line was kept as it was.) `docs/index.html` and `docs/privacy.html` give the original author's personal email as the contact; the owner may prefer the repository's issues or private reporting.
 6. ~~Labels for the issue forms~~ Done: the repository has the `device-test` label (checked with the API on 2026-10-02) next to `bug` and `enhancement`.
 
 Not planned: Android meeting notes, iOS, on-device speech recognition.
