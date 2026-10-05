@@ -3,24 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Vox 2.0: free voice dictation for Windows and Android</title>
-<meta name="description" content="Vox is a free, open-source voice dictation tool for Windows and Android. Speak, and the words you said are typed into the app you are in, using an AI provider and key that you choose, or your own server.">
+<title>Vox 2.0: open-source dictation for Windows and Android</title>
+<meta name="description" content="Open-source push-to-talk dictation for Windows and Android. Bring your own speech and cleanup provider, or run your own server.">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="favicon.svg">
 <link rel="stylesheet" href="style.css">
 <link rel="canonical" href="https://minhajuddinm.github.io/vox/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Vox">
-<meta property="og:title" content="Vox 2.0: free voice dictation for Windows and Android">
-<meta property="og:description" content="Speak, and the words you said are typed into the app you are in. Your own AI provider and key, or your own server. Free and open source (MIT).">
+<meta property="og:title" content="Vox 2.0: open-source dictation for Windows and Android">
+<meta property="og:description" content="Push-to-talk dictation for Windows and Android. Bring your own provider and key. MIT.">
 <meta property="og:url" content="https://minhajuddinm.github.io/vox/">
 <meta property="og:image" content="https://minhajuddinm.github.io/vox/screenshots/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Vox 2.0, voice dictation for Windows and Android, next to the Home page of the Windows app rendered with sample data.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Vox 2.0: free voice dictation for Windows and Android">
-<meta name="twitter:description" content="Speak, and the words you said are typed into the app you are in. Your own AI provider and key, or your own server. Free and open source (MIT).">
+<meta name="twitter:title" content="Vox 2.0: open-source dictation for Windows and Android">
+<meta name="twitter:description" content="Push-to-talk dictation for Windows and Android. Bring your own provider and key. MIT.">
 <meta name="twitter:image" content="https://minhajuddinm.github.io/vox/screenshots/og.png">
 <meta name="twitter:image:alt" content="Vox 2.0, voice dictation for Windows and Android, next to the Home page of the Windows app rendered with sample data.">
 </head>
@@ -30,7 +30,6 @@
   <div class="top-in">
     <a class="brand" href="index.html" aria-label="Vox home"><span class="logo"><svg viewBox="0 0 512 512" width="20" height="20" aria-hidden="true" focusable="false"><path d="M140 150 L256 380 L372 150" fill="none" stroke="#fff" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/><circle cx="386" cy="128" r="36" fill="#FF5A5F" stroke="#fff" stroke-width="12"/></svg></span>Vox</a>
     <nav aria-label="Site">
-      <a href="#new">What is new</a>
       <a href="#features">Features</a>
       <a href="#screenshots">Screenshots</a>
       <a href="privacy.html">Privacy</a>
@@ -42,120 +41,57 @@
 <main id="content">
 <section class="hero" aria-labelledby="hero-title">
   <div>
-    <span class="pill">Version 2.0.0, released 5 October 2026</span>
-    <h1 id="hero-title">Free voice dictation for Windows and Android</h1>
-    <p class="lead">Hold a shortcut on Windows, or tap the bubble on Android, speak, and the words you said are typed into the app you are in: email, chat, documents, code editors, browsers. Vox has no server and no account of its own. It uses a speech and cleanup provider that you choose, with your own key, or a server you run yourself.</p>
-    <a class="btn" href="https://github.com/minhajuddinm/vox/releases/latest">Download for Windows<small>VoxSetup.exe, no administrator rights</small></a>
-    <a class="btn" href="https://github.com/minhajuddinm/vox/releases/latest">Download for Android<small>Vox.apk, installed from the file</small></a>
-    <p class="fine">Both files are on the latest release page. The Windows installer is not code-signed and the APK is not from Google Play, so both show a warning the first time; the <a href="https://github.com/minhajuddinm/vox#install">install steps</a> explain each one. You need a key from a speech and cleanup provider (Groq has a free tier) or a server of your own.</p>
+    <span class="pill">v2.0.0 · 2026-10-05 · MIT</span>
+    <h1 id="hero-title">Push-to-talk dictation for Windows and Android</h1>
+    <p class="lead">Hold a shortcut (Windows) or tap a bubble (Android), speak, and cleaned-up text is typed into the focused app. Speech and cleanup run on any OpenAI-compatible endpoint you choose (Groq free tier, OpenAI, Ollama, your own server) with your own key. No Vox server, account or telemetry.</p>
+    <a class="btn" href="https://github.com/minhajuddinm/vox/releases/latest">Windows<small>VoxSetup.exe, per-user, unsigned</small></a>
+    <a class="btn" href="https://github.com/minhajuddinm/vox/releases/latest">Android<small>Vox.apk, sideloaded</small></a>
+    <p class="fine">Both show an OS warning on first install (unsigned installer, non-Play APK): <a href="https://github.com/minhajuddinm/vox#install">install steps</a>. Needs a provider key (Groq is free) or your own server.</p>
   </div>
   <figure>
-    <img src="screenshots/windows-home.png" width="1100" height="760" alt="The Vox window on Windows, Home page: the hint to hold Ctrl and Win, a Status card with the provider Groq, the voice and cleanup models, sync and voice notes, and the start of the Speed card.">
+    <img src="screenshots/windows-home.png" width="1100" height="760" alt="Vox on Windows, Home: shortcut hint, Status and Speed cards.">
   </figure>
 </section>
 
 <div class="honest" role="note">
-  <p><b>Honest status.</b> The newest work in 2.0 is checked by automated tests and CI builds, not yet on every real device. The Android note mode and the bubble fixes have not been run on a phone yet, and keep listening has not run with a real microphone. The open checks are the issues with the <a href="https://github.com/minhajuddinm/vox/issues?q=is%3Aopen+label%3Adevice-test">device-test label</a>; test reports are welcome. The full list is in <a href="https://github.com/minhajuddinm/vox/blob/main/documentation/12-known-issues-and-roadmap.md">known issues and roadmap</a>.</p>
+  <p><b>Status.</b> 2.0 is built and tested by CI. Android features, keep listening, learn-from-corrections and code mode have not run on real hardware yet. Open checks: <a href="https://github.com/minhajuddinm/vox/issues?q=is%3Aopen+label%3Adevice-test">device-test issues</a>; <a href="https://github.com/minhajuddinm/vox/blob/main/documentation/12-known-issues-and-roadmap.md">known issues</a>.</p>
 </div>
-
-<section id="new" aria-labelledby="new-title">
-  <h2 id="new-title">What is new in 2.0</h2>
-  <p>2.0.0 is the first release with all of the v2 work. The full list is in the <a href="https://github.com/minhajuddinm/vox/releases/tag/v2.0.0">release notes</a> and the <a href="https://github.com/minhajuddinm/vox/blob/main/CHANGELOG.md">changelog</a>.</p>
-  <ul class="new">
-    <li>Pick any OpenAI-compatible provider, with separate speech and cleanup servers and a key for each; a model list and a Test button in Settings.</li>
-    <li>Cleanup keeps your words: if the cleaned text lost words, Vox types your words as spoken instead.</li>
-    <li>Spoken lists become numbered or bulleted lists, on both apps.</li>
-    <li>Code mode on Windows: "camel case user name" types <code>userName</code>.</li>
-    <li>Snippets: say "my email" and Vox types the text you saved for it.</li>
-    <li>New Windows shortcuts: tap or hold, a hands-free shortcut, paste and copy last dictation.</li>
-    <li>Keep listening on Windows for up to 60 minutes, saved as one note or typed piece by piece.</li>
-    <li>Voice notes on both apps, saved to a searchable list.</li>
-    <li>Learn from my corrections: a word you fix in text Vox just typed goes into your dictionary.</li>
-    <li>Android: a note bubble, a notification and a Quick Settings tile for notes, a bubble that stays up, diagnostics and an Install help card.</li>
-    <li>An optional relay you run yourself, now also as standalone programs for Windows and Linux (including a Raspberry Pi 5 with a 64-bit system).</li>
-    <li>Open-source documentation, CI on every pull request and the MIT licence, added in this release cycle.</li>
-  </ul>
-</section>
 
 <section id="features" aria-labelledby="features-title">
   <h2 id="features-title">Features</h2>
   <div class="grid">
-    <div class="card"><h3>Dictation that keeps your words</h3><p>The cleanup model is told to copy what you said and fix only punctuation, capitals, spelling and paragraphs. A check compares its answer with what you said; if words were lost, your words are typed as spoken. Light keeps fillers, Standard removes them.</p></div>
-    <div class="card"><h3>Your provider and key, or a local server</h3><p>Presets for Groq (free tier), OpenAI, OpenRouter, Together AI, Mistral, Ollama, LM Studio and a Speaches or faster-whisper server, or any OpenAI-compatible address. Speech and cleanup can use different servers and keys.</p></div>
-    <div class="card"><h3>Lists and code mode</h3><p>Say "first ... second ..." or "bullet point ..." and you get a list. In code editors and terminals on Windows, spoken formatters and symbols become code, and what you say there is not sent to the AI cleanup unless you choose it.</p></div>
-    <div class="card"><h3>Snippets</h3><p>Say a phrase such as "my signature" and Vox types the text you saved for it. The saved text is added after the cleanup, so it never goes to the cleanup server.</p></div>
-    <div class="card"><h3>Hotkeys and keep listening</h3><p>Hold Ctrl + Win to talk on Windows, or tap to start hands-free if you choose it. Double-tap to keep listening for up to 60 minutes. Esc cancels; Shift + Alt + Z pastes your last dictation again.</p></div>
-    <div class="card"><h3>Voice notes</h3><p>Record a note that is written down, tidied and saved to a searchable list instead of being typed. On Windows from the window, the tray or Ctrl + Alt + N.</p></div>
-    <div class="card"><h3>Learn from corrections</h3><p>Fix a word in the text Vox just typed, within 3 minutes, and the fix goes into your dictionary with a message saying so. Recently learned fixes can be undone. A switch in Settings, Privacy turns it off.</p></div>
-    <div class="card"><h3>Android bubble and notes</h3><p>A floating mic bubble types through Android's accessibility service, with a watchdog and a diagnostics card. Notes start from a note bubble, a notification or a Quick Settings tile.</p></div>
-    <div class="card"><h3>Optional relay</h3><p>A small server you run yourself syncs voice notes and your profile between PC and phone, and can hold your AI key so the phone never sees it. It comes as one Python file or as standalone programs for Windows and Linux, including a Raspberry Pi.</p></div>
-    <div class="card"><h3>Privacy</h3><p>No Vox server, no analytics, no accounts. Audio and text go only to the servers you chose. Settings, history and notes stay on your device. Speed timings are never sent.</p></div>
+    <div class="card"><h3>Cleanup that keeps your words</h3><p>Punctuation, case and spelling only. A fidelity guard compares the output with the transcript and falls back to the raw words on word loss.</p></div>
+    <div class="card"><h3>Any provider</h3><p>Separate speech and cleanup endpoints and keys: Groq, OpenAI, OpenRouter, Together, Mistral, Ollama, LM Studio, Speaches or a custom URL.</p></div>
+    <div class="card"><h3>Lists, snippets, code mode</h3><p>Spoken lists become bullets or numbers. Snippets expand after cleanup. Windows code mode types <code>userName</code>, <code>(</code>, <code>==</code>.</p></div>
+    <div class="card"><h3>Learns from corrections</h3><p>Fix a word in the text Vox typed (3 min) and it enters your dictionary. Changed words only; undo in Dictionary.</p></div>
+    <div class="card"><h3>Keep listening and notes</h3><p>Double-tap to record up to 60 min as one note. Voice notes on both apps; Android note bubble and tile.</p></div>
+    <div class="card"><h3>Optional relay</h3><p>Self-hosted sync of notes and profile, and an AI-key proxy. One Python file or standalone Windows/Linux/arm64 binaries.</p></div>
   </div>
-</section>
-
-<section aria-labelledby="how-title">
-  <h2 id="how-title">How it works</h2>
-  <ol class="steps">
-    <li><h3>Install and add a provider</h3><p>Install Vox, pick a provider in Settings and paste your key, or point it at your own server.</p></li>
-    <li><h3>Speak</h3><p>Hold the shortcut on Windows or tap the bubble on Android, and speak in any app.</p></li>
-    <li><h3>Your words appear</h3><p>Vox turns the audio into text, tidies it without dropping words, and types it where your cursor is.</p></li>
-  </ol>
 </section>
 
 <section id="screenshots" aria-labelledby="shots-title">
   <h2 id="shots-title">Screenshots</h2>
-  <p class="label">Rendered from the app's own pages with sample data, not photos of a device; the recording pill and notification parts are not shown. Select an image to see it full size.</p>
+  <p class="label">Rendered from the apps' own pages with sample data.</p>
   <div class="shots">
-    <figure class="win"><a href="screenshots/windows-home.png"><img src="screenshots/windows-home.png" width="1100" height="760" loading="lazy" alt="Windows, Home: the shortcut hint, the Status card and the Speed card."></a><figcaption>Windows: Home, with the Status and Speed cards.</figcaption></figure>
-    <figure class="win"><a href="screenshots/windows-settings.png"><img src="screenshots/windows-settings.png" width="1100" height="980" loading="lazy" alt="Windows, Settings: AI provider Groq, server address, a hidden API key, voice and cleanup models with Test buttons."></a><figcaption>Windows: Settings, AI providers and voice.</figcaption></figure>
-    <figure class="win"><a href="screenshots/windows-dictionary.png"><img src="screenshots/windows-dictionary.png" width="1100" height="1640" loading="lazy" alt="Windows, Dictionary: an About you text for a sample user Sam, words such as Acme and Orbit, three people, two replacements and two snippets."></a><figcaption>Windows: Dictionary with About you, words, people, replacements and snippets.</figcaption></figure>
-    <figure class="win"><a href="screenshots/windows-voice-notes.png"><img src="screenshots/windows-voice-notes.png" width="1100" height="760" loading="lazy" alt="Windows, Voice notes: the New voice note button, a search box and three sample notes with Copy, Edit and Delete."></a><figcaption>Windows: Voice notes.</figcaption></figure>
-    <figure class="win"><a href="screenshots/windows-privacy.png"><img src="screenshots/windows-privacy.png" width="1100" height="760" loading="lazy" alt="Windows, Settings, Privacy: what leaves the PC, and switches for history, Learn from my corrections, the clipboard and relay sync."></a><figcaption>Windows: Settings, Privacy.</figcaption></figure>
-    <figure class="phone"><a href="screenshots/android-home.png"><img src="screenshots/android-home.png" width="390" height="844" loading="lazy" alt="Android, Home: a ready message, the Status card and the start of the Speed card."></a><figcaption>Android: Home.</figcaption></figure>
-    <figure class="phone"><a href="screenshots/android-settings.png"><img src="screenshots/android-settings.png" width="390" height="844" loading="lazy" alt="Android, Settings: the relay as AI server switch, the provider Groq, the server address, a hidden API key and the voice model."></a><figcaption>Android: Settings.</figcaption></figure>
-    <figure class="phone"><a href="screenshots/android-notes.png"><img src="screenshots/android-notes.png" width="390" height="844" loading="lazy" alt="Android, Voice notes: the New voice note button, search, and two sample notes with tags."></a><figcaption>Android: Voice notes.</figcaption></figure>
-    <figure class="phone"><a href="screenshots/android-install-help.png"><img src="screenshots/android-install-help.png" width="390" height="844" loading="lazy" alt="Android, Settings, Install help opened: steps for Restricted setting, Play Protect and installing with adb."></a><figcaption>Android: Install help.</figcaption></figure>
+    <figure class="win"><a href="screenshots/windows-settings.png"><img src="screenshots/windows-settings.png" width="1100" height="980" loading="lazy" alt="Windows Settings: provider, server address, key, models."></a></figure>
+    <figure class="win"><a href="screenshots/windows-dictionary.png"><img src="screenshots/windows-dictionary.png" width="1100" height="1640" loading="lazy" alt="Windows Dictionary: About you, words, people, replacements, snippets."></a></figure>
+    <figure class="phone"><a href="screenshots/android-home.png"><img src="screenshots/android-home.png" width="390" height="844" loading="lazy" alt="Android Home."></a></figure>
+    <figure class="phone"><a href="screenshots/android-install-help.png"><img src="screenshots/android-install-help.png" width="390" height="844" loading="lazy" alt="Android Install help."></a></figure>
   </div>
 </section>
 
 <section aria-labelledby="privacy-title">
-  <h2 id="privacy-title">Privacy in short</h2>
-  <ul>
-    <li>No Vox server, no analytics and no accounts. Nothing is sent to the developers.</li>
-    <li>Your audio goes to the speech server you chose. The text, your About you text, dictionary, people and the name of the app you type in go to the cleanup server you chose.</li>
-    <li>The relay gets data only if you switch it on. API keys go there only if you turn on a separate switch, which is off by default.</li>
-    <li>Learn from my corrections is on by default: for up to 3 minutes after Vox types, it reads the text of that field to notice your fixes (never password fields). You can turn it off in Settings, Privacy.</li>
-    <li>On Windows, settings, history and notes are plain files in your profile and the API keys are protected by your Windows login. On Android, keys and history are in the app's private storage, unencrypted.</li>
-  </ul>
-  <p>This page loads nothing from other sites: no fonts, scripts or trackers. The full details are in the <a href="privacy.html">privacy policy</a>.</p>
+  <h2 id="privacy-title">Privacy</h2>
+  <p>Audio goes to your speech server; transcript, dictionary and app name (never the window title) to your cleanup server; the relay gets data only if enabled. Learn-from-corrections reads the focused field for 3 minutes after typing (never password fields) and keeps only changed words; switch it off in Settings, Privacy. Windows keys use DPAPI; Android keys are unencrypted in app storage. This page loads nothing from other sites. <a href="privacy.html">Full policy</a>.</p>
 </section>
 
 <section aria-labelledby="links-title">
-  <h2 id="links-title">Documentation and project</h2>
-  <ul class="links">
-    <li><a href="https://github.com/minhajuddinm/vox#readme">README</a>: features, install, status and known limits</li>
-    <li><a href="https://github.com/minhajuddinm/vox/tree/main/documentation">Documentation</a>: how Vox is built, every setting, security and privacy</li>
-    <li><a href="https://github.com/minhajuddinm/vox/blob/main/CHANGELOG.md">Changelog</a></li>
-    <li><a href="https://github.com/minhajuddinm/vox/releases">All releases</a></li>
-    <li><a href="https://github.com/minhajuddinm/vox/issues">Issues</a>: bug reports and ideas</li>
-    <li><a href="https://github.com/minhajuddinm/vox/issues/34">Roadmap (issue #34)</a></li>
-    <li><a href="https://github.com/minhajuddinm/vox/issues?q=is%3Aopen+label%3Adevice-test">Device tests to run</a> (the device-test label)</li>
-    <li><a href="https://github.com/minhajuddinm/vox/blob/main/CONTRIBUTING.md">Contributing</a> and <a href="https://github.com/minhajuddinm/vox/blob/main/SECURITY.md">security reports</a></li>
-    <li><a href="https://github.com/minhajuddinm/vox/blob/main/relay/README.md">Relay set-up guide</a></li>
-  </ul>
+  <h2 id="links-title">Links</h2>
+  <p><a href="https://github.com/minhajuddinm/vox#readme">README</a> · <a href="https://github.com/minhajuddinm/vox/tree/main/documentation">Docs</a> · <a href="https://github.com/minhajuddinm/vox/blob/main/CHANGELOG.md">Changelog</a> · <a href="https://github.com/minhajuddinm/vox/releases/tag/v2.0.0">Release notes</a> · <a href="https://github.com/minhajuddinm/vox/issues/34">Roadmap</a> · <a href="https://github.com/minhajuddinm/vox/blob/main/relay/README.md">Relay</a> · <a href="https://github.com/minhajuddinm/vox/blob/main/CONTRIBUTING.md">Contributing</a> · <a href="https://github.com/minhajuddinm/vox/blob/main/SECURITY.md">Security</a></p>
+  <p>MIT. Original author <a href="https://github.com/minhajuddinm">Muhammad Minhajuddin</a>; v2 by <a href="https://github.com/Yuvi-5">Yuvi-5</a>; number-format tests by <a href="https://github.com/GreedyC">GreedyC</a>.</p>
 </section>
 
-<section aria-labelledby="credits-title">
-  <h2 id="credits-title">Licence and credits</h2>
-  <p>Vox is released under the <a href="https://github.com/minhajuddinm/vox/blob/main/LICENSE">MIT licence</a>. The licence was added in the 2.0 release cycle; before it the repository had none.</p>
-  <ul>
-    <li>Muhammad Minhajuddin (<a href="https://github.com/minhajuddinm">minhajuddinm</a>), the original author of Vox.</li>
-    <li><a href="https://github.com/Yuvi-5">Yuvi-5</a>, the v2 work.</li>
-    <li><a href="https://github.com/GreedyC">GreedyC</a>, the number-format test rows.</li>
-  </ul>
-</section>
-
-<footer>Vox is a free, open-source personal project. Contact: minhajmoiz9239@gmail.com</footer>
+<footer>Free, open-source personal project. Contact: minhajmoiz9239@gmail.com</footer>
 </main>
 </body>
 </html>
