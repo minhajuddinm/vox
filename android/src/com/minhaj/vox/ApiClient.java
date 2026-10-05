@@ -28,6 +28,9 @@ public final class ApiClient {
         public ApiException(int code, String msg) { super(msg); this.code = code; }
     }
 
+    /** The largest answer read into memory, as the relay's proxy (relay.py MAX_PROXY_REPLY). */
+    static final int MAX_ANSWER = 8_000_000;
+
     private final String apiKey;
     private final String base;
     private volatile HttpURLConnection active;   // the request in flight, so abort() can cut it
@@ -42,8 +45,11 @@ public final class ApiClient {
     /** True when Groq accepts the key, false when it rejects it. Throws on network errors. */
     public boolean checkKey() throws IOException {
         String problem = Endpoint.error(base);
+        if (problem == null) problem = Endpoint.resolvedError(base);
         if (problem != null) throw new IOException(problem);   // the same address rule as every other call: never send the key to a refused address
+        relayProof();
         HttpURLConnection c = (HttpURLConnection) new URL(base + "/models").openConnection();
+        c.setInstanceFollowRedirects(false);   // a redirect would take the key to an address no rule checked (SEC-6)
         c.setConnectTimeout(15000);
         c.setReadTimeout(15000);
         if (!apiKey.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + apiKey);
@@ -687,9 +693,13 @@ public final class ApiClient {
 
     private HttpURLConnection get(String url) throws IOException {
         if (aborted) throw new IOException("cancelled");
+        String problem = Endpoint.resolvedError(base);
+        if (problem != null) throw new IOException(problem);
+        relayProof();
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         active = c;
         if (aborted) throw new IOException("cancelled");
+        c.setInstanceFollowRedirects(false);   // (SEC-6)
         c.setConnectTimeout(5000);
         c.setReadTimeout(5000);
         if (!apiKey.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + apiKey);
@@ -700,16 +710,32 @@ public final class ApiClient {
 
     private HttpURLConnection open(String url, int readMs) throws IOException {
         String problem = Endpoint.error(base);
+        if (problem == null) problem = Endpoint.resolvedError(base);
         if (problem != null) throw new IOException(problem);
+        relayProof();
         if (aborted) throw new IOException("cancelled");
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         active = c;
         if (aborted) throw new IOException("cancelled");   // abort() came between the two checks
+        c.setInstanceFollowRedirects(false);   // a redirect would send the audio or the text to an address no rule checked (SEC-6)
         c.setRequestMethod("POST");
         c.setConnectTimeout(Latency.CONNECT_MS);
         c.setReadTimeout(readMs);
         if (!apiKey.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + apiKey);
         return c;
+    }
+
+    /**
+     * With the relay as the AI server (the address is {relay}/proxy/stt or /proxy/llm, Providers.proxyUrl) the key is the
+     * relay token: the relay proves it holds it first (RelayProof, SEC-2), or nothing is sent.
+     */
+    private void relayProof() throws IOException {
+        if (!base.endsWith("/proxy/stt") && !base.endsWith("/proxy/llm")) return;
+        try {
+            RelayProof.check(base.substring(0, base.length() - "/proxy/stt".length()), apiKey);
+        } catch (RelayApi.RelayError e) {
+            throw new IOException(e.message);
+        }
     }
 
     private static JSONObject readJson(HttpURLConnection c) throws IOException {
@@ -721,6 +747,10 @@ public final class ApiClient {
     /** The answer body of a finished request; an ApiException (with the server's own message) for a 4xx or 5xx. */
     private static String readBody(HttpURLConnection c) throws IOException {
         int code = c.getResponseCode();
+        if (code >= 300 && code < 400) {
+            c.disconnect();
+            throw new ApiException(code, "API " + code + ": the server answered with a redirect, which Vox does not follow");
+        }
         InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
         String body = in == null ? "" : readAll(in);   // read to the end and not disconnected: the connection is reused
         if (code >= 400) {
@@ -739,7 +769,13 @@ public final class ApiClient {
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
         int n;
-        while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+        while ((n = in.read(buf)) > 0) {
+            bo.write(buf, 0, n);
+            if (bo.size() > MAX_ANSWER) {   // a broken or hostile server must not run the phone out of memory (SEC-9)
+                in.close();
+                throw new IOException("The server's answer was too large.");
+            }
+        }
         in.close();
         return bo.toString("UTF-8");
     }

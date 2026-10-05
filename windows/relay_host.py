@@ -41,8 +41,8 @@ def serve_hint(port):
 
 
 def port_busy(port):
-    """True when something already accepts connections on 127.0.0.1:port. Asked before starting because on Windows
-    the relay's own bind succeeds on a taken port (the server sets SO_REUSEADDR), so it would not fail by itself."""
+    """True when something already accepts connections on 127.0.0.1:port. Asked before starting, so the user hears why
+    (the relay binds with SO_EXCLUSIVEADDRUSE and would just stop at once on a taken port)."""
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=0.5):
             return True
@@ -132,8 +132,11 @@ class RelayHost:
             if self.running():
                 return True
             if self._busy(self.port):
-                self._notify(f"Port {self.port} is already in use (is another relay running?), so Vox did not start its own. "
-                             "Stop the other one, or change relay_port.")
+                # Said as the possible attack it is (SEC-2): whatever holds the port gets every device's sync requests. The
+                # apps check the relay's proof before they send the token, but the user should still find out what it is.
+                self._notify(f"Port {self.port} is already in use by another program, so Vox did not start its relay. If you did "
+                             "not start another relay yourself, something on this PC may be waiting for your devices' relay "
+                             f"token: find it with  netstat -ano | findstr :{self.port}  and stop it, or change relay_port.")
                 return False
             first_time = not os.path.exists(os.path.join(self.data_dir, "relay.json"))
             try:

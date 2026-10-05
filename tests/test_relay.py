@@ -1,6 +1,7 @@
 """The relay: auth, note sync (sequence cursor, last writer wins, delete markers), search, profile versions, limits."""
 import http.client
 import json
+import sys
 import threading
 import time
 import uuid
@@ -363,3 +364,150 @@ def test_a_database_of_an_older_relay_gets_the_order_column_and_keeps_its_notes(
     assert store.get_note(n["id"])["text"] == "kept from before"
     stored, applied = store.upsert_note(dict(n, text="edited", updated_at=n["updated_at"] + 1))
     assert applied and stored["text"] == "edited" and "order_at" not in stored
+
+
+# --------------------------------------------------------------- bf-e: issue #63
+@pytest.mark.parametrize("body", [b'{"a": NaN}', b'{"a": Infinity}', b'{"a": -Infinity}', b'{"a": [1e999]}'])
+def test_a_profile_with_nan_or_infinity_is_refused_so_later_reads_stay_valid_json(cl, body):
+    st, out = cl.call("PUT", "/profile", raw=body, headers={"If-Match": "0", "Content-Type": "application/json"})
+    assert st == 400
+    c = http.client.HTTPConnection("127.0.0.1", cl.port, timeout=10)
+    c.request("GET", "/profile", headers={"Authorization": "Bearer " + cl.token})
+    text = c.getresponse().read().decode()
+    c.close()
+    json.loads(text, parse_constant=lambda name: pytest.fail("the relay sent " + name))
+    assert json.loads(text) == {"version": 0, "data": {}}
+
+
+@pytest.mark.parametrize("since", [str(2 ** 63), "-" + str(2 ** 63 + 1), "9" * 40])
+def test_a_cursor_beyond_64_bits_is_a_400_not_a_500(cl, since):
+    st, out = cl.call("GET", "/changes?since=" + since)
+    assert st == 400 and out["error"]
+
+
+def test_the_largest_64_bit_cursor_is_fine(cl):
+    st, out = cl.call("GET", "/changes?since=" + str(2 ** 63 - 1))
+    assert st == 200 and out["notes"] == []
+
+
+# --------------------------------------------------------------- bf-e: SEC-7 (connection cap, header deadline)
+def _small_server(tmp_path, monkeypatch, **limits):
+    for name, value in limits.items():
+        monkeypatch.setattr(relay, name, value)
+    srv = relay.make_server(str(tmp_path), port=0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_connections_over_the_cap_are_answered_503_without_a_thread(tmp_path, monkeypatch):
+    import socket
+    srv = _small_server(tmp_path, monkeypatch, MAX_CONNECTIONS=3)
+    handlers = []
+    real_setup = relay.Handler.setup
+    monkeypatch.setattr(relay.Handler, "setup", lambda self: handlers.append(self) or real_setup(self))
+    held = []
+    try:
+        for _ in range(3):
+            s = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=5)
+            s.sendall(b"G")      # a request that has begun and stalls
+            held.append(s)
+        time.sleep(0.3)
+        assert " 503 " in _raw_request(srv, "GET /health HTTP/1.1\r\nHost: x\r\n\r\n")
+        assert len(handlers) == 3        # the refused connection got no handler (and so no thread)
+        for s in held:
+            s.close()
+        held = []
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if Client(srv).call("GET", "/health")[0] == 200:
+                break
+            time.sleep(0.1)
+        else:
+            pytest.fail("the relay did not take connections again")
+    finally:
+        for s in held:
+            s.close()
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_a_request_whose_headers_trickle_in_is_cut_off_at_the_deadline(tmp_path, monkeypatch):
+    import socket
+    srv = _small_server(tmp_path, monkeypatch, HEADER_DEADLINE=1.5)
+    s = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=10)
+    try:
+        start = time.time()
+        closed = False
+        for ch in b"GET /health HTTP/1.1\r\nX-Slow: " + b"a" * 100:
+            try:
+                s.sendall(bytes([ch]))
+                s.settimeout(0.5)
+                if s.recv(1) == b"":
+                    closed = True
+                    break
+            except socket.timeout:
+                continue
+            except OSError:
+                closed = True
+                break
+            if time.time() - start > 8:
+                break
+        assert closed and time.time() - start < 6
+    finally:
+        s.close()
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_an_idle_kept_alive_connection_is_not_cut_by_the_header_deadline(tmp_path, monkeypatch):
+    srv = _small_server(tmp_path, monkeypatch, HEADER_DEADLINE=0.5)
+    c = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+    try:
+        h = {"Authorization": "Bearer " + srv.token}
+        c.request("GET", "/health", headers=h)
+        assert c.getresponse().read() and True
+        time.sleep(1.2)          # idle between two requests on the same connection: longer than the deadline
+        c.request("GET", "/health", headers=h)
+        assert c.getresponse().status == 200
+    finally:
+        c.close()
+        srv.shutdown()
+        srv.server_close()
+
+
+# --------------------------------------------------------------- bf-e: SEC-2 (the relay proves it holds the token)
+def _proof(token, nonce):
+    import hashlib
+    import hmac
+    return hmac.new(token.encode(), ("vox-relay-proof:" + nonce).encode(), hashlib.sha256).hexdigest()
+
+
+def test_the_relay_proves_it_holds_the_token_without_being_sent_it(server):
+    anon = Client(server, token=None)
+    nonce = "a" * 32
+    st, out = anon.call("GET", "/proof?nonce=" + nonce)
+    assert st == 200 and out["proof"] == _proof(server.token, nonce) and server.token not in json.dumps(out)
+    st2, out2 = anon.call("GET", "/proof?nonce=" + "b" * 32)
+    assert out2["proof"] != out["proof"]
+
+
+@pytest.mark.parametrize("query", ["", "?nonce=", "?nonce=short", "?nonce=" + "x" * 200, "?nonce=has%20space" + "a" * 20])
+def test_a_proof_needs_a_sensible_nonce(server, query):
+    assert Client(server, token=None).call("GET", "/proof" + query)[0] == 400
+
+
+def test_a_proof_request_is_not_a_logged_in_request(server):
+    Client(server, token=None).call("GET", "/proof?nonce=" + "c" * 32)
+    assert server.recent() == [] and server.status()["requests"]["auth_failures"] == 0
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SO_EXCLUSIVEADDRUSE is Windows only")
+def test_on_windows_no_other_program_can_bind_the_relays_port_while_it_runs(server):
+    import socket
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        with pytest.raises(OSError):
+            s.bind(("127.0.0.1", server.server_address[1]))
+    finally:
+        s.close()

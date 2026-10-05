@@ -109,7 +109,7 @@ public final class ProxyUploadIntegrationTest {
         HttpURLConnection c = (HttpURLConnection) new URL(relay.url + "/admin/upstream").openConnection();
         c.setRequestMethod("PUT");
         c.setDoOutput(true);
-        c.setRequestProperty("Authorization", "Bearer " + relay.token);
+        c.setRequestProperty("Authorization", "Bearer " + relay.adminToken());
         c.setRequestProperty("Content-Type", "application/json");
         try (OutputStream o = c.getOutputStream()) { o.write(json.getBytes(StandardCharsets.UTF_8)); }
         int code = c.getResponseCode();

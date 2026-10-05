@@ -19,6 +19,8 @@ from contextlib import contextmanager
 from urllib.parse import urlparse
 
 import requests
+import urllib3.connection
+import urllib3.connectionpool
 
 import codemode
 import providers
@@ -1316,6 +1318,7 @@ _session = requests.Session()   # keeps connections open, so a dictation does no
 
 
 def _post(url, **kw):
+    kw.setdefault("allow_redirects", False)   # a redirect would send the audio or the text to an address no rule checked (SEC-6)
     return _session.post(url, **kw)
 
 
@@ -1330,9 +1333,11 @@ def warm(cfg):
         targets.setdefault(api_base(cfg, role), auth_headers(cfg, role))
 
     def run():
+        if providers.uses_relay(cfg) and relay_proof_problem(cfg.get("relay_url") or "", auth_headers(cfg, "stt")):
+            return      # the relay did not prove it holds the token: nothing goes there
         for base, headers in targets.items():
             try:
-                _session.get(f"{base}/models", headers=headers, timeout=3)
+                _session.get(f"{base}/models", headers=headers, timeout=3, allow_redirects=False)
             except Exception:
                 pass
 
@@ -1352,11 +1357,28 @@ def retryable(status, timeout, via_relay):
     return status == 0 or status in RETRY_STATUS
 
 
+def relay_proof_problem(url, headers):
+    """'' when the relay behind `url` (its address, or one of its /proxy/ addresses) has proved it holds the token in
+    `headers` (sync.prove_relay, SEC-2), else why the token must not go there."""
+    import sync
+    token = ((headers or {}).get("Authorization") or "")[len("Bearer "):]
+    try:
+        sync.prove_relay(url.split("/proxy/", 1)[0], token)
+    except sync.SyncError as e:
+        return str(e)
+    return ""
+
+
 def post_with_retry(url, retries=2, via_relay=False, retry_timeouts=True, **kw):
     """POST with a quick retry on dropped connections (flaky Wi-Fi, VPNs, antivirus TLS inspection)
     and on temporary server errors (see `retryable`; `via_relay` says the relay is the server). `retry_timeouts` False:
     a wait for the answer that ran out is not sent again (the cleanup, which falls back to the spoken words). The last
-    response is returned as it is."""
+    response is returned as it is. Through the relay, the relay first proves it holds the token (ApiError when it does
+    not)."""
+    if via_relay:
+        problem = relay_proof_problem(url, kw.get("headers"))
+        if problem:
+            raise ApiError(0, problem)
     for attempt in range(retries + 1):
         try:
             if "files" in kw:   # file objects must be re-sent from the start
@@ -1406,6 +1428,8 @@ def _error_message(r):
 def check_response(r, via_relay=False):
     """The JSON answer, or an ApiError. `via_relay`: the request went through the relay (see providers.role_settings),
     so a 401 or 403 also says where to look."""
+    if 300 <= r.status_code < 400:      # redirects are not followed (SEC-6)
+        raise ApiError(r.status_code, f"API {r.status_code}: the server answered with a redirect, which Vox does not follow")
     if r.status_code >= 400:
         msg = _error_message(r)
         if via_relay and r.status_code in (401, 403):
@@ -1439,9 +1463,62 @@ def is_private_host(host):
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
-        # A name: single-label names, .local/.lan and Tailscale MagicDNS names never leave the private network.
+        if _NUMERIC_LABEL.fullmatch(host.rsplit(".", 1)[-1]):
+            return False    # not a name: the resolver reads 134744072 or 0x08080808 as 8.8.8.8 (golden rows, SEC-3)
+        # A name: single-label names, .local/.lan and Tailscale MagicDNS names. Where they lead is checked again when
+        # the connection is made (PrivatePeerConnection): a foreign network can answer for them.
         return "." not in host or host.endswith((".local", ".lan", ".ts.net"))
     return any(ip in net for net in _PRIVATE_NETS)
+
+
+_NUMERIC_LABEL = re.compile(r"[0-9]+|0x[0-9a-f]*")
+
+
+def private_peer(address):
+    """True when a connected socket's peer address (as getpeername gives it) is one plain http may go to."""
+    try:
+        ip = ipaddress.ip_address(str(address).split("%", 1)[0])
+    except ValueError:
+        return False
+    ip = getattr(ip, "ipv4_mapped", None) or ip
+    return any(ip in net for net in _PRIVATE_NETS)
+
+
+class PlainHttpRefused(OSError):
+    """A plain http connection reached an address outside this PC, the LAN and Tailscale (a name that resolved there)."""
+
+
+PLAIN_HTTP_ELSEWHERE = ("Plain http only goes to this PC, your local network or Tailscale, and this name led somewhere else. "
+                        "Use https:// or the address in numbers.")   # Android twin: Endpoint.resolvedError
+
+
+def refused_plain_http(exc):
+    """True when a requests error comes from PrivatePeerConnection refusing where a name led."""
+    for _ in range(10):
+        if exc is None or isinstance(exc, PlainHttpRefused):
+            return exc is not None
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+class PrivatePeerConnection(urllib3.connection.HTTPConnection):
+    """Every plain http connection the app makes (requests, through urllib3): the address it really connected to must be
+    private, whatever the name resolved to. The address rule (endpoint_error) only sees the name, and a foreign network
+    (hotel DNS, LLMNR or mDNS) can answer for `gpu-pc` or `pi.lan`: nothing is sent before this check."""
+
+    def connect(self):
+        super().connect()
+        try:
+            peer = self.sock.getpeername()[0]
+        except (OSError, AttributeError, IndexError):
+            peer = ""
+        if not private_peer(peer):
+            self.close()
+            raise PlainHttpRefused("plain http is only sent to this PC, the local network or Tailscale; this name led elsewhere")
+
+
+# https pools have their own connection class, so only plain http is affected
+urllib3.connectionpool.HTTPConnectionPool.ConnectionCls = PrivatePeerConnection
 
 
 def endpoint_error(cfg):

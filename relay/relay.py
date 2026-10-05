@@ -13,6 +13,7 @@ Protocol and decisions: documentation/14-relay.md and documentation/decisions/00
 import argparse
 import collections
 import contextlib
+import hashlib
 import hmac
 import http.client
 import ipaddress
@@ -54,8 +55,11 @@ PROXY_TIMEOUT = {"stt": 180, "llm": 240, "models": 15}
 CLIENT_POLL = 0.25          # seconds between looks at the client's connection while an upstream answer is awaited
 MAX_PROXY_BODY = {"stt": 25_000_000, "llm": 1_000_000, "models": 0}   # bytes a client may send, by kind of call
 MAX_PROXY_REPLY = 8_000_000   # bytes of an upstream answer that are passed on; more is a 502
+MAX_CONNECTIONS = 64        # connections served at once (one thread each); the next one is answered 503 and closed
+HEADER_DEADLINE = 10        # seconds from the first byte of a request to the end of its headers, however slowly they come
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 ID_IN_PATH = re.compile(r"[0-9a-f]{32}")
+NONCE_RE = re.compile(r"[A-Za-z0-9_-]{16,128}")
 SECRET_WORDS = ("key", "token", "secret", "password")
 NOTE_FIELDS = ("id", "source", "title", "text", "raw", "created_at", "updated_at", "secs", "device", "tags", "deleted")
 
@@ -116,6 +120,27 @@ def _number(value, name):
     return f
 
 
+def _no_constant(name):
+    """json.loads hook: NaN, Infinity and -Infinity are not JSON. Stored, they would make every later answer invalid JSON."""
+    raise ValueError("not JSON: " + name)
+
+
+def _finite_float(text):
+    """json.loads hook: a number too large for a float (1e999) would come back as Infinity, so it is refused too."""
+    f = float(text)
+    if not math.isfinite(f):
+        raise ValueError("number out of range")
+    return f
+
+
+def _cursor(text):
+    """A sequence number from a query string: a whole number that fits in SQLite's 64-bit integer (else BadRequest)."""
+    n = int(text)
+    if not -2 ** 63 <= n < 2 ** 63:
+        raise BadRequest("since is out of range")
+    return n
+
+
 def _time_field(value, name):
     """A note time in seconds. More than a day ahead of the relay is refused (that is a clock in milliseconds or a
     broken one: such a note would win over every later edit and delete)."""
@@ -151,6 +176,13 @@ def clean_note(raw, note_id=None):
         "tags": [] if deleted else tags,
         "deleted": deleted,
     }
+
+
+def token_proof(token, nonce):
+    """What GET /proof answers: HMAC-SHA256 of the client's nonce, keyed with the token. A client checks it before it
+    sends the token, so a program squatting on the relay's port (the relay not running) never receives it. The token
+    cannot be worked out from proofs (windows/sync.py prove_relay, android RelayProof)."""
+    return hmac.new(token.encode("utf-8"), ("vox-relay-proof:" + nonce).encode("ascii"), hashlib.sha256).hexdigest()
 
 
 def mask_secrets(value, key=""):
@@ -428,6 +460,8 @@ def load_config(data_dir, port=None, owner=None):
     changed = not os.path.exists(path)
     if not cfg.get("token"):
         cfg["token"], changed = secrets.token_urlsafe(32), True
+    if not cfg.get("admin_token"):     # rotate the token, change the AI servers: never given to devices (SEC-4)
+        cfg["admin_token"], changed = secrets.token_urlsafe(32), True
     if port is not None and cfg.get("port") != port:
         cfg["port"], changed = port, True
     if owner is not None and cfg.get("owner") != owner:
@@ -472,8 +506,24 @@ def is_private_host(host):
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
-        # A name: single-label names, .local/.lan and Tailscale MagicDNS names never leave the private network.
+        if _NUMERIC_LABEL.fullmatch(host.rsplit(".", 1)[-1]):
+            return False    # not a name: the resolver reads 134744072 or 0x08080808 as 8.8.8.8 (golden rows, SEC-3)
+        # A name: single-label names, .local/.lan and Tailscale MagicDNS names. Where they lead is checked again when the
+        # relay connects (_open_socket): a network can answer for them with any address.
         return "." not in host or host.endswith((".local", ".lan", ".ts.net"))
+    return any(ip in net for net in _PRIVATE_NETS)
+
+
+_NUMERIC_LABEL = re.compile(r"[0-9]+|0x[0-9a-f]*")
+
+
+def private_address(address):
+    """True when a resolved address (a getaddrinfo or getpeername address string) is one plain http may go to."""
+    try:
+        ip = ipaddress.ip_address(str(address).split("%", 1)[0])
+    except ValueError:
+        return False
+    ip = getattr(ip, "ipv4_mapped", None) or ip
     return any(ip in net for net in _PRIVATE_NETS)
 
 
@@ -579,10 +629,12 @@ def _scrub(data, key):
     return data
 
 
-def _open_socket(host, port, deadline):
+def _open_socket(host, port, deadline, private_only=False):
     """A connected TCP socket to host:port, like socket.create_connection, except that the name lookup and all the
     connection attempts share one deadline (a time.monotonic() value) instead of each getting a whole timeout. The
-    socket comes back with what is left as its timeout, which also bounds an https handshake. Raises OSError."""
+    socket comes back with what is left as its timeout, which also bounds an https handshake. Raises OSError.
+    `private_only` (plain http): every address the name resolves to must be private (`private_address`), or nothing is
+    connected and UpstreamError is raised; upstream_problem only saw the name."""
     found = []
 
     def look_up():
@@ -598,6 +650,8 @@ def _open_socket(host, port, deadline):
         raise OSError("name lookup timed out")
     if isinstance(found[0], Exception):
         raise found[0]
+    if private_only and not all(private_address(a[4][0]) for a in found[0]):
+        raise UpstreamError("the plain http upstream's name led outside this machine, the local network and Tailscale")
     err = OSError("no address to connect to")
     for family, kind, proto, _name, address in found[0]:
         left = deadline - time.monotonic()
@@ -650,7 +704,7 @@ def forward_upstream(base_url, api_key, suffix, method, body, content_type, acce
     deadline = time.monotonic() + timeout
     conn = (http.client.HTTPSConnection if https else http.client.HTTPConnection)(u.hostname, u.port or (443 if https else 80), timeout=timeout)
     # http.client calls this (an instance attribute, set here) to open the TCP connection; https still wraps it its own way
-    conn._create_connection = lambda address, *_ignored: _open_socket(address[0], address[1], deadline)
+    conn._create_connection = lambda address, *_ignored: _open_socket(address[0], address[1], deadline, private_only=not https)
     expired = threading.Event()
     abandoned = threading.Event()
     watchdog = None
@@ -746,6 +800,29 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):   # no access log: paths carry search words and note ids
         pass
 
+    def handle_one_request(self):
+        """Waits (up to `timeout`) for the next request to begin, then gives its request line and headers
+        HEADER_DEADLINE seconds in all: `timeout` alone is per read, so a client that sends a byte now and then could
+        hold its thread for ever. An idle kept-alive connection is not on the clock until a request begins."""
+        try:
+            if not self.rfile.peek(1):
+                self.close_connection = True
+                return
+        except (OSError, ValueError):
+            self.close_connection = True
+            return
+        self.server.watch_headers(self.connection)
+        try:
+            super().handle_one_request()
+        finally:
+            self.server.watch_headers(self.connection, False)
+
+    def parse_request(self):
+        try:
+            return super().parse_request()
+        finally:
+            self.server.watch_headers(self.connection, False)     # the headers are in: the body has its own limits
+
     # ------------------------------------------------------------ plumbing
     def _send(self, status, body, ctype="application/json", headers=None):
         data = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
@@ -761,9 +838,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _authorised(self):
-        given = self.headers.get("Authorization", "")
-        want = "Bearer " + self.server.token
-        if not hmac.compare_digest(given.encode("utf-8"), want.encode("utf-8")):
+        """The device token or the admin token (which also signs in to the page). Sets self._is_admin."""
+        given = self.headers.get("Authorization", "").encode("utf-8")
+        self._is_admin = bool(self.server.admin_token) and hmac.compare_digest(given, ("Bearer " + self.server.admin_token).encode("utf-8"))
+        if not self._is_admin and not hmac.compare_digest(given, ("Bearer " + self.server.token).encode("utf-8")):
             self.server.auth_failed()
             self._send(401, {"error": "missing or wrong token"})
             return False
@@ -784,7 +862,7 @@ class Handler(BaseHTTPRequestHandler):
             self._drain(n)
             raise BodyTooLarge()
         try:
-            return json.loads(self.rfile.read(n) or b"null")
+            return json.loads(self.rfile.read(n) or b"null", parse_constant=_no_constant, parse_float=_finite_float)
         except (ValueError, UnicodeDecodeError):
             raise BadRequest("the body is not valid JSON")
 
@@ -826,8 +904,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._page()   # only the page shell: no data, the token is asked for in the browser
         if method == "GET" and parts == ["favicon.ico"]:
             return self._send(204, b"", "image/x-icon")
+        if method == "GET" and parts == ["proof"]:   # before the token check: the client has not sent it yet
+            nonce = parse_qs(u.query).get("nonce", [""])[0]
+            if not NONCE_RE.fullmatch(nonce):
+                return self._send(400, {"error": "send ?nonce= with 16 to 128 letters, digits, - or _"})
+            return self._send(200, {"proof": token_proof(self.server.token, nonce), "version": RELAY_VERSION})
         if not self._authorised():
-            self.server.record(method, ID_IN_PATH.sub("{id}", u.path), self._status, "")
+            # the path of a refused request is the sender's own text: it is not shown on the management page
+            self.server.record(method, "(refused)", self._status, "")
             return
         device =(self.headers.get("X-Vox-Device") or "").strip()[:60]
         if device:
@@ -856,7 +940,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"devices": [{k: d[k] for k in ("name", "first_seen", "last_seen", "requests", "login")}
                                                     for d in store.devices()]})   # newest first; no events, no notes
             if parts == ["changes"] and method == "GET":
-                return self._send(200, store.changes(int(q.get("since", 0)), int(q.get("limit", 200))))
+                return self._send(200, store.changes(_cursor(q.get("since", 0)), int(q.get("limit", 200))))
             if parts == ["notes"] and method == "GET":
                 since = float(q["from"]) if "from" in q else None
                 until = float(q["to"]) if "to" in q else None
@@ -999,7 +1083,10 @@ class Handler(BaseHTTPRequestHandler):
         srv, store = self.server, self.server.store
         what = parts[1] if len(parts) == 2 else ""
         if method == "GET" and what == "status":
-            return self._send(200, srv.status())
+            return self._send(200, dict(srv.status(), admin=self._is_admin))
+        if what in ("rotate-token", "upstream") and method != "GET" and not self._is_admin:
+            # The device token must not lock the owner out or choose where the dictations go (SEC-4): devices do not hold this one.
+            return self._send(403, {"error": "this needs the admin token (admin_token in relay.json, or run the relay with --show-token)"})
         if method == "GET" and what == "activity":
             return self._send(200, {"events": srv.recent(), "devices": store.devices()})
         if method == "GET" and what == "profile":
@@ -1059,10 +1146,19 @@ class Handler(BaseHTTPRequestHandler):
 
 class RelayServer(ThreadingHTTPServer):
     daemon_threads = True
+    # Windows: SO_REUSEADDR would let another program (another user's too) bind the same port while the relay runs and
+    # take its connections when it stops; SO_EXCLUSIVEADDRUSE (server_bind) refuses them.
+    allow_reuse_address = sys.platform != "win32"
 
-    def __init__(self, addr, store, token, owner="", data_dir=None, upstream=None):
+    def server_bind(self):
+        if sys.platform == "win32" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+    def __init__(self, addr, store, token, owner="", data_dir=None, upstream=None, admin_token=""):
         super().__init__(addr, Handler)
         self.store, self.token, self.owner, self.data_dir = store, token, owner, data_dir
+        self.admin_token = admin_token or ""     # "" (a server made without one, tests): no admin calls at all
         self.upstream = upstream_settings(upstream)   # replaced as a whole, never changed in place
         self.config_lock = threading.Lock()           # one writer at a time for relay.json
         self.proxy_running = threading.BoundedSemaphore(2 * PROXY_SLOTS)   # exchanges alive at all, abandoned ones included
@@ -1071,6 +1167,54 @@ class RelayServer(ThreadingHTTPServer):
         self._events = collections.deque(maxlen=100)
         self._counts = {"requests": 0, "errors": 0, "auth_failures": 0, "last_auth_failure": None}
         self._mlock = threading.Lock()
+        self._connections = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        self._headers_due = {}          # connection -> time.monotonic() by which its request headers must be in
+        self._closing = threading.Event()
+        threading.Thread(target=self._cut_slow_headers, daemon=True, name="relay-header-deadline").start()
+
+    def process_request(self, request, client_address):
+        """One thread per connection, but no more than MAX_CONNECTIONS at once: the next one is answered 503 and closed
+        here, without a thread (a local program opening connections without end would otherwise exhaust them)."""
+        if not self._connections.acquire(blocking=False):
+            with contextlib.suppress(OSError):
+                request.settimeout(0)
+                request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._connections.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._connections.release()
+
+    def watch_headers(self, sock, on=True):
+        with self._mlock:
+            if on:
+                self._headers_due[sock] = time.monotonic() + HEADER_DEADLINE
+            else:
+                self._headers_due.pop(sock, None)
+
+    def _cut_slow_headers(self):
+        """Shuts down every connection whose request headers are late (see Handler.handle_one_request)."""
+        while not self._closing.wait(min(1.0, HEADER_DEADLINE / 4)):
+            now = time.monotonic()
+            with self._mlock:
+                late = [s for s, due in self._headers_due.items() if due < now]
+                for s in late:
+                    del self._headers_due[s]
+            for s in late:
+                with contextlib.suppress(OSError, ValueError):
+                    s.shutdown(socket.SHUT_RDWR)
+
+    def server_close(self):
+        self._closing.set()
+        super().server_close()
 
     def record(self, method, route, status, device):
         with self._mlock:
@@ -1142,7 +1286,8 @@ def make_server(data_dir, port=None, owner=None, use_fts=True):
     cfg = load_config(data_dir, port=port if port else None, owner=owner)
     listen = cfg["port"] if port is None else port
     store = RelayStore(os.path.join(data_dir, "relay.db"), use_fts=use_fts)
-    return RelayServer(("127.0.0.1", listen), store, cfg["token"], cfg.get("owner", ""), data_dir=data_dir, upstream=cfg.get("upstream"))
+    return RelayServer(("127.0.0.1", listen), store, cfg["token"], cfg.get("owner", ""), data_dir=data_dir, upstream=cfg.get("upstream"),
+                       admin_token=cfg["admin_token"])
 
 
 def main(argv=None):
@@ -1162,8 +1307,9 @@ def main(argv=None):
     print(f"Management page: open that address in a browser. Data folder: {args.data_dir}", flush=True)
     if args.show_token:
         print("Token:", server.token, flush=True)
+        print("Admin token:", server.admin_token, "(the management page's AI server and token changes; never put it on a device)", flush=True)
     else:
-        print(f"The token is in {os.path.join(args.data_dir, 'relay.json')} (run with --show-token to print it).", flush=True)
+        print(f"The token and the admin token are in {os.path.join(args.data_dir, 'relay.json')} (run with --show-token to print them).", flush=True)
 
     def stop(*_):   # systemd sends SIGTERM
         threading.Thread(target=server.shutdown, daemon=True).start()
@@ -1224,7 +1370,7 @@ code { background:var(--bg); border:1px solid var(--line); border-radius:6px; pa
   <h2>Vox relay</h2>
   <p class="muted">Enter the relay token (it is in <code>relay.json</code> in the relay's data folder, or run the relay with <code>--show-token</code>).</p>
   <div class="row"><input id="tok" type="password" class="grow" placeholder="Token" autocomplete="off"><button class="b" id="go">Sign in</button></div>
-  <label class="muted"><input type="checkbox" id="remember"> Remember on this device</label>
+  <label class="muted"><input type="checkbox" id="remember"> Remember on this device. Any other web app published on the same address could read it too: give the relay its own port (<code>tailscale serve --bg --https=8443 8765</code>) if you publish anything else.</label>
   <p id="lerr" class="bad"></p>
 </div>
 <div id="app" hidden>
@@ -1250,6 +1396,7 @@ const TABS = [["overview", "Overview"], ["notes", "Notes"], ["activity", "Device
 async function api(path, opts) {
   const o = opts || {};
   const r = await fetch(path, { method: o.method || "GET", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: o.body });
+  if (r.status === 403 && o.admin) throw new Error("This needs the admin token (admin_token in relay.json). Sign out and sign in with it.");
   if (r.status === 401 || r.status === 403) { signOut(); throw new Error("Not allowed"); }
   return r;
 }
@@ -1337,7 +1484,7 @@ async function upstream() {
     };
     const send = async (body, done) => {
       try {
-        const r = await api("/admin/upstream", { method: "PUT", body: JSON.stringify(Object.assign({ role: id }, body)) });
+        const r = await api("/admin/upstream", { method: "PUT", admin: true, body: JSON.stringify(Object.assign({ role: id }, body)) });
         const out = await r.json();
         if (!r.ok) { msg.className = "bad"; msg.textContent = out.error || "Could not save."; return; }
         paint(out[id]); msg.className = "ok"; msg.textContent = done;
@@ -1354,7 +1501,7 @@ async function upstream() {
   };
   $("#view").replaceChildren(
     h("div", { class: "box" }, h("h2", {}, "AI server (proxy)"),
-      h("p", { class: "muted" }, "The server the relay sends each kind of request to, and the key it uses there. A key is write-only: it is stored on this machine and used by the relay, and it is never shown again, not even here. Changing the address removes the saved key unless you type a new one. Plain http is only accepted for this machine, your local network and Tailscale.")),
+      h("p", { class: "muted" }, "Changes here need the admin token (admin_token in relay.json), not the token your devices use. The server the relay sends each kind of request to, and the key it uses there. A key is write-only: it is stored on this machine and used by the relay, and it is never shown again, not even here. Changing the address removes the saved key unless you type a new one. Plain http is only accepted for this machine, your local network and Tailscale.")),
     role("stt", "Speech to text", "Turns a recording into text."),
     role("llm", "Text cleanup", "Tidies the text after it has been transcribed."));
 }
@@ -1375,8 +1522,8 @@ async function tools() {
       h("div", { class: "row" }, h("button", { class: "b g", onclick: act(async () => { const r = await (await api("/admin/vacuum", { method: "POST", body: "{}" })).json(); say("Compacted. Database is now " + bytes(r.db_bytes) + "."); }) }, "Compact database")),
       h("div", { class: "row" }, "Forget delete markers older than ", days, " days ", h("button", { class: "b g", onclick: act(async () => { const r = await (await api("/admin/purge", { method: "POST", body: JSON.stringify({ days: +days.value }) })).json(); say(r.removed + " markers removed."); }) }, "Purge")),
       h("p", { class: "muted" }, "A phone that was offline for longer than that could bring a deleted note back.")),
-    h("div", { class: "box" }, h("h2", {}, "Token"), h("p", { class: "muted" }, "Makes a new token and stops the old one working at once. Every device then needs the new token."),
-      h("button", { class: "b d", onclick: act(async () => { if (!confirm("Make a new token? All devices will be signed out until you enter it.")) return; const r = await (await api("/admin/rotate-token", { method: "POST", body: "{}" })).json(); token = r.token; (localStorage.getItem("vrt") ? localStorage : sessionStorage).setItem("vrt", token); out.textContent = token; out.hidden = false; say("New token (copy it now, it is not shown again):"); }) }, "Make a new token"),
+    h("div", { class: "box" }, h("h2", {}, "Token"), h("p", { class: "muted" }, "Makes a new token and stops the old one working at once. Every device then needs the new token. Needs the admin token (admin_token in relay.json), which devices never hold."),
+      h("button", { class: "b d", onclick: act(async () => { if (!confirm("Make a new token? All devices will be signed out until you enter it.")) return; const r = await (await api("/admin/rotate-token", { method: "POST", admin: true, body: "{}" })).json(); out.textContent = r.token; out.hidden = false; say("New token for your devices (copy it now, it is not shown again). You stay signed in with the admin token."); }) }, "Make a new token"),
       h("pre", { id: "newtok", hidden: "" })), msg);
   var out = $("#newtok");
 }

@@ -33,10 +33,14 @@ def server(tmp_path):
     srv.server_close()
 
 
+ADMIN_ONLY = ("/admin/rotate-token", "/admin/upstream")   # bf-e SEC-4: changes there need the admin token
+
+
 def call(srv, method, path, body=None, token=True, headers=None, raw_response=False):
     h = dict(headers or {})
     if token:
-        h["Authorization"] = "Bearer " + (srv.token if token is True else token)
+        mine = srv.admin_token if path in ADMIN_ONLY and method != "GET" else srv.token
+        h["Authorization"] = "Bearer " + (mine if token is True else token)
     c = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
     c.request(method, path, body=json.dumps(body).encode() if body is not None else None, headers=h)
     r = c.getresponse()
@@ -445,7 +449,7 @@ def test_a_hand_edited_upstream_of_the_wrong_shape_reads_as_not_set(tmp_path, ju
 
 
 def test_saving_needs_a_data_folder(tmp_path):
-    srv = relay.RelayServer(("127.0.0.1", 0), relay.RelayStore(str(tmp_path / "x.db")), "tok")
+    srv = relay.RelayServer(("127.0.0.1", 0), relay.RelayStore(str(tmp_path / "x.db")), "tok", admin_token="admin-tok")
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         assert call(srv, "GET", "/admin/upstream") == (200, UNSET)
@@ -621,3 +625,68 @@ def test_a_folder_owned_by_someone_else_is_refused(tmp_path, monkeypatch):
     with pytest.raises(relay.DataDirError):
         relay.load_config(str(tmp_path / "data"))
 
+
+
+# ------------------------------------------------------------- bf-e: SEC-8
+def test_a_refused_request_leaves_no_text_of_its_own_in_the_activity_log(server):
+    path = "/Relay-moved-see-http--evil.example-" + "x" * 5000
+    assert call(server, "GET", path, token="wrong")[0] == 401
+    assert call(server, "GET", path, token=False)[0] == 401
+    _, a = call(server, "GET", "/admin/activity")
+    refused = [e for e in a["events"] if e["status"] == 401]
+    assert len(refused) == 2 and all(e["route"] == "(refused)" and e["device"] == "" for e in refused)
+    assert "evil" not in json.dumps(a["events"])
+
+
+# ------------------------------------------------------------- bf-e: SEC-4 (an admin token the devices do not hold)
+def test_relay_json_has_an_admin_token_of_its_own_that_stays(tmp_path):
+    a = relay.load_config(str(tmp_path))
+    assert len(a["admin_token"]) >= 32 and a["admin_token"] != a["token"]
+    assert relay.load_config(str(tmp_path))["admin_token"] == a["admin_token"]
+    assert relay.rotate_token(str(tmp_path)) != a["token"]
+    assert relay.load_config(str(tmp_path))["admin_token"] == a["admin_token"]      # rotating the device token keeps it
+
+
+def test_a_device_token_cannot_lock_the_owner_out_or_re_point_the_ai_server(server):
+    old = server.token
+    st, out = call(server, "POST", "/admin/rotate-token", {}, token=old)
+    assert st == 403 and "admin" in out["error"] and server.token == old
+    st, out = call(server, "PUT", "/admin/upstream", {"role": "stt", "base_url": "https://example.com/v1"}, token=old)
+    assert st == 403 and server.upstream_view()["stt"]["base_url"] == ""
+    assert call(server, "GET", "/admin/upstream", token=old)[0] == 200                # looking is fine
+    assert call(server, "GET", "/health", token=old)[0] == 200
+
+
+def test_the_admin_token_does_both_and_signs_in_to_the_page(server):
+    admin = server.admin_token
+    assert call(server, "GET", "/health", token=admin)[0] == 200
+    assert call(server, "GET", "/admin/status", token=admin)[1]["admin"] is True
+    assert call(server, "GET", "/admin/status")[1]["admin"] is False
+    st, out = call(server, "PUT", "/admin/upstream", {"role": "stt", "base_url": "https://example.com/v1"}, token=admin)
+    assert st == 200 and out["stt"]["base_url"] == "https://example.com/v1"
+    st, out = call(server, "POST", "/admin/rotate-token", {}, token=admin)
+    assert st == 200 and out["token"] == server.token and server.admin_token == admin
+
+
+def test_show_token_prints_both(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(relay.RelayServer, "serve_forever", lambda self: None)
+    relay.main(["--data-dir", str(tmp_path), "--port", "0", "--show-token"])
+    out = capsys.readouterr().out
+    cfg = relay.load_config(str(tmp_path))
+    assert "Token: " + cfg["token"] in out and "Admin token: " + cfg["admin_token"] in out
+
+
+def test_a_server_made_without_an_admin_token_allows_no_admin_changes(tmp_path):
+    srv = relay.RelayServer(("127.0.0.1", 0), relay.RelayStore(str(tmp_path / "x.db")), "tok")
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        assert call(srv, "POST", "/admin/rotate-token", {}, token="")[0] == 401         # "Bearer " is not an admin token
+        assert call(srv, "POST", "/admin/rotate-token", {}, token="tok")[0] == 403
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_the_remember_box_says_who_else_could_read_the_token():
+    label = relay.UI_HTML.split('id="remember"', 1)[1].split("</label>", 1)[0]
+    assert "same address" in label and "own port" in label     # bf-e SEC-13

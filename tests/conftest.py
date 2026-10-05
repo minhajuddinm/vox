@@ -85,6 +85,21 @@ def isolated_profile(tmp_path_factory, monkeypatch):
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "real_session: use vox_core's real shared HTTP session (no requests.post routing)")
+    config.addinivalue_line("markers", "real_relay_proof: really ask the relay for its proof before sending the token")
+
+
+@pytest.fixture(autouse=True)
+def relay_proof_stubbed(request, monkeypatch):
+    """The apps ask the relay to prove it holds the token before sending it (sync.prove_relay). Tests talk to fake relays
+    and fake AI servers, so the proof is taken as given unless a test asks for the real one (tests/test_relay_proof.py).
+    A forgotten stub can never reach a real server this way."""
+    if request.node.get_closest_marker("real_relay_proof"):
+        return
+    try:
+        import sync
+    except Exception:   # relay-only runs (CI) have no Windows packages
+        return
+    monkeypatch.setattr(sync, "prove_relay", lambda url, token: "proven")
 
 
 @pytest.fixture(autouse=True)

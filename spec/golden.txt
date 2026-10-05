@@ -1164,3 +1164,17 @@ suggest	a b a b c	a c a b b
 suggest	send it to Minhaj today	send it to Minhajuddin today	Minhaj=>Minhajuddin
 # TXT-1: one ordinary word fixed into a name (Mark -> Marc) is still learned, whatever its case.
 autocorrect	ask Mark about it	ask Marc about it	Mark=>Marc
+# bf-e
+# SEC-3: a host whose last label is a number (decimal, or hex with 0x) is not a name: getaddrinfo reads 134744072 and
+# 0x08080808 as 8.8.8.8, and 127.1 as 127.0.0.1. Such hosts are never private for plain http (write the dotted address).
+privatehost	134744072	false
+privatehost	0x08080808	false
+privatehost	0x7f000001	false
+privatehost	2130706433	false
+privatehost	017700000001	false
+privatehost	127.1	false
+privatehost	10.1	false
+privatehost	0x	false
+privatehost	cafe	true
+privatehost	gpu-pc	true
+privatehost	pi2	true

@@ -38,6 +38,9 @@ KS="vox.keystore"
 # Keystore password: the ANDROID_KEYSTORE_PASS secret in CI (KS_PASS). The old default keeps existing keys working.
 PASS="${KS_PASS:-voxvox}"
 if [ -f "$KS" ]; then
+  case "${GITHUB_REF:-}" in
+    refs/tags/v*) [ -n "${KS_PASS:-}" ] || { echo "No KS_PASS (the ANDROID_KEYSTORE_PASS secret) on a tag build: the release key must not rely on the public default password." >&2; exit 1; } ;;
+  esac
   echo "> signing with the existing $KS"
 else
   case "${GITHUB_REF:-}" in
@@ -47,7 +50,9 @@ else
   keytool -genkeypair -keystore "$KS" -storepass "$PASS" -keypass "$PASS" -alias vox \
     -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Vox"
 fi
-"$BT/apksigner" sign --ks "$KS" --ks-pass "pass:$PASS" --key-pass "pass:$PASS" \
+# The password goes through the environment, not the command line (where other processes could read it).
+export KS_PASS="$PASS"
+"$BT/apksigner" sign --ks "$KS" --ks-pass env:KS_PASS --key-pass env:KS_PASS \
   --out build/Vox.apk build/aligned.apk
 "$BT/apksigner" verify build/Vox.apk
 echo "Built android/build/Vox.apk"
