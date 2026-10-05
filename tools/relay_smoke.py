@@ -4,7 +4,7 @@
 
 1. `<binary> --help` must exit 0.
 2. The binary is started on 127.0.0.1 with a temporary data folder, a free port and --show-token.
-3. GET /health without the token must answer 401, with the token 200 and {"ok": true}.
+3. GET /health without the token must answer 401, with the token 200 and {"ok": true}; GET /proof must answer a proof.
 4. The binary is stopped. Any failure exits 1 and prints what the binary wrote.
 Standard library only.
 """
@@ -75,8 +75,9 @@ def main(argv):
                 print(f"FAIL: /health without a token answered {code}, expected 401")
             else:
                 code, body = get(base + "/health", token[0])
-                if code == 200 and json.loads(body).get("ok") is True:
-                    print("/health ok:", body.strip())
+                proof_code, proof = get(base + "/proof?nonce=" + "0" * 32)
+                if code == 200 and json.loads(body).get("ok") is True and proof_code == 200 and len(json.loads(proof).get("proof", "")) == 64:
+                    print("/health ok:", body.strip(), "/proof ok")
                     ok = True
                 else:
                     print(f"FAIL: /health with the token answered {code}: {body}")
@@ -91,7 +92,7 @@ def main(argv):
                 proc.kill()
         if not ok:
             print("--- what the relay printed ---")
-            print("\n".join(l for l in lines if not l.startswith("Token:")))
+            print("\n".join(l for l in lines if not l.startswith(("Token:", "Admin token:"))))   # never the tokens
     return 0 if ok else 1
 
 

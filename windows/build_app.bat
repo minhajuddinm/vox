@@ -16,7 +16,15 @@ if not defined PY ( echo Python not found. Install it from python.org. & pause &
 echo [1/5] Preparing Python packages...
 if not exist "%VENV%\Scripts\python.exe" ( %PY% -m venv "%VENV%" || goto :fail )
 "%VENV%\Scripts\python.exe" -m pip install -q --upgrade pip || goto :fail
-"%VENV%\Scripts\python.exe" -m pip install -q -r requirements.txt pyinstaller || goto :fail
+REM Exactly the locked packages, as the release build (requirements.lock, ..\tools\build-requirements.lock, check_lock.py)
+"%VENV%\Scripts\python.exe" -m pip install -q -r requirements.lock -r "%~dp0..\tools\build-requirements.lock" || goto :fail
+"%VENV%\Scripts\python.exe" "%~dp0..\tools\check_lock.py" requirements.lock "%~dp0..\tools\build-requirements.lock" >nul 2>&1 || (
+  echo Making the Python environment again from the lock files ^(an older one has other packages^)...
+  rmdir /s /q "%VENV%"
+  %PY% -m venv "%VENV%" || goto :fail
+  "%VENV%\Scripts\python.exe" -m pip install -q -r requirements.lock -r "%~dp0..\tools\build-requirements.lock" || goto :fail
+  "%VENV%\Scripts\python.exe" "%~dp0..\tools\check_lock.py" requirements.lock "%~dp0..\tools\build-requirements.lock" || goto :fail
+)
 
 echo [2/5] Closing any running Vox...
 taskkill /f /im Vox.exe >nul 2>&1
