@@ -127,7 +127,8 @@ def test_both_dictionary_pages_have_a_snippets_list(page):
     for part in ('id="snip-trigger"', 'id="snip-text"', 'id="snip-add"', 'id="snips"', "<h2>Snippets</h2>"):
         assert part in dict_page, part
     assert 'maxlength="2000"' in dict_page
-    assert "save({ snippets: " in html and "snippetsAdd(" in html
+    # Android saves the map; Windows edits one snippet in the file's current map (DAT-9 of the v2 review)
+    assert ("save({ snippets: " in html or "api().snippet_set(" in html) and "snippetsAdd(" in html
 
 
 NODE = __import__("shutil").which("node")

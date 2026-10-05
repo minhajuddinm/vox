@@ -19,6 +19,7 @@ import timing
 import vcalendar
 import providers
 import session
+import snippets as snippets_mod
 import vox_core as core
 
 log = logging.getLogger("vox.ui")
@@ -140,6 +141,23 @@ class Api:
             cfg.update(parts)
             return parts
         return core.update_config(remove)
+
+    def snippet_set(self, trigger, text):
+        """Adds one snippet to the file's current map, or removes it when `text` is None, and returns the map for the page:
+        a snippet received from another device since the page was drawn is kept. An added trigger replaces one that
+        differs only in case and goes to the end (the page's snippetsAdd checked the limits first)."""
+        t = str(trigger or "")
+
+        def edit(cfg):
+            old = cfg.get("snippets") if isinstance(cfg.get("snippets"), dict) else {}
+            if text is None:
+                out = {k: v for k, v in old.items() if k != t}
+            else:
+                out = {k: v for k, v in old.items() if k.lower() != t.strip().lower()}
+                out[t.strip()] = str(text)
+            cfg["snippets"] = snippets_mod.clean_snippets(out)
+            return cfg["snippets"]
+        return core.update_config(edit)
 
     def people_add(self, name):
         n = str(name or "").strip()

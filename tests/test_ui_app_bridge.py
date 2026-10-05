@@ -158,3 +158,27 @@ def test_copy_that_fails_answers_false(api, monkeypatch):
     fake.SystemDeps = lambda: types.SimpleNamespace(clip_set=busy)
     monkeypatch.setitem(sys.modules, "paste", fake)
     assert api.copy("x") is False
+
+
+# ---- snippets: one item at a time, like the dictionary (DAT-9) -------------------------------------------------------
+
+def test_adding_a_snippet_keeps_one_synced_from_another_device(api):
+    on_disk("snippets", {"my address": "Flat 4"})
+    on_disk("snippets", {"my address": "Flat 4", "sig": "Best, Ann"})   # the page still shows only "my address"
+    assert api.snippet_set("my phone", "0123") == {"my address": "Flat 4", "sig": "Best, Ann", "my phone": "0123"}
+    assert api.snippet_set("MY ADDRESS", "Flat 5") == {"sig": "Best, Ann", "my phone": "0123", "MY ADDRESS": "Flat 5"}
+    assert core.load_config()["snippets"] == {"sig": "Best, Ann", "my phone": "0123", "MY ADDRESS": "Flat 5"}
+
+
+def test_removing_a_snippet_removes_only_that_one(api):
+    on_disk("snippets", {"a b": "x", "sig": "Best, Ann"})
+    assert api.snippet_set("a b", None) == {"sig": "Best, Ann"}
+    assert core.load_config()["snippets"] == {"sig": "Best, Ann"}
+
+
+def test_the_page_edits_snippets_through_the_one_item_bridge_call():
+    import os
+    import re
+    page = open(os.path.join(os.path.dirname(__file__), "..", "windows", "ui", "index.html"), encoding="utf-8").read()
+    assert not re.search(r"save\(\s*\{\s*snippets\s*:", page)
+    assert page.count("api().snippet_set(") == 2
