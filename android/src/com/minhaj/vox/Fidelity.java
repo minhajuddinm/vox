@@ -848,7 +848,9 @@ final class Fidelity {
      * to 6 tokens before it (15 for "scratch that", 3 for a bare "no") may be missing; checked later. A weak cue (actually,
      * sorry, rather, matlab, "sorry i": also everyday words) opens the window only when the words around it look like a
      * repair: a typed value before it and in the 6 tokens after it, the first word after it repeating a word of the window
-     * (a restart), a tail ("make it"), or another cue up to the first word after it.
+     * (a restart; not a common word, RESTART_COMMON), a tail ("make it"), or another cue up to the first word after it.
+     * The first two words after it repeating two words in a row of the window are a restart from there: the window then
+     * starts at that run.
      */
     private static void corrections(List<Tok> toks) {
         int n = toks.size();
@@ -904,7 +906,19 @@ final class Fidelity {
                 }
                 for (int k = after; k < Math.min(n, after + 6); k++) if (typedValue(toks.get(k))) later = true;
                 for (int k = i + 1; k < Math.min(n, nxt + 1); k++) if (isCue(toks, k)) chain = true;
-                if (!((before && later) || restart || chain)) continue;   // an everyday "actually" / "sorry": ordinary words
+                if (!((before && later) || restart || chain)) {
+                    // the first two words after the cue begin a run of the window ("we should take the bus actually we
+                    // should walk"): a restart from that run on, so only the run may be missing ("please send" stays)
+                    int run = -1;
+                    for (int s = start; s < i - 1 && nxt + 1 < n; s++) {
+                        if (toks.get(s).t.equals(toks.get(nxt).t) && toks.get(s + 1).t.equals(toks.get(nxt + 1).t)) {
+                            run = s;
+                            break;
+                        }
+                    }
+                    if (run < 0) continue;   // an everyday "actually" / "sorry": ordinary words
+                    start = run;
+                }
             }
             for (int k = start; k < i + cueLen; k++) toks.get(k).opt = true;
             toks.get(i).cue = new int[]{start, i, i + cueLen};

@@ -181,20 +181,40 @@ public final class ApiClient {
     static final double SEG_NO_SPEECH = 0.5, SEG_LOGPROB = -1.0, SEG_COMPRESSION = 2.4;
     /** A dictation's loop also repeats the same 3 words this often (Devanagari compresses to 2.5 without repeating). */
     static final int SEG_LOOP_REPEATS = 3;
+    /**
+     * A confident loop that is the whole answer is Whisper's only above this compression_ratio ("no" said 15 times: 3.1,
+     * "testing" 15 times: 6.4; Whisper's loops run to its token limit: 10+) or this many words a second (vox_core.SEG_LOOP_SURE).
+     */
+    static final double SEG_LOOP_SURE = 8.0, SEG_LOOP_RATE = 8.0;
 
     /** False for a segment that is most likely not speech by its scores alone: a loop (compression), or silence filled with words. */
     static boolean keepSegment(double noSpeech, double logprob, double compression) {
         return !(compression > SEG_COMPRESSION || (logprob < SEG_LOGPROB && noSpeech > SEG_NO_SPEECH));
     }
 
-    /** One segment of a verbose_json answer: its text and scores. */
+    /** One segment of a verbose_json answer: its text, scores and times (seconds; both 0 when unknown). */
     static final class Segment {
         final String text;
-        final double noSpeech, logprob, compression;
+        final double noSpeech, logprob, compression, start, end;
 
         Segment(String text, double noSpeech, double logprob, double compression) {
-            this.text = text; this.noSpeech = noSpeech; this.logprob = logprob; this.compression = compression;
+            this(text, noSpeech, logprob, compression, 0, 0);
         }
+
+        Segment(String text, double noSpeech, double logprob, double compression, double start, double end) {
+            this.text = text; this.noSpeech = noSpeech; this.logprob = logprob; this.compression = compression;
+            this.start = start; this.end = end;
+        }
+    }
+
+    /**
+     * True for a loop segment that cannot be someone repeating a word on purpose ("no no no", "testing testing"): Whisper
+     * is unsure of it, it compresses above SEG_LOOP_SURE, or it has more than SEG_LOOP_RATE words a second (vox_core._sure_loop).
+     */
+    static boolean sureLoop(Segment s) {
+        if (s.logprob < SEG_LOGPROB || s.noSpeech > SEG_NO_SPEECH || s.compression > SEG_LOOP_SURE) return true;
+        double dur = s.end - s.start;
+        return dur > 0 && Fidelity.wordTokens(s.text).size() > SEG_LOOP_RATE * dur;
     }
 
     /** True when the same 3 words in a row come SEG_LOOP_REPEATS times or more (Fidelity.wordTokens; overlaps count). */
@@ -213,8 +233,8 @@ public final class ApiClient {
     /**
      * Which segments of a dictation to keep (vox_core.segments_kept): a loop (compression above SEG_COMPRESSION and its text
      * repeats) goes anywhere; silence filled with words only as the first or the last segment. When no kept segment would
-     * have text, all but the loops are kept: a short real phrase can score like silence; the edge trim and silence gate
-     * handle silence. A loop has no real words to keep, so an answer that is only a loop gives nothing.
+     * have text, all but the sure loops (sureLoop) are kept: a short real phrase can score like silence; the edge trim and
+     * silence gate handle silence; repeated speech that is the whole dictation is typed, Whisper's own loop gives nothing.
      */
     static boolean[] segmentsKept(List<Segment> segs) {
         int n = segs.size();
@@ -227,7 +247,7 @@ public final class ApiClient {
             keep[i] = !(loop[i] || silence);
             if (keep[i] && !s.text.isEmpty()) anyText = true;
         }
-        if (!anyText) for (int i = 0; i < n; i++) keep[i] = !loop[i];
+        if (!anyText) for (int i = 0; i < n; i++) keep[i] = !(loop[i] && sureLoop(segs.get(i)));
         return keep;
     }
 
@@ -261,7 +281,8 @@ public final class ApiClient {
             Object t = s.get("text");
             Double ns = score(s.get("no_speech_prob"), 0.0), lp = score(s.get("avg_logprob"), 0.0), cr = score(s.get("compression_ratio"), 1.0);
             if (ns == null || lp == null || cr == null) return null;
-            out.add(new Segment(t == null ? "" : pyStrip(String.valueOf(t)), ns, lp, cr));
+            out.add(new Segment(t == null ? "" : pyStrip(String.valueOf(t)), ns, lp, cr,
+                    ((Number) s.get("start")).doubleValue(), ((Number) s.get("end")).doubleValue()));
         }
         return out;
     }

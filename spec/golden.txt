@@ -2020,10 +2020,11 @@ layout	auto	neutral	No list here, my email.	No list here, me@example.com.	my ema
 layout	lists	casual	Step one, my email. Step two, wait.	1. me@example.com\n2. Wait	my email	me@example.com
 # lo: sttkept: an answer that is only a loop gives nothing (the keep-everything rule for a short real phrase that
 # scores like silence no longer brings the loops back); silence-scored segments are still kept then.
-sttkept	हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग	हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग;0;-0.2;2.6	
-sttkept	either the either the either the either the	either the either the either the either the;0;-0.2;3.1	
+# lo fix wave: only a sure loop (see the rows at the end): a short confident repeat is typed (the first two rows).
+sttkept	हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग	हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग;0;-0.2;2.6	हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग
+sttkept	either the either the either the either the	either the either the either the either the;0;-0.2;3.1	either the either the either the either the
 sttkept	Thank you. Bye.	Thank you.;0.8;-1.3;1|Bye.;0.9;-1.4;1	Thank you. Bye.
-sttkept	either the either the either the either the Thank you.	either the either the either the either the;0;-0.2;3.1|Thank you.;0.8;-1.3;1	Thank you.
+sttkept	either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the Thank you.	either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the;0;-0.2;10.43|Thank you.;0.8;-1.3;1	Thank you.
 sttkept	go go go go go go go	go go go go go go go;0.7;-1.2;2.6	
 # lo: echoctx: transcript, Whisper prompt, the earlier text the prompt ends with => whether it only reads the prompt
 # back (vox_core.is_prompt_echo / ApiClient.isPromptEcho with a context). A run only inside the earlier text counts
@@ -2046,7 +2047,7 @@ guard	light	stop			to err is human	To err is human.	accept	ok	-
 guard	light	stop			errm i think so	I think so.	accept	ok	-
 guard	light	stop			er i think so	I think so.	accept	ok	-
 guard	standard	stop			i want the red one actually the price is too high	The price is too high.	reject	numbers changed	-
-guard	standard	stop			please send the invoice to amit actually the invoice is ready	The invoice is ready.	reject	missing 7 > 1	-
+guard	standard	stop			please send the invoice to amit actually the invoice is ready	The invoice is ready.	reject	missing 2 > 1	-
 guard	standard	stop			send it to the team actually send it to everyone	Send it to everyone.	accept	ok	-
 guard	standard	stop			book the hotel actually book the flight	Book the flight.	accept	ok	-
 guard	standard	stop			two actually three	Three.	accept	ok	-
@@ -2055,3 +2056,25 @@ guard	standard	stop			two actually three	Three.	accept	ok	-
 autocorrect	call the grok grok grok now	call the grok grok Groq now	grok=>Groq
 autocorrect	we use grok grok grok	we use Groq grok grok	
 autocorrect	ask ada ada ada later	ask Ada ada ada later	
+# lo fix wave: guard: after a weak cue, the first two words after it repeating two words in a row of the window are a
+# restart from that run ("we should take the bus actually we should walk"); the words before the run must stay.
+guard	standard	stop			we should take the bus actually we should walk	We should walk.	accept	ok	-
+guard	standard	stop			you can call him actually you can text him	You can text him.	accept	ok	-
+guard	standard	stop			my car is red actually my car is blue	My car is blue.	accept	ok	-
+guard	standard	stop			the meeting is long actually the meeting is short	The meeting is short.	accept	ok	-
+guard	standard	stop			i said we should take the bus actually we should walk	I said we should walk.	accept	ok	-
+guard	standard	stop			i said we should take the bus actually we should walk	We should walk.	reject	missing 2 > 1	-
+guard	standard	stop			the meeting is long actually the meeting is short	Short.	reject	missing 8 > 1	-
+guard	light	stop			we should take the bus actually we should walk	We should walk.	reject	missing 6 > 0	-
+# lo fix wave: sttkept: an answer that is only a loop is dropped only when the loop is sure (Whisper unsure of it,
+# compression above 8, or more than 8 words a second; segments may carry ;start;end): repeated speech is typed.
+sttkept	no no no no no no no no no no no no no no no	no no no no no no no no no no no no no no no;0.01;-0.3;3.14	no no no no no no no no no no no no no no no
+sttkept	Testing, testing, testing, testing, testing, testing, testing.	Testing, testing, testing, testing, testing, testing, testing.;0.01;-0.3;2.95	Testing, testing, testing, testing, testing, testing, testing.
+sttkept	ha ha ha ha ha ha ha ha ha ha ha ha ha ha	ha ha ha ha ha ha ha ha ha ha ha ha ha ha;0.01;-0.3;2.93	ha ha ha ha ha ha ha ha ha ha ha ha ha ha
+sttkept	Testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing.	Testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing.;0.01;-0.3;6.38	Testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing, testing.
+sttkept	no no no no no no no no no no no no no no no	no no no no no no no no no no no no no no no;0.01;-0.3;3.14;0;4	no no no no no no no no no no no no no no no
+sttkept	no no no no no no no no no no no no no no no	no no no no no no no no no no no no no no no;0.01;-0.3;3.14;0;1	
+sttkept	no no no no no no no no no no no no no no no	no no no no no no no no no no no no no no no;0.1;-1.3;3.14	
+sttkept	no no no no no no no no no no no no no no no	no no no no no no no no no no no no no no no;0.6;-0.3;3.14	
+sttkept	either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the	either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the either the;0;-0.2;10.43	
+sttkept	हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग	हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग;0;-0.2;10.94	

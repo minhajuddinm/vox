@@ -110,12 +110,13 @@ public final class ParityTest {
         return r[0] + "/" + r[1];
     }
 
-    /** text;no_speech;logprob;compression items, | separated. */
+    /** text;no_speech;logprob;compression[;start;end] items, | separated (no times: 0, 0). */
     private static List<ApiClient.Segment> sttSegments(String field) {
         List<ApiClient.Segment> out = new ArrayList<>();
         for (String item : field.split("\\|", -1)) {
             String[] p = item.split(";", -1);
-            out.add(new ApiClient.Segment(p[0], Double.parseDouble(p[1]), Double.parseDouble(p[2]), Double.parseDouble(p[3])));
+            double start = p.length > 4 ? Double.parseDouble(p[4]) : 0, end = p.length > 4 ? Double.parseDouble(p[5]) : 0;
+            out.add(new ApiClient.Segment(p[0], Double.parseDouble(p[1]), Double.parseDouble(p[2]), Double.parseDouble(p[3]), start, end));
         }
         return out;
     }

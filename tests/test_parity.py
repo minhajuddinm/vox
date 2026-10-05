@@ -187,11 +187,13 @@ def edgetrim(flags, runs):
 
 
 def stt_segments(field):
-    """text;no_speech;logprob;compression items, | separated, as _segments_of gives them."""
+    """text;no_speech;logprob;compression[;start;end] items, | separated, as _segments_of gives them (no times: 0, 0)."""
     out = []
     for item in field.split("|"):
-        t, ns, lp, cr = item.split(";")
-        out.append({"text": t, "no_speech": float(ns), "logprob": float(lp), "compression": float(cr)})
+        t, ns, lp, cr, *times = item.split(";")
+        start, end = (float(times[0]), float(times[1])) if times else (0.0, 0.0)
+        out.append({"text": t, "no_speech": float(ns), "logprob": float(lp), "compression": float(cr),
+                    "start": start, "end": end})
     return out
 
 

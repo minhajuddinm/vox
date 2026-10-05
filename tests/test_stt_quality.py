@@ -219,12 +219,24 @@ def test_an_answer_the_filter_would_empty_is_kept_and_the_silence_phrase_check_s
 
 def test_an_answer_that_is_only_a_loop_gives_nothing(monkeypatch):
     # leftovers: the keep-everything rule above brought a confirmed loop back and it was pasted; a loop has no real words
-    loop = " ".join(["हम लोग"] * 6)
-    body = {"text": loop, "segments": [{"start": 0, "end": 3, "text": loop, "avg_logprob": -0.2, "no_speech_prob": 0.0,
-                                        "compression_ratio": 2.6}]}
+    # fix wave: only a sure loop (here: compression 10.94, what zlib gives for 20 copies) gives nothing
+    loop = " ".join(["हम लोग"] * 20)
+    body = {"text": loop, "segments": [{"start": 0, "end": 10, "text": loop, "avg_logprob": -0.2, "no_speech_prob": 0.0,
+                                        "compression_ratio": 10.94}]}
     monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer(body))
     assert core.transcribe(_cfg(), b"RIFF") == "" and core.last_segments() is None
     assert core.process_text(_cfg(cleanup=False), "", "x.exe", "x").text == ""   # nothing is typed
+
+
+def test_a_dictation_of_real_repeats_is_typed_and_a_loop_faster_than_speech_is_not(monkeypatch):
+    # fix wave (review 2): "no" said 15 times, confident, compression 3.14 (zlib) is speech; the same words in 1 second
+    # (15 words a second) or with a poor avg_logprob are Whisper's loop
+    said = " ".join(["no"] * 15)
+    for end, logprob, want in ((4, -0.3, said), (1, -0.3, ""), (4, -1.3, "")):
+        body = {"text": said, "segments": [{"start": 0, "end": end, "text": said, "avg_logprob": logprob,
+                                            "no_speech_prob": 0.01, "compression_ratio": 3.14}]}
+        monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer(body))
+        assert core.transcribe(_cfg(), b"RIFF") == want
 
 
 def test_hindi_in_devanagari_is_not_a_loop_and_a_quiet_middle_segment_stays(monkeypatch):

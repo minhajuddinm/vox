@@ -1655,7 +1655,9 @@ def _g_corrections(toks):
     and up to 6 tokens before it (15 for "scratch that", 3 for a bare "no") may be missing; checked later. A weak cue
     (actually, sorry, rather, matlab, "sorry i": also everyday words) opens the window only when the words around it
     look like a repair: a typed value before it and in the 6 tokens after it, the first word after it repeating a
-    word of the window (a restart), a tail ("make it"), or another cue up to the first word after it."""
+    word of the window (a restart; not a common word, _RESTART_COMMON), a tail ("make it"), or another cue up to the
+    first word after it. The first two words after it repeating two words in a row of the window are a restart from
+    there: the window then starts at that run."""
     n, w = len(toks), [t.t for t in toks]
     for i in range(n):
         two = w[i] + " " + w[i + 1] if i + 1 < n else None
@@ -1687,7 +1689,13 @@ def _g_corrections(toks):
             restart = w[nxt] in w[start:i] and w[nxt] not in _RESTART_COMMON   # "the", "i", "we" repeat anyway
             chain = any(_is_cue(w, k) for k in range(i + 1, min(n, nxt + 1)))
             if not (repair or restart or chain):
-                continue   # an everyday "actually" / "sorry": its words are ordinary words
+                # the first two words after the cue begin a run of the window ("we should take the bus actually we
+                # should walk"): a restart from that run on, so only the run may be missing ("please send" stays)
+                s = next((s for s in range(start, i - 1) if nxt + 1 < n and w[s] == w[nxt] and w[s + 1] == w[nxt + 1]),
+                         None)
+                if s is None:
+                    continue   # an everyday "actually" / "sorry": its words are ordinary words
+                start = s
         for k in range(start, i + cue_len):
             toks[k].opt = True
         toks[i].cue = (start, i, i + cue_len)
@@ -2698,6 +2706,9 @@ SEG_LOGPROB = -1.0      # ... with avg_logprob below this: silence
 SEG_COMPRESSION = 2.4   # compression_ratio above this: "either the either the either the"
 SEG_LOOP_REPEATS = 3    # a dictation's loop also repeats the same 3 words this often (Hindi in Devanagari compresses
                         # to 2.5 without repeating anything: compression alone is not a loop there)
+SEG_LOOP_SURE = 8.0     # a confident loop that is the whole answer is Whisper's only above this compression_ratio (zlib:
+                        # "no" said 15 times 3.1, "testing" 15 times 6.4; Whisper's loops run to its token limit: 10+)
+SEG_LOOP_RATE = 8.0     # ... or above this many words a second of its segment: faster than anyone speaks
 
 
 def keep_segment(no_speech, logprob, compression):
@@ -2716,18 +2727,28 @@ def _repeats(text):
     return False
 
 
+def _sure_loop(s):
+    """True for a loop segment that cannot be someone repeating a word on purpose ("no no no", "testing testing"):
+    Whisper is unsure of it (avg_logprob below SEG_LOGPROB or no_speech_prob above SEG_NO_SPEECH), it compresses above
+    SEG_LOOP_SURE, or it has more than SEG_LOOP_RATE words a second (only when the segment has times)."""
+    if s["logprob"] < SEG_LOGPROB or s["no_speech"] > SEG_NO_SPEECH or s["compression"] > SEG_LOOP_SURE:
+        return True
+    dur = s.get("end", 0.0) - s.get("start", 0.0)
+    return dur > 0 and len(word_tokens(s["text"])) > SEG_LOOP_RATE * dur
+
+
 def segments_kept(segments):
     """Which segments of a dictation to keep (twin: ApiClient.segmentsKept): a loop (compression above SEG_COMPRESSION and
     its text repeats, _repeats) goes anywhere; silence filled with words (no_speech and logprob, see SEG_NO_SPEECH) only as
-    the first or the last segment, where Whisper invents it. When no kept segment would have text, all but the loops are
-    kept: a short real phrase can score like silence, and the edge trim and the silence gate deal with real silence; a
-    loop has no real words to keep, so an answer that is only a loop gives nothing."""
+    the first or the last segment, where Whisper invents it. When no kept segment would have text, all but the sure loops
+    (_sure_loop) are kept: a short real phrase can score like silence, and the edge trim and the silence gate deal with
+    real silence; repeated speech that is the whole dictation ("no no no ...") is typed, Whisper's own loop gives nothing."""
     n = len(segments)
     loop = [s["compression"] > SEG_COMPRESSION and _repeats(s["text"]) for s in segments]
     keep = [not (loop[i] or ((i == 0 or i == n - 1) and s["logprob"] < SEG_LOGPROB and s["no_speech"] > SEG_NO_SPEECH))
             for i, s in enumerate(segments)]
     if not any(k and s["text"] for k, s in zip(keep, segments)):
-        return [not x for x in loop]
+        return [not (x and _sure_loop(s)) for x, s in zip(loop, segments)]
     return keep
 
 

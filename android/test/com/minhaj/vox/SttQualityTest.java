@@ -149,8 +149,13 @@ public final class SttQualityTest {
         eq("the end of the prompt read back is nothing", "",
                 ApiClient.transcriptOf("{\"text\":\"Lunch with the client.\"}", withCtx, ctx));
         String loop = "{\"text\":\"go go go go go go\",\"segments\":[{\"start\":0,\"end\":2,\"text\":\"go go go go go go\","
-                + "\"avg_logprob\":-0.2,\"no_speech_prob\":0,\"compression_ratio\":2.6}]}";
-        eq("an answer that is only a loop is nothing", "", ApiClient.transcriptOf(loop, ""));
+                + "\"avg_logprob\":-0.2,\"no_speech_prob\":0,\"compression_ratio\":10.5}]}";
+        eq("an answer that is only a sure loop is nothing", "", ApiClient.transcriptOf(loop, ""));
+        String said = "no no no no no no no no no no no no no no no";
+        String repeats = "{\"text\":\"" + said + "\",\"segments\":[{\"start\":0,\"end\":%s,\"text\":\"" + said + "\","
+                + "\"avg_logprob\":-0.3,\"no_speech_prob\":0.01,\"compression_ratio\":3.14}]}";
+        eq("real repeated speech is typed", said, ApiClient.transcriptOf(String.format(repeats, "4"), ""));
+        eq("15 words in one second is a loop", "", ApiClient.transcriptOf(String.format(repeats, "1"), ""));
         for (String bad : new String[]{"{\"text\":null}", "{\"text\":5}", "[1]"}) {
             try {
                 ApiClient.transcriptOf(bad, "");
