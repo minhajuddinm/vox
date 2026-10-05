@@ -3,6 +3,7 @@ package com.minhaj.vox;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.ClipData;
+import android.content.ClipDescription;
 import android.content.BroadcastReceiver;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -16,6 +17,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PersistableBundle;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
@@ -635,7 +637,7 @@ public class VoxAccessibilityService extends AccessibilityService
 
     @Override
     public void onError(String message) {
-        toast(message);
+        main.post(() -> Toast.makeText(this, message, Toast.LENGTH_LONG).show());   // long: an error says what to do next
         // A warning that still ends in a result (cleanup fell back to the raw words) is followed by onResult,
         // whose flash replaces this one. A failed voice note flashes the note bubble, the one that shows that job.
         if (noteJob()) { flashNote(BubbleView.ERROR); return; }
@@ -684,9 +686,9 @@ public class VoxAccessibilityService extends AccessibilityService
         CharSequence hint = Build.VERSION.SDK_INT >= 26 ? node.getHintText() : null;
         boolean flagged = Build.VERSION.SDK_INT >= 26 && node.isShowingHintText();
         // Empty fields often report their placeholder ("Message" in WhatsApp and Telegram) as their text: start from nothing.
-        boolean placeholder = HintGuard.isPlaceholder(cur, hint, flagged, node.getContentDescription());
         int s = node.getTextSelectionStart();
         int e = node.getTextSelectionEnd();
+        boolean placeholder = HintGuard.isPlaceholder(cur, hint, flagged, node.getContentDescription(), s);   // a caret after the text: the user typed it
         if (placeholder || (!cur.isEmpty() && cur.length() <= HintGuard.MAX_LEN && s <= 0)) {
             // Logged without the text itself: lets the Settings diagnostics show what a field reported if it still goes wrong.
             // No package or class name and no exact length: the log must not list the apps the user dictates into.
@@ -715,14 +717,21 @@ public class VoxAccessibilityService extends AccessibilityService
             return true;
         }
 
-        // Fallback: paste through the clipboard, then restore what was there.
+        // Fallback: paste through the clipboard. Then the dictation must not stay there: the old clip goes back when Android
+        // let Vox read it, which on Android 10+ it never does for a background service; otherwise the clip is cleared.
         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        final ClipData old = cm.getPrimaryClip();
-        cm.setPrimaryClip(ClipData.newPlainText("Vox", ins));
+        ClipData readable = null;
+        try { readable = cm.getPrimaryClip(); } catch (RuntimeException ignored) { }
+        final ClipData old = readable;
+        cm.setPrimaryClip(dictationClip(ins));
         boolean pasted = node.performAction(AccessibilityNodeInfo.ACTION_PASTE);
         if (pasted) {
             main.postDelayed(() -> {
-                try { if (old != null) cm.setPrimaryClip(old); } catch (Exception ignored) { }
+                try {
+                    if (InsertGuard.afterPaste(old != null) == InsertGuard.CLIP_RESTORE) cm.setPrimaryClip(old);
+                    else if (InsertGuard.canClearClip(Build.VERSION.SDK_INT)) cm.clearPrimaryClip();
+                    else cm.setPrimaryClip(ClipData.newPlainText("", ""));
+                } catch (Exception ignored) { }
             }, 800);
         } else {
             toast("This app blocked typing. Text copied to clipboard.");
@@ -847,7 +856,18 @@ public class VoxAccessibilityService extends AccessibilityService
 
     private void copyToClipboard(String t) {
         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        cm.setPrimaryClip(ClipData.newPlainText("Vox", t));
+        cm.setPrimaryClip(dictationClip(t));
+    }
+
+    /** A clip of dictated text. On Android 13+ it is marked sensitive, so the clipboard preview and keyboards do not show it. */
+    static ClipData dictationClip(String text) {
+        ClipData clip = ClipData.newPlainText("Vox", text);
+        if (InsertGuard.markSensitive(Build.VERSION.SDK_INT)) {
+            PersistableBundle extras = new PersistableBundle();
+            extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true);
+            clip.getDescription().setExtras(extras);
+        }
+        return clip;
     }
 
     private String appLabel(String pkg) {

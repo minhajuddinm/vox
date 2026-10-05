@@ -32,7 +32,7 @@ def test_a_tag_build_without_the_keystore_secret_fails():
 
 def test_a_build_without_the_secret_says_so_and_names_the_artifact_after_it():
     signing = step("Signing key")
-    assert "::warning::" in signing and "throw-away" in signing
+    assert "::notice::" in signing and "throw-away" in signing     # (bf-e CI1: the normal case for a non-tag build now)
     assert "Vox-android-debug-key" in signing and "GITHUB_ENV" in signing
     upload = WORKFLOW.split("path: android/build/Vox.apk", 1)[0].rsplit("- uses:", 1)[1]
     assert "${{ env.APK_ARTIFACT }}" in upload
@@ -129,3 +129,90 @@ def test_batch_files_are_checked_out_with_crlf_on_every_os():
     with open(os.path.join(ROOT, "windows", "build_app.bat"), "rb") as f:
         data = f.read()
     assert data.count(b"\r\n") == data.count(b"\n") > 0
+
+
+# ------------------------------------------------------------------ bf-e: CI1, CI2, CI10, CI11, SEC-5/CI5
+def test_only_a_tag_build_gets_the_release_key_and_only_after_the_tests():
+    android = job("android")
+    signing = step_in(android, "signing key")
+    for secret in ("ANDROID_KEYSTORE_B64", "ANDROID_KEYSTORE_PASS"):
+        uses = re.findall(r"\$\{\{[^}]*secrets\." + secret + r"[^}]*\}\}", android)
+        assert uses and all("startsWith(github.ref, 'refs/tags/v')" in u for u in uses), secret   # never materialised for a PR
+    assert android.index("name: Signing key") > android.index("name: Unit tests")
+    assert android.index("name: Signing key") > android.index("name: Sync client against the real relay")
+    assert android.index("name: Signing key") < android.index("name: Build APK")
+    assert 'if [[ "$GITHUB_REF" == refs/tags/v* ]]' in signing
+
+
+NL = "\n"
+
+
+def test_build_sh_warns_without_the_password_and_keeps_it_off_the_command_line():
+    """Controller ruling: a tag build without ANDROID_KEYSTORE_PASS warns and uses the old default password; it does not
+    fail (the repository has no such secret yet, and a failing android job would publish no release)."""
+    sh = read("android", "build.sh")
+    assert '--ks-pass env:KS_PASS' in sh and '--key-pass env:KS_PASS' in sh and 'pass:$PASS' not in sh
+    assert 'PASS="${KS_PASS:-voxvox}"' in sh
+    existing = sh.split('if [ -f "$KS" ]; then', 1)[1].split("else", 1)[0]
+    assert "exit 1" not in existing and "Warning" in existing and "KS_PASS" in existing
+    missing = sh.split('if [ -f "$KS" ]; then', 1)[1].split("else", 1)[1].split("fi" + NL, 1)[0]
+    assert "refs/tags/v" in missing and "exit 1" in missing   # never a throw-away key on a tag
+
+
+def test_a_tag_build_fails_only_without_the_keystore_and_warns_without_its_password():
+    signing = step_in(job("android"), "signing key")
+    tag = signing.split('if [[ "$GITHUB_REF" == refs/tags/v* ]]; then', 1)[1].split(NL + "          else", 1)[0]
+    blocks = tag.split("fi" + NL)
+    keystore = next(b for b in blocks if "exit 1" in b)
+    assert '-z "$ANDROID_KEYSTORE_B64"' in keystore and "KS_PASS" not in keystore
+    assert sum("exit 1" in b for b in blocks) == 1
+    password = next(b for b in blocks if '-z "$KS_PASS"' in b)
+    assert "::warning::" in password and "ANDROID_KEYSTORE_PASS" in password and "exit" not in password
+
+
+def test_a_release_is_published_only_from_a_commit_on_main():
+    release = job("release")
+    assert "fetch-depth: 0" in release
+    gate = step_in(release, "on main")
+    assert "git merge-base --is-ancestor" in gate and "origin/main" in gate and "exit 1" in gate
+    assert release.index("on main") < release.index("action-gh-release")
+
+
+def test_the_release_checksums_cover_every_file():
+    sums = step_in(job("release"), "sha256sums")
+    for f in ("VoxSetup.exe", "Vox.apk", "vox-relay-windows-x64.exe", "vox-relay-linux-x64", "vox-relay-linux-arm64"):
+        assert f in sums, f
+    assert job("release").index("SHA256SUMS.txt for every") < job("release").index("action-gh-release")
+
+
+def test_every_job_has_a_time_limit():
+    for name in re.findall(r"(?m)^  (\w[\w-]*):\n", WORKFLOW.split("\njobs:\n", 1)[1]):
+        assert re.search(r"(?m)^    timeout-minutes: \d+$", job(name)), name
+
+
+def _locked(path):
+    out = {}
+    for line in read(*path.split("/")).splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            name, rest = line.split("==", 1)
+            out[name.strip().lower()] = rest.split(";", 1)[0].strip()
+    return out
+
+
+def test_release_builds_install_exactly_the_locked_packages():
+    app, tools_lock = _locked("windows/requirements.lock"), _locked("tools/build-requirements.lock")
+    direct = {l.split("==")[0].strip().lower(): l.split("==")[1].strip()
+              for l in read("windows", "requirements.txt").splitlines() if "==" in l}
+    assert all(app.get(k) == v for k, v in direct.items()), "requirements.lock must agree with requirements.txt"
+    assert "pythonnet" in app and "clr-loader" in app and "pyinstaller-hooks-contrib" in tools_lock
+    assert "pytest" not in app and "pytest" not in tools_lock            # nothing of the test run goes into the exe
+    windows = job("windows")
+    build = step_in(windows, "build vox.exe")
+    assert "requirements.lock" in build and "build-requirements.lock" in build and "check_lock.py" in build
+    assert "python -m venv" in build and "pip install -r requirements.txt" not in build
+    for leg in job("relay-exe").split("- name:"):
+        if "pyinstaller" in leg.lower() and "Build" in leg:
+            assert "build-requirements.lock" in leg and "check_lock.py" in leg and "pip install pyinstaller" not in leg
+    bat = read("windows", "build_app.bat")
+    assert "requirements.lock" in bat and "build-requirements.lock" in bat and "check_lock.py" in bat

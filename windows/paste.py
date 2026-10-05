@@ -16,6 +16,8 @@ The real clipboard, window and key calls live in SystemDeps; tests pass their ow
 import ctypes
 import logging
 import os
+import re
+import threading
 import time
 from ctypes import wintypes
 
@@ -62,8 +64,39 @@ _NO_CLOUD_FORMAT = ("CanUploadToCloudClipboard", b"\x00\x00\x00\x00")   # always
 _NO_HISTORY_FORMATS = (("ExcludeClipboardContentFromMonitorProcessing", b"\x01"),
                        ("CanIncludeInClipboardHistory", b"\x00\x00\x00\x00"))
 _PRIVATE_FORMATS = _NO_HISTORY_FORMATS + (_NO_CLOUD_FORMAT,)
+# The old clipboard put back: kept out of Win+V history and the cloud a second time, but not hidden from clipboard
+# listeners (a clipboard manager, a VM's or remote desktop's clipboard sharing), so it is still what the next paste gives.
+_RESTORE_FORMATS = (_NO_HISTORY_FORMATS[1], _NO_CLOUD_FORMAT)
 
 _user32 = _kernel32 = _keyboard = None
+# dwExtraInfo of every key Vox sends (its paste keys, the hotkey's Start-menu tap): the hotkey hook drops exactly these, so
+# Vox's own Ctrl+Shift+V never looks like the user's shortcut (ENG-5), while keys that other programs send (PowerToys
+# remaps, a mouse button macro, Voice Access, a software KVM) still count.
+VOX_KEY_TAG = 0x566F7821   # "Vox!"
+
+
+def keyboard_controller():
+    """pynput's keyboard Controller, with VOX_KEY_TAG on every key it sends (Windows; elsewhere the plain Controller)."""
+    global _keyboard
+    if _keyboard is None:
+        from pynput import keyboard
+        if not isinstance(keyboard.Controller, type):   # a stand-in (tests): use it as it is
+            return keyboard.Controller()
+        try:
+            from pynput._util.win32 import INPUT, INPUT_union, KEYBDINPUT, SendInput
+        except (ImportError, AttributeError, OSError):
+            _keyboard = keyboard.Controller()
+            return _keyboard
+
+        class Tagged(keyboard.Controller):
+            def _handle(self, key, is_press):
+                try:
+                    ki = KEYBDINPUT(dwExtraInfo=VOX_KEY_TAG, **key._parameters(is_press))
+                except ValueError:   # a character outside one UTF-16 unit: Vox never sends one, pynput's own way
+                    return super()._handle(key, is_press)
+                SendInput(1, ctypes.byref(INPUT(type=INPUT.KEYBOARD, value=INPUT_union(ki=ki))), ctypes.sizeof(INPUT))
+        _keyboard = Tagged()
+    return _keyboard
 
 
 def _api():
@@ -171,6 +204,20 @@ def paste_chord(exe):
     if exe in SHIFT_INSERT_TERMINALS:
         return ("shift", "insert")
     return ("ctrl", "shift", "v") if exe in TERMINALS else ("ctrl", "v")
+
+
+# What a paste into a terminal must not carry (SEC-1): a line break runs the line before it in shells without bracketed
+# paste (cmd and PowerShell in conhost, old bash), and ESC or a C1 control can end bracketed paste early.
+_LINE_BREAKS = re.compile(r"[ \t]*(?:\r\n|[\r\n\x0b\x0c\x85  ])[ \t]*")
+_CONTROLS = re.compile(r"[\x00-\x08\x0e-\x1f\x7f-\x9f]")
+
+
+def terminal_text(text):
+    """`text` as it may be pasted into a terminal: every line break (and tab) becomes a space and the other control
+    characters (ESC included) are dropped, so the paste never presses Enter. The user presses Enter. A break at the very
+    end is dropped rather than made a space."""
+    text = text.rstrip("\r\n\x0b\x0c\x85  ")
+    return _CONTROLS.sub("", _LINE_BREAKS.sub(" ", text).replace("\t", " "))
 
 
 def wait_released(is_down, clock, sleep, limit, step=0.02):
@@ -297,7 +344,9 @@ class SystemDeps:
         return out or None
 
     def clip_restore(self, snapshot):
-        """Puts a clip_snapshot() back, replacing what is on the clipboard now."""
+        """Puts a clip_snapshot() back, replacing what is on the clipboard now. It is kept out of Win+V history and the
+        cloud clipboard (ENG-9: the old item already went there once, if at all), but not marked for clipboard listeners
+        to ignore (_RESTORE_FORMATS). A marker the snapshot holds keeps its own value."""
         user32, kernel32 = _api()
         with _Clipboard(owner=True):
             user32.EmptyClipboard()
@@ -306,20 +355,27 @@ class SystemDeps:
                     _put(user32, kernel32, fmt, data)
                 except OSError as e:
                     log.warning("clipboard format %s not restored: %s", fmt, e)
+            held = {fmt for fmt, _ in snapshot}
+            for name, value in _RESTORE_FORMATS:
+                try:
+                    fmt = user32.RegisterClipboardFormatW(name)
+                    if fmt and fmt not in held:
+                        _put(user32, kernel32, fmt, value)
+                except OSError as e:
+                    log.warning("clipboard history marker %s not set: %s", name, e)
 
     def _send(self, vk, shift=False):
         """Ctrl (+ Shift) + the key `vk`. The virtual key, not the letter: on a layout with no Latin letters (Cyrillic,
-        Greek, Hebrew, Arabic) the letter would be sent as a character and the shortcut would not work."""
-        global _keyboard
+        Greek, Hebrew, Arabic) the letter would be sent as a character and the shortcut would not work. Tagged
+        (VOX_KEY_TAG) so the hotkey hook ignores them."""
         from pynput import keyboard
-        if _keyboard is None:
-            _keyboard = keyboard.Controller()
-        with _keyboard.pressed(keyboard.Key.ctrl):
+        kb = keyboard_controller()
+        with kb.pressed(keyboard.Key.ctrl):
             if shift:
-                with _keyboard.pressed(keyboard.Key.shift):
-                    _keyboard.tap(keyboard.KeyCode.from_vk(vk))
+                with kb.pressed(keyboard.Key.shift):
+                    kb.tap(keyboard.KeyCode.from_vk(vk))
             else:
-                _keyboard.tap(keyboard.KeyCode.from_vk(vk))
+                kb.tap(keyboard.KeyCode.from_vk(vk))
 
     def send_ctrl_v(self):
         self._send(0x56)
@@ -329,12 +385,10 @@ class SystemDeps:
 
     def send_shift_insert(self):
         """Shift+Insert (PuTTY and mintty). pynput's Key.insert is the extended key, so it is not read as numpad 0."""
-        global _keyboard
         from pynput import keyboard
-        if _keyboard is None:
-            _keyboard = keyboard.Controller()
-        with _keyboard.pressed(keyboard.Key.shift):
-            _keyboard.tap(keyboard.Key.insert)
+        kb = keyboard_controller()
+        with kb.pressed(keyboard.Key.shift):
+            kb.tap(keyboard.Key.insert)
 
     def send_ctrl_c(self):
         self._send(0x43)
@@ -420,17 +474,22 @@ def _window_changed(target_exe, current):
     return bool(target_exe) and bool(current) and current.lower() != target_exe.lower()
 
 
-def paste_text(text, target_exe, keep_clipboard, deps=None, clipboard_history=True):
+def paste_text(text, target_exe, keep_clipboard, deps=None, clipboard_history=True, background=False):
     """Pastes `text` into the focused app. Returns "pasted"; "copied" when the focused window is no longer
     `target_exe` ("" means any window); "blocked" when it runs as administrator and Vox does not. In the last two
-    cases the text is left on the clipboard and no paste keys are sent. `clipboard_history` (the setting) lets
-    Windows clipboard history (Win+V) keep the dictation; the old text put back afterwards is never added to it."""
+    cases the text is left on the clipboard and no paste keys are sent. Into a terminal the text goes as one line
+    (terminal_text). `clipboard_history` (the setting) lets
+    Windows clipboard history (Win+V) keep the dictation; the old text put back afterwards is never added to it.
+    `background`: returns once the paste keys are sent and puts the old clipboard back on a thread (wait_restored)."""
     deps = deps or SystemDeps()
+    wait_restored()   # the clipboard of the paste before this one is back first
     deps.wait_modifiers_released()
     current = _focused(deps)
     if _window_changed(target_exe, current):
         deps.clip_set(text, clipboard_history)
         return COPIED
+    if (current or target_exe or "").lower() in TERMINALS:
+        text = terminal_text(text)   # SEC-1: no line break that would run a command the user never confirmed
     if _blocked(deps):
         deps.clip_set(text, clipboard_history)
         return BLOCKED
@@ -449,21 +508,44 @@ def paste_text(text, target_exe, keep_clipboard, deps=None, clipboard_history=Tr
         deps.send_ctrl_shift_v()
     else:
         deps.send_ctrl_v()
+    if keep_clipboard:
+        return PASTED   # nothing is put back, so nothing to wait for (ENG-3)
+    if background:
+        global _restoring
+        _restoring = threading.Thread(target=_restore, args=(deps, text, old, snapshot), daemon=True, name="vox-restore")
+        _restoring.start()
+    else:
+        _restore(deps, text, old, snapshot)
+    return PASTED
+
+
+def _restore(deps, text, old, snapshot):
+    """After the paste: waits PASTE_WAIT, then puts the old clipboard back. Never raises: Ctrl+V was already sent."""
     deps.sleep(PASTE_WAIT)
     # The text normally stays on the clipboard only when asked (keep_clipboard). Put the old one back unless it
     # is unknown or the user has copied something else in the meantime. With a snapshot every format comes back
     # (cells, rich text, images, files). Without one (unreadable or too big) only old text can be put back: "unknown"
     # includes '' there, because pyperclip returns '' (not None) when the clipboard holds an image or files, and
-    # restoring '' would wipe them. A failed restore never raises: Ctrl+V was already sent.
-    if not keep_clipboard and deps.clip_get() == text:
-        try:
+    # restoring '' would wipe them.
+    try:
+        if deps.clip_get() == text:
             if snapshot:
                 deps.clip_restore(snapshot)
             elif isinstance(old, str) and old != "":
                 deps.clip_set(old)
-        except Exception as e:
-            log.warning("could not put the old clipboard back: %s", e)
-    return PASTED
+    except Exception as e:
+        log.warning("could not put the old clipboard back: %s", e)
+
+
+_restoring = None   # the thread putting the old clipboard back after a background paste (paste_text background=True)
+
+
+def wait_restored(timeout=None):
+    """Waits until the clipboard of the last background paste is put back (at most `timeout` seconds). Everything that
+    reads or writes the clipboard calls it first, so a new paste never takes the last dictation for the old clipboard."""
+    t = _restoring
+    if t is not None and t.is_alive():
+        t.join(timeout)
 
 
 def copy_selection(target_exe, deps=None):
@@ -472,6 +554,7 @@ def copy_selection(target_exe, deps=None):
     (only when the copy happened). Refused in a terminal (there Ctrl+C stops the running program) and when the focused
     window is no longer `target_exe`."""
     deps = deps or SystemDeps()
+    wait_restored()
     deps.wait_modifiers_released()
     current = _focused(deps)
     if _window_changed(target_exe, current):

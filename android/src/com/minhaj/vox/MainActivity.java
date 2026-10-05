@@ -23,6 +23,7 @@ import android.view.View;
 import android.view.Window;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -66,7 +67,20 @@ public class MainActivity extends Activity {
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(false);   // the UI is loaded from assets, which does not need file access
         web.setWebChromeClient(new WebChromeClient());
-        web.setWebViewClient(new WebViewClient());
+        web.setWebViewClient(new WebViewClient() {
+            // The page holds the Vox bridge (keys, relay token): it never loads anything but the bundled files. An https
+            // link opens in the browser; anything else is refused (WebNav).
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                int where = WebNav.decide(url);
+                if (where == WebNav.STAY) return false;
+                if (where == WebNav.BROWSER && request.isForMainFrame()) {
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); } catch (RuntimeException ignored) { }
+                }
+                return true;
+            }
+        });
         web.addJavascriptInterface(new Bridge(), "Vox");
         web.loadUrl("file:///android_asset/index.html");
         setContentView(web);
@@ -158,7 +172,7 @@ public class MainActivity extends Activity {
                 cfg.put("snippets", new JSONObject(prefs.snippets()));
                 cfg.put("keep_history", prefs.keepHistory());
                 cfg.put("auto_learn", prefs.autoLearn());
-                cfg.put("learned_log", new JSONArray(PlainJson.stringify(AutoLearn.learnedLog(prefs.learnedLogRaw()))));
+                cfg.put("learned_log", new JSONArray(PlainJson.stringify(AutoLearn.learnedLog(prefs.learnedLogRaw(), prefs.dictionaryRaw()))));
                 cfg.put("only_typing", prefs.onlyWhenTyping());
                 cfg.put("always_show_bubble", prefs.alwaysShowBubble());
                 cfg.put("note_bubble", prefs.noteBubble());
@@ -470,7 +484,7 @@ public class MainActivity extends Activity {
             } catch (RuntimeException ignored) { }
             try {
                 return new JSONObject().put("dictionary", lines(prefs.dictionaryRaw()))
-                        .put("learned_log", new JSONArray(PlainJson.stringify(AutoLearn.learnedLog(prefs.learnedLogRaw())))).toString();
+                        .put("learned_log", new JSONArray(PlainJson.stringify(AutoLearn.learnedLog(prefs.learnedLogRaw(), prefs.dictionaryRaw())))).toString();
             } catch (Exception e) {
                 return "{\"dictionary\":[],\"learned_log\":[]}";
             }

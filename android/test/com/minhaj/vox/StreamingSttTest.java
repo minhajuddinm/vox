@@ -216,6 +216,76 @@ public final class StreamingSttTest {
         si.cancel();
         check("a cancelled idle stream gives null", si.finish(1000) == null);
 
+        // inPieces: a recording too big for one upload is cut at pauses and sent piece by piece (vox_core._transcribe_in_pieces)
+        Fake pf = new Fake(0, null);
+        eq("in pieces: the texts joined", "piece1 piece2 piece3", StreamingStt.inPieces(three, pf));
+        eq("in pieces: the context is the text before", "[, piece1, piece1 piece2]", pf.contexts.toString());
+        eq("in pieces: every byte is sent once", three.length, pf.sizes.get(0) + pf.sizes.get(1) + pf.sizes.get(2));
+        Fake quiet = new Fake(0, null);
+        eq("in pieces: a silent piece is not sent", "piece1 piece2", StreamingStt.inPieces(cat(tone(13), silence(1), silence(13), silence(1), tone(4)), quiet));
+        eq("in pieces: two calls", 2, quiet.contexts.size());
+        Fake thanks = new Fake(0, null, "Thank you.", "real words");
+        eq("in pieces: a silence phrase before any text is dropped", "real words", StreamingStt.inPieces(cat(tone(13), silence(1), tone(4)), thanks));
+        Fake broken = new Fake(2, null);
+        try {
+            StreamingStt.inPieces(three, broken);
+            check("in pieces: a failed piece fails the whole send", false);
+        } catch (IOException expected) {
+            eq("in pieces: stops at the failure", 2, broken.contexts.size());
+        }
+        // final review TA-I3: back-to-back pieces hit a per-minute rate limit (Groq's free tier): the 429 is waited out
+        // and the same piece sent again (vox_core._transcribe_waiting), instead of failing the whole note
+        final int[] calls = {0};
+        final long[] retryAfter = {-1};
+        final int[] fails = {1};
+        StreamingStt.Transcriber limited = (pcm, context) -> {
+            calls[0]++;
+            if (calls[0] >= 2 && fails[0]-- > 0) throw new ApiClient.ApiException(429, "API 429: rate limit", retryAfter[0]);
+            return "piece" + calls[0];
+        };
+        List<Long> slept = new ArrayList<>();
+        eq("in pieces: a rate limit is waited out", "piece1 piece3 piece4", StreamingStt.inPieces(three, limited, slept::add));
+        eq("in pieces: the default wait, once", "[" + StreamingStt.RATE_LIMIT_WAIT_MS + "]", slept.toString());
+        calls[0] = 0; fails[0] = 1; retryAfter[0] = 5000; slept.clear();
+        StreamingStt.inPieces(three, limited, slept::add);
+        eq("in pieces: the server's Retry-After", "[5000]", slept.toString());
+        calls[0] = 0; fails[0] = 1; retryAfter[0] = 600_000; slept.clear();
+        StreamingStt.inPieces(three, limited, slept::add);
+        eq("in pieces: never longer than the max wait", "[" + StreamingStt.RATE_LIMIT_MAX_WAIT_MS + "]", slept.toString());
+        calls[0] = 0; fails[0] = 99; retryAfter[0] = -1; slept.clear();
+        try {
+            StreamingStt.inPieces(three, limited, slept::add);
+            check("in pieces: a rate limit that does not end fails the send", false);
+        } catch (ApiClient.ApiException e) {
+            eq("in pieces: the 429 after the last wait", 429, e.code);
+            eq("in pieces: waited the PC app's number of times", StreamingStt.RATE_LIMIT_TRIES, slept.size());
+        }
+        StreamingStt.Transcriber cancelled = (pcm, context) -> { throw new ApiClient.ApiException(429, "API 429", -1); };
+        try {
+            StreamingStt.inPieces(three, cancelled, ms -> { throw new InterruptedException(); });
+            check("in pieces: a cancel during the wait ends the send", false);
+        } catch (IOException e) {
+            eq("in pieces: ended by the cancel", "cancelled", e.getMessage());
+        }
+        eq("Retry-After in seconds", 5000L, ApiClient.retryAfterMs("5"));
+        eq("Retry-After as a date is not used", -1L, ApiClient.retryAfterMs("Wed, 21 Oct 2026 07:28:00 GMT"));
+        eq("no Retry-After", -1L, ApiClient.retryAfterMs(null));
+        // the pieces are read a megabyte at a time: a recording longer than one read gives the same pieces
+        byte[] longer = cat(three, three, three);
+        Fake whole = new Fake(0, null);
+        StreamingStt.inPieces(longer, whole);
+        Segmenter ref = new Segmenter();
+        List<byte[]> expected = new ArrayList<>(ref.feed(longer));
+        expected.add(ref.rest());
+        int sent = 0;
+        for (byte[] piece : expected) if (piece.length > 0 && !Pcm.isSilent(piece)) sent++;
+        check("in pieces: the test audio is longer than one read", longer.length > (1 << 20));
+        eq("in pieces: read in chunks, cut the same", sent, whole.sizes.size());
+
+        check("in pieces: only a recording over the upload limit is cut", StreamingStt.needsPieces(StreamingStt.MAX_UPLOAD_BYTES + 1)
+                && !StreamingStt.needsPieces(StreamingStt.MAX_UPLOAD_BYTES));
+        eq("the upload limit is the PC app's (vox_core.MAX_UPLOAD_BYTES)", 20000000L, StreamingStt.MAX_UPLOAD_BYTES);
+
         System.out.println("OK: " + checks + " checks passed");
     }
 }

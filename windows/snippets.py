@@ -21,6 +21,11 @@ def _has_word_char(s):
     return any(unicodedata.category(c)[0] in "LNM" for c in s)
 
 
+def _is_word(c):
+    """A letter, a combining mark (a Hindi vowel sign), a number or _ (vox_core.is_word; Java [\\p{L}\\p{M}\\p{N}_])."""
+    return c == "_" or unicodedata.category(c)[0] in "LNM"
+
+
 def wire_size(s):
     """Bytes `s` takes in the relay's profile: JSON with ASCII escapes, as relay.py measures it (a letter outside ASCII is
     6 bytes, an emoji 12, a line break, quote or backslash 2). Twin: Snippets.wireSize and snipWireSize in common.js."""
@@ -59,9 +64,26 @@ def apply_snippets(text, value):
     if not text or not snips:
         return text
     items = sorted(snips.items(), key=lambda kv: -len(kv[0]))   # longest first; equal lengths keep their order
-    alts = "|".join("(" + r"[ \t\r\n]+".join(re.escape(w) for w in t.split(" ")) + ")" for t, _ in items)
-    pattern = re.compile(r"(?<!\w)(?:" + alts + r")(?!\w)", re.I)
-    return pattern.sub(lambda m: items[m.lastindex - 1][1], text)
+    parts = [re.compile(r"[ \t\r\n]+".join(re.escape(w) for w in t.split(" ")), re.I) for t, _ in items]
+    anywhere = re.compile("|".join(p.pattern for p in parts), re.I)
+    out, pos, last = [], 0, 0
+    while True:   # the first trigger, longest first, that stands as whole words where one starts (a word's marks are
+        m = anywhere.search(text, pos)   # part of it: कर never matches in करें); checked here, not with lookarounds
+        if not m:
+            break
+        hit = None
+        if not (m.start() and _is_word(text[m.start() - 1])):
+            for k, p in enumerate(parts):
+                h = p.match(text, m.start())
+                if h and not (h.end() < len(text) and _is_word(text[h.end()])):
+                    hit = (k, h.end())
+                    break
+        if hit:
+            out += [text[last:m.start()], items[hit[0]][1]]
+            last = pos = hit[1]
+        else:
+            pos = m.start() + 1
+    return "".join(out) + text[last:]
 
 
 def unexpand(text, value):

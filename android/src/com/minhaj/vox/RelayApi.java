@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * What the sync needs from a relay (relay/relay.py, protocol in documentation/14-relay.md): four calls on plain maps
+ * What the sync needs from a relay (relay/relay.py, protocol in documentation/14-relay.md): five calls on plain maps
  * (the JSON objects the relay speaks, see PlainJson for the value types). RelayClient talks to a real relay; the
  * off-device tests use a fake one. Every failure is a {@link RelayError} with a message fit to show the user.
  */
@@ -17,6 +17,14 @@ interface RelayApi {
 
     /** {@code GET /changes?since=..&limit=..}: notes and delete markers written after the sequence number {@code since}. */
     Changes changes(long since, int limit) throws RelayError;
+
+    /**
+     * {@code GET /health}: the relay's newest sequence number ({@code seq}), or -1 when it does not say. A number below
+     * this phone's cursor means the relay lost its data (wiped, or restored from an older backup). Default: unknown.
+     */
+    default long relaySeq() throws RelayError {
+        return -1;
+    }
 
     /** {@code GET /profile}: version 0 and empty data before the first save. */
     Profile getProfile() throws RelayError;

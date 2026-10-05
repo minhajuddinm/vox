@@ -33,9 +33,24 @@ public final class Prefs {
             "# One term per line. Use  wrong => right  to force a replacement.\n";
 
     private final SharedPreferences sp;
+    private final Context ctx;
 
     public Prefs(Context c) {
-        sp = c.getApplicationContext().getSharedPreferences("vox", Context.MODE_PRIVATE);
+        ctx = c.getApplicationContext();
+        sp = ctx.getSharedPreferences("vox", Context.MODE_PRIVATE);
+        RelayProof.pins = new RelayProof.Pins() {   // the relay addresses that proved they hold the token (SEC-2), kept
+            @Override
+            public boolean has(String origin) {
+                return sp.getStringSet("relay_proven", java.util.Collections.<String>emptySet()).contains(origin);
+            }
+
+            @Override
+            public void add(String origin) {
+                java.util.Set<String> s = new java.util.HashSet<>(sp.getStringSet("relay_proven", java.util.Collections.<String>emptySet()));
+                s.add(origin);
+                sp.edit().putStringSet("relay_proven", s).apply();
+            }
+        };
     }
 
     public String apiKey() { return sp.getString("api_key", "").trim(); }
@@ -227,13 +242,28 @@ public final class Prefs {
     /** The history is read, changed and written back as one string: one writer at a time (the service writes from a thread). */
     private static final Object HISTORY_LOCK = new Object();
 
+    /**
+     * The history's own file (vox_history), so the up to 500 dictations are not parsed and rewritten with every setting
+     * (a bubble drag, a learned word) in the settings file. An earlier version kept them there: moved over once.
+     */
+    private SharedPreferences hist() {
+        SharedPreferences h = ctx.getSharedPreferences("vox_history", Context.MODE_PRIVATE);
+        synchronized (HISTORY_LOCK) {
+            if (sp.contains("history")) {
+                boolean moved = h.contains("history") || h.edit().putString("history", sp.getString("history", "[]")).commit();
+                if (moved) sp.edit().remove("history").apply();   // only once the copy is on disk
+            }
+        }
+        return h;
+    }
+
     /** @param timing where the time of this dictation went (the Speed card), or null when it was not timed (a retry) */
     /** @param fidelityFallback true when the cleanup answer lost the spoken words and the raw words were used (shown in the history) */
     public void addHistory(String app, String raw, String clean, double secs, Timing.Entry timing, boolean fidelityFallback) {
         if (!keepHistory()) return;
         synchronized (HISTORY_LOCK) {
         try {
-            JSONArray arr = new JSONArray(sp.getString("history", "[]"));
+            JSONArray arr = new JSONArray(hist().getString("history", "[]"));
             JSONObject o = new JSONObject();
             o.put("t", System.currentTimeMillis() / 1000.0);
             o.put("app", app == null ? "" : app);
@@ -246,7 +276,7 @@ public final class Prefs {
             JSONArray next = new JSONArray();
             next.put(o);
             for (int i = 0; i < arr.length() && i < 499; i++) next.put(arr.get(i));
-            sp.edit().putString("history", next.toString()).apply();
+            hist().edit().putString("history", next.toString()).apply();
         } catch (Exception ignored) { }
         }
     }
@@ -269,17 +299,19 @@ public final class Prefs {
                 JSONObject o = arr.getJSONObject(i);
                 if (Math.abs(o.optDouble("t") - t) > 0.0005) next.put(o);
             }
-            sp.edit().putString("history", next.toString()).apply();
+            hist().edit().putString("history", next.toString()).apply();
         } catch (Exception ignored) { }
         }
     }
 
     public JSONArray history() {
-        try { return new JSONArray(sp.getString("history", "[]")); }
+        try { return new JSONArray(hist().getString("history", "[]")); }
         catch (Exception e) { return new JSONArray(); }
     }
 
-    public void clearHistory() { sp.edit().putString("history", "[]").apply(); }
+    public void clearHistory() {
+        synchronized (HISTORY_LOCK) { hist().edit().putString("history", "[]").apply(); }   // with addHistory: a dictation finishing now cannot bring the old list back
+    }
 
     private static String nonEmpty(String v, String def) {
         return v == null || v.trim().isEmpty() ? def : v.trim();

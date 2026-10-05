@@ -23,15 +23,27 @@ def cache_path():
     return os.path.join(core.data_dir(), "calendar.json")
 
 
+MAX_REDIRECTS = 3
+NOT_HTTPS = "Use the https:// address of your calendar (plain http only for this PC, your local network or Tailscale)."
+
+
+def person_name(name, email):
+    """How a person is shown, saved and sent to the AI servers: the display name, or else the part of the address before
+    the @ ("jane.guest@x.org" -> "Jane Guest"). A display name that is itself an address (Google's iCal writes the
+    address as CN for a guest without a name) counts as none: an e-mail address is never used as a name."""
+    name = (name or "").strip().strip('"').strip()
+    if name and "@" not in name:
+        return name
+    addr = name or (email or "").strip()
+    return addr.split("@")[0].replace(".", " ").title().strip() if "@" in addr else addr
+
+
 def _name(prop):
     """Display name for an ATTENDEE / ORGANIZER property."""
     if prop is None:
         return ""
     cn = prop.params.get("CN") if hasattr(prop, "params") else None
-    if cn:
-        return str(cn).strip().strip('"')
-    email = str(prop).replace("mailto:", "").replace("MAILTO:", "")
-    return email.split("@")[0].replace(".", " ").title() if "@" in email else email
+    return person_name(str(cn) if cn else "", str(prop).replace("mailto:", "").replace("MAILTO:", ""))
 
 
 def _email(prop):
@@ -100,12 +112,43 @@ def _safe_error(e, url):
     return str(e)[:200]
 
 
+def _https(url):
+    url = (url or "").strip()
+    return "https://" + url[len("webcal://"):] if url.lower().startswith("webcal://") else url
+
+
+def url_problem(url):
+    """Why this iCal address cannot be used, or '' (also for none). The address is a secret that gives anyone your
+    events, so it goes only over https (webcal:// is https), or plain http to a private address (vox_core.is_private_host,
+    the rule of the AI server addresses)."""
+    u = urllib.parse.urlparse(_https(url))
+    if not _https(url) or (u.hostname and (u.scheme == "https" or (u.scheme == "http" and core.is_private_host(u.hostname)))):
+        return ""
+    return NOT_HTTPS
+
+
+def _get(url):
+    """GET of the iCal address. A redirect is followed only to an address url_problem accepts: requests would follow one
+    to plain http and send the secret path and the events in clear text."""
+    for _ in range(MAX_REDIRECTS + 1):
+        r = requests.get(url, timeout=20, allow_redirects=False)
+        loc = (getattr(r, "headers", None) or {}).get("Location")
+        if getattr(r, "status_code", 200) in (301, 302, 303, 307, 308) and loc:
+            url = urllib.parse.urljoin(url, loc)
+            if url_problem(url):
+                raise ValueError("The calendar server sent Vox to an address that is not https.")
+            continue
+        r.raise_for_status()
+        return r
+    raise ValueError("The calendar server sent Vox elsewhere too many times.")
+
+
 def fetch(cfg, force=False):
     """Events from 12 h ago to 7 days ahead, from Google sign-in if connected, else the iCal link. Cached 5 min."""
     import gcal
-    url = (cfg.get("calendar_url") or "").strip()
-    if url.startswith("webcal://"):
-        url = "https://" + url[len("webcal://"):]
+    url = _https(cfg.get("calendar_url"))
+    if url and not gcal.connected() and url_problem(url):
+        return {"events": [], "error": url_problem(url), "fetched": 0, "source": ""}
     # the cache key never holds the address itself: the secret iCal link must not be written to calendar.json
     source = "google:" + gcal.account() if gcal.connected() else ("ics:" + hashlib.sha256(url.encode()).hexdigest()[:16] if url else "")
     if not source:
@@ -127,8 +170,7 @@ def fetch(cfg, force=False):
         if source.startswith("google:"):
             events = gcal.events()
         else:
-            r = requests.get(url, timeout=20)
-            r.raise_for_status()
+            r = _get(url)
             events = parse(r.content, now - timedelta(hours=12), now + timedelta(days=7), cfg.get("my_email", ""))
         data = {"source": source, "events": events, "error": "", "fetched": time.time()}
     except Exception as e:

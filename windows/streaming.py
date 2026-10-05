@@ -5,7 +5,8 @@ thread cuts the audio at pauses (`vox_core.Segmenter`, pieces of MIN_SECONDS to 
 piece to speech-to-text with the end of the previous text as context, and keeps the texts in order. When the user
 finishes, only the last piece is left to send, so any recording longer than about 7 s with a pause in it is ready
 sooner. If anything goes wrong, or the recording was too short to be cut,
-`finish()` returns None and the engine transcribes the whole recording as before: streaming is only a shortcut.
+`finish()` returns None and the engine transcribes the whole recording as before: streaming is only a shortcut. When a
+piece failed, `partial()` gives the text of the pieces before it, and the engine sends only the rest (ENG-7).
 """
 import queue
 import threading
@@ -42,6 +43,8 @@ class StreamingStt:
         self.early = 0             # pieces sent before finish() was called: while the user was still speaking
         self._finishing = False
         self.error = ""
+        self.done_bytes = 0        # audio covered by the pieces whose text came back (silent ones too)
+        self._piece_failed = False
         self._q = queue.Queue()
         self._done = threading.Event()
         self._cancelled = False
@@ -72,6 +75,13 @@ class StreamingStt:
             return None
         return " ".join(t for t in self.texts if t).strip()
 
+    def partial(self):
+        """After a piece failed: (the text of the pieces before it, how many bytes at the start of the recording they
+        cover), so the caller sends only the rest (ENG-7); None when nothing failed or no piece came back."""
+        if not self._piece_failed or not self.done_bytes:
+            return None
+        return " ".join(t for t in self.texts if t).strip(), self.done_bytes
+
     @property
     def segments(self):
         """The segment times ({"start", "end", "text"}, seconds into the whole recording) of every piece with text, for
@@ -92,6 +102,7 @@ class StreamingStt:
                     self._send(rest)
         except Exception as e:   # includes ApiError and network errors: the caller falls back to the whole recording
             self.error = str(e) or type(e).__name__
+            self._piece_failed = True
         finally:
             self._done.set()
 
@@ -104,6 +115,7 @@ class StreamingStt:
         self._sent_seconds += len(pcm) / (core.SAMPLE_RATE * 2)
         core._stt_local.segments = None   # this thread's last answer: a silent piece is not sent at all
         text = piece_text(self.cfg, pcm, " ".join(self.texts), self._transcribe, drop_hallucination=not self.texts)
+        self.done_bytes += len(pcm)
         if text:
             self.texts.append(text)
             segs = core.last_segments()   # transcribe ran on this worker thread

@@ -24,6 +24,7 @@ android/src/com/minhaj/vox/SyncResult.java
 android/src/com/minhaj/vox/ProfileMap.java
 android/src/com/minhaj/vox/SyncEngine.java
 android/src/com/minhaj/vox/RelayClient.java
+android/src/com/minhaj/vox/RelayProof.java
 android/src/com/minhaj/vox/PendingQueue.java
 android/src/com/minhaj/vox/NotificationActions.java
 android/src/com/minhaj/vox/PinnedUrlConfig.java
@@ -42,3 +43,5 @@ android/src/com/minhaj/vox/HintGuard.java
 android/src/com/minhaj/vox/MicChoice.java
 android/src/com/minhaj/vox/Structure.java
 android/src/com/minhaj/vox/Snippets.java
+android/src/com/minhaj/vox/RecordLimit.java
+android/src/com/minhaj/vox/WebNav.java

@@ -66,7 +66,7 @@ Threads in the engine process:
 | `improve` | `Engine.run` | `_watch_improve`: the weekly reminder for Improve my cleanup (a tray message only) |
 | `relay-watch` | `RelayHost.start` | waits for the relay child process and reports an early exit |
 
-Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording) -> `busy` (sending) -> `idle`. `hands_free` is a flag on `rec`. `Engine.pending` holds `(pcm, exe)` of a dictation that failed to send. A dictation's end is also signalled on the pill for a moment (`Engine.flash`: a green check or a red !) without changing `Engine.state`; see [04-windows-app.md](04-windows-app.md#result-signal-on-the-pill).
+Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording) -> `busy` (sending) -> `idle`. `hands_free` is a flag on `rec`. `Engine.pending` is a list (oldest first, at most 5) of the `(pcm, exe, note)` of dictations that failed to send. A dictation's end is also signalled on the pill for a moment (`Engine.flash`: a green check or a red !) without changing `Engine.state`; see [04-windows-app.md](04-windows-app.md#result-signal-on-the-pill).
 
 ## Windows dictation flow
 
@@ -88,7 +88,7 @@ Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording)
               lists from spoken cues and pause paragraphs (structure.py; not in a code app)
            -> paste (Ctrl+V), history line (unless keep_history is off)
               or, in note mode (tray / Voice notes page): save to notes.db and ask the sync worker to send it
-           on error: keep (pcm, exe, note) in Engine.pending, notify, tray "Retry last dictation"
+           on error: add (pcm, exe, note) to Engine.pending, notify, tray "Retry last dictation"
 ```
 
 Details: [04-windows-app.md](04-windows-app.md), [06-pipeline.md](06-pipeline.md).
@@ -137,7 +137,7 @@ The same functions exist in both languages:
 | Meter level | `level_from_rms` | `Pcm.levelFromRms` |
 | Voice-note title (first 7 words) and search string (`"word"*` tokens) | `notes.auto_title`, `notes.fts_query` | `NoteLogic.autoTitle`, `NoteLogic.ftsQuery` |
 | Which version wins a note sync (strictly newer; a tie keeps the local one; a delete of an unknown note is ignored) | `notes.apply_remote` | `NoteLogic.remoteWins` |
-| Profile sync merge (per field: the side that changed since the last sync wins, the relay wins a clash, an absent result drops the field) and which settings travel | `sync.merge3`, `sync.PROFILE_FIELDS`, `sync.PROFILE_KEY_FIELDS` | `ProfileMerge.merge3`, `mergeProfile`, `SHARED_FIELDS`, `KEY_FIELDS` |
+| Profile sync merge (per field: the side that changed since the last sync wins, the relay wins a clash except that a list (dictionary, people) or the snippets map changed on both sides merges item by item: an item added on either side is kept, one removed on either side goes, an absent result drops the field) and which settings travel | `sync.merge3`, `sync.PROFILE_FIELDS`, `sync.PROFILE_KEY_FIELDS` | `ProfileMerge.merge3`, `mergeProfile`, `SHARED_FIELDS`, `KEY_FIELDS` |
 | A note the relay refuses for good (a 4xx other than 401, 403, 429) is skipped for that run and does not stop the others; any other failure stops the run | `sync.SyncError.permanent`, `sync_once` | `RelayApi.RelayError.permanent()`, `SyncEngine.push` (not in the golden file; each side has its own test) |
 | Dictionary and people in the profile (a list of text on the relay; the phone keeps them as lines) | `config.json` lists (`dictionary`, `people`) | `ProfileMap.lines`, `joinLines`, `toProfile`, `toStored` (see [05-android-app.md](05-android-app.md), "Relay sync") |
 | Tag clean-up (quotes removed, trim, no empties, no repeats) | `notes._tags` | `NoteLogic.cleanTags` (not in the golden file; see [12-known-issues-and-roadmap.md](12-known-issues-and-roadmap.md)) |

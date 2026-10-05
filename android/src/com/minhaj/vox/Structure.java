@@ -29,6 +29,21 @@ final class Structure {
     private static final Map<String, Integer> NUMBERS = new HashMap<>();
     private static final Set<String> INTROS = new HashSet<>(Arrays.asList("point", "item", "step", "number"));
     private static final Set<String> BE = new HashSet<>(Arrays.asList("are", "is", "were"));
+    /**
+     * An ordinal or numbered cue with no punctuation after it starts an item only before one of these ("first we eat");
+     * before any other word it is prose ("first impressions", "number one priority", "two people", "second time").
+     */
+    private static final Set<String> ITEM_START = new HashSet<>(Arrays.asList((
+            "i we you he she they it the a an my our your his her their its this that these those there here "
+            + "let's lets let i'll we'll you'll i'm we're you're it's i've we've").split(" ")));
+    /** A numbered, ordinal or bare cue right before one of these is the subject of a sentence ("number two is the budget"). */
+    private static final Set<String> VERBS = new HashSet<>(Arrays.asList(
+            "is are was were has have had will would can could should must may might".split(" ")));
+    /** A bullet cue right after one of these is the noun ("one bullet point to make", "a new bullet"). */
+    private static final Set<String> DETERMINERS = new HashSet<>(Arrays.asList(
+            "a an the one this that another each every any some no my our your his her their its".split(" ")));
+    /** "Dr. Smith": the dot of these ends no sentence. */
+    private static final Set<String> ABBREVIATIONS = new HashSet<>(Arrays.asList("dr mr mrs ms st vs etc jr sr prof".split(" ")));
     private static final String[][] BULLETS_ANYWHERE = {{"bullet", "point"}, {"new", "bullet"}, {"next", "bullet"}};
     private static final String[][] BULLETS_AT_CLAUSE = {{"next", "point"}, {"next", "item"}};
     private static final String CLAUSE_PUNCT = ".,;:!?\u0964";   // \u0964 = the Devanagari danda
@@ -92,11 +107,14 @@ final class Structure {
         Word(String w, int start, int end) { this.w = w; this.start = start; this.end = end; }
     }
 
-    /** A cue: its family (bul, num, bare, ord, hi), number, and where it starts and ends in the text. */
+    /** A cue: its family (bul, num, bare, ord, hi), number, where it starts and ends in the text, and whether it is weak. */
     private static final class Cue {
         final String fam;
         final int n, start, end;
-        Cue(String fam, int n, int start, int end) { this.fam = fam; this.n = n; this.start = start; this.end = end; }
+        final boolean weak;
+        Cue(String fam, int n, int start, int end, boolean weak) {
+            this.fam = fam; this.n = n; this.start = start; this.end = end; this.weak = weak;
+        }
     }
 
     private static List<Word> words(String text) {
@@ -144,20 +162,71 @@ final class Structure {
         return false;
     }
 
-    /** {family index, number, index after the last word, where}; family index: 0 bul, 1 num, 2 bare, 3 ord, 4 hi. null = no cue. */
+    /**
+     * True when the cue that ends before word after is followed by punctuation or a line break, by nothing, or by a word
+     * that starts an item (ITEM_START): "First, milk" and "first we eat", not "first impressions". Twin of _item_follows.
+     */
+    private static boolean itemFollows(String text, List<Word> ws, int after) {
+        if (after >= ws.size()) return true;
+        String gap = text.substring(ws.get(after - 1).end, ws.get(after).start);
+        for (int i = 0; i < gap.length(); i++) if (gap.charAt(i) != ' ' && gap.charAt(i) != '\t') return true;
+        return ITEM_START.contains(ws.get(after).w.replace('’', '\''));
+    }
+
+    private static boolean verbFollows(String text, List<Word> ws, int after) {
+        return after < ws.size() && VERBS.contains(ws.get(after).w) && onlySpace(text.substring(ws.get(after - 1).end, ws.get(after).start));
+    }
+
+    /**
+     * {family index, number, index after the last word, where, weak}; family index: 0 bul, 1 num, 2 bare, 3 ord, 4 hi; weak
+     * 1: an ordinal, a "number N" or a bare number not followed by an item (itemFollows), so the list needs more (sure).
+     * null = no cue. A numbered, ordinal or bare cue before a verb (VERBS) is no cue, "second of all" is prose (only "first
+     * of all" is a cue) and a bullet cue after a determiner is the noun.
+     */
     private static int[] match(String text, List<Word> ws, int i) {
         String w = ws.get(i).w;
         String nxt = i + 1 < ws.size() && onlySpace(text.substring(ws.get(i).end, ws.get(i + 1).start)) ? ws.get(i + 1).w : null;
-        if (nxt != null && pair(BULLETS_ANYWHERE, w, nxt)) return new int[]{0, 0, i + 2, ANYWHERE};
-        if (nxt != null && pair(BULLETS_AT_CLAUSE, w, nxt)) return new int[]{0, 0, i + 2, CLAUSE};
-        if (w.equals("bullet")) return new int[]{0, 0, i + 1, CLAUSE};
-        if (INTROS.contains(w) && nxt != null && NUMBERS.containsKey(nxt)) return new int[]{1, NUMBERS.get(nxt), i + 2, CLAUSE};
-        if (w.equals("first") && "of".equals(nxt) && i + 2 < ws.size() && ws.get(i + 2).w.equals("all")
-                && onlySpace(text.substring(ws.get(i + 1).end, ws.get(i + 2).start))) return new int[]{3, 1, i + 3, CLAUSE};
-        if (ORD.containsKey(w)) return new int[]{3, ORD.get(w), i + 1, CLAUSE};
-        if (HINDI.containsKey(w)) return new int[]{4, HINDI.get(w), "point".equals(nxt) ? i + 2 : i + 1, CLAUSE};
-        if (NUMBERS.containsKey(w) && NUMBERS.get(w) >= 2) return new int[]{2, NUMBERS.get(w), i + 1, SENTENCE};
+        if (nxt != null && pair(BULLETS_ANYWHERE, w, nxt)) {
+            boolean noun = i > 0 && DETERMINERS.contains(ws.get(i - 1).w) && onlySpace(text.substring(ws.get(i - 1).end, ws.get(i).start));
+            return noun ? null : new int[]{0, 0, i + 2, ANYWHERE, 0};
+        }
+        if (nxt != null && pair(BULLETS_AT_CLAUSE, w, nxt)) return new int[]{0, 0, i + 2, CLAUSE, 0};
+        if (w.equals("bullet")) return new int[]{0, 0, i + 1, CLAUSE, 0};
+        if (INTROS.contains(w) && nxt != null && NUMBERS.containsKey(nxt)) {
+            if (verbFollows(text, ws, i + 2)) return null;
+            return new int[]{1, NUMBERS.get(nxt), i + 2, CLAUSE, w.equals("number") && !itemFollows(text, ws, i + 2) ? 1 : 0};
+        }
+        if (ORD.containsKey(w) && "of".equals(nxt) && i + 2 < ws.size() && ws.get(i + 2).w.equals("all")
+                && onlySpace(text.substring(ws.get(i + 1).end, ws.get(i + 2).start))) {
+            return w.equals("first") ? new int[]{3, 1, i + 3, CLAUSE, 0} : null;
+        }
+        if (ORD.containsKey(w)) {
+            if (!w.endsWith("ly") && verbFollows(text, ws, i + 1)) return null;
+            return new int[]{3, ORD.get(w), i + 1, CLAUSE, w.endsWith("ly") || itemFollows(text, ws, i + 1) ? 0 : 1};
+        }
+        if (HINDI.containsKey(w)) return new int[]{4, HINDI.get(w), "point".equals(nxt) ? i + 2 : i + 1, CLAUSE, 0};
+        if (NUMBERS.containsKey(w) && NUMBERS.get(w) >= 2) {
+            if (verbFollows(text, ws, i + 1)) return null;
+            return new int[]{2, NUMBERS.get(w), i + 1, SENTENCE, itemFollows(text, ws, i + 1) ? 0 : 1};
+        }
         return null;
+    }
+
+    /** True when text[pos] is the dot of an abbreviation (ABBREVIATIONS) or of a single letter ("Dr. Smith", "3 p.m. today"). */
+    private static boolean abbreviationDot(String text, int pos) {
+        if (text.charAt(pos) != '.') return false;
+        int k = pos;
+        while (k > 0 && isWordChar(text.codePointBefore(k))) k -= Character.charCount(text.codePointBefore(k));
+        String word = text.substring(k, pos).toLowerCase(Locale.ROOT);
+        if (word.codePointCount(0, word.length()) == 1) return Character.isLetter(word.codePointAt(0));
+        return ABBREVIATIONS.contains(word);
+    }
+
+    /** The end of the first sentence end in text (SENTENCE_END) that is not an abbreviation's dot, or -1. Twin of _sentence_end. */
+    private static int sentenceEnd(String text) {
+        Matcher m = SENTENCE_END.matcher(text);
+        while (m.find()) if (!abbreviationDot(text, m.start())) return m.end();
+        return -1;
     }
 
     private static final String[] FAMILIES = {"bul", "num", "bare", "ord", "hi"};
@@ -172,7 +241,7 @@ final class Structure {
                 boolean ok = m[3] == ANYWHERE || starts(text, ws.get(i).start, m[3] == SENTENCE ? SENTENCE_PUNCT : CLAUSE_PUNCT)
                         || (m[1] == 1 && (fam.equals("ord") || fam.equals("num")) && afterBe(text, ws, i));
                 if (ok) {
-                    out.add(new Cue(fam, m[1], ws.get(i).start, ws.get(m[2] - 1).end));
+                    out.add(new Cue(fam, m[1], ws.get(i).start, ws.get(m[2] - 1).end, m[4] == 1));
                     i = m[2];
                     continue;
                 }
@@ -182,7 +251,24 @@ final class Structure {
         return out;
     }
 
-    private static List<Cue> sequence(List<Cue> cues, boolean flat) {
+    /**
+     * True when a list with a weak cue is still meant as one: the lead-in ends with a colon, there are three cues or more,
+     * or the cues are ordinals and each one after the first follows a comma or semicolon ("first check the logs, second
+     * restart the server"). After a full stop it stays prose ("First buy milk. Second call mom"). Twin of _sure.
+     */
+    private static boolean sure(String text, List<Cue> chosen) {
+        boolean weak = false;
+        for (Cue c : chosen) weak |= c.weak;
+        if (!weak || chosen.size() >= 3 || rstrip(text.substring(0, chosen.get(0).start), SPACE).endsWith(":")) return true;
+        if (!chosen.get(0).fam.equals("ord")) return false;
+        for (Cue c : chosen.subList(1, chosen.size())) {
+            String before = rstrip(text.substring(0, c.start), SPACE);
+            if (!before.endsWith(",") && !before.endsWith(";")) return false;
+        }
+        return true;
+    }
+
+    private static List<Cue> sequence(String text, List<Cue> cues, boolean flat) {
         for (int k = 0; k < cues.size(); k++) {
             Cue c = cues.get(k);
             if (c.fam.equals("bare") || (!c.fam.equals("bul") && c.n != 1) || (flat && (c.fam.equals("ord") || c.fam.equals("hi")))) continue;
@@ -197,7 +283,7 @@ final class Structure {
                     expected++;
                 }
             }
-            if (chosen.size() >= 2) return chosen;
+            if (chosen.size() >= 2 && sure(text, chosen)) return chosen;
         }
         return null;
     }
@@ -233,8 +319,14 @@ final class Structure {
 
     private static String cleanItem(String body, boolean flatCase) {
         String s = rstrip(lstrip(NEWLINES.matcher(body).replaceAll(" "), LEAD_STRIP), SPACE + ",;:");
-        if ((s.endsWith(".") || s.endsWith("\u0964")) && !SENTENCE_INSIDE.matcher(s.substring(0, s.length() - 1)).find()) {
-            s = rstrip(s.substring(0, s.length() - 1), SPACE);   // one sentence: its full stop goes (the dot of example.com is not a sentence end)
+        boolean oneSentence = true;   // no sentence end inside (the dot of example.com or of Dr. is not one)
+        if (!s.isEmpty()) {
+            String inner = s.substring(0, s.length() - 1);
+            Matcher m = SENTENCE_INSIDE.matcher(inner);
+            while (oneSentence && m.find()) if (!abbreviationDot(inner, m.start())) oneSentence = false;
+        }
+        if ((s.endsWith(".") || s.endsWith("\u0964")) && oneSentence) {
+            s = rstrip(s.substring(0, s.length() - 1), SPACE);   // one sentence: its full stop goes
         }
         return flatCase ? s : capitalised(s);
     }
@@ -250,16 +342,16 @@ final class Structure {
         if (text == null || text.isEmpty() || mode(mode).equals(OFF) || st.equals("raw") || ALREADY_LIST.matcher(text).find()) {
             return text;
         }
-        List<Cue> seq = sequence(cues(text, words(text)), st.equals("casual") || st.equals("very_casual"));
+        List<Cue> seq = sequence(text, cues(text, words(text)), st.equals("casual") || st.equals("very_casual"));
         if (seq == null) return text;
         List<String> bodies = new ArrayList<>();
         for (int k = 0; k + 1 < seq.size(); k++) bodies.add(text.substring(seq.get(k).end, seq.get(k + 1).start));
         String last = lstrip(text.substring(seq.get(seq.size() - 1).end), LEAD_STRIP);
         String trailer = "";
-        Matcher m = SENTENCE_END.matcher(last);
-        if (m.find()) {
-            int cut = rstrip(last.substring(0, m.end()), SPACE).length();
-            trailer = rstrip(lstrip(last.substring(m.end()), SPACE), SPACE);
+        int end = sentenceEnd(last);
+        if (end >= 0) {
+            int cut = rstrip(last.substring(0, end), SPACE).length();
+            trailer = rstrip(lstrip(last.substring(end), SPACE), SPACE);
             last = last.substring(0, cut);
         }
         bodies.add(last);

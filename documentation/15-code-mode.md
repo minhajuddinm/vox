@@ -11,11 +11,11 @@ Spoken formatters and symbols for code editors and terminals: say `camel case us
 | per-app style `code` | none | Styles page, Per app: "Code (spoken symbols)" makes any app a code app (also when it is not in `code_apps`). |
 | `code_cleanup` | `rules` | `rules`: no AI cleanup in a code app, so code is never rewritten; `llm`: the AI cleanup runs with the style `code` (prompt: keep identifiers, symbols and casing exactly as spoken, keep spoken symbol and formatter names, never add prose, quotes or a final period; no lists, no blank lines), then the rules below. An app whose style is `raw` (the default for `code.exe` and `windowsterminal.exe`) never goes to the AI either way. |
 
-In a code app the order is: AI cleanup (only with `llm`) and its fidelity guard, then the formatters and symbols, then the dictionary's replacements and spellings, then the snippets. "Lists and paragraphs" never runs in a code app, and "new line" is handled by the symbol table instead of the spoken-command rule.
+In a code app the order is: AI cleanup (only with `llm`) and its fidelity guard, then the formatters and symbols, then the dictionary's replacements and spellings, then the snippets. "Lists and paragraphs" never runs in a code app, and "new line" is handled by the symbol table instead of the spoken-command rule; "new paragraph" (not a symbol) still becomes a blank line when the AI cleanup did not run.
 
 ## Formatters
 
-A formatter takes the words that follow it, lowercase, joined its way, until a stop: a spoken symbol, the word `then` (dropped), punctuation after a word (Whisper's comma or full stop, dropped), a line break, or the end. Apostrophes are dropped (`don't` becomes `dont`), digits are kept. A formatter with no words after it is left as said. Whisper sometimes writes `camelcase`, `snakecase`, `pascalcase` or `kebabcase` as one word; those work too.
+A formatter takes the words that follow it, lowercase, joined its way, until a stop: a spoken symbol, the word `then` (dropped), punctuation after a word (Whisper's comma or full stop, dropped), a line break, or the end. Apostrophes are dropped (`don't` becomes `dont`), digits and letters of any script are kept (`camel case café menu` gives `caféMenu`). A formatter with no words after it is left as said. Whisper sometimes writes `camelcase`, `snakecase`, `pascalcase` or `kebabcase` as one word; those work too.
 
 | Say | Types | Example |
 |---|---|---|
@@ -30,7 +30,7 @@ A formatter takes the words that follow it, lowercase, joined its way, until a s
 
 ## Symbols
 
-Whole words only, case ignored: `dotted`, `tabby` or `starboard` are never touched. The longest spoken form wins (`equals equals` before `equals`, `double colon` before `colon`, `single quote` before `quote`). "Space before" / "Space after" say whether the space between the symbol and its neighbour is kept; quotes pair up: the first one of a kind opens (no space after it), the next one closes (no space before it).
+Whole words only, case ignored: `dotted`, `tabby` or `starboard` are never touched. Words that are also everyday English are only typed as symbols in code (see "Code or prose" below). The longest spoken form wins (`equals equals` before `equals`, `double colon` before `colon`, `single quote` before `quote`). "Space before" / "Space after" say whether the space between the symbol and its neighbour is kept; quotes pair up: the first one of a kind opens (no space after it), the next one closes (no space before it).
 
 | Say | Types | Space before | Space after |
 |---|---|---|---|
@@ -74,10 +74,39 @@ Whole words only, case ignored: `dotted`, `tabby` or `starboard` are never touch
 | plus | `+` | kept | kept |
 | minus | `-` | kept | kept |
 | tilde | `~` | kept | no |
-| new line | line break | no | no |
+| new line | line break (in a terminal a space: Vox never presses Enter there, see `paste.terminal_text`) | no | no |
 | tab | tab | no | no |
 
 Examples (from the tests): `print open paren quote hello quote close paren` types `print("hello")`; `def snake case load config open paren path close paren colon` types `def load_config(path):`; `git commit dash m quote fix the build quote` types `git commit -m "fix the build"`; `cd tilde slash projects` types `cd ~/projects`.
+
+## Code or prose
+
+Code apps are also where people write commit messages, chat in a terminal or type a comment, so a spoken symbol that is also an everyday word stays a word unless the dictation is code. These are the ambiguous ones (`codemode.AMBIGUOUS`): equals, arrow, dot, dash, slash, quote, single quote, pipe, hash, percent, star, plus, minus, tab, less than, greater than. One of them becomes its symbol when:
+
+- the dictation is code: it starts with a command name (`codemode.COMMANDS`: git, ls, cd, cat, grep, npm, pip, python, node, docker, ssh, curl, echo, rm, mkdir, sudo, cargo, ... but not everyday words such as go or head) that is not followed by a sentence word such as is, the or and (`Python is great` is prose); or it has a formatter or a spoken symbol that is not ambiguous and not plain punctuation (open paren, underscore, tilde, at sign, equals equals...); or it is a statement: two or more ambiguous symbols, each between two plain names with one name between each two (`self dot name equals name`, `total equals price star quantity`, `count equals count plus one`). A name here is a word with no punctuation around it and no apostrophe that is not a sentence word (a, the, and, is, to, it...: `codemode._FUNCTION`; "this" is a name); or
+- a word next to it looks like code: one letter other than a and I (`x dot y`), a digit (`total equals 5`), a character other than letters and apostrophes (`log.txt`), a capital inside the word (`getUser`), or another symbol (`dash dash verbose`, `cd dot dot`); or
+- it is `dot` between two names (`user dot name`, `import os dot path`), or `equals`, `greater than` or `less than` between two names in a dictation that starts with if, elif, while, until, assert or return (`if count greater than limit`); or
+- it is a quote that closes one opened before.
+
+Outside code, and inside quotes in code (a commit message), never right after an article or possessive (the, an, this, that, my, your, one, another, each, every, some, any, no...): `add the dot env file` keeps `dot`. In code outside quotes these are words of the code (`git commit dash dash no dash verify`). Comma, colon, semicolon and new line are always typed as symbols but do not by themselves make a dictation code.
+
+| Said in a code app | Typed |
+|---|---|
+| add a quote from the ceo | add a quote from the ceo |
+| take a hash of the file | take a hash of the file |
+| it took less than a minute | it took less than a minute |
+| he gave it a five star review | he gave it a five star review |
+| ls dash la | ls -la |
+| cat log dot txt pipe grep error | cat log.txt \| grep error |
+| git commit dash m quote add the dot env file quote | git commit -m "add the dot env file" |
+| x dot y | x.y |
+| a five star hotel plus a spa | a five star hotel plus a spa |
+| self dot name equals name | self.name = name |
+| total equals price star quantity | total = price * quantity |
+| if count greater than limit | if count > limit |
+| import os dot path | import os.path |
+
+The formatters always apply, so `no space` and `all caps` inside a sentence (`there is no space left`) are still read as formatters.
 
 ## Whisper's own punctuation and capitals
 

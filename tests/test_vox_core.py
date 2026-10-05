@@ -172,3 +172,16 @@ def test_a_short_recording_is_still_sent_whole(monkeypatch):
     monkeypatch.setattr(core, "transcribe", lambda cfg, wav, context="": calls.append(context) or "hello there friend")
     core.process_detailed({"cleanup": False}, b"\x10\x27" * 32000, "", "")
     assert calls == [""]
+
+
+def test_peak_level_is_the_loudest_sample_with_or_without_numpy(monkeypatch):
+    """ENG-11: numpy reads a long recording in milliseconds; the result is the same as the plain loop's."""
+    import array
+    import builtins
+    samples = array.array("h", [0, 5, -32768, 1200, 32767, -3])
+    pcm = samples.tobytes() + b"\x01"   # an odd last byte is ignored
+    assert core.peak_level(pcm) == 32768
+    real_import = builtins.__import__
+    monkeypatch.setattr(builtins, "__import__", lambda name, *a, **k: (_ for _ in ()).throw(ImportError(name))
+                        if name == "numpy" else real_import(name, *a, **k))
+    assert core.peak_level(pcm) == 32768 and core.peak_level(b"") == 0

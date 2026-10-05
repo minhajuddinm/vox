@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Talks to a relay (relay/relay.py) over HTTP with HttpURLConnection and PlainJson: the four calls of RelayApi, plus
+ * Talks to a relay (relay/relay.py) over HTTP with HttpURLConnection and PlainJson: the calls of RelayApi, plus
  * {@link #check} for the Test connection button. Every request carries {@code Authorization: Bearer <token>} and
  * {@code X-Vox-Device: <name>}; the token goes only to the address it was made for, and redirects are never followed
  * (a Location header could otherwise take it to another server). Every failure is a RelayError in plain words (the
@@ -80,8 +80,13 @@ final class RelayClient implements RelayApi {
         final long notes;
 
         Check(RelayCheck.Result r) {
+            this(r, "");
+        }
+
+        /** {@code extra}: words added to the message (the old-relay warning). */
+        Check(RelayCheck.Result r, String extra) {
             this.ok = r.ok;
-            this.message = r.message;
+            this.message = extra.isEmpty() ? r.message : r.message + " " + extra;
             this.reachable = r.reachable;
             this.tokenOk = r.tokenOk;
             this.deviceName = r.deviceName;
@@ -100,7 +105,10 @@ final class RelayClient implements RelayApi {
         String err = problem(url, token);
         if (!err.isEmpty()) return new Check(RelayCheck.of(0, null, sent, err));
         try {
-            return new Check(RelayCheck.of(200, asMap(new RelayClient(url, token, device).call("GET", "/health", null, null)), sent, ""));
+            RelayCheck.Result r = RelayCheck.of(200, asMap(new RelayClient(url, token, device).call("GET", "/health", null, null)), sent, "");
+            // (the proof was just asked for by the call, so this is the kept answer, not a new request)
+            boolean old = r.ok && RelayProof.OLD.equals(RelayProof.check(Endpoint.normalize(url), token));
+            return new Check(r, old ? RelayProof.OLD_RELAY : "");
         } catch (RelayError e) {
             return new Check(RelayCheck.of(e.status, null, sent, e.message));
         }
@@ -178,6 +186,13 @@ final class RelayClient implements RelayApi {
     }
 
     @Override
+    public long relaySeq() throws RelayError {
+        Map<String, Object> m = asMap(call("GET", "/health", null, null));
+        Object seq = m == null ? null : m.get("seq");
+        return seq instanceof Number ? ((Number) seq).longValue() : -1;
+    }
+
+    @Override
     public Profile getProfile() throws RelayError {
         return profile(call("GET", "/profile", null, null));
     }
@@ -201,6 +216,9 @@ final class RelayClient implements RelayApi {
      * an answer that is not JSON (status 0) and a network failure (status 0).
      */
     private Object call(String method, String path, String ifMatch, Object body) throws RelayError {
+        String where = Endpoint.resolvedError(base);    // plain http: the name must still lead to a private address
+        if (where != null) throw new RelayError(0, where);
+        RelayProof.check(base, token);                   // the relay shows it holds the token before the token goes there
         try {
             HttpURLConnection c = (HttpURLConnection) new URL(base + path).openConnection();
             c.setConnectTimeout(TIMEOUT_MS);
@@ -235,6 +253,7 @@ final class RelayClient implements RelayApi {
                     in.close();
                 }
             }
+            if (RelayProof.gatewayDown(status)) RelayProof.forget(base);   // the relay may have stopped: prove again first
             if (status < 200 || status > 299) throw new RelayError(status, failure(status, errorDetail(text)));
             try {
                 return PlainJson.parse(text);
@@ -242,6 +261,7 @@ final class RelayClient implements RelayApi {
                 throw new RelayError(0, RelayError.NOT_A_RELAY);
             }
         } catch (IOException e) {
+            RelayProof.forget(base);     // it may have stopped, and something else may take its port: ask for a proof again
             // the class name only: a message could hold the address
             throw new RelayError(0, "Cannot reach the relay (is Tailscale running?): " + e.getClass().getSimpleName());
         }

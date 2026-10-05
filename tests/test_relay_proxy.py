@@ -640,7 +640,7 @@ def test_the_connection_attempts_share_the_deadline_instead_of_each_getting_the_
     fake_sockets(monkeypatch, lookup, Unreachable)
     t0 = time.monotonic()
     with pytest.raises(relay.UpstreamError) as err:
-        relay.forward_upstream("http://many.example.test:8080/v1", "", "/models", "GET", b"", None, None, 0.5)
+        relay.forward_upstream("https://many.example.test:8080/v1", "", "/models", "GET", b"", None, None, 0.5)
     assert err.value.message == "upstream unreachable"
     assert looked_up == [("many.example.test", 8080)]          # the fake was used, not the real resolver
     assert time.monotonic() - t0 < 1.2                         # (seven attempts with a whole timeout each would be 2.1 s)
@@ -1464,3 +1464,55 @@ def test_the_proxy_hands_the_body_to_the_exchange_and_keeps_none_while_it_waits(
         release.set()
         t.join(10)
 
+
+
+# ------------------------------------------------------------------ bf-e: SEC-3, where a plain http name really leads
+def test_a_plain_http_upstream_name_that_resolves_to_loopback_is_used(server, llm_stub):
+    server.set_upstream("llm", llm_stub.url.replace("127.0.0.1", "localhost"), LLM_KEY)
+    assert send_route(server, ROUTES[2]).status == 200 and len(llm_stub.seen) == 1
+
+
+def _lookup_for(name, answers):
+    real = socket.getaddrinfo
+
+    def lookup(host, *a, **kw):
+        if host == name:
+            return [(socket.AF_INET6 if ":" in ip else socket.AF_INET, socket.SOCK_STREAM, 6, "",
+                     (ip, port, 0, 0) if ":" in ip else (ip, port)) for ip, port in answers]
+        return real(host, *a, **kw)
+    return lookup
+
+
+def test_a_plain_http_upstream_name_that_resolves_to_a_public_address_gets_nothing(server, llm_stub, monkeypatch):
+    port = llm_stub.server_address[1]
+    monkeypatch.setattr(relay.socket, "getaddrinfo", _lookup_for("gpu-pc", [("8.8.8.8", port), ("2001:db8::5", port)]))
+    server.set_upstream("llm", "http://gpu-pc:%d/v1" % port, LLM_KEY)
+    resp = send_route(server, ROUTES[2])
+    assert resp.status == 502 and "outside this machine" in resp.json()["error"]["message"]
+    assert llm_stub.seen == [] and LLM_KEY.encode() not in resp.raw and free_slots(server)
+
+
+def test_a_lan_name_with_a_global_ipv6_address_too_goes_to_its_private_one(server, llm_stub, monkeypatch):
+    """Final review RC-I4: on a dual-stack home network `gpu-pc` resolves to its global IPv6 address and its LAN address;
+    the global one is skipped (never connected), the LAN one is used."""
+    port = llm_stub.server_address[1]
+    monkeypatch.setattr(relay.socket, "getaddrinfo",
+                        _lookup_for("gpu-pc", [("2001:db8::5", port), ("8.8.8.8", port), ("127.0.0.1", port)]))
+    tried = []
+    real_socket = relay.socket.socket
+
+    class Recording(real_socket):
+        def connect(self, address):
+            tried.append(address[0])
+            return super().connect(address)
+    monkeypatch.setattr(relay.socket, "socket", Recording)
+    server.set_upstream("llm", "http://gpu-pc:%d/v1" % port, LLM_KEY)
+    assert send_route(server, ROUTES[2]).status == 200 and len(llm_stub.seen) == 1
+    assert "2001:db8::5" not in tried and "8.8.8.8" not in tried
+
+
+@pytest.mark.parametrize("address, ok", [("127.0.0.1", True), ("::1", True), ("fe80::1%3", True), ("100.100.1.1", True),
+                                         ("192.168.1.9", True), ("8.8.8.8", False), ("::ffff:8.8.8.8", False),
+                                         ("::ffff:127.0.0.1", True), ("2606:4700::1111", False), ("junk", False)])
+def test_private_address_judges_a_resolved_address(address, ok):
+    assert relay.private_address(address) is ok

@@ -337,3 +337,78 @@ def test_a_short_dictation_is_still_one_upload():
     stt = FakeStt()
     s, text = run(stt, tone(4) + silence(0.5) + tone(2))
     assert text is None and stt.calls == []
+
+
+# ---- ENG-7: a failed piece keeps the text of the pieces before it ----------------------------------------------------------
+def test_after_a_failed_piece_the_text_so_far_and_the_audio_it_covers_are_kept():
+    stt = FakeStt(fail_on=3)
+    audio = tone(13) + silence(1) + tone(13) + silence(1) + tone(13) + silence(1) + tone(4)
+    s, text = run(stt, audio)
+    assert text is None
+    said, covered = s.partial()
+    assert said == "piece1 piece2" and 26 * RATE * 2 < covered < len(audio) - 13 * RATE * 2
+    assert covered % 2 == 0
+
+
+def test_no_partial_text_when_nothing_failed_or_the_first_piece_failed():
+    s, text = run(FakeStt(), tone(13) + silence(1) + tone(13) + silence(1) + tone(4))
+    assert s.partial() is None
+    s, text = run(FakeStt(fail_on=1), tone(13) + silence(1) + tone(13) + silence(1) + tone(4))
+    assert s.partial() is None
+
+
+def test_the_fallback_in_pieces_waits_out_a_rate_limit_and_sends_the_same_piece_again(monkeypatch):
+    slept, calls = [], []
+
+    class R:
+        def __init__(self, status, text="", headers=None):
+            self.status_code, self._text, self.headers, self.text = status, text, headers or {}, ""
+
+        def json(self):
+            return {"error": {"message": "rate limited"}} if self.status_code == 429 else {"text": self._text}
+
+    answers = [R(200, "one"), R(429, headers={"Retry-After": "7"}), R(200, "two"), R(200, "three")]
+
+    def post(url, **kw):
+        calls.append(kw.get("data", {}).get("prompt", ""))
+        return answers.pop(0)
+
+    monkeypatch.setattr(core.requests, "post", post)
+    monkeypatch.setattr(core.time, "sleep", slept.append)
+    audio = tone(13) + silence(1) + tone(13) + silence(1) + tone(4)
+    assert core._transcribe_in_pieces({"api_key": "k"}, audio) == "one two three"
+    assert 7 in slept and len(calls) == 4
+
+
+def test_the_rate_limit_wait_is_bounded_and_gives_up_after_a_few_tries(monkeypatch):
+    slept = []
+
+    class R:
+        status_code, text, headers = 429, "", {"Retry-After": "3600"}
+
+        def json(self):
+            return {"error": {"message": "rate limited"}}
+
+    monkeypatch.setattr(core.requests, "post", lambda url, **kw: R())
+    monkeypatch.setattr(core.time, "sleep", slept.append)
+    with pytest.raises(core.ApiError):
+        core._transcribe_in_pieces({"api_key": "k"}, tone(13) + silence(1) + tone(4))
+    assert slept and max(slept) <= core.RATE_LIMIT_MAX_WAIT and len(slept) == core.RATE_LIMIT_TRIES
+
+
+def test_the_rest_after_a_failed_piece_waits_out_a_rate_limit_too(monkeypatch):
+    """Final review W-M6: the piece that failed most likely got a 429, so the upload of the rest right after it does too."""
+    slept = []
+
+    class R:
+        def __init__(self, status, text=""):
+            self.status_code, self._text, self.headers, self.text = status, text, {"Retry-After": "4"} if status == 429 else {}, ""
+
+        def json(self):
+            return {"error": {"message": "rate limited"}} if self.status_code == 429 else {"text": self._text}
+
+    answers = [R(429), R(200, "the rest")]
+    monkeypatch.setattr(core.requests, "post", lambda url, **kw: answers.pop(0))
+    monkeypatch.setattr(core.time, "sleep", slept.append)
+    assert core.transcribe_rest({"api_key": "k"}, tone(5), "what came before") == "the rest"
+    assert 4 in slept

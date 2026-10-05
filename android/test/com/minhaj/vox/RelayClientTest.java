@@ -101,6 +101,14 @@ public final class RelayClientTest {
         s.createContext("/", new HttpHandler() {
             @Override
             public void handle(HttpExchange x) throws IOException {
+                if (x.getRequestURI().getRawPath().endsWith("/proof")) {   // bf-e SEC-2: this relay holds TOKEN (not recorded)
+                    String q = x.getRequestURI().getRawQuery();
+                    byte[] b = ("{\"proof\": \"" + RelayProof.proofOf(TOKEN, q.substring(q.indexOf('=') + 1)) + "\"}").getBytes(StandardCharsets.UTF_8);
+                    x.sendResponseHeaders(200, b.length);
+                    x.getResponseBody().write(b);
+                    x.close();
+                    return;
+                }
                 Seen r = new Seen();
                 r.method = x.getRequestMethod();
                 r.path = x.getRequestURI().getRawPath() + (x.getRequestURI().getRawQuery() == null ? "" : "?" + x.getRequestURI().getRawQuery());
@@ -131,10 +139,31 @@ public final class RelayClientTest {
         HttpServer server = start(true);
         try {
             run(server);
+            resolved(server);
         } finally {
             server.stop(0);
         }
         System.out.println("OK: " + checks + " checks passed");
+    }
+
+    /** bf-e SEC-3: a plain http relay name is looked up first, and nothing is sent when it leads outside the private ranges. */
+    private static void resolved(HttpServer server) throws Exception {
+        final int port = server.getAddress().getPort();
+        answer(200, "{\"ok\": true, \"notes\": 0, \"seq\": 0}");
+        eq("a name that leads to loopback works", true, RelayClient.check("http://localhost:" + port, TOKEN, "Pixel").ok);
+        eq("the request arrived", 1, seen.size());
+        Endpoint.Resolver real = Endpoint.resolver;
+        Endpoint.resolver = host -> new InetAddress[]{InetAddress.getByName("127.0.0.1"), InetAddress.getByName("8.8.8.8")};
+        try {
+            seen.clear();
+            final RelayClient c = new RelayClient("http://localhost:" + port, TOKEN, "Pixel");
+            RelayApi.RelayError e = fails("a name with a public address", () -> c.getProfile());
+            eq("its message", true, e.getMessage().startsWith("Plain http only goes to"));
+            eq("nothing was sent", 0, seen.size());
+            eq("https is not looked up", null, Endpoint.resolvedError("https://localhost:" + port));
+        } finally {
+            Endpoint.resolver = real;
+        }
     }
 
     private static void run(HttpServer server) throws Exception {
@@ -176,6 +205,19 @@ public final class RelayClientTest {
         }
         answer(200, "{\"notes\": [], \"next\": 2}");
         eq("changes: a missing 'more' means no more", false, c.changes(0, 200).more);
+
+        // ---- relaySeq: the relay's newest sequence number from /health (a wiped relay is found by it, SyncEngine)
+        answer(200, "{\"ok\": true, \"notes\": 3, \"seq\": 42, \"version\": \"2.0.0\"}");
+        eq("relaySeq: the number", 42L, c.relaySeq());
+        eq("relaySeq: request", "GET /health", last().method + " " + last().path);
+        answer(200, "{\"ok\": true, \"notes\": 3}");
+        eq("relaySeq: not said is -1", -1L, c.relaySeq());
+        answer(200, "{\"ok\": true, \"seq\": \"7\"}");
+        eq("relaySeq: not a number is -1", -1L, c.relaySeq());
+        answer(200, "[]");
+        eq("relaySeq: not an object is -1", -1L, c.relaySeq());
+        answer(500, "{\"error\": \"boom\"}");
+        eq("relaySeq: a failure is a RelayError", 500, fails("relaySeq 500", () -> c.relaySeq()).status);
 
         // ---- profile
         answer(200, "{\"version\": 3, \"data\": {\"user_context\": \"hi\", \"dictionary\": [\"a\"]}}");
@@ -323,8 +365,11 @@ public final class RelayClientTest {
             eq("check: " + junk + " is not a relay", "false/That address did not answer like a Vox relay.", bad.ok + "/" + bad.message);
         }
         answer(401, "{\"error\": \"missing or wrong token\"}");
-        RelayClient.Check refused = RelayClient.check(base, "wrong", "d");
-        eq("check: wrong token", "false/The relay refused the token.", refused.ok + "/" + refused.message);
+        RelayClient.Check refused = RelayClient.check(base, TOKEN, "d");
+        eq("check: refused token", "false/The relay refused the token.", refused.ok + "/" + refused.message);
+        seen.clear();
+        RelayClient.Check wrong = RelayClient.check(base, "wrong", "d");   // bf-e SEC-2: a wrong token is never sent
+        eq("check: wrong token", "false/" + RelayProof.NOT_PROVEN + "/0", wrong.ok + "/" + wrong.message + "/" + seen.size());
         answer(500, "{}");
         eq("check: a relay that is broken", "false/The relay answered HTTP 500.", show(RelayClient.check(base, TOKEN, "d")));
         RelayClient.Check offline = RelayClient.check(deadUrl, TOKEN, "d");
@@ -372,8 +417,10 @@ public final class RelayClientTest {
             eq("devices: " + junk + " is not a relay", "false/That address did not answer like a Vox relay./0", dl.ok + "/" + dl.error + "/" + dl.rows.size());
         }
         answer(401, "{\"error\": \"missing or wrong token\"}");
+        dl = RelayClient.listDevices(base, TOKEN, "d", 1000000.0);
+        eq("devices: refused token", "false/The relay refused the token./0", dl.ok + "/" + dl.error + "/" + dl.rows.size());
         dl = RelayClient.listDevices(base, "wrong", "d", 1000000.0);
-        eq("devices: wrong token", "false/The relay refused the token./0", dl.ok + "/" + dl.error + "/" + dl.rows.size());
+        eq("devices: wrong token (bf-e SEC-2: not sent)", "false/" + RelayProof.NOT_PROVEN + "/0", dl.ok + "/" + dl.error + "/" + dl.rows.size());
         answer(404, "{\"error\": \"not found\"}");
         dl = RelayClient.listDevices(base, TOKEN, "d", 1000000.0);
         eq("devices: a relay too old for the list", "false/This relay is too old to list devices. Update relay.py on it./0", dl.ok + "/" + dl.error + "/" + dl.rows.size());

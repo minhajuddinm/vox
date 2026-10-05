@@ -1,0 +1,34 @@
+# Every package inside Vox.exe at an exact version: requirements.txt (the 14 the app imports) and everything they pull in.
+# Release builds (.github/workflows/build.yml, windows/build_app.bat) install only this plus tools/build-requirements.lock
+# into a fresh venv, and tools/check_lock.py fails the build when anything else got in. The versions are the ones the CI
+# windows job installed and tested for v2.0.x. No --hash lines yet: they could not be made offline (see
+# documentation/10-build-test-release.md); once added, pip checks them by itself. Change requirements.txt and this together.
+bottle==0.13.4
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.2
+click==8.5.0
+clr-loader==0.3.1
+icalendar==7.3.0
+idna==3.20
+numpy==2.5.3
+pillow==12.3.0
+proxy-tools==0.1.0
+psutil==7.2.2
+pycparser==3.0
+pynput==1.8.2
+pyperclip==1.11.0
+pystray==0.19.5
+python-dateutil==2.9.0.post0
+pythonnet==3.2.0
+pywebview==6.2.1
+recurring-ical-events==3.8.2
+requests==2.34.2
+six==1.17.0
+soundcard==0.4.6
+sounddevice==0.5.6
+soundfile==0.14.0
+typing-extensions==4.16.0
+tzdata==2026.4
+urllib3==2.8.0
+x-wr-timezone==2.0.1

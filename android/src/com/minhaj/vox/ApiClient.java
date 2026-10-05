@@ -25,8 +25,29 @@ public final class ApiClient {
 
     public static class ApiException extends IOException {
         public final int code;
-        public ApiException(int code, String msg) { super(msg); this.code = code; }
+        /** The server's Retry-After in milliseconds, or -1 (absent, a date, or unreadable). */
+        public final long retryAfterMs;
+        public ApiException(int code, String msg) { this(code, msg, -1); }
+        public ApiException(int code, String msg, long retryAfterMs) {
+            super(msg);
+            this.code = code;
+            this.retryAfterMs = retryAfterMs;
+        }
     }
+
+    /** The milliseconds of a Retry-After header given in seconds, or -1 (vox_core._retry_after). */
+    static long retryAfterMs(String header) {
+        if (header == null) return -1;
+        try {
+            double s = Double.parseDouble(header.trim());
+            return s >= 0 && !Double.isInfinite(s) ? (long) (s * 1000) : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /** The largest answer read into memory, as the relay's proxy (relay.py MAX_PROXY_REPLY). */
+    static final int MAX_ANSWER = 8_000_000;
 
     private final String apiKey;
     private final String base;
@@ -42,8 +63,11 @@ public final class ApiClient {
     /** True when Groq accepts the key, false when it rejects it. Throws on network errors. */
     public boolean checkKey() throws IOException {
         String problem = Endpoint.error(base);
+        if (problem == null) problem = Endpoint.resolvedError(base);
         if (problem != null) throw new IOException(problem);   // the same address rule as every other call: never send the key to a refused address
+        relayProof();
         HttpURLConnection c = (HttpURLConnection) new URL(base + "/models").openConnection();
+        c.setInstanceFollowRedirects(false);   // a redirect would take the key to an address no rule checked (SEC-6)
         c.setConnectTimeout(15000);
         c.setReadTimeout(15000);
         if (!apiKey.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + apiKey);
@@ -138,7 +162,7 @@ public final class ApiClient {
     }
 
     private String post(Upload up, String model, String language, String prompt) throws IOException {
-        return connectRetry(() -> {
+        return connectRetry(() -> relayWatch(() -> {
             String boundary = "----vox" + System.nanoTime();
             Multipart body = new Multipart(boundary)
                     .field("model", model)
@@ -156,7 +180,7 @@ public final class ApiClient {
                 body.writeTo(out, in);
             }
             return readBody(c);
-        });
+        }));
     }
 
     /** One try of something that talks to the server. */
@@ -187,15 +211,16 @@ public final class ApiClient {
         return cps <= 600 ? all : all.substring(all.offsetByCodePoints(0, cps - 600));
     }
 
-    /** Python's str.strip(): removes white space, which differs a little from Java's trim(). */
-    private static String pyStrip(String s) {
+    /** Python's str.strip(): removes white space, which differs a little from Java's trim() (no-break and ideographic spaces). */
+    static String pyStrip(String s) {
         int a = 0, b = s.length();
         while (a < b && isPyWhitespace(s.charAt(a))) a++;
         while (b > a && isPyWhitespace(s.charAt(b - 1))) b--;
         return s.substring(a, b);
     }
 
-    private static boolean isPyWhitespace(char c) {
+    /** Python's str.isspace() for one character: what str.split() and str.strip() treat as a space. */
+    static boolean isPyWhitespace(char c) {
         return Character.isWhitespace(c) || Character.isSpaceChar(c) || c == '';
     }
 
@@ -203,10 +228,13 @@ public final class ApiClient {
     static String whisperPrompt(List<String> terms) {
         if (terms == null || terms.isEmpty()) return "";
         StringBuilder sb = new StringBuilder();
+        int n = 0;   // code points, as Python's len counts them (an emoji is one)
         for (String t : terms) {
-            if (sb.length() + t.length() + 2 > 600) break;
-            if (sb.length() > 0) sb.append(", ");
+            int len = t.codePointCount(0, t.length());
+            if (n + len + 2 > 600) break;
+            if (sb.length() > 0) { sb.append(", "); n += 2; }
             sb.append(t);
+            n += len;
         }
         return sb.toString() + ".";
     }
@@ -288,8 +316,8 @@ public final class ApiClient {
             before = t;
             t = OWN_TAGS.matcher(t).replaceAll("");
         }
-        t = t.trim();
-        if (t.length() > cap) t = t.substring(0, cap).trim();
+        t = pyStrip(t);
+        if (t.codePointCount(0, t.length()) > cap) t = pyStrip(t.substring(0, t.offsetByCodePoints(0, cap)));
         return t;
     }
 
@@ -446,15 +474,20 @@ public final class ApiClient {
 
     static String sanitize(String text) {
         String t = THINK.matcher(text == null ? "" : text).replaceAll("");
-        t = t.replace("<transcript>", "").replace("</transcript>", "").trim();
+        t = pyStrip(t.replace("<transcript>", "").replace("</transcript>", ""));
         if (t.length() >= 2 && t.startsWith("\"") && t.endsWith("\"") && t.indexOf('"', 1) == t.length() - 1) {
-            t = t.substring(1, t.length() - 1).trim();
+            t = pyStrip(t.substring(1, t.length() - 1));
         }
         return t;
     }
 
-    private static final Pattern NEW_PARAGRAPH = Pattern.compile("(?i)[,;:]?\\s*\\bnew paragraph\\b[.,;:!?]?\\s*");
-    private static final Pattern NEW_LINE = Pattern.compile("(?i)[,;:]?\\s*\\bnew line\\b[.,;:!?]?\\s*");
+    /**
+     * Python's \s (str.isspace) written out: Java's \s leaves out the no-break and ideographic spaces, and Android's ICU
+     * regex may differ from the JDK, so neither \s nor \b is used here.
+     */
+    private static final String PY_SPACE = "[\\t\\n\\x0B\\f\\r\\x1C-\\x20\\x85\\xA0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]";
+    private static final Pattern NEW_PARAGRAPH = Pattern.compile("(?i)[,;:]?" + PY_SPACE + "*(?<![\\p{L}\\p{N}_])new paragraph(?![\\p{L}\\p{N}_])[.,;:!?]?" + PY_SPACE + "*");
+    private static final Pattern NEW_LINE = Pattern.compile("(?i)[,;:]?" + PY_SPACE + "*(?<![\\p{L}\\p{N}_])new line(?![\\p{L}\\p{N}_])[.,;:!?]?" + PY_SPACE + "*");
 
     /**
      * Turns the spoken words "new paragraph" and "new line" into line breaks. Used when the AI cleanup did
@@ -553,19 +586,27 @@ public final class ApiClient {
         int words = 0;
         boolean inWord = false;
         for (int i = 0; raw != null && i < raw.length(); i++) {
-            char c = raw.charAt(i);
-            boolean space = Character.isWhitespace(c) || Character.isSpaceChar(c);
+            boolean space = isPyWhitespace(raw.charAt(i));   // Python's split(): also U+0085
             if (!space && !inWord) words++;
             inWord = !space;
         }
         return words >= cleanMinWords(minWords);
     }
 
-    /** Applies "wrong => right" pairs as whole-word, case-insensitive replacements. */
+    /** A character of a word: letters, combining marks (Devanagari vowel signs, an accent), numbers and _ (Python's \w plus the marks). */
+    static final String WORD_CHAR = "[\\p{L}\\p{M}\\p{N}_]";
+
+    /**
+     * Applies "wrong => right" pairs as whole-word, case-insensitive replacements. A word's combining marks count as part of
+     * it, and a word joined to another by . @ / or a backslash (an address or code, see Terms.inAddress) is left alone.
+     * Twin of apply_replacements in windows/vox_core.py.
+     */
     static String applyReplacements(String text, Map<String, String> repl) {
         String out = text;
         for (Map.Entry<String, String> e : repl.entrySet()) {
-            Pattern p = Pattern.compile("(?iu)(?<![\\p{L}\\p{N}_])" + Pattern.quote(e.getKey()) + "(?![\\p{L}\\p{N}_])");
+            if (e.getKey().isEmpty()) continue;
+            Pattern p = Pattern.compile("(?iu)(?<!" + WORD_CHAR + ")(?<!" + WORD_CHAR + "[.@/\\\\])" + Pattern.quote(e.getKey())
+                    + "(?!" + WORD_CHAR + ")(?![.@/\\\\]" + WORD_CHAR + ")");
             out = p.matcher(out).replaceAll(Matcher.quoteReplacement(e.getValue()));
         }
         return out;
@@ -657,7 +698,7 @@ public final class ApiClient {
 
     /** One chat request; a connection that cannot be opened is tried once more at once (see connectRetry). */
     private JSONObject postChat(JSONObject body, int readMs) throws IOException {
-        return connectRetry(() -> {
+        return connectRetry(() -> relayWatch(() -> {
             HttpURLConnection c = open(base + "/chat/completions", readMs);
             c.setRequestProperty("Content-Type", "application/json");
             c.setDoOutput(true);
@@ -665,14 +706,18 @@ public final class ApiClient {
                 out.write(body.toString().getBytes(StandardCharsets.UTF_8));
             }
             return readJson(c);
-        });
+        }));
     }
 
     private HttpURLConnection get(String url) throws IOException {
         if (aborted) throw new IOException("cancelled");
+        String problem = Endpoint.resolvedError(base);
+        if (problem != null) throw new IOException(problem);
+        relayProof();
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         active = c;
         if (aborted) throw new IOException("cancelled");
+        c.setInstanceFollowRedirects(false);   // (SEC-6)
         c.setConnectTimeout(5000);
         c.setReadTimeout(5000);
         if (!apiKey.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + apiKey);
@@ -683,16 +728,56 @@ public final class ApiClient {
 
     private HttpURLConnection open(String url, int readMs) throws IOException {
         String problem = Endpoint.error(base);
+        if (problem == null) problem = Endpoint.resolvedError(base);
         if (problem != null) throw new IOException(problem);
+        relayProof();
         if (aborted) throw new IOException("cancelled");
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         active = c;
         if (aborted) throw new IOException("cancelled");   // abort() came between the two checks
+        c.setInstanceFollowRedirects(false);   // a redirect would send the audio or the text to an address no rule checked (SEC-6)
         c.setRequestMethod("POST");
         c.setConnectTimeout(Latency.CONNECT_MS);
         c.setReadTimeout(readMs);
         if (!apiKey.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + apiKey);
         return c;
+    }
+
+    /** The relay's own address when this client talks to the relay as the AI server, else null. */
+    private String relayBase() {
+        if (!base.endsWith("/proxy/stt") && !base.endsWith("/proxy/llm")) return null;
+        return base.substring(0, base.length() - "/proxy/stt".length());
+    }
+
+    /**
+     * Runs one request; with the relay as the AI server, a failed connection or a 502, 503 or 504 makes the next request
+     * ask the relay to prove itself again (it may have stopped, and something else may take its port; SEC-2).
+     */
+    private <T> T relayWatch(Call<T> call) throws IOException {
+        String relay = relayBase();
+        try {
+            return call.run();
+        } catch (ApiException e) {
+            if (relay != null && RelayProof.gatewayDown(e.code)) RelayProof.forget(relay);
+            throw e;
+        } catch (IOException e) {
+            if (relay != null) RelayProof.forget(relay);
+            throw e;
+        }
+    }
+
+    /**
+     * With the relay as the AI server (the address is {relay}/proxy/stt or /proxy/llm, Providers.proxyUrl) the key is the
+     * relay token: the relay proves it holds it first (RelayProof, SEC-2), or nothing is sent.
+     */
+    private void relayProof() throws IOException {
+        String relay = relayBase();
+        if (relay == null) return;
+        try {
+            RelayProof.check(relay, apiKey);
+        } catch (RelayApi.RelayError e) {
+            throw new IOException(e.message);
+        }
     }
 
     private static JSONObject readJson(HttpURLConnection c) throws IOException {
@@ -704,6 +789,10 @@ public final class ApiClient {
     /** The answer body of a finished request; an ApiException (with the server's own message) for a 4xx or 5xx. */
     private static String readBody(HttpURLConnection c) throws IOException {
         int code = c.getResponseCode();
+        if (code >= 300 && code < 400) {
+            c.disconnect();
+            throw new ApiException(code, "API " + code + ": the server answered with a redirect, which Vox does not follow");
+        }
         InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
         String body = in == null ? "" : readAll(in);   // read to the end and not disconnected: the connection is reused
         if (code >= 400) {
@@ -713,7 +802,7 @@ public final class ApiClient {
                 if (err instanceof JSONObject) msg = ((JSONObject) err).optString("message", body);
                 else if (err instanceof String) msg = (String) err;
             } catch (Exception ignored) { }
-            throw new ApiException(code, "API " + code + ": " + msg);
+            throw new ApiException(code, "API " + code + ": " + msg, retryAfterMs(c.getHeaderField("Retry-After")));
         }
         return body;
     }
@@ -722,7 +811,13 @@ public final class ApiClient {
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
         int n;
-        while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+        while ((n = in.read(buf)) > 0) {
+            bo.write(buf, 0, n);
+            if (bo.size() > MAX_ANSWER) {   // a broken or hostile server must not run the phone out of memory (SEC-9)
+                in.close();
+                throw new IOException("The server's answer was too large.");
+            }
+        }
         in.close();
         return bo.toString("UTF-8");
     }

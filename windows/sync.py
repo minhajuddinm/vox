@@ -4,16 +4,20 @@ Offline-first: the notes always work locally; syncing is best effort and every f
 Protocol: documentation/14-relay.md. Rules: the newer `updated_at` wins, deletes travel as markers, the relay's
 sequence number is the cursor for "what is new".
 """
+import hashlib
+import hmac
 import json
 import logging
 import math
 import platform
 import re
+import secrets
 import threading
 import time
 
 import requests
 
+import autolearn
 import notes
 import vox_core as core
 
@@ -37,6 +41,10 @@ class SyncError(Exception):
         """True when sending the same thing again will always fail: a 4xx other than 401, 403 and 429. The relay refuses
         that note itself, so one note must not stop the others (Android twin: RelayApi.RelayError.permanent)."""
         return 400 <= self.status < 500 and self.status not in (401, 403, 429)
+
+
+class RelayUnreachable(SyncError):
+    """No answer from the relay (a dropped connection, Tailscale down): worth one more try."""
 
 
 def device_name(cfg):
@@ -81,10 +89,7 @@ def follow_relay(url):
     if origin == saved:
         return
     if saved:
-        notes.set_meta("relay_cursor", 0)
-        notes.set_meta("profile_version", 0)
-        notes.set_meta("profile_snapshot", "{}")
-        notes.mark_all_dirty()
+        _start_over()
     else:
         keys_on = core.load_config().get("relay_sync_keys")
         if core.config_is_fallback():
@@ -92,6 +97,29 @@ def follow_relay(url):
         if keys_on:
             notes.set_meta("profile_keys_sent", "1")
     notes.set_meta("relay_origin", origin)
+
+
+def _start_over():
+    """Forget what the relay was known to hold: every note and delete marker is sent again, everything is fetched again,
+    and the profile is merged as at a first sync."""
+    notes.set_meta("relay_cursor", 0)
+    notes.set_meta("profile_version", 0)
+    notes.set_meta("profile_snapshot", "{}")
+    notes.mark_all_dirty()
+
+
+def follow_reset(url, token, device):
+    """A relay that lost its data at the same address (reinstalled, a new Pi, another data folder) numbers its changes
+    from 1 again: its newest sequence number (GET /health `seq`) is then below the saved cursor, and asking for changes
+    after the cursor would return nothing until it caught up. Start over then, as for a new address."""
+    cursor = int(notes.get_meta("relay_cursor", "0") or 0)
+    if not cursor:
+        return
+    health = _request("GET", url, "/health", token, device)
+    seq = health.get("seq") if isinstance(health, dict) else None
+    if isinstance(seq, int) and not isinstance(seq, bool) and seq < cursor:
+        log.info("the relay holds fewer changes than this PC has seen (%d < %d): sending everything again", seq, cursor)
+        _start_over()
 
 
 def problem(url, token):
@@ -106,14 +134,102 @@ def problem(url, token):
     return ""
 
 
+# ------------------------------------------------------------------ the relay's proof (SEC-2)
+# The token is sent only to a relay that has shown it holds it: GET /proof?nonce=N (no token) must answer
+# HMAC-SHA256(token, "vox-relay-proof:" + N). Whatever squats on the relay's port while the relay is down gets nothing.
+# A relay from before /proof answers 401: it is still used (with a warning) until its address has once proved itself;
+# from then on a missing proof is refused. Android twin: RelayProof.java.
+# Seconds a proof (or "an old relay") is trusted before the relay is asked again. Short: a program that takes the port
+# the moment the relay stops causes no failed connection, so only this time bounds how long the token could still go
+# there (it covers one sync run; a dictation proves on key-down, in core.warm). A connection failure or a 502, 503 or
+# 504 (tailscale serve with the relay stopped) forgets it at once (forget_proof).
+PROOF_TTL = 10
+GATEWAY_DOWN = (502, 503, 504)
+NOT_PROVEN = ("The relay did not prove it holds this token, so the token was not sent. Either the token is wrong, or "
+              "another program is answering at the relay's address.")
+NO_LONGER = ("This relay proved it holds the token before and now does not, so the token was not sent: another program may "
+             "be answering at its address. If you went back to an older relay, update it.")
+OLD_RELAY = "This relay is too old to prove it holds the token before Vox sends it: update it."
+_proofs = {}              # (origin, token) -> (time.monotonic() of the answer, "proven" or "old relay")
+_proof_lock = threading.Lock()
+
+
+def proof_of(token, nonce):
+    return hmac.new(token.encode("utf-8"), ("vox-relay-proof:" + nonce).encode("ascii"), hashlib.sha256).hexdigest()
+
+
+def _proven_origins():
+    try:
+        out = json.loads(notes.get_meta("relay_proven", "[]") or "[]")
+    except ValueError:
+        return []
+    return out if isinstance(out, list) else []
+
+
+def forget_proof(url):
+    """The relay at `url` is asked to prove itself again before the next request (a connection to it failed: it may
+    have stopped, and something else may take its port)."""
+    origin = origin_of(url)
+    with _proof_lock:
+        for key in [k for k in _proofs if k[0] == origin]:
+            del _proofs[key]
+
+
+def prove_relay(url, token):
+    """Makes sure the relay at `url` holds `token` before the token is sent there. Returns "proven", or "old relay" (a
+    relay without /proof whose address never proved itself: used, with OLD_RELAY as the warning). Raises SyncError.
+    A good answer is kept for PROOF_TTL seconds."""
+    url, token = (url or "").strip().rstrip("/"), (token or "").strip()
+    key = (origin_of(url), token)
+    with _proof_lock:
+        hit = _proofs.get(key)
+        if hit and time.monotonic() - hit[0] < PROOF_TTL:
+            return hit[1]
+    nonce = secrets.token_hex(16)
+    try:
+        r = _session.get(url + "/proof?nonce=" + nonce, timeout=TIMEOUT, allow_redirects=False)
+    except requests.RequestException as e:
+        if core.refused_plain_http(e):
+            raise SyncError(core.PLAIN_HTTP_ELSEWHERE)
+        raise RelayUnreachable("Cannot reach the relay (is Tailscale running?): " + type(e).__name__)
+    pinned = key[0] in _proven_origins()
+    if r.status_code == 200:
+        try:
+            proof = r.json().get("proof")
+        except (ValueError, AttributeError):
+            proof = None
+        if not isinstance(proof, str) or not hmac.compare_digest(proof.encode("utf-8", "replace"), proof_of(token, nonce).encode()):
+            raise SyncError(NOT_PROVEN, 401)
+        if not pinned:
+            notes.set_meta("relay_proven", json.dumps(_proven_origins() + [key[0]]))
+        result = "proven"
+    elif r.status_code == 401:     # a relay from before /proof checks the token first; a 404 is not a relay (a wrong path)
+        if pinned:
+            raise SyncError(NO_LONGER, 401)
+        log.warning("the relay has no /proof: it is too old to prove it holds the token")
+        result = "old relay"
+    else:
+        raise SyncError(f"The relay answered HTTP {r.status_code}.", r.status_code)
+    with _proof_lock:
+        _proofs[key] = (time.monotonic(), result)
+    return result
+
+
 def _call(method, url, path, token, device, headers=None, allow=(), **kw):
-    """(status, JSON body). Statuses in `allow` are returned; other failures raise SyncError."""
+    """(status, JSON body). Statuses in `allow` are returned; other failures raise SyncError. The relay proves it holds
+    the token first (prove_relay)."""
+    prove_relay(url, token)
     h = {"Authorization": "Bearer " + token, "X-Vox-Device": _ascii_name(device)}   # a header is latin-1: spelled as Android does
     h.update(headers or {})
     try:
-        r = _session.request(method, url + path, headers=h, timeout=TIMEOUT, **kw)
+        r = _session.request(method, url + path, headers=h, timeout=TIMEOUT, allow_redirects=False, **kw)   # (SEC-6)
     except requests.RequestException as e:
+        forget_proof(url)
+        if core.refused_plain_http(e):
+            raise SyncError(core.PLAIN_HTTP_ELSEWHERE)
         raise SyncError("Cannot reach the relay (is Tailscale running?): " + type(e).__name__)
+    if r.status_code in GATEWAY_DOWN:
+        forget_proof(url)   # tailscale serve answers so while the relay is stopped: prove again before the next request
     if r.status_code not in allow:
         if r.status_code == 401:
             raise SyncError("The relay refused the token.", 401)
@@ -166,7 +282,10 @@ def test_relay(url, token, device="Vox"):
         h = _request("GET", url.strip().rstrip("/"), "/health", token.strip(), device)
     except SyncError as e:
         return relay_check(e.status, None, device, str(e))
-    return relay_check(200, h, device)
+    out = relay_check(200, h, device)
+    if out["ok"] and prove_relay(url, token) == "old relay":     # (kept from the call above: no new request)
+        out["message"] += " " + OLD_RELAY
+    return out
 
 
 # ------------------------------------------------------------------ the devices list
@@ -272,20 +391,90 @@ def _blank(v):
     return isinstance(v, (str, list, dict)) and len(v) == 0
 
 
+def _merge_one(b, l, r):
+    """One value, three-way: the side that changed since b wins; if both changed differently, the relay's (r). Two lists
+    (dictionary, people) or two maps (snippets) that both changed merge item by item instead (_merge_items). None is
+    absent."""
+    if l == r or r == b:
+        return l
+    if l == b:
+        return r
+    return _merge_items(b, l, r)
+
+
+def _merge_items(b, l, r):
+    """Both sides changed a list or a map: an item (a map's key) added on either side is kept, one removed on either side
+    goes, and a map key changed on both takes the relay's value; the relay's order first, then this device's additions.
+    Anything else (different types) is the relay's value. Twin: ProfileMerge.mergeItems."""
+    if isinstance(l, list) and isinstance(r, list) and isinstance(b, (list, type(None))):
+        try:
+            bs, ls, rs = set(b or []), set(l), set(r)
+        except TypeError:   # an item that is not text: not mergeable
+            return r
+        def kept(x):
+            return _merge_one(x in bs, x in ls, x in rs)
+        out = [x for x in r if kept(x)]
+        seen = set(out)
+        for x in l:
+            if x not in rs and x not in seen and kept(x):
+                out.append(x)
+                seen.add(x)
+        return out
+    if isinstance(l, dict) and isinstance(r, dict) and isinstance(b, (dict, type(None))):
+        b = b or {}
+        out = {}
+        for k in list(r) + [k for k in l if k not in r]:
+            v = _merge_one(b.get(k), l.get(k), r.get(k))
+            if v is not None:
+                out[k] = v
+        return out
+    return r
+
+
 def merge3(base, local, remote):
-    """Field by field: the side that changed since `base` wins; if both changed differently, the relay's value wins.
-    One exception: a field with no base (this device's first sync) whose relay value is blank ("", an empty list or an
-    empty map) keeps this device's value when that is not blank, because the blank is only the other device's default."""
+    """Field by field: the side that changed since `base` wins; if both changed differently, the relay's value wins, except
+    a list or a map changed on both sides, which merges item by item (_merge_items: a word learned here while the phone
+    added another keeps both). One more exception: a field with no base (this device's first sync) whose relay value is
+    blank ("", an empty list or an empty map) keeps this device's value when that is not blank, because the blank is only
+    the other device's default. Twin: ProfileMerge.merge3."""
     out = {}
     for k in set(base) | set(local) | set(remote):
         b, l, r = base.get(k), local.get(k), remote.get(k)
         if b is None and l is not None and r is not None and _blank(r) and not _blank(l):
             out[k] = l
             continue
-        v = l if l == r else r if l == b else l if r == b else r
+        v = _merge_one(b, l, r)
         if v is not None:
             out[k] = v
     return out
+
+
+SNAPSHOT_HASHED = ("api_key", "stt_api_key", "llm_api_key")   # kept in notes.db only as a hash: the keys are protected in config.json
+_HASH = "sha256:"
+
+
+def _hashed(value):
+    return _HASH + hashlib.sha256(json.dumps(value).encode("utf-8")).hexdigest()
+
+
+def _save_snapshot(merged, old):
+    """Keeps the merged profile as the base of the next three-way merge. merge3 only compares the base with both sides,
+    so an API key is kept as its hash, never in plain text. An older snapshot that held a key in plain text is wiped from
+    the file's free pages too."""
+    notes.set_meta("profile_snapshot", json.dumps({k: _hashed(v) if k in SNAPSHOT_HASHED and v else v for k, v in merged.items()}))
+    if any(isinstance(old.get(k), str) and old[k] and not old[k].startswith(_HASH) for k in SNAPSHOT_HASHED):
+        notes.wipe_free_space()
+
+
+def _base_of(snapshot, local, remote):
+    """The snapshot as merge3's base: a hashed key stands for the value of the side it matches (when it matches neither,
+    both sides changed it)."""
+    base = dict(snapshot)
+    for k in SNAPSHOT_HASHED:
+        b = base.get(k)
+        if isinstance(b, str) and b.startswith(_HASH):
+            base[k] = next((v for v in (local.get(k), remote.get(k)) if v is not None and _hashed(v) == b), b)
+    return base
 
 
 def sync_profile(url, token, device):
@@ -302,17 +491,36 @@ def sync_profile(url, token, device):
         _, remote = _call("GET", url, "/profile", token, device)
         version, data = int(remote["version"]), dict(remote["data"])
         base_version = int(notes.get_meta("profile_version", "0") or 0)
-        base = json.loads(notes.get_meta("profile_snapshot", "{}") or "{}")
+        snapshot = json.loads(notes.get_meta("profile_snapshot", "{}") or "{}")
         local = {k: cfg[k] for k in fields if k in cfg}
         remote_shared = {k: v for k, v in data.items() if k in fields}
-        merged = local if version in (0, base_version) else merge3(base, local, remote_shared)
+        base = _base_of(snapshot, local, remote_shared)
+        merged = dict(local) if version in (0, base_version) else merge3(base, local, remote_shared)
+        for k, v in list(merged.items()):
+            if not core.type_ok(k, v):   # a value of the wrong type from the relay is not taken: this device's own goes back
+                if k in local:
+                    merged[k] = local[k]
+                else:
+                    del merged[k]
         received = {k: v for k, v in merged.items() if cfg.get(k) != v}
         if received:
-            live = core.load_config()
-            if core.config_is_fallback():
-                return PROFILE_SKIPPED
-            live.update(received)
-            core.save_config(live)
+            def take(live):   # the file as it is now, in one locked step: the window may have saved during the request
+                if any(live.get(k) != cfg.get(k) for k in received):
+                    return False   # a field we would write was changed here meanwhile: merge again with the new value
+                live.update(received)
+                if "dictionary" in received:   # "Recently learned" keeps only words still in the received dictionary
+                    log_ = autolearn.learned_log(live)   # (that read leaves the others out; pruned in the file too, so a
+                    if live.get("learned_log") != log_:  # line added again later does not bring its old row back)
+                        live["learned_log"] = log_
+                return True
+            try:
+                taken = core.update_config(take)
+            except OSError:
+                if core.config_is_fallback():
+                    return PROFILE_SKIPPED
+                raise
+            if not taken:
+                continue
             received_any = True
         # Keys leave the relay only on this device's own on-to-off switch (it sent keys, now they are off). A device that
         # never sent keys leaves other devices' keys alone, or two devices would undo each other for ever.
@@ -325,7 +533,7 @@ def sync_profile(url, token, device):
             if keys_on:
                 notes.set_meta("profile_keys_sent", "1")
             notes.set_meta("profile_version", version)
-            notes.set_meta("profile_snapshot", json.dumps(merged))
+            _save_snapshot(merged, snapshot)
             return "received" if received_any else ""
         doc = {k: v for k, v in data.items() if k not in PROFILE_KEY_FIELDS or not stale_keys}   # keep fields other devices added, their keys too
         doc.update(merged)
@@ -337,7 +545,7 @@ def sync_profile(url, token, device):
         elif stale_keys:
             notes.set_meta("profile_keys_sent", "")
         notes.set_meta("profile_version", out["version"])
-        notes.set_meta("profile_snapshot", json.dumps(merged))
+        _save_snapshot(merged, snapshot)
         return "both" if received_any else "sent"
     raise SyncError("The profile keeps changing on the relay; it will be tried again later.")
 
@@ -355,6 +563,7 @@ def sync_once(cfg):
     refused = []   # what the relay said about each note it refuses for good: those notes are skipped, the rest goes on
     try:
         follow_relay(url)   # inside the try: a database error is a result, never a dead sync thread
+        follow_reset(url, token, device)
         handled = set()   # (id, updated_at) of every version sent or refused in this run, so none is tried twice in a run
         parked = 0        # refused notes: the only handled ones that stay dirty, so the only ones that need room in the batch
         while True:
@@ -385,7 +594,10 @@ def sync_once(cfg):
             for n in d["notes"]:
                 if notes.apply_remote(n):
                     pulled += 1
-            cursor = d["next"]
+            nxt = d.get("next")
+            if isinstance(nxt, bool) or not isinstance(nxt, int) or nxt <= cursor:
+                break   # a cursor that does not move on: stop, never ask for ever or save it (Android twin: SyncEngine)
+            cursor = nxt
             notes.set_meta("relay_cursor", cursor)
             if not d.get("more"):
                 break

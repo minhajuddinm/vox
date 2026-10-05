@@ -22,14 +22,14 @@ final class Terms {
     static List<String> terms(String peopleRaw, String dictionaryRaw) {
         List<String> out = new ArrayList<>();
         for (String line : peopleRaw.split("\n")) {
-            String l = line.trim();
+            String l = ApiClient.pyStrip(line);   // Python's strip(): also no-break spaces
             if (!l.isEmpty() && !l.startsWith("#")) add(out, l);
         }
         for (String line : dictionaryRaw.split("\n")) {
-            String l = line.trim();
+            String l = ApiClient.pyStrip(line);   // Python's strip(): also no-break spaces
             if (l.isEmpty() || l.startsWith("#")) continue;
             if (l.contains("=>")) {
-                String right = l.substring(l.indexOf("=>") + 2).trim();
+                String right = ApiClient.pyStrip(l.substring(l.indexOf("=>") + 2));
                 if (!right.isEmpty()) add(out, right);
             } else {
                 add(out, l);
@@ -42,10 +42,10 @@ final class Terms {
     static Map<String, String> replacements(String dictionaryRaw) {
         Map<String, String> out = new LinkedHashMap<>();
         for (String line : dictionaryRaw.split("\n")) {
-            String l = line.trim();
+            String l = ApiClient.pyStrip(line);   // Python's strip(): also no-break spaces
             if (l.startsWith("#") || !l.contains("=>")) continue;
-            String wrong = l.substring(0, l.indexOf("=>")).trim();
-            String right = l.substring(l.indexOf("=>") + 2).trim();
+            String wrong = ApiClient.pyStrip(l.substring(0, l.indexOf("=>")));
+            String right = ApiClient.pyStrip(l.substring(l.indexOf("=>") + 2));
             if (!wrong.isEmpty()) out.put(wrong, right);
         }
         return out;
@@ -101,7 +101,31 @@ final class Terms {
     static boolean isCommonWord(String lower) {
         return COMMON_WORDS.contains(lower);
     }
-    private static final Pattern WORD = Pattern.compile("[\\p{L}\\p{N}_]+");
+    private static final Pattern WORD = Pattern.compile(ApiClient.WORD_CHAR + "+");   // with its combining marks
+
+    private static final String ADDRESS_GLUE = ".@/\\";
+
+    private static boolean wordOrMark(int cp) {
+        if (cp == '_') return true;
+        switch (Character.getType(cp)) {
+            case Character.UPPERCASE_LETTER: case Character.LOWERCASE_LETTER: case Character.TITLECASE_LETTER:
+            case Character.MODIFIER_LETTER: case Character.OTHER_LETTER:
+            case Character.NON_SPACING_MARK: case Character.ENCLOSING_MARK: case Character.COMBINING_SPACING_MARK:
+            case Character.DECIMAL_DIGIT_NUMBER: case Character.LETTER_NUMBER: case Character.OTHER_NUMBER:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * True when text[start, end) is joined to another word by . @ / or a backslash on either side (an email, a web or file
+     * address, code such as ai.predict): a dictionary spelling never changes it. Twin of in_address in windows/vox_core.py.
+     */
+    static boolean inAddress(String text, int start, int end) {
+        return (start >= 2 && ADDRESS_GLUE.indexOf(text.charAt(start - 1)) >= 0 && wordOrMark(text.codePointBefore(start - 1)))
+                || (end + 1 < text.length() && ADDRESS_GLUE.indexOf(text.charAt(end)) >= 0 && wordOrMark(text.codePointAt(end + 1)));
+    }
 
     /**
      * Puts the dictionary's spelling on words that are the same word in another case or one letter off. Same rules as
@@ -113,13 +137,16 @@ final class Terms {
     static String fuzzy(String text, List<String> terms) {
         Map<String, String> byLower = new LinkedHashMap<>();
         for (String t : terms) {
-            t = t.trim();
+            t = ApiClient.pyStrip(t);
             if (t.length() >= FUZZY_MIN_LEN && isAlpha(t)) byLower.putIfAbsent(t.toLowerCase(Locale.ROOT), t);
         }
         if (byLower.isEmpty() || text.isEmpty()) return text;
         Matcher m = WORD.matcher(text);
         StringBuffer sb = new StringBuffer();
-        while (m.find()) m.appendReplacement(sb, Matcher.quoteReplacement(fixWord(m.group(), byLower)));
+        while (m.find()) {
+            String w = m.group();
+            m.appendReplacement(sb, Matcher.quoteReplacement(inAddress(text, m.start(), m.end()) ? w : fixWord(w, byLower)));
+        }
         return m.appendTail(sb).toString();
     }
 

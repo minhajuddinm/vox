@@ -80,3 +80,179 @@ def test_check_response_raises_api_error_with_server_message():
     with pytest.raises(core.ApiError) as ei:
         core.check_response(R())
     assert ei.value.code == 401 and "bad key" in str(ei.value)
+
+
+# ------------------------------------------------------------- bf-e: SEC-3, where a plain http name really leads
+@pytest.mark.parametrize("address, ok", [("127.0.0.1", True), ("::1", True), ("fe80::1%3", True), ("100.100.1.1", True),
+                                         ("10.0.0.2", True), ("8.8.8.8", False), ("::ffff:8.8.8.8", False),
+                                         ("::ffff:192.168.1.2", True), ("2606:4700::1111", False), ("", False)])
+def test_private_peer_judges_the_address_a_connection_reached(address, ok):
+    assert core.private_peer(address) is ok
+
+
+@pytest.mark.parametrize("host", ["134744072", "0x08080808", "127.1", "2130706433"])
+def test_a_numeric_host_needs_https(host):
+    assert core.endpoint_error({"base_url": f"http://{host}:8000/v1"})
+
+
+def _local_server():
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    seen = []
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append(self.headers.get("Authorization"))
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *a):
+            pass
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, seen
+
+
+def test_plain_http_to_a_name_that_leads_to_a_private_address_works():
+    srv, seen = _local_server()
+    try:
+        r = core.requests.get(f"http://localhost:{srv.server_address[1]}/x", headers={"Authorization": "Bearer k"}, timeout=5)
+        assert r.status_code == 200 and seen == ["Bearer k"]
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_plain_http_that_reaches_a_public_address_sends_nothing(monkeypatch):
+    srv, seen = _local_server()
+    monkeypatch.setattr(core, "private_peer", lambda address: False)    # as if the name had resolved to the internet
+    try:
+        for send in (lambda url, **kw: core.requests.get(url, **kw), lambda url, **kw: core._session.get(url, **kw)):
+            with pytest.raises(core.requests.ConnectionError):
+                send(f"http://localhost:{srv.server_address[1]}/x", headers={"Authorization": "Bearer k"}, timeout=5)
+        assert seen == []
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def _resolve(monkeypatch, name, answers):
+    import socket
+    real = socket.getaddrinfo
+
+    def lookup(host, port, *a, **kw):
+        if host == name:
+            return [(socket.AF_INET6 if ":" in ip else socket.AF_INET, socket.SOCK_STREAM, 6, "",
+                     (ip, port, 0, 0) if ":" in ip else (ip, port)) for ip in answers]
+        return real(host, port, *a, **kw)
+    monkeypatch.setattr(socket, "getaddrinfo", lookup)
+
+
+def test_a_lan_name_with_a_global_ipv6_address_too_is_reached_on_its_private_one(monkeypatch):
+    """Final review RC-I4: Windows prefers a global IPv6 address, and `gpu-pc` on a dual-stack home network has one; only
+    the private addresses are tried, so the LAN server is reached and the global one never sees the key."""
+    import socket
+    srv, seen = _local_server()
+    _resolve(monkeypatch, "gpu-pc", ["2001:db8::5", "127.0.0.1"])
+    tried, real_socket = [], socket.socket
+
+    class Recording(real_socket):
+        def connect(self, address):
+            tried.append(address[0])
+            return super().connect(address)
+    monkeypatch.setattr(socket, "socket", Recording)
+    try:
+        r = core.requests.get(f"http://gpu-pc:{srv.server_address[1]}/x", headers={"Authorization": "Bearer k"}, timeout=5)
+        assert r.status_code == 200 and seen == ["Bearer k"]
+        assert tried == ["127.0.0.1"]   # the global address is never tried (it would be the same machine, and refused)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_a_name_with_only_public_addresses_is_refused_before_connecting(monkeypatch):
+    srv, seen = _local_server()
+    _resolve(monkeypatch, "gpu-pc", ["2001:db8::5", "8.8.8.8"])
+    try:
+        with pytest.raises(core.requests.ConnectionError) as e:
+            core.requests.get(f"http://gpu-pc:{srv.server_address[1]}/x", headers={"Authorization": "Bearer k"}, timeout=5)
+        assert core.refused_plain_http(e.value) and seen == []
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_the_relay_test_says_why_when_its_name_led_elsewhere(monkeypatch):
+    import sync
+    srv, seen = _local_server()
+    monkeypatch.setattr(core, "private_peer", lambda address: False)
+    try:
+        out = sync.test_relay(f"http://localhost:{srv.server_address[1]}", "tok")
+        assert not out["ok"] and out["message"] == core.PLAIN_HTTP_ELSEWHERE and seen == []
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_https_connections_are_not_affected():
+    import urllib3.connectionpool
+    assert urllib3.connectionpool.HTTPSConnectionPool.ConnectionCls is not core.PrivatePeerConnection
+    assert urllib3.connectionpool.HTTPConnectionPool.ConnectionCls is core.PrivatePeerConnection
+
+
+# ------------------------------------------------------------- bf-e: SEC-6, a redirect is never followed
+def _redirecting_pair():
+    """(server that answers every request with 307 to the other one, list of what the other one received, stop)."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    other, seen = _local_server()
+
+    class R(BaseHTTPRequestHandler):
+        def _go(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            if n:
+                self.rfile.read(n)
+            self.send_response(307)
+            self.send_header("Location", f"http://localhost:{other.server_address[1]}/elsewhere")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        do_GET = do_POST = do_PUT = _go
+
+        def log_message(self, *a):
+            pass
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), R)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    def stop():
+        for s in (srv, other):
+            s.shutdown()
+            s.server_close()
+    return srv, seen, stop
+
+
+@pytest.mark.real_session
+def test_ai_requests_do_not_follow_a_redirect_with_the_audio_or_the_text():
+    srv, seen, stop = _redirecting_pair()
+    try:
+        cfg = dict(core.DEFAULT_CONFIG, base_url=f"http://127.0.0.1:{srv.server_address[1]}/v1", api_key="k")
+        with pytest.raises(core.ApiError) as e:
+            core.transcribe(cfg, b"RIFF" + b"\0" * 64)
+        assert e.value.code == 307 and "redirect" in str(e.value)
+        core.warm(cfg).join(5)
+        import providers
+        assert not providers.test(cfg, "llm")["ok"] and providers.list_models(cfg, "llm")["error"]
+        assert seen == []
+    finally:
+        stop()
+
+
+def test_the_sync_does_not_follow_a_redirect_with_the_notes():
+    import sync
+    srv, seen, stop = _redirecting_pair()
+    try:
+        out = sync.test_relay(f"http://127.0.0.1:{srv.server_address[1]}", "tok")
+        assert not out["ok"] and seen == []
+    finally:
+        stop()

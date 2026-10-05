@@ -51,8 +51,14 @@ final class AutoLearn {
         "than that them then they this thus till time told took tool town tree trip true turn type unit upon used user very " +
         "view wait walk want warm wear week well went were what when whom wide wife will wish with word wore work year your " +
         "hai hain ho hoon hu kya ki ka ke ko se mai mein na nahi nhi toh bhi aur ye yeh wo woh hum tum aap kal aaj abhi bas " +
-        "haan han ji tha thi ";
+        "haan han ji tha thi " +
+        "है हैं में मैं की के को का से ने हूँ हूं हो था थी थे ";
     private static final Set<String> SHORT_WORDS = new HashSet<>(Arrays.asList(SHORT_WORDS_TEXT.trim().split(" ")));
+    /**
+     * Word endings of English grammar (tense, plural, comparison): a word that only gains or loses one of them was
+     * corrected for the sentence ("complete" -> "completed"), not misheard. Same list as ENDINGS in windows/autolearn.py.
+     */
+    private static final String[] ENDINGS = {"ies", "ied", "ing", "ers", "est", "es", "ed", "er", "ly", "s", "d"};
 
     private AutoLearn() { }
 
@@ -225,6 +231,57 @@ final class AutoLearn {
         return Terms.isCommonWord(w) || SHORT_WORDS.contains(w);
     }
 
+    /**
+     * w and what it is without one of ENDINGS (a stem of three letters or more), with a dropped e put back ("creating" ->
+     * "create"), a doubled last letter made single ("committed" -> "commit") and ies/ied as y. Twin of _stems.
+     */
+    private static Set<String> stems(String w) {
+        Set<String> out = new HashSet<>();
+        out.add(w);
+        for (String e : ENDINGS) {
+            if (!w.endsWith(e) || len(w) - len(e) < 3) continue;
+            String s = w.substring(0, w.length() - e.length());
+            out.add(s);
+            if (e.equals("ies") || e.equals("ied")) out.add(s + "y");
+            if (e.charAt(0) == 'i' || e.charAt(0) == 'e') out.add(s + "e");
+            int last = s.codePointBefore(s.length()), cut = s.length() - Character.charCount(last);
+            if (len(s) >= 4 && last == s.codePointBefore(cut) && "aeiou".indexOf(last) < 0) out.add(s.substring(0, cut));
+        }
+        return out;
+    }
+
+    private static boolean common(String w) { return Terms.isCommonWord(w) || SHORT_WORDS.contains(w); }
+
+    private static boolean noCapital(String s) {
+        for (int i = 0; i < s.length(); ) {
+            int c = s.codePointAt(i);
+            if (Character.isUpperCase(c)) return false;
+            i += Character.charCount(c);
+        }
+        return true;
+    }
+
+    /**
+     * True when wrong -> right only fixes the grammar of its sentence: as many words on both sides, and each word the same,
+     * the same word with another ending ("client" -> "clients", "update" -> "updated") or, in a swap of two or more words,
+     * an ordinary word changed into another ordinary word written in lowercase ("meeting is" -> "meetings are"; one
+     * ordinary word alone is looksLikeFix's own rule). An ordinary word fixed into a name is no grammar ("cloud code" ->
+     * "Claude Code"). Twin of grammar_edit in windows/autolearn.py.
+     */
+
+    static boolean grammarEdit(String wrong, String right) {
+        List<String> a = tokens(wrong), b = tokens(right);
+        if (a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) {
+            String x = wordChars(a.get(i)), y = wordChars(b.get(i));
+            if (x.equals(y) || (a.size() > 1 && common(x) && noCapital(b.get(i)))) continue;   // not a word made a name
+            Set<String> common = stems(x);
+            common.retainAll(stems(y));
+            if (common.isEmpty()) return false;
+        }
+        return true;
+    }
+
     /** True when wrong -> right looks like a correction of a misheard or misspelled word, not a rewrite. */
     static boolean looksLikeFix(String wrong, String right) {
         return looksLikeFix(wrong, right, true);
@@ -246,6 +303,9 @@ final class AutoLearn {
         for (String t : tokens(a)) if (!STOP_WORDS.contains(t)) allStop = false;
         if (allStop) return false;   // "to => too" would change every "to" from now on
         if (ordinary(wrong) && !nameLike(right)) return false;   // "their => there": right in one sentence, wrong in the next
+        if (grammarEdit(wrong, right) && !(tokens(wrong).size() == 1 && plain(wrong) && nameLike(right))) {
+            return false;   // a tense, a plural, "is" -> "are": learned, it would change every later "complete" (a name still counts)
+        }
         int dist = osa(a, b);
         int la = a.codePointCount(0, a.length()), lb = b.codePointCount(0, b.length()), longest = Math.max(la, lb);
         if (2 * dist <= longest) return true;
@@ -408,8 +468,12 @@ final class AutoLearn {
     // ------------------------------------------------------------------ the learned log ("Recently learned")
 
     /** The stored learned_log JSON as a clean list of {t, wrong, right, word}, oldest first, at most LEARNED_LOG_MAX. */
-    @SuppressWarnings("unchecked")
     static List<Map<String, Object>> learnedLog(String json) {
+        return learnedLog(json, true);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> learnedLog(String json, boolean cap) {
         List<Map<String, Object>> out = new ArrayList<>();
         Object v;
         try { v = PlainJson.parse(json == null || json.isEmpty() ? "[]" : json); } catch (RuntimeException e) { return out; }
@@ -421,6 +485,18 @@ final class AutoLearn {
             if (!(t instanceof Number) || !(w instanceof String) || !(r instanceof String)) continue;
             out.add(entry(((Number) t).doubleValue(), (String) w, (String) r, Boolean.TRUE.equals(e.get("word"))));
         }
+        return cap && out.size() > LEARNED_LOG_MAX ? new ArrayList<>(out.subList(out.size() - LEARNED_LOG_MAX, out.size())) : out;
+    }
+
+    /**
+     * learnedLog without the entries whose "wrong => right" line is no longer in the dictionary text dictRaw (removed by
+     * hand or on another device). Twin of learned_log in windows/autolearn.py with a dictionary.
+     */
+    static List<Map<String, Object>> learnedLog(String json, String dictRaw) {
+        Set<String> lines = new HashSet<>();
+        for (String[] r : dictReplacements(dictRaw)) lines.add(r[0] + "\n" + r[1]);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> e : learnedLog(json, false)) if (lines.contains(e.get("wrong") + "\n" + e.get("right"))) out.add(e);
         return out.size() > LEARNED_LOG_MAX ? new ArrayList<>(out.subList(out.size() - LEARNED_LOG_MAX, out.size())) : out;
     }
 
@@ -444,7 +520,7 @@ final class AutoLearn {
         Applied out = new Applied();
         String raw = dictRaw == null ? "" : dictRaw;
         out.dictionary = raw;
-        List<Map<String, Object>> log = learnedLog(logJson);
+        List<Map<String, Object>> log = learnedLog(logJson, raw);
         out.log = PlainJson.stringify(log);
         Learned add = learn(dictReplacements(raw), dictWords(raw), pairs);
         if (add.replacements.isEmpty()) return out;
@@ -465,10 +541,10 @@ final class AutoLearn {
 
     /** The dictionary text and learned_log after the entry made at t is removed, with the replacement and word it added. */
     static String[] removeLearned(String dictRaw, String logJson, double t) {
-        List<Map<String, Object>> log = learnedLog(logJson);
+        String raw = dictRaw == null ? "" : dictRaw;
+        List<Map<String, Object>> log = learnedLog(logJson, raw);
         Map<String, Object> hit = null;
         for (Map<String, Object> e : log) if (Math.abs((Double) e.get("t") - t) < 0.0005) { hit = e; break; }
-        String raw = dictRaw == null ? "" : dictRaw;
         if (hit == null) return new String[] {raw, PlainJson.stringify(log)};
         List<String> lines = new ArrayList<>(Arrays.asList(raw.split("\n", -1)));
         for (int i = 0; i < lines.size(); i++) {

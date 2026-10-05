@@ -9,6 +9,7 @@ blocks back into the ring. Windows shows the microphone-in-use icon all the time
 
 This module knows nothing about sounddevice: the engine gives WarmMic a function that opens (and starts) a stream.
 """
+import contextlib
 import logging
 import threading
 import time
@@ -77,6 +78,24 @@ class WarmMic:
     @property
     def is_open(self):
         return self._stream is not None
+
+    @property
+    def busy(self):
+        """True while the stream is being opened, closed or attached (PortAudio must not be restarted then)."""
+        return self._op.locked()
+
+    @contextlib.contextmanager
+    def idle(self):
+        """For a block that restarts PortAudio: gives True, and holds off every open, close and attach until the block
+        ends, when no stream is open and none is being opened, closed or attached right now; else gives False and holds
+        nothing (a look at `busy` and then a restart would leave room for ensure() to start Pa_OpenStream in between)."""
+        if not self._op.acquire(blocking=False):
+            yield False
+            return
+        try:
+            yield self._stream is None
+        finally:
+            self._op.release()
 
     def _alive(self):
         return self._stream is not None and getattr(self._stream, "active", True)

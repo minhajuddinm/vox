@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 import secret
+import vcalendar
 import vox_core as core
 
 log = logging.getLogger("vox.gcal")
@@ -101,7 +102,7 @@ def account():
 def disconnect():
     try:
         tok = _load_token()
-        requests.post("https://oauth2.googleapis.com/revoke", params={"token": tok.get("refresh_token")}, timeout=10)
+        requests.post("https://oauth2.googleapis.com/revoke", data={"token": tok.get("refresh_token")}, timeout=10)   # not in the URL: proxies log URLs
     except Exception:
         pass
     try:
@@ -190,7 +191,7 @@ def connect(timeout=240):
         os.remove(os.path.join(core.data_dir(), "calendar.json"))
     except OSError:
         pass
-    log.info("google calendar connected for %s", email)
+    log.info("google calendar connected")   # never the account address: the log holds no personal data
     return {"ok": True, "email": email}
 
 
@@ -258,7 +259,7 @@ def _parse_items(items):
         for a in ev.get("attendees", []):
             if a.get("self") or a.get("resource") or a.get("responseStatus") == "declined":
                 continue
-            n = core.one_line(a.get("displayName") or a.get("email", "").split("@")[0].replace(".", " ").title(), 80)
+            n = core.one_line(vcalendar.person_name(a.get("displayName"), a.get("email", "")), 80)
             if n and n not in people and len(people) < MAX_ATTENDEES:
                 people.append(n)
         link = ev.get("hangoutLink", "")
@@ -268,6 +269,6 @@ def _parse_items(items):
         org = ev.get("organizer", {})
         out.append({"uid": ev.get("id", "") + "|" + str(s), "title": core.one_line(ev.get("summary", "(no title)"), 120),
                     "start": s, "end": e or s, "attendees": people, "my_status": my_status,
-                    "organizer": "" if org.get("self") else core.one_line(org.get("displayName") or org.get("email", ""), 80),
+                    "organizer": "" if org.get("self") else core.one_line(vcalendar.person_name(org.get("displayName"), org.get("email", "")), 80),
                     "link": link})
     return out

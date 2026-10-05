@@ -32,7 +32,7 @@ def eng(tmp_path, monkeypatch):
     e = object.__new__(engine_mod.Engine)
     e.cfg = {"keep_history": False, "hotkey": ["ctrl_l", "cmd"], "note_hotkey": "", "hands_free_hotkey": "ctrl+cmd+space"}
     e.recording = e.busy = e.hands_free = e.note_mode = False
-    e.listening, e.pending, e.streaming, e.timing, e.target = None, None, None, None, ""
+    e.listening, e.pending, e.streaming, e.timing, e.target = None, [], None, None, ""
     e.pressed, e.last_tap_t, e.press_t, e.combo_was_down = set(), 0.0, 0.0, False
     e.hotkey = [engine_mod.KEY_ALIASES["ctrl"], engine_mod.KEY_ALIASES["cmd"]]
     e.note_hotkey = None
@@ -410,3 +410,128 @@ def test_the_history_timing_says_how_many_pieces_were_streamed_and_the_upload_fo
     eng._process(b"\x10\x27" * 16000, "notepad.exe", False, Streamer(), timing.Timing())
     entry = core.read_history()[-1]["timing"]
     assert entry["pieces"] == 3 and entry["upload"] == "flac"
+
+
+# ------------------------------------------------------------------ ENG-5: another shortcut, or Vox's own keys
+def test_a_tap_during_which_another_key_went_down_is_not_a_tap(eng):
+    """Ctrl+Win+Left (switch desktop) twice: no keep listening, nothing latched."""
+    now = time.time()
+    for t in (now, now + 0.2):
+        down(eng, Key.ctrl_l, Key.cmd, Key.left, t=t)
+        up(eng, Key.left, Key.cmd, Key.ctrl_l, t=t + 0.05)
+    assert "listen" not in eng.calls and eng.last_tap_t == 0.0 and not eng.recording
+
+
+def test_hold_or_tap_does_not_latch_on_another_shortcut(eng):
+    configure(eng, hotkey_style="hold_or_tap")
+    eng.hotkey = [engine_mod.KEY_ALIASES["ctrl"], engine_mod.KEY_ALIASES["shift"]]
+    now = time.time()
+    down(eng, Key.ctrl_l, Key.shift, KeyCode.from_vk(0x54, char="\x14"), t=now)   # the user's own Ctrl+Shift+T
+    up(eng, KeyCode.from_vk(0x54, char="T"), Key.shift, Key.ctrl_l, t=now + 0.05)
+    assert not eng.recording and not eng.hands_free and eng.calls[-1] == "cancel"
+
+
+def test_a_long_hold_with_another_key_is_still_sent(eng):
+    now = time.time()
+    down(eng, Key.ctrl_l, Key.cmd, t=now)
+    down(eng, Key.left, t=now + 2)
+    up(eng, Key.left, Key.cmd, t=now + 2.1)
+    assert eng.calls[-1] == ("stop", False)
+
+
+def _hook_data(vk=0xA2, scan=0x1D, extra=None):
+    return type("D", (), {"vkCode": vk, "scanCode": scan, "dwExtraInfo": extra})()
+
+
+def test_keys_vox_sends_itself_are_dropped_by_the_hook():
+    """Vox's Ctrl+Shift+V into a terminal (paste last, keep listening's Type) must not look like the Ctrl+Shift preset:
+    every key Vox sends carries VOX_KEY_TAG, and the hook drops exactly those."""
+    import paste
+    assert engine_mod.Engine._hook_filter(0x100, _hook_data(vk=0x56, extra=paste.VOX_KEY_TAG)) is False
+    assert engine_mod.Engine._hook_filter(0x101, _hook_data(vk=0xA0, extra=paste.VOX_KEY_TAG)) is False
+    assert engine_mod.Engine._hook_filter(0x100, _hook_data(extra=None)) is True        # the keyboard
+    assert engine_mod.Engine._hook_filter(0x100, _hook_data(extra=0)) is True
+    assert engine_mod.Engine._hook_filter(0x100, _hook_data(extra=0x1234)) is True      # another program's own tag
+
+
+def test_keys_other_programs_send_still_start_dictation(eng):
+    """A PowerToys remap (Copilot key to Right Ctrl), a mouse button macro or Voice Access send injected keys: they are
+    the user's shortcut (final review W-I1)."""
+    eng.on_press(Key.ctrl_l, True)
+    eng.on_press(Key.cmd, True)
+    assert "start" in eng.calls
+    eng.on_release(Key.cmd, True)
+    eng.on_release(Key.ctrl_l, True)
+    assert eng.pressed == set()
+
+
+def test_vox_keys_carry_the_tag(monkeypatch):
+    """paste's controller puts VOX_KEY_TAG in dwExtraInfo of every key it sends (SendInput replaced, nothing is typed)."""
+    import sys
+    if sys.platform != "win32":
+        pytest.skip("SendInput is Windows only")
+    import ctypes
+    import paste
+    from pynput._util import win32 as w
+    sent = []
+
+    def fake_send(n, ptr, size):
+        inp = ctypes.cast(ptr, ctypes.POINTER(w.INPUT)).contents
+        sent.append((inp.value.ki.wVk, inp.value.ki.dwExtraInfo))
+        return 1
+    monkeypatch.setattr(w, "SendInput", fake_send)
+    monkeypatch.setattr(paste, "_keyboard", None)
+    paste.SystemDeps.send_ctrl_shift_v(object.__new__(paste.SystemDeps))
+    paste.SystemDeps.send_shift_insert(object.__new__(paste.SystemDeps))
+    assert sent and all(extra == paste.VOX_KEY_TAG for _, extra in sent)
+    assert 0x56 in [vk for vk, _ in sent] and 0x2D in [vk for vk, _ in sent]
+
+
+def test_a_real_pynput_listener_hands_the_hook_data_to_the_filter():
+    """Pins pynput's contract without starting a hook: the filter gets the KBDLLHOOKSTRUCT (with dwExtraInfo), a False
+    drops the event, and a program-sent key that passes reaches on_press."""
+    import ctypes
+    import sys
+    if sys.platform != "win32":
+        pytest.skip("the low-level hook is Windows only")
+    import paste
+    from pynput.keyboard import _win32 as kw
+    got = []
+    lis = kw.Listener(on_press=lambda k, injected: got.append((k, injected)), win32_event_filter=engine_mod.Engine._hook_filter)
+    S = lis._KBDLLHOOKSTRUCT
+
+    def convert(extra, scan=0x1D):
+        data = S(vkCode=0xA2, scanCode=scan, flags=S.LLKHF_INJECTED, time=0, dwExtraInfo=extra)
+        return lis._convert(0, 0x100, ctypes.addressof(data))   # HC_ACTION, WM_KEYDOWN
+    assert convert(paste.VOX_KEY_TAG) is None
+    assert convert(None, scan=engine_mod.ALTGR_CTRL_SCAN) is None
+    msg, vk = convert(None)
+    lis._process(msg, vk)
+    assert got == [(Key.ctrl_l, True)]
+
+
+# ------------------------------------------------------------------ ENG-6 and issue 63: AltGr is not Ctrl+Alt
+def test_altgr_characters_do_not_start_the_ctrl_alt_preset(eng):
+    """AltGr arrives as a made-up Left Ctrl and a Right Alt at the same moment (Polish ł, German @, French {)."""
+    eng.hotkey = [engine_mod.KEY_ALIASES["ctrl"], engine_mod.KEY_ALIASES["alt"]]
+    now = time.time()
+    for t in (now, now + 0.15):
+        down(eng, Key.ctrl_l, t=t)
+        down(eng, Key.alt_gr, KeyCode.from_vk(0x4C), t=t + 0.001)
+        up(eng, KeyCode.from_vk(0x4C), Key.ctrl_l, Key.alt_gr, t=t + 0.05)
+    assert eng.calls == []
+
+
+def test_a_real_ctrl_then_right_alt_is_still_ctrl_alt(eng):
+    eng.hotkey = [engine_mod.KEY_ALIASES["ctrl"], engine_mod.KEY_ALIASES["alt"]]
+    now = time.time()
+    down(eng, Key.ctrl_l, t=now)
+    down(eng, Key.alt_gr, t=now + 0.2)
+    assert eng.calls == ["start"]
+
+
+def test_the_hook_drops_the_ctrl_that_windows_makes_up_for_altgr():
+    data = _hook_data(scan=0x21D)
+    assert engine_mod.Engine._hook_filter(0x100, data) is False
+    data.scanCode = 0x1D   # a real Left Ctrl
+    assert engine_mod.Engine._hook_filter(0x100, data) is True

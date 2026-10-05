@@ -204,10 +204,13 @@ def list_models(cfg, role):
     if problem:
         return {"models": [], "error": problem}
     headers = {"Authorization": f"Bearer {key}"} if key else {}
+    problem = core.relay_proof_problem(base, headers) if uses_relay(cfg) else ""
+    if problem:
+        return {"models": [], "error": problem}
     try:
-        r = core.requests.get(f"{base}/models", headers=headers, timeout=5)
+        r = core.requests.get(f"{base}/models", headers=headers, timeout=5, allow_redirects=False)
         if r.status_code == 404 and base.endswith("/v1"):   # Ollama also answers on its own path
-            r = core.requests.get(f"{base[:-3]}/api/tags", headers=headers, timeout=5)
+            r = core.requests.get(f"{base[:-3]}/api/tags", headers=headers, timeout=5, allow_redirects=False)
         if r.status_code != 200:
             return {"models": [], "error": explain(r.status_code, role, via_relay=uses_relay(cfg))}
         models = [m for m in parse_models(r.json()) if m["kind"] == role]
@@ -240,14 +243,17 @@ def test(cfg, role):
     if key_missing({"base_url": base, "api_key": key}):
         return {"ok": False, "status": 0, "ms": 0, "message": "Add an API key for this server first."}
     headers = {"Authorization": f"Bearer {key}"} if key else {}
+    problem = core.relay_proof_problem(base, headers) if uses_relay(cfg) else ""
+    if problem:
+        return {"ok": False, "status": 0, "ms": 0, "message": problem}
     started = time.time()
     try:
         if role == "stt":
-            r = core.requests.post(f"{base}/audio/transcriptions", headers=headers, timeout=30,
+            r = core.requests.post(f"{base}/audio/transcriptions", headers=headers, timeout=30, allow_redirects=False,
                                    data={"model": model, "response_format": "json", "temperature": "0"},
                                    files={"file": ("test.wav", _silent_wav(), "audio/wav")})
         else:
-            r = core.requests.post(f"{base}/chat/completions", headers=headers, timeout=30,
+            r = core.requests.post(f"{base}/chat/completions", headers=headers, timeout=30, allow_redirects=False,
                                    json={"model": model, "max_tokens": 8,
                                          "messages": [{"role": "user", "content": "Reply with the word OK."}]})
     except Exception as e:

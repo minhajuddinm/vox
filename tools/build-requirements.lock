@@ -1,0 +1,9 @@
+# The build tools of the release programs (Vox.exe and the vox-relay-* binaries) at exact versions: PyInstaller and what
+# it pulls in on Windows and Linux. Used with windows/requirements.lock; see that file and tools/check_lock.py.
+altgraph==0.17.5
+packaging==26.3
+pefile==2024.8.26 ; sys_platform == "win32"
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
+pywin32-ctypes==0.2.3 ; sys_platform == "win32"
+setuptools==84.0.0

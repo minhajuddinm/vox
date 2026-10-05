@@ -265,3 +265,22 @@ def test_the_settings_page_has_the_warm_mic_switch_wired_to_the_setting():
     assert '$("warm-mic").checked = !!c.warm_mic;' in page      # off unless it was turned on
     import vox_core
     assert vox_core.DEFAULT_CONFIG["warm_mic"] is False
+
+
+def test_busy_while_the_stream_is_being_opened():
+    import threading
+    inside, release = threading.Event(), threading.Event()
+
+    def slow_open(callback):
+        inside.set()
+        release.wait(5)
+        return type("S", (), {"stop": lambda self: None, "close": lambda self: None})()
+
+    w = warm_mic.WarmMic(slow_open)
+    assert not w.busy
+    t = threading.Thread(target=w.ensure, args=("",))
+    t.start()
+    assert inside.wait(5) and w.busy
+    release.set()
+    t.join(5)
+    assert not w.busy and w.is_open

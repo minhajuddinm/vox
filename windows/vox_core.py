@@ -1,5 +1,6 @@
 """Platform-independent parts of Vox: config, Groq calls, prompt, text post-processing."""
 import array
+import copy
 import difflib
 import io
 import ipaddress
@@ -7,7 +8,9 @@ import json
 import logging
 import os
 import re
+import socket
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -17,6 +20,10 @@ from contextlib import contextmanager
 from urllib.parse import urlparse
 
 import requests
+import urllib3.connection
+import urllib3.connectionpool
+import urllib3.exceptions
+import urllib3.util.connection
 
 import codemode
 import providers
@@ -36,6 +43,9 @@ LEVEL_GAIN = 30             # how fast the meter fills as the voice gets louder
 SILENCE_PEAK = 655          # 16-bit peak (about -34 dBFS) below which a recording is treated as silence
 MAX_UPLOAD_BYTES = 20_000_000  # a recording bigger than this is sent in pieces (the speech servers refuse about 25 MB)
 RETRY_STATUS =(500, 502, 503, 504)   # server trouble worth retrying; 429 is left to the callers
+RATE_LIMIT_TRIES = 3        # a recording sent in pieces waits out a rate limit (429) this many times per piece (ENG-7)
+RATE_LIMIT_WAIT = 20        # seconds to wait then when the server does not say how long (Retry-After)
+RATE_LIMIT_MAX_WAIT = 60    # and never longer than this
 
 DEFAULT_CONFIG = {
     "api_key": "",
@@ -49,7 +59,9 @@ DEFAULT_CONFIG = {
     "user_context": "",
     "my_cleanup_rules": "",
     "my_cleanup_rules_versions": [],
-    "improve_model": "openai/gpt-oss-120b",
+    "improve_model": "",       # "" = openai/gpt-oss-120b on Groq, else the cleanup model (feature_model)
+    "notes_model": "",         # meeting notes and questions: "" = openai/gpt-oss-120b on Groq, else the cleanup model
+    "final_stt_model": "",     # the meeting final pass: "" = whisper-large-v3 on Groq, else the speech model
     "improve_days": 7,
     "improve_remind": False,
     "improve_remind_last": 0,
@@ -123,16 +135,138 @@ def config_path():
     return path
 
 
+# ------------------------------------------------------------------ one writer at a time
+# The window and the engine are two processes, and both have several threads that write config.json (page saves, the
+# sync thread, auto-learn, tray switches) and history.jsonl (the engine appends, the window deletes). Each write holds a
+# lock file next to the data file, so a read-modify-write never overlaps another one.
+LOCK_WAIT = 10.0      # seconds a writer waits for another (a save takes a few ms)
+_REPLACE_TRIES = 10   # a reader in the other process makes Windows refuse the replace for a moment (or an antivirus scan)
+_held = threading.local()             # per thread: lock file -> depth, so a nested use does not wait for itself
+_thread_locks = {}
+_thread_locks_guard = threading.Lock()
+
+
+def _lock_byte(f):
+    f.seek(0)
+    if sys.platform == "win32":
+        import msvcrt
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock_byte(f):
+    f.seek(0)
+    if sys.platform == "win32":
+        import msvcrt
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def file_lock(path, timeout=LOCK_WAIT):
+    """Holds `path`.lock: one writer at a time across the threads of this process and the other Vox process.
+    Re-entrant in one thread. Raises OSError when it is not free within `timeout` seconds."""
+    lock_path = os.path.abspath(path) + ".lock"
+    held = getattr(_held, "files", None)
+    if held is None:
+        held = _held.files = {}
+    if held.get(lock_path):
+        held[lock_path] += 1
+        try:
+            yield
+        finally:
+            held[lock_path] -= 1
+        return
+    with _thread_locks_guard:
+        tl = _thread_locks.setdefault(lock_path, threading.Lock())
+    deadline = time.monotonic() + timeout
+    if not tl.acquire(timeout=timeout):
+        raise OSError("another save of %s is still running" % os.path.basename(path))
+    try:
+        with open(lock_path, "a+b") as f:
+            while True:
+                try:
+                    _lock_byte(f)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise OSError("another save of %s is still running" % os.path.basename(path))
+                    time.sleep(0.01)
+            held[lock_path] = 1
+            try:
+                yield
+            finally:
+                held.pop(lock_path, None)
+                _unlock_byte(f)
+    finally:
+        tl.release()
+
+
+def _replace_file(path, write):
+    """Writes `path` through a temp file of its own (two writers never share one), flushed to the disk before it
+    replaces `path`: a crash or a power cut leaves the old file or the new one, never a mix. A refused replace (the
+    other process is reading the file) is retried for a moment."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=os.path.basename(path) + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            write(f)
+            f.flush()
+            os.fsync(f.fileno())
+        for attempt in range(_REPLACE_TRIES):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if attempt == _REPLACE_TRIES - 1:
+                    raise
+                time.sleep(_OPEN_PAUSE)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def save_config(cfg):
-    """Writes the settings; the API key is stored protected by the Windows login (see secret.py)."""
+    """Writes the settings; the API key is stored protected by the Windows login (see secret.py). A change that starts
+    from what is on disk goes through update_config, so it is not lost to a save made meanwhile."""
     if _config_unread:
         raise OSError("config.json could not be opened a moment ago; not saving over it")
+    _save(cfg, _unopened)
+
+
+def _save(cfg, unopened):
+    """save_config with the protected values that the load this save starts from could not open (`unopened`)."""
     path = config_path()
-    tmp = path + ".tmp"
-    on_disk = dict(cfg, **{k: secret.protect(cfg.get(k) or "") for k in KEY_FIELDS})
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(on_disk, f, indent=2)
-    os.replace(tmp, path)
+    on_disk = dict(cfg, **{k: secret.protect(cfg.get(k) or "") or unopened.get(k, "") for k in KEY_FIELDS})
+    with file_lock(path):
+        _replace_file(path, lambda f: json.dump(on_disk, f, indent=2))
+
+
+def update_config(change):
+    """Read-modify-write of config.json as one step, under the lock: `change(cfg)` edits the settings as they are on disk
+    now, so a save made meanwhile by the other process or another thread is kept. Returns what `change` returns. Writes
+    only when something changed. Raises OSError when the settings cannot be saved (the file could not be opened a moment
+    ago, another save holds the lock too long, the disk refuses)."""
+    path = config_path()
+    with file_lock(path):
+        _tls.unread = _tls.unopened = None
+        cfg = load_config()
+        # what THIS load found, not what another thread's load since then left in the globals (final review W-M2)
+        unread = _config_unread if _tls.unread is None else _tls.unread
+        unopened = _unopened if _tls.unopened is None else _tls.unopened
+        if unread:
+            raise OSError("config.json could not be opened a moment ago; not saving over it")
+        before = copy.deepcopy(cfg)
+        out = change(cfg)
+        if cfg != before:
+            _save(cfg, unopened)
+        return out
 
 
 # ------------------------------------------------------------------ history
@@ -142,7 +276,7 @@ def history_path():
 
 
 def add_history(entry):
-    with open(history_path(), "a+b") as f:
+    with file_lock(history_path()), open(history_path(), "a+b") as f:   # not while the window rewrites the file
         f.seek(0, os.SEEK_END)
         if f.tell():
             f.seek(-1, os.SEEK_END)
@@ -151,10 +285,30 @@ def add_history(entry):
         f.write((json.dumps(entry, ensure_ascii=False) + "\n").encode("utf-8"))
 
 
+_history_cache = (None, [])   # (path, file id, size, mtime) of the last parse and its entries
+
+
 def read_history():
+    """The saved dictations, oldest first. The window asks every few seconds: an unchanged file is not parsed again
+    (a long history takes most of a second), and each caller gets its own copies of the entries."""
+    global _history_cache
+    path = history_path()
+    try:
+        st = os.stat(path)
+        key = (path, st.st_ino, st.st_size, st.st_mtime_ns)
+    except OSError:
+        key = None
+    if key is not None and _history_cache[0] == key:
+        return [dict(e) for e in _history_cache[1]]
+    out = _parse_history(path)
+    _history_cache = (key, out)
+    return [dict(e) for e in out]
+
+
+def _parse_history(path):
     out = []
     try:
-        with open(history_path(), encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             for line in f:
                 try:
                     entry = json.loads(line)
@@ -168,11 +322,15 @@ def read_history():
 
 
 def write_history(entries):
-    tmp = history_path() + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        for e in entries:
-            f.write(json.dumps(e, ensure_ascii=False) + "\n")
-    os.replace(tmp, history_path())
+    path = history_path()
+    with file_lock(path):
+        _replace_file(path, lambda f: f.writelines(json.dumps(e, ensure_ascii=False) + "\n" for e in entries))
+
+
+def update_history(change):
+    """Read, `change(entries)` -> the new entries, write, as one step: a dictation the engine saves meanwhile is kept."""
+    with file_lock(history_path()):
+        write_history(change(read_history()))
 
 
 def _fix_types(cfg):
@@ -191,9 +349,23 @@ def _fix_types(cfg):
                 cfg[k] = snippets_mod.clean_snippets(v)
         elif isinstance(default, str) and v is None:
             cfg[k] = ""
+        elif isinstance(default, (str, bool)) and not type_ok(k, v):   # a list where text belongs, "no" for a switch
+            cfg[k] = default
+
+
+def type_ok(key, value):
+    """False when a setting holds a value of another type than its default (a list or a number where text belongs, text
+    where a switch belongs). Settings without a default, and numbers, are not judged."""
+    default = DEFAULT_CONFIG.get(key)
+    for kind in (bool, str, list, dict):   # bool first: True is an int too
+        if isinstance(default, kind):
+            return isinstance(value, kind)
+    return True
 
 
 _config_unread = False   # True while the last load_config could not OPEN config.json: its defaults must not be saved
+_unopened = {}           # protected values the last load_config could not open: written back as they were unless replaced
+_tls = threading.local()  # the same two for the last load of this thread (another thread's load cannot change them)
 _OPEN_TRIES = 4          # another process may be replacing the file for a moment (sharing violation, antivirus)
 _OPEN_PAUSE = 0.05
 
@@ -218,14 +390,31 @@ def _read_config_file(path):
 
 
 def load_config():
-    global _config_unread
     path = config_path()
+    merged, plain = _load_config(path)
+    if plain:   # a key typed into config.json by hand: protect it from now on (read again under the lock: one writer)
+        try:
+            with file_lock(path):
+                merged, plain = _load_config(path)
+                if plain:
+                    _save(merged, _tls.unopened or {})
+        except OSError:
+            log.warning("config.json could not be rewritten (read-only?); keys stay as typed")
+    return merged
+
+
+def _load_config(path):
+    """(settings, True when a key in the file is still plain text and could be protected)."""
+    global _config_unread
+    _tls.unread, _tls.unopened = None, {}
     try:
         os.stat(path)
     except FileNotFoundError:
-        _config_unread = False
-        save_config(DEFAULT_CONFIG)
-        return dict(DEFAULT_CONFIG)
+        _config_unread = _tls.unread = False
+        with file_lock(path):
+            if not os.path.exists(path):   # still missing now that no one else can be writing it
+                save_config(DEFAULT_CONFIG)
+                return dict(DEFAULT_CONFIG), False
     except OSError:
         pass   # exists() would say "missing" here, and the defaults would then be written over a good file: read it below
     try:
@@ -235,38 +424,39 @@ def load_config():
     except OSError as e:
         # could not open it: a good file may be there. Touch nothing; use the defaults for this run only and refuse to
         # save them (save_config) until the file has been read again.
-        _config_unread = True
+        _config_unread = _tls.unread = True
         log.warning("config.json could not be opened (%s); using the defaults for now and leaving the file alone",
                     type(e).__name__)
-        return dict(DEFAULT_CONFIG)
+        return dict(DEFAULT_CONFIG), False
     except ValueError as e:   # includes bad UTF-8 and bad JSON: the file was read and it is damaged
         # a bad file must not stop Vox from starting: keep it aside and carry on with the defaults
-        _config_unread = False
+        _config_unread = _tls.unread = False
         log.warning("config.json could not be read (%s); keeping it as .bad and using the defaults", type(e).__name__)
         try:
             os.replace(path, path + ".bad-%d" % time.time())
         except OSError:
             log.warning("config.json could not be moved aside")
-        return dict(DEFAULT_CONFIG)
-    _config_unread = False
+        return dict(DEFAULT_CONFIG), False
+    _config_unread = _tls.unread = False
     merged = dict(DEFAULT_CONFIG)
     merged.update(cfg)
     _fix_types(merged)
     stored = {k: merged.get(k) or "" for k in KEY_FIELDS}
+    unopened = {}
     for k, v in stored.items():
         merged[k] = secret.unprotect(v)
-    if secret.available() and any(v and not secret.is_protected(v) for v in stored.values()):
-        try:
-            save_config(merged)   # a key typed into config.json by hand: protect it from now on
-        except OSError:
-            log.warning("config.json could not be rewritten (read-only?); keys stay as typed")
-    return merged
+        if secret.is_protected(v) and not merged[k]:
+            unopened[k] = v   # could not be opened now (DPAPI not ready, another user): saving "" must not erase it
+    _unopened.clear()
+    _unopened.update(unopened)
+    _tls.unopened = unopened
+    return merged, secret.available() and any(v and not secret.is_protected(v) for v in stored.values())
 
 
 # ---------------------------------------------------------------- dictionary
 
 def dictionary_terms(cfg):
-    out = [p.strip() for p in cfg.get("people", []) if p.strip()]
+    out = [p.strip() for p in cfg.get("people", []) if p.strip() and not p.strip().startswith("#")]   # # = a comment
     for line in cfg.get("dictionary", []):
         line = line.strip()
         if not line or line.startswith("#"):
@@ -317,10 +507,47 @@ def replacements(cfg):
     return out
 
 
+ADDRESS_GLUE = ".@/\\"   # a word joined to another by one of these is part of an address or code (groq.com/ai, ai@x.com)
+
+
+def is_word(ch):
+    """A character of a word as the replacements, snippets and the fuzzy pass see it: a letter, a combining mark
+    (Devanagari vowel signs and virama, the accent of a decomposed letter: Python's \\w leaves these out), a number or _.
+    The Java twins write [\\p{L}\\p{M}\\p{N}_] (ApiClient.WORD_CHAR)."""
+    return ch == "_" or _is_word_char(ch)
+
+
+def whole_word(text, start, end):
+    """True when text[start:end] is not glued to a word character on either side."""
+    return not (start > 0 and is_word(text[start - 1])) and not (end < len(text) and is_word(text[end]))
+
+
+def in_address(text, start, end):
+    """True when text[start:end] is joined to another word by ADDRESS_GLUE on either side (an email, a web or file
+    address, code such as ai.predict): a replacement or a dictionary spelling never changes it. Twin: Terms.inAddress."""
+    return (start >= 2 and text[start - 1] in ADDRESS_GLUE and is_word(text[start - 2])) \
+        or (end + 1 < len(text) and text[end] in ADDRESS_GLUE and is_word(text[end + 1]))
+
+
 def apply_replacements(text, repl):
+    """Whole-word, case-insensitive "wrong => right" replacements, one pair after the other. A word's combining marks count
+    as part of it (हैं is not है plus a sign), and a word inside an address or code (in_address) is left alone. The edges
+    are checked here, not with lookarounds: a regex class holding every combining mark takes milliseconds to compile, once
+    per pair. Twin: ApiClient.applyReplacements."""
     for wrong, right in repl.items():
-        pattern = r"(?i)(?<![\w])" + re.escape(wrong) + r"(?![\w])"
-        text = re.sub(pattern, lambda _m, r=right: r, text)
+        if not wrong:
+            continue
+        pattern, out, pos, last = re.compile(re.escape(wrong), re.I), [], 0, 0
+        while True:
+            m = pattern.search(text, pos)
+            if not m:
+                break
+            if whole_word(text, m.start(), m.end()) and not in_address(text, m.start(), m.end()):
+                out += [text[last:m.start()], right]
+                last = pos = m.end()
+            else:
+                pos = m.start() + 1
+        text = "".join(out) + text[last:]
     return text
 
 
@@ -396,17 +623,27 @@ def fuzzy_dictionary(text, terms):
     if not by_lower or not text:
         return text
 
-    def fix(m):
-        w = m.group(0)
+    def fix(text, start, end):
+        w = text[start:end]
         lw = w.lower()
-        if len(w) < FUZZY_MIN_LEN or not w.isalpha() or lw in COMMON_WORDS:
+        if len(w) < FUZZY_MIN_LEN or not w.isalpha() or lw in COMMON_WORDS or in_address(text, start, end):
             return w
         if lw in by_lower:
             return by_lower[lw]
         near = {t for k, t in by_lower.items() if len(k) >= FUZZY_NEAR_MIN_LEN and k[0] == lw[0] and _one_edit(lw, k)}
         return near.pop() if len(near) == 1 else w
 
-    return re.sub(r"\w+", fix, text)
+    out, last, i, n = [], 0, 0, len(text)
+    while i < n:   # each run of word characters (letters with their marks, numbers, _) is one word
+        if not is_word(text[i]):
+            i += 1
+            continue
+        j = i
+        while j < n and is_word(text[j]):
+            j += 1
+        out += [text[last:i], fix(text, i, j)]
+        last = i = j
+    return "".join(out) + text[last:]
 
 
 def style_for(cfg, exe):
@@ -615,13 +852,17 @@ _ORDINALS = {w: n for n, w in enumerate("first second third fourth fifth sixth s
                                         "thirteenth fourteenth fifteenth sixteenth seventeenth eighteenth nineteenth "
                                         "twentieth".split(), 1)}
 _ORDINALS["thirtieth"] = 30
-# spoken commands (see the prompt): "new line", "new paragraph" and the punctuation names become breaks and symbols
-_COMMAND_PHRASES = frozenset({"new line", "new paragraph", "question mark"})
-_COMMAND_WORDS = frozenset({"comma", "period", "colon"})
+# spoken commands (see the prompt): "new line", "new paragraph" and the punctuation names become breaks and symbols; one
+# counts as kept only while the cleaned text has its symbol left for it
+_COMMAND_PHRASES = {"new line": "\n", "new paragraph": "\n", "question mark": "?"}
+_COMMAND_WORDS = {"comma": ",", "period": ".", "colon": ":"}
 # words a symbol replaces ("five dollars" -> "$5"): they count as kept when cleaned has the symbol
 _SYMBOL_WORDS = {"dollar": "$", "dollars": "$", "euro": "\u20ac", "euros": "\u20ac", "pound": "\u00a3",
                  "pounds": "\u00a3", "rupee": "\u20b9", "rupees": "\u20b9", "percent": "%", "degree": "\u00b0",
                  "degrees": "\u00b0"}
+_CURRENCY_WORDS = frozenset({"dollar", "dollars", "euro", "euros", "pound", "pounds", "rupee", "rupees"})
+_SUBUNITS = frozenset({"cent", "cents", "paise", "paisa", "pence"})   # "five dollars and fifty cents" = "$5.50"
+_DIGIT_COMMA = re.compile(r"(?<=[0-9]),[ \t]+(?=[0-9])")   # "March 3, 2026": two numbers, not one
 
 
 def _is_word_char(ch):
@@ -728,7 +969,8 @@ def _merge_numbers(tokens):
     "55512" = "555-12" and "twenty twenty six" = "2026"; "five million" = "5000000", "five lakh" = "500000"; ordinals are
     "21st" ("twenty first"), "half past three" = "330" (3:30). "point" between two numbers is the decimal point ("three
     point five" = "3.5" = "35") and "p m" / "a m" are "pm" / "am". An ordinal's suffix is dropped last ("21st" = "21"),
-    so the plain written date "May 3" matches "may third"."""
+    so the plain written date "May 3" matches "may third". "oh" or "o" between two single digits is 0 ("one oh four" =
+    "104")."""
     out, i, n = [], 0, len(tokens)
     while i < n:
         t = tokens[i]
@@ -740,6 +982,8 @@ def _merge_numbers(tokens):
             continue
         elif t in ("a", "p") and i + 1 < n and tokens[i + 1] == "m":
             t, i = t + "m", i + 2
+        elif t in ("oh", "o") and 0 < i < n - 1 and _single_digit(tokens[i - 1]) and _single_digit(tokens[i + 1]):
+            t, i = "0", i + 1   # "one oh four" = "104"
         else:
             i += 1
         if _all_digits(t) and out and _all_digits(out[-1]):
@@ -749,13 +993,22 @@ def _merge_numbers(tokens):
     return [_ORDINAL_SUFFIX.sub(r"\1", t) for t in out]
 
 
-def _without_commands(tokens):
-    """Spoken commands are not words to keep: the cleanup turns them into line breaks and punctuation."""
+def _single_digit(t):
+    return t in _UNITS and _UNITS[t] <= 9 or len(t) == 1 and "0" <= t <= "9"
+
+
+def _without_commands(tokens, cleaned):
+    """Spoken commands are not words to keep: the cleanup turns them into line breaks and punctuation. Each one is let go
+    only while `cleaned` has its symbol (or a line break) left for it, so "put a comma here" -> "Put a here." misses one."""
+    left = {sym: cleaned.count(sym) for sym in ("\n", "?", ",", ".", ":")}
     out, i = [], 0
     while i < len(tokens):
-        if i + 1 < len(tokens) and (tokens[i] + " " + tokens[i + 1]) in _COMMAND_PHRASES:
+        sym = _COMMAND_PHRASES.get(tokens[i] + " " + tokens[i + 1]) if i + 1 < len(tokens) else None
+        if sym and left[sym] > 0:
+            left[sym] -= 1
             i += 2
-        elif tokens[i] in _COMMAND_WORDS:
+        elif tokens[i] in _COMMAND_WORDS and left[_COMMAND_WORDS[tokens[i]]] > 0:
+            left[_COMMAND_WORDS[tokens[i]]] -= 1
             i += 1
         else:
             out.append(tokens[i])
@@ -769,13 +1022,37 @@ def _inner_dots(text):
                if text[i] == "." and _is_word_char(text[i - 1]) and _is_word_char(text[i + 1]))
 
 
-def _compare_tokens(raw, cleaned):
-    """(tokens of raw, tokens of cleaned) ready to compare."""
+def _symbol_kept(t, c_text, c_words):
+    return _SYMBOL_WORDS[t] in c_text or (t[:5] == "rupee" and "rs" in c_words)
+
+
+def _money_words(tokens, c_text, c_words):
+    """Positions of the "and" and the cent word of "N dollars [and] M cents" when cleaned has the currency symbol and not
+    the cent word ("$5.50"): they are part of the written amount."""
+    out = set()
+    for i, t in enumerate(tokens):
+        if t not in _SUBUNITS or t in c_words:
+            continue
+        j = i - 1
+        while j >= 0 and (_all_digits(tokens[j]) or tokens[j] in _UNITS or tokens[j] in _TENS):
+            j -= 1
+        k = j - 1 if j >= 0 and tokens[j] == "and" else j
+        if j < i - 1 and k >= 0 and tokens[k] in _CURRENCY_WORDS and _symbol_kept(tokens[k], c_text, c_words):
+            out |= {i, j} if k != j else {i}
+    return out
+
+
+def _compare_tokens(raw, cleaned, split_dates=False):
+    """(tokens of raw, tokens of cleaned) ready to compare. split_dates: digit groups after ", " in cleaned stay apart
+    ("March 3, 2026" is 3 and 2026, not 32026)."""
     c_text = cleaned or ""
+    c_words = word_tokens(c_text)
     ats, dots = c_text.count("@"), _inner_dots(c_text)   # spoken "at" / "dot" are kept when cleaned has the symbol
+    toks = _without_commands(word_tokens(raw), c_text)
+    money = _money_words(toks, c_text, c_words)
     r = []
-    for t in _without_commands(word_tokens(raw)):
-        if t in _SYMBOL_WORDS and (_SYMBOL_WORDS[t] in c_text or (t[:5] == "rupee" and "rs" in word_tokens(c_text))):
+    for i, t in enumerate(toks):
+        if i in money or (t in _SYMBOL_WORDS and _symbol_kept(t, c_text, c_words)):
             continue
         if t == "at" and ats > 0:
             ats -= 1
@@ -783,7 +1060,9 @@ def _compare_tokens(raw, cleaned):
             dots -= 1
         else:
             r.append(t)
-    return _merge_numbers(r), _merge_numbers(word_tokens(c_text))
+    if split_dates:
+        return _merge_numbers(r), [x for part in _DIGIT_COMMA.split(c_text) for x in _merge_numbers(word_tokens(part))]
+    return _merge_numbers(r), _merge_numbers(c_words)
 
 
 def _drop_fillers(tokens, standard):
@@ -835,8 +1114,14 @@ def fidelity_ok(raw, cleaned, strength="light"):
     words the length rule is skipped."""
     if not cleaned or not cleaned.strip():
         return False
+    if _fidelity(raw, cleaned, strength, False):
+        return True
+    return bool(_DIGIT_COMMA.search(cleaned)) and _fidelity(raw, cleaned, strength, True)   # "March 3, 2026"
+
+
+def _fidelity(raw, cleaned, strength, split_dates):
     standard = clean_strength(strength) == "standard"
-    r, c = _compare_tokens(raw, cleaned)
+    r, c = _compare_tokens(raw, cleaned, split_dates)
     r = _drop_fillers(r, standard)
     kept = _matched(r, c)
     if kept * 100 < (85 if standard else 97) * len(r):
@@ -944,10 +1229,18 @@ class Segmenter:
 
 
 def peak_level(pcm_bytes):
-    """Loudest sample (0 to 32768) of a 16-bit mono recording."""
+    """Loudest sample (0 to 32768) of a 16-bit mono recording. With numpy (the Windows app has it) in milliseconds; the
+    plain loop took 0.2 s for 6 minutes and held the GIL meanwhile (ENG-11)."""
     n = len(pcm_bytes) // 2
     if n == 0:
         return 0
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
+    if np is not None:
+        s = np.frombuffer(pcm_bytes, dtype="<i2", count=n)
+        return max(int(s.max()), -int(s.min()))
     samples = array.array("h")
     samples.frombytes(pcm_bytes[: n * 2])
     if sys.byteorder == "big":
@@ -1029,17 +1322,20 @@ def upload_audio(cfg, pcm_bytes):
 # ---------------------------------------------------------------------- groq
 
 class ApiError(Exception):
-    """The speech or cleanup server answered with an error status."""
+    """The speech or cleanup server answered with an error status. `retry_after`: the seconds its Retry-After header
+    asked for, or None."""
 
-    def __init__(self, code, msg):
+    def __init__(self, code, msg, retry_after=None):
         super().__init__(msg)
         self.code = code
+        self.retry_after = retry_after
 
 
 _session = requests.Session()   # keeps connections open, so a dictation does not pay the TLS handshake again
 
 
 def _post(url, **kw):
+    kw.setdefault("allow_redirects", False)   # a redirect would send the audio or the text to an address no rule checked (SEC-6)
     return _session.post(url, **kw)
 
 
@@ -1054,9 +1350,11 @@ def warm(cfg):
         targets.setdefault(api_base(cfg, role), auth_headers(cfg, role))
 
     def run():
+        if providers.uses_relay(cfg) and relay_proof_problem(cfg.get("relay_url") or "", auth_headers(cfg, "stt")):
+            return      # the relay did not prove it holds the token: nothing goes there
         for base, headers in targets.items():
             try:
-                _session.get(f"{base}/models", headers=headers, timeout=3)
+                _session.get(f"{base}/models", headers=headers, timeout=3, allow_redirects=False)
             except Exception:
                 pass
 
@@ -1076,11 +1374,47 @@ def retryable(status, timeout, via_relay):
     return status == 0 or status in RETRY_STATUS
 
 
-def post_with_retry(url, retries=2, via_relay=False, **kw):
+def _relay_proof_error(url, headers):
+    """None when the relay behind `url` (its address, or one of its /proxy/ addresses) has proved it holds the token in
+    `headers` (sync.prove_relay, SEC-2), else the sync.SyncError that says why the token must not go there."""
+    import sync
+    token = ((headers or {}).get("Authorization") or "")[len("Bearer "):]
+    try:
+        sync.prove_relay(url.split("/proxy/", 1)[0], token)
+    except sync.SyncError as e:
+        return e
+    return None
+
+
+def relay_proof_problem(url, headers):
+    """'' when the relay behind `url` has proved it holds the token in `headers`, else why the token must not go there."""
+    e = _relay_proof_error(url, headers)
+    return "" if e is None else str(e)
+
+
+def _forget_relay_proof(url):
+    """The relay behind `url` must prove itself again before the next request (it may have stopped: SEC-2)."""
+    import sync
+    sync.forget_proof(url.split("/proxy/", 1)[0])
+
+
+def post_with_retry(url, retries=2, via_relay=False, retry_timeouts=True, **kw):
     """POST with a quick retry on dropped connections (flaky Wi-Fi, VPNs, antivirus TLS inspection)
-    and on temporary server errors (see `retryable`; `via_relay` says the relay is the server). The last response is
-    returned as it is."""
+    and on temporary server errors (see `retryable`; `via_relay` says the relay is the server). `retry_timeouts` False:
+    a wait for the answer that ran out is not sent again (the cleanup, which falls back to the spoken words). The last
+    response is returned as it is. Through the relay, the relay proves it holds the token before every try (ApiError when
+    it does not; a proof request that got no answer is tried again like the POST), and a dropped connection or a 502, 503
+    or 504 makes the next try ask for a new proof: the relay may have stopped, and something else may take its port."""
+    if via_relay:
+        import sync
     for attempt in range(retries + 1):
+        if via_relay:
+            err = _relay_proof_error(url, kw.get("headers"))
+            if err is not None:
+                if attempt == retries or not (isinstance(err, sync.RelayUnreachable) or err.status in sync.GATEWAY_DOWN):
+                    raise ApiError(0, str(err))
+                time.sleep(0.7 * (attempt + 1))
+                continue
         try:
             if "files" in kw:   # file objects must be re-sent from the start
                 for name, spec in kw["files"].items():
@@ -1088,10 +1422,14 @@ def post_with_retry(url, retries=2, via_relay=False, **kw):
                         spec[1].seek(0)
             r = _post(url, **kw)
         except (requests.ConnectionError, requests.Timeout) as e:
+            if via_relay:
+                _forget_relay_proof(url)
             timed_out = isinstance(e, requests.Timeout) and not isinstance(e, requests.ConnectTimeout)   # (not "could not connect")
-            if attempt == retries or not retryable(0, timed_out, via_relay):
+            if attempt == retries or not retryable(0, timed_out, via_relay) or (timed_out and not retry_timeouts):
                 raise
         else:
+            if via_relay and r.status_code in sync.GATEWAY_DOWN:
+                _forget_relay_proof(url)
             if not retryable(r.status_code, False, via_relay) or attempt == retries:
                 return r
         time.sleep(0.7 * (attempt + 1))
@@ -1129,12 +1467,23 @@ def _error_message(r):
 def check_response(r, via_relay=False):
     """The JSON answer, or an ApiError. `via_relay`: the request went through the relay (see providers.role_settings),
     so a 401 or 403 also says where to look."""
+    if 300 <= r.status_code < 400:      # redirects are not followed (SEC-6)
+        raise ApiError(r.status_code, f"API {r.status_code}: the server answered with a redirect, which Vox does not follow")
     if r.status_code >= 400:
         msg = _error_message(r)
         if via_relay and r.status_code in (401, 403):
             msg = f"{msg} ({providers.RELAY_HINT})"
-        raise ApiError(r.status_code, f"API {r.status_code}: {msg}")
+        raise ApiError(r.status_code, f"API {r.status_code}: {msg}", _retry_after(r))
     return r.json()
+
+
+def _retry_after(r):
+    """The seconds of a Retry-After header, or None (absent, an HTTP date, or unreadable)."""
+    try:
+        v = float((getattr(r, "headers", None) or {}).get("Retry-After"))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return v if v >= 0 else None
 
 
 # An explicit list, not ip.is_private: that also holds 6to4 (2002::/16), Teredo (2001::/32) and reserved IPv4 ranges, which
@@ -1153,9 +1502,85 @@ def is_private_host(host):
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
-        # A name: single-label names, .local/.lan and Tailscale MagicDNS names never leave the private network.
+        if _NUMERIC_LABEL.fullmatch(host.rsplit(".", 1)[-1]):
+            return False    # not a name: the resolver reads 134744072 or 0x08080808 as 8.8.8.8 (golden rows, SEC-3)
+        # A name: single-label names, .local/.lan and Tailscale MagicDNS names. Where they lead is checked again when
+        # the connection is made (PrivatePeerConnection): a foreign network can answer for them.
         return "." not in host or host.endswith((".local", ".lan", ".ts.net"))
     return any(ip in net for net in _PRIVATE_NETS)
+
+
+_NUMERIC_LABEL = re.compile(r"[0-9]+|0x[0-9a-f]*")
+
+
+def private_peer(address):
+    """True when a connected socket's peer address (as getpeername gives it) is one plain http may go to."""
+    try:
+        ip = ipaddress.ip_address(str(address).split("%", 1)[0])
+    except ValueError:
+        return False
+    ip = getattr(ip, "ipv4_mapped", None) or ip
+    return any(ip in net for net in _PRIVATE_NETS)
+
+
+class PlainHttpRefused(OSError):
+    """A plain http connection reached an address outside this PC, the LAN and Tailscale (a name that resolved there)."""
+
+
+PLAIN_HTTP_ELSEWHERE = ("Plain http only goes to this PC, your local network or Tailscale, and this name led somewhere else. "
+                        "Use https:// or the address in numbers (for example 192.168.1.20).")   # Android twin: Endpoint.resolvedError
+
+
+def refused_plain_http(exc):
+    """True when a requests error comes from PrivatePeerConnection refusing where a name led."""
+    for _ in range(10):
+        if exc is None or isinstance(exc, PlainHttpRefused):
+            return exc is not None
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+class PrivatePeerConnection(urllib3.connection.HTTPConnection):
+    """Every plain http connection the app makes (requests, through urllib3): the address it really connected to must be
+    private, whatever the name resolved to. The address rule (endpoint_error) only sees the name, and a foreign network
+    (hotel DNS, LLMNR or mDNS) can answer for `gpu-pc` or `pi.lan`: nothing is sent before this check. Of the addresses
+    the name resolves to, only the private ones are tried (_new_conn): a LAN machine on an IPv6 network also has a global
+    IPv6 address, which Windows would try first."""
+
+    def _new_conn(self):
+        host = self._dns_host
+        try:
+            found = socket.getaddrinfo(host.strip("[]"), self.port, urllib3.util.connection.allowed_gai_family(),
+                                       socket.SOCK_STREAM)
+        except (OSError, UnicodeError):
+            return super()._new_conn()   # the lookup fails: urllib3 says so its own way
+        private = list(dict.fromkeys(sa[0] for *_, sa in found if private_peer(sa[0])))
+        if not private:
+            raise PlainHttpRefused("plain http is only sent to this PC, the local network or Tailscale; this name led elsewhere")
+        last = None
+        for address in private:
+            self._dns_host = address
+            try:
+                return super()._new_conn()
+            except (urllib3.exceptions.NewConnectionError, urllib3.exceptions.ConnectTimeoutError) as e:
+                last = e
+            finally:
+                self._dns_host = host
+        raise last
+
+    def connect(self):
+        super().connect()
+        try:
+            peer = self.sock.getpeername()[0]
+        except (OSError, AttributeError, IndexError):
+            peer = ""
+        if not private_peer(peer):
+            self.close()
+            raise PlainHttpRefused("plain http is only sent to this PC, the local network or Tailscale; this name led elsewhere")
+
+
+# https pools have their own connection class, so only plain http is affected
+urllib3.connectionpool.HTTPConnectionPool.ConnectionCls = PrivatePeerConnection
 
 
 def endpoint_error(cfg):
@@ -1175,6 +1600,18 @@ def endpoint_error(cfg):
         if u.scheme == "http" and not is_private_host(u.hostname):
             return "Plain http is only allowed for this PC, your local network or Tailscale. Use https:// for other servers."
     return ""
+
+
+def feature_model(cfg, role, setting, groq_model):
+    """The model of a feature with a model setting of its own (meeting notes, the meeting final pass, Improve my
+    cleanup): the setting when it is filled in; else `groq_model` when the role's server is Groq; else the role's own
+    model, since another provider, a server of your own or the relay does not know Groq's model names."""
+    own = cfg.get(setting)
+    own = own.strip() if isinstance(own, str) else ""
+    if own:
+        return own
+    base, _, model = providers.role_settings(cfg, role)
+    return groq_model if base.lower() == providers.GROQ_BASE.lower() else model
 
 
 def key_missing(cfg):
@@ -1278,7 +1715,9 @@ def transcribe(cfg, wav_bytes, context=""):
         raise ApiError(0, "The speech server sent an answer Vox could not read")
     if data["response_format"] == "verbose_json":
         _stt_local.segments = _segments_of(res)
-    return text.strip()
+    # whisper.cpp's server ends every segment with a line break. Speech never holds one (a spoken "new line" is a
+    # command, applied later), and a break pasted into a terminal would run a command (SEC-1).
+    return re.sub(r"\s*[\r\n]+\s*", " ", text.strip())
 
 
 def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
@@ -1317,30 +1756,68 @@ def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
 def chat_text(cfg, body, timeout=60):
     """The text of one chat answer from the cleanup server (or the relay): `body` is the request (model, messages, ...).
     Reasoning fields are added for gpt-oss models and dropped, once, for a server that refuses them. Raises ApiError."""
+    return chat_reply(cfg, body, timeout)[0]
+
+
+def chat_reply(cfg, body, timeout=60, retry_timeouts=True):
+    """chat_text, plus the answer's finish_reason ("" when the server sent none)."""
     base = providers.role_settings(cfg, "llm")[0]
     via_relay = providers.uses_relay(cfg)
     extra = providers.reasoning_params(cfg, base, body["model"])
     body.update(extra)
-    r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout, via_relay=via_relay)
+    r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout,
+                        via_relay=via_relay, retry_timeouts=retry_timeouts)
     if extra and r.status_code in (400, 422):   # this server does not know the reasoning fields: retry without them
         providers.remember_rejected(base, body["model"])
         for k in extra:
             body.pop(k, None)
-        r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout, via_relay=via_relay)
+        r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout,
+                            via_relay=via_relay, retry_timeouts=retry_timeouts)
     data = check_response(r, via_relay)
     try:
-        content = data["choices"][0]["message"].get("content")
+        choice = data["choices"][0]
+        content = choice["message"].get("content")
+        finish = choice.get("finish_reason")
     except (KeyError, IndexError, TypeError, AttributeError):
         raise ApiError(0, "The cleanup server sent an answer Vox could not read")
-    return providers.strip_think(content or "")
+    return providers.strip_think(content or ""), finish if isinstance(finish, str) else ""
+
+
+# The bounds of a cleanup request, the same as the phone's (android Latency.java; golden rows maxtokens and llmread).
+REASONING_HEADROOM = 768   # hidden reasoning tokens of thinking models count against max_tokens even when not returned
+MIN_TOKENS = 256           # the smallest max_tokens, so that a short dictation is never cut off by a tiny bound
+
+
+def may_think(model):
+    """Whether a model may spend tokens on thinking before it answers (gpt-oss, Qwen3, QwQ, DeepSeek R1, *think*, *reasoner*)."""
+    m = (model or "").lower()
+    return any(k in m for k in ("gpt-oss", "qwen3", "qwq", "deepseek-r1", "think", "reasoner"))
+
+
+def cleanup_max_tokens(raw, thinks):
+    """Twice the estimated tokens of the text plus 64, at least MIN_TOKENS, plus REASONING_HEADROOM when the model may
+    think. The estimate is the larger of two per word and half the characters for ASCII text, else one per character
+    (counted in UTF-16 units, as Java does)."""
+    raw = raw or ""
+    chars = len(raw.encode("utf-16-le")) // 2
+    est = max(len(raw.split()) * 2, (chars + 1) // 2) if raw.isascii() else chars
+    return max(MIN_TOKENS, 2 * est + 64) + (REASONING_HEADROOM if thinks else 0)
+
+
+def cleanup_read_ms(words):
+    """How long to wait for a cleanup answer: 20 s plus 60 ms per word, at most 60 s (then the spoken words are used)."""
+    return min(60000, 20000 + max(0, words) * 60)
 
 
 def cleanup(cfg, raw, style, app_label):
-    model = providers.role_settings(cfg, "llm")[2]
+    """The cleaned text. Raises ApiError (or a requests error) when it failed, an answer cut off at max_tokens included.
+    A wait that ran out is not repeated: the caller then uses the spoken words."""
+    base, _, model = providers.role_settings(cfg, "llm")
+    thinks = may_think(model) or bool(providers.reasoning_params(cfg, base, model))
     body = {
         "model": model,
-        "temperature": 0.2,
-        "max_tokens": max(1024, len(raw) * 2),
+        "temperature": 0,
+        "max_tokens": cleanup_max_tokens(raw, thinks),
         "messages": [
             {"role": "system",
              "content": system_prompt(style, dictionary_terms(cfg), app_label, cfg.get("user_context", ""),
@@ -1348,24 +1825,54 @@ def cleanup(cfg, raw, style, app_label):
             {"role": "user", "content": f"<transcript>\n{raw}\n</transcript>"},
         ],
     }
-    return sanitize(chat_text(cfg, body))
+    text, finish = chat_reply(cfg, body, cleanup_read_ms(len(raw.split())) / 1000, retry_timeouts=False)
+    if finish.lower() == "length":
+        raise ApiError(0, "the cleanup answer was cut off (max_tokens)")
+    return sanitize(text)
 
 
 Result = namedtuple("Result", "raw text cleaned cleanup_error fidelity_fallback", defaults=(False,))
 
 
-def _transcribe_in_pieces(cfg, pcm_bytes):
+def _transcribe_in_pieces(cfg, pcm_bytes, context=""):
     """A recording too big for one upload (the server limit is 25 MB, about 13 minutes) is cut at pauses and sent piece by
-    piece, each with the end of the text before it as context (the same as streaming.py, which imports this module)."""
+    piece, each with the end of the text before it as context (the same as streaming.py, which imports this module).
+    `context`: the text of the audio before `pcm_bytes`, when there is some. A rate limit is waited out (ENG-7)."""
     seg = Segmenter()
     texts = []
     for piece in seg.feed(pcm_bytes) + [seg.rest()]:
         if not piece or is_silent(piece):
             continue
-        text = transcribe(cfg, upload_audio(cfg, piece), " ".join(texts)[-150:])
-        if text and not (not texts and is_silence_hallucination(text)):
+        text = _transcribe_waiting(cfg, piece, " ".join([context] + texts).strip()[-150:])
+        if text and not (not texts and not context and is_silence_hallucination(text)):
             texts.append(text)
     return " ".join(texts).strip()
+
+
+def _transcribe_waiting(cfg, pcm_bytes, context):
+    """transcribe, but a rate limit (429: pieces sent back to back hit a per-minute limit) is waited out and the same
+    piece sent again, up to RATE_LIMIT_TRIES times: Retry-After seconds, else RATE_LIMIT_WAIT, at most
+    RATE_LIMIT_MAX_WAIT. Before, the 429 dropped every piece already transcribed."""
+    for attempt in range(RATE_LIMIT_TRIES + 1):
+        try:
+            return transcribe(cfg, upload_audio(cfg, pcm_bytes), context)
+        except ApiError as e:
+            if e.code != 429 or attempt == RATE_LIMIT_TRIES:
+                raise
+            wait = min(RATE_LIMIT_MAX_WAIT, RATE_LIMIT_WAIT if e.retry_after is None else e.retry_after)
+            log.info("rate limited while sending a long recording in pieces, waiting %.0f s", wait)
+            time.sleep(wait)
+
+
+def transcribe_rest(cfg, pcm_bytes, context):
+    """The text of the end of a recording whose start already is text (`context`): what is left after a streamed piece
+    failed (ENG-7). One upload, or pieces when it is too big; "" for a blip or silence. A rate limit is waited out: the
+    piece that failed most likely got a 429, and the rest right after it would get one too."""
+    if len(pcm_bytes) < SAMPLE_RATE * 2 * 0.3 or is_silent(pcm_bytes):
+        return ""
+    if len(pcm_bytes) > MAX_UPLOAD_BYTES:
+        return _transcribe_in_pieces(cfg, pcm_bytes, context)
+    return _transcribe_waiting(cfg, pcm_bytes, context[-150:])
 
 
 def process_detailed(cfg, pcm_bytes, exe, app_label):
@@ -1430,7 +1937,8 @@ def process_text(cfg, raw, exe, app_label, segments=None):
         finally:
             _mark("llm_done")
     if not cleaned:
-        out = fallback_text(out) if rejected else out if code else apply_spoken_commands(out)
+        # in code "new line" is a symbol of format_code; "new paragraph" is not, so it is applied here
+        out = fallback_text(out) if rejected else _NEW_PARAGRAPH.sub("\n\n", out) if code else apply_spoken_commands(out)
     if code:
         out = codemode.format_code(out)   # "new line" is one of its symbols
     out = fuzzy_dictionary(apply_replacements(out, replacements(cfg)), dictionary_terms(cfg))
@@ -1458,5 +1966,6 @@ def process(cfg, pcm_bytes, exe, app_label):
 
 def check_key(key, base_url=None):
     """True when the API accepts the key (Groq unless base_url is given)."""
-    r = requests.get(f"{api_base({'base_url': base_url})}/models", headers=auth_headers({"api_key": key}), timeout=15)
+    r = requests.get(f"{api_base({'base_url': base_url})}/models", headers=auth_headers({"api_key": key}), timeout=15,
+                     allow_redirects=False)   # (SEC-6, as every other call)
     return r.status_code == 200

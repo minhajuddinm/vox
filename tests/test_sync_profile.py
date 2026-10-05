@@ -106,6 +106,26 @@ def test_changes_to_different_fields_merge_and_a_clash_goes_to_the_relay(dev, sr
     assert cfg_now()["user_context"] == "B wrote this" and cfg_now()["people"] == ["Ada"]
 
 
+def test_words_added_on_both_devices_between_syncs_are_all_kept(dev, srv):
+    a = dev("A")   # DAT-6 / #63: the lists merge item by item, a removal on one side still counts
+    set_cfg(dictionary=["Vox", "Old"], people=["Ada"], snippets={"home": "1 Main St"})
+    sync.sync_once(a)
+    b = dev("B")
+    sync.sync_once(b)
+    dev("A")
+    set_cfg(dictionary=["Vox", "Old", "fubar => Foobar", "Foobar"], snippets={"home": "1 Main St", "sig": "Best"})
+    dev("B")
+    set_cfg(dictionary=["Vox", "Bar"], people=["Ada", "Grace"], snippets={"home": "2 Main St"})
+    assert sync.sync_once(b)["profile"] == "sent"
+    dev("A")
+    assert sync.sync_once(a)["profile"] == "both"
+    merged = srv.store.get_profile()["data"]
+    assert merged["dictionary"] == ["Vox", "Bar", "fubar => Foobar", "Foobar"] == cfg_now()["dictionary"]
+    assert merged["people"] == ["Ada", "Grace"] and merged["snippets"] == {"home": "2 Main St", "sig": "Best"}
+    dev("B")
+    assert sync.sync_once(b)["profile"] == "received" and cfg_now()["dictionary"] == ["Vox", "Bar", "fubar => Foobar", "Foobar"]
+
+
 def test_keys_travel_only_when_switched_on_and_leave_the_relay_when_switched_off(dev, srv):
     a = dev("A")
     set_cfg(api_key="gsk_secret", base_url="https://api.groq.com/openai/v1", stt_model="whisper-large-v3-turbo", user_context="hello")

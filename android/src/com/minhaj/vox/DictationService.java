@@ -5,7 +5,6 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Intent;
@@ -25,8 +24,10 @@ import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -38,7 +39,6 @@ import java.util.concurrent.Executors;
  */
 public class DictationService extends Service {
     public static final int SAMPLE_RATE = 16000;
-    private static final int MAX_SECONDS = 360;
     /**
      * The id changed from "vox_service": that channel was created with IMPORTANCE_MIN, so its notification was collapsed
      * and the Stop button was hard to find, and Android cannot raise the importance of an existing channel. The new
@@ -126,6 +126,10 @@ public class DictationService extends Service {
     private String targetLabel;
     /** Where the job in progress sends its result (DEST_DICTATION or DEST_NOTE). Each job takes a copy (see Job). */
     private volatile String targetDest = DEST_DICTATION;
+    /** The limit warning of the note being recorded (the notification shows it), or null. Cleared when a recording starts. */
+    private volatile String limitNotice;
+    /** The piece sender of a send that goes in pieces (a long note), so cancel() can cut its request; null when none. */
+    private volatile PieceSender livePieces;
     /**
      * The unsent recordings kept on disk for Retry, each with its own file (vox_pending_<id>_<dest>.wav) and the
      * pkg/label/dest it was made with. An entry is added when its file is written and leaves only when it is sent,
@@ -233,7 +237,7 @@ public class DictationService extends Service {
         Notification.Builder b = new Notification.Builder(this, CH)
                 .setSmallIcon(R.drawable.ic_stat_mic)
                 .setContentTitle(noting ? "Recording a voice note" : hasPending ? unsent : "Vox is ready")
-                .setContentText(noting ? "Tap Stop when you are done"
+                .setContentText(noting ? (limitNotice != null ? limitNotice : "Tap Stop when you are done")
                         : hasPending ? NotificationActions.retryHint(pending.size(), pending.stuck()) : "Tap the bubble in any text field to dictate")
                 .setContentIntent(openPi)
                 .setOngoing(true);
@@ -337,13 +341,15 @@ public class DictationService extends Service {
         tm.mark("key_down", tapAtMs > 0 ? tapAtMs : SystemClock.elapsedRealtime());   // the tap when it is known, else now
         timing = tm;
         final int job = ++jobId;
+        limitNotice = null;
         pending.beginRecording();   // nothing queued belongs to this recording yet: a cancel now must not touch an older unsent one
         recording = true;
         setState(RECORDING);
         recThread = new Thread(() -> {
             byte[] buf = new byte[1280]; // 40 ms: about 25 meter updates a second
-            long maxBytes = (long) SAMPLE_RATE * 2 * MAX_SECONDS;
-            boolean firstFrame = true;
+            // A note may run three times as long as a dictation, as on the PC (it is then sent in pieces, see send()).
+            long maxBytes = RecordLimit.maxBytes(note), warnBytes = RecordLimit.warnBytes(note);
+            boolean firstFrame = true, warned = false;
             AudioRecord rec = null;
             try {
                 if (minBuf == 0) minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
@@ -355,7 +361,7 @@ public class DictationService extends Service {
                 }
                 preferMic(rec, micKey);
                 rec.startRecording();
-                while (recording) {
+                while (recording && job == jobId) {   // a cancel and a quick new start must not leave this capture running
                     int n = rec.read(buf, 0, buf.length);
                     if (n < 0) {
                         failRecording(job, "Recording failed (audio error " + n + ")");
@@ -370,11 +376,17 @@ public class DictationService extends Service {
                     data.write(buf, 0, n);
                     if (streamer != null) streamer.feed(buf, 0, n);   // a copy and a queue put: the pieces are cut and sent elsewhere
                     postLevel(rms(buf, n));
+                    if (!warned && data.size() >= warnBytes) {   // never a silent stop: say so half a minute before
+                        warned = true;
+                        postNotice(job, RecordLimit.warning(note));
+                    }
                     if (data.size() >= maxBytes) {
-                        main.post(this::stopRecording);
+                        stopAtLimit(job, note);
                         break;
                     }
                 }
+            } catch (OutOfMemoryError e) {   // no room for more audio: keep what was recorded so far
+                main.post(() -> { if (job == jobId) stopRecording(); });
             } catch (SecurityException e) {
                 failRecording(job, "Microphone permission missing. Open Vox and allow it.");
             } catch (Exception e) {
@@ -389,10 +401,35 @@ public class DictationService extends Service {
         recThread.start();
     }
 
+    /**
+     * Half a minute before the limit: a toast, and for a note (often recorded with the screen off) also the notification's
+     * text, which stays until the note ends. Only for the recording that is still current.
+     */
+    private void postNotice(int job, String message) {
+        main.post(() -> {
+            if (job != jobId || state != RECORDING) return;
+            if (isNoteJob()) {
+                limitNotice = message;
+                refreshNotification();
+            }
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        });
+    }
+
+    /** The recording reached its limit: say so (it never stops without a word), then stop and send what was recorded. */
+    private void stopAtLimit(int job, boolean note) {
+        main.post(() -> {
+            if (job != jobId || state != RECORDING) return;   // a cancel, or a new recording, came first
+            Toast.makeText(this, RecordLimit.reached(note), Toast.LENGTH_LONG).show();
+            stopRecording();
+        });
+    }
+
     /** The recorder broke: go back to idle so the bubble is not stuck, and tell the user. */
     private synchronized void failRecording(int job, String message) {
         if (job != jobId || state != RECORDING) return;
         recording = false;
+        pcm = null;
         dropStream();
         setState(IDLE);
         postError(message);
@@ -419,7 +456,7 @@ public class DictationService extends Service {
      * ({@link ApiClient#abort}); a piece that starts after the cancel is refused. (The service's own {@code liveClients}
      * hold the clients of the final send; these are the ones the pieces use.)
      */
-    private static final class PieceSender implements StreamingStt.Transcriber {
+    private static final class PieceSender implements StreamingStt.Transcriber, StreamingStt.Sleeper {
         private final Prefs p;
         private final File dir;
         private volatile ApiClient active;
@@ -452,6 +489,14 @@ public class DictationService extends Service {
             aborted = true;
             ApiClient a = active;
             if (a != null) a.abort();
+        }
+
+        /** The wait for a rate limit (StreamingStt.waiting); a cancel ends it within a quarter of a second. */
+        @Override
+        public void sleep(long ms) throws InterruptedException {
+            long end = System.currentTimeMillis() + ms;
+            for (long left = ms; left > 0 && !aborted; left = end - System.currentTimeMillis()) Thread.sleep(Math.min(250, left));
+            if (aborted) throw new InterruptedException("cancelled");
         }
     }
 
@@ -489,37 +534,55 @@ public class DictationService extends Service {
         setState(PROCESSING);
         final int job = jobId;
         final Thread t = recThread;
-        final ByteArrayOutputStream data = pcm;
+        final ByteArrayOutputStream[] data = {pcm};   // dropped once copied: a long note's buffer is not kept through the send
+        pcm = null;
         final String pkg = targetPkg;
         final String label = targetLabel;
         final String dest = targetDest;   // this job's own copy, like pkg and label: a later recording cannot change it
         final StreamingStt streamer = stream;
         worker.execute(() -> {
+          try {
             try { if (t != null) t.join(2000); } catch (InterruptedException ignored) { }
             // A recording thread that is still running would go on feeding the pieces after the last one is cut: then the
             // whole recording is sent instead.
             final boolean streamUsable = t == null || !t.isAlive();
             if (!streamUsable && streamer != null) streamer.cancel();
             if (!isCurrent(job)) { if (streamer != null) streamer.cancel(); return; }
-            byte[] audio = data.toByteArray();
-            if (audio.length < SAMPLE_RATE * 2 * 0.4) { // under 0.4 s
+            int size = data[0].size();
+            if (size < SAMPLE_RATE * 2 * 0.4) { // under 0.4 s
                 if (streamer != null) streamer.cancel();
                 finish(job);
                 return;
             }
-            if (Pcm.isSilent(audio)) {
-                if (streamer != null) streamer.cancel();
-                postError("Vox did not hear anything");
-                finish(job);
-                return;
+            // A long note (over 20 MB, about 10 minutes) is written straight from the buffer and never copied: an 18-minute
+            // one is a 64 MiB buffer, and a copy next to it could run a phone out of memory and lose the recording.
+            byte[] audio = StreamingStt.needsPieces(size) ? null : data[0].toByteArray();
+            if (audio != null) {
+                data[0] = null;
+                if (Pcm.isSilent(audio)) {
+                    if (streamer != null) streamer.cancel();
+                    postError("Vox did not hear anything");
+                    finish(job);
+                    return;
+                }
             }
             PendingQueue.Entry entry = newEntry(pkg, label, dest);
             try {
-                writeWav(fileOf(entry), audio);
+                if (audio != null) writeWav(fileOf(entry), audio);
+                else writeWav(fileOf(entry), data[0]);
             } catch (IOException e) {
                 fileOf(entry).delete();   // a half-written file
                 if (streamer != null) streamer.cancel();
                 postError("Could not save the recording: " + e.getMessage());
+                finish(job);
+                return;
+            }
+            data[0] = null;
+            audio = null;   // send() reads the file
+            if (StreamingStt.needsPieces(size) && silentWav(fileOf(entry))) {
+                fileOf(entry).delete();
+                if (streamer != null) streamer.cancel();
+                postError("Vox did not hear anything");
                 finish(job);
                 return;
             }
@@ -529,6 +592,13 @@ public class DictationService extends Service {
                 enqueue(entry);
             }
             send(job, entry, tm, streamUsable ? streamer : null);
+          } catch (OutOfMemoryError e) {   // never a crash that takes the bubble down: a file already written stays for Retry
+            data[0] = null;
+            if (streamer != null) streamer.cancel();
+            Log.w("vox", "out of memory while saving a recording");
+            postError("Vox ran out of memory with this recording. If it was saved, tap Retry in the notification.");
+            finish(job);
+          }
         });
     }
 
@@ -573,9 +643,15 @@ public class DictationService extends Service {
         jobId++;
         final ApiClient[] live = liveClients;
         liveClients = null;
-        if (live != null) new Thread(() -> { for (ApiClient a : live) a.abort(); }, "vox-abort").start();   // off the main thread: disconnect closes a socket
+        final PieceSender pieces = livePieces;
+        livePieces = null;
+        if (live != null || pieces != null) new Thread(() -> {   // off the main thread: disconnect closes a socket
+            if (live != null) for (ApiClient a : live) a.abort();
+            if (pieces != null) pieces.abort();
+        }, "vox-abort").start();
         recording = false;
         timing = null;
+        pcm = null;   // a cancelled long note must not keep its buffer until the next recording
         dropStream();
         long id = pending.onCancel();   // the rule lives in PendingQueue: only a fresh, queued recording is discarded
         if (id != 0) discard(id);
@@ -591,9 +667,13 @@ public class DictationService extends Service {
 
     private boolean isCurrent(int job) { return job == jobId; }
 
-    /** A send of this entry failed: when it was a Retry, the entry goes behind the others (and is parked after the third failure). */
+    /**
+     * A send of this entry failed: when it was a Retry, the entry goes behind the others (and is parked after the third
+     * failure). Only now does the cap count a fresh recording: one more than the cap drops the oldest kept one.
+     */
     private void retryFailed(PendingQueue.Entry entry) {
-        if (pending.onSendFailed(entry.id)) refreshNotification();
+        boolean moved = pending.onSendFailed(entry.id);
+        if (!dropOverCap() && moved) refreshNotification();
     }
 
     /** The input devices Android reports now, as the pure MicChoice sees them (no permission is needed to list them). */
@@ -645,12 +725,23 @@ public class DictationService extends Service {
         return new PendingQueue.Entry(id, pkg, label, dest);
     }
 
-    /** Keeps an entry for Retry. The cap drops the oldest one (file too) and says so. */
+    /**
+     * Keeps a fresh recording for Retry while it is sent. It does not count against the cap yet: a send that works must
+     * not cost the oldest kept recording (retryFailed applies the cap when the send fails).
+     */
     private void enqueue(PendingQueue.Entry e) {
-        boolean dropped = false;
-        for (PendingQueue.Entry d : pending.add(e)) { fileOf(d).delete(); dropped = true; }
-        if (dropped) main.post(() -> Toast.makeText(this, "Oldest unsent recording dropped", Toast.LENGTH_LONG).show());
+        pending.addFresh(e);
         refreshNotification();
+    }
+
+    /** The cap drops the oldest kept recordings (files too) and says so. Returns whether any went (the notification was refreshed). */
+    private boolean dropOverCap() {
+        boolean dropped = false;
+        for (PendingQueue.Entry d : pending.trim()) { fileOf(d).delete(); dropped = true; }
+        if (!dropped) return false;
+        main.post(() -> Toast.makeText(this, "Oldest unsent recording dropped", Toast.LENGTH_LONG).show());
+        refreshNotification();
+        return true;
     }
 
     /** Removes one entry and its file: it was sent, or the user discarded it. */
@@ -720,6 +811,20 @@ public class DictationService extends Service {
                 // One encoding serves every attempt.
                 ApiClient.Upload up = AudioUpload.fromWavFile(getCacheDir(), wav, g.m4aAllowed());
                 try {
+                    if (StreamingStt.needsPieces(up.file.length())) {
+                        // Too big for one upload even so (a long voice note whose m4a could not be made, or a server that
+                        // takes no m4a; an 18-minute m4a is about 9 MB and goes whole): cut at pauses and sent piece by
+                        // piece from the file, as the PC app does (vox_core._transcribe_in_pieces), a rate limit waited
+                        // out. A failed piece fails the send: the recording is kept for Retry.
+                        PieceSender ps = new PieceSender(p, getCacheDir());
+                        livePieces = ps;
+                        try (InputStream in = pcmOf(wav)) {
+                            if (isCurrent(job)) raw = StreamingStt.inPieces(in, ps, ps);
+                        } finally {
+                            livePieces = null;
+                        }
+                        if (raw == null) return;   // cancelled meanwhile
+                    }
                     for (int attempt = 1; attempt <= SEND_ATTEMPTS && raw == null; attempt++) {
                         if (!isCurrent(job)) return;
                         try {
@@ -739,7 +844,7 @@ public class DictationService extends Service {
             double seconds = Math.max(0, wav.length() - 44) / (SAMPLE_RATE * 2.0);
             if (raw.isEmpty() || ApiClient.isSilenceHallucination(raw)) {
                 discard(entry.id);
-                if (note) postError("Vox did not hear any words, so no note was saved");
+                postError(InsertGuard.emptyResult(note));   // never dropped without a word: a lone "Thank you." is a real reply too
                 return;
             }
             String style = p.styleFor(pkg);   // a note has no pkg (see startRecording): the default style, as on Windows
@@ -783,7 +888,7 @@ public class DictationService extends Service {
                 if (route == InsertGuard.ROUTE_TYPE) {
                     listener.onResult(result, pkg);
                 } else if (route == InsertGuard.ROUTE_CLIPBOARD) {   // nothing can type it (accessibility is off): the text is not lost
-                    ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Vox", result));
+                    ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(VoxAccessibilityService.dictationClip(result));
                     Toast.makeText(this, InsertGuard.noListenerMessage(), Toast.LENGTH_LONG).show();
                 }
                 // The history entry is written after the text went in, so its timing includes the insertion; the
@@ -804,11 +909,23 @@ public class DictationService extends Service {
             if ((e.code == 401 || e.code == 403) && p.usesRelay()) postError("The relay or the AI server behind it refused the request (" + Providers.RELAY_HINT + "). Then tap Retry in the notification.");
             else if (e.code == 401) postError("The server rejected the API key. Fix it, then tap Retry in the notification.");
             else if (e.code == 429) postError("Rate limit reached. Tap Retry in the notification.");
-            else postError(e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
+            else postError(InsertGuard.sendFailed(e.getMessage()));
         } catch (IOException e) {
             if (!isCurrent(job)) return;
             retryFailed(entry);
-            postError("Network error:" + e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
+            postError(InsertGuard.networkFailed(e.getMessage(), e.getClass().getSimpleName()));
+        } catch (RuntimeException e) {
+            // Anything else (a header value the connection refuses, a bug) must not kill the process, and with it the
+            // accessibility bubble: the recording is kept for Retry, as for a network failure.
+            Log.w("vox", "send failed: " + e.getClass().getSimpleName());
+            if (!isCurrent(job)) return;
+            retryFailed(entry);
+            postError(InsertGuard.crashed(e));
+        } catch (OutOfMemoryError e) {   // the same for a long recording that did not fit: kept for Retry
+            Log.w("vox", "send failed: out of memory");
+            if (!isCurrent(job)) return;
+            retryFailed(entry);
+            postError("Vox ran out of memory while sending this recording. It is kept: tap Retry in the notification.");
         } finally {
             if (isCurrent(job)) liveClients = null;
             if (streamer != null) streamer.cancel();   // ends its thread on every way out (a no-op once it has finished)
@@ -826,7 +943,7 @@ public class DictationService extends Service {
     private void saveNote(int job, PendingQueue.Entry entry, String raw, String text, double seconds, Prefs p) {
         if (NoteLogic.strip(text).isEmpty()) {   // nothing left to keep (engine.py saves only when there is text)
             discard(entry.id);
-            postError("Vox did not hear any words, so no note was saved");
+            postError(InsertGuard.emptyResult(true));
             return;
         }
         if (!isCurrent(job)) return;   // a cancel that came after the last check in send(): nothing is stored
@@ -835,7 +952,7 @@ public class DictationService extends Service {
             id = NotesStore.get(this).add(text, raw, seconds, Note.SOURCE_NOTE, p.deviceName(), new ArrayList<String>(), "");
         } catch (RuntimeException e) {   // SQLiteException: disk full, database damaged
             retryFailed(entry);
-            postError("Could not save the note: " + e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
+            postError(InsertGuard.KEPT + " Could not save the note: " + e.getClass().getSimpleName() + ".");
             return;
         }
         // From here the note is saved: reading the title back is cosmetic and must never report a failure (Retry
@@ -896,22 +1013,69 @@ public class DictationService extends Service {
     }
 
     static void writeWav(File f, byte[] pcm) throws IOException {
-        int byteRate = SAMPLE_RATE * 2;
         try (FileOutputStream o = new FileOutputStream(f)) {
-            o.write(new byte[]{'R', 'I', 'F', 'F'});
-            le32(o, 36 + pcm.length);
-            o.write(new byte[]{'W', 'A', 'V', 'E', 'f', 'm', 't', ' '});
-            le32(o, 16);
-            le16(o, 1);            // PCM
-            le16(o, 1);            // mono
-            le32(o, SAMPLE_RATE);
-            le32(o, byteRate);
-            le16(o, 2);            // block align
-            le16(o, 16);           // bits per sample
-            o.write(new byte[]{'d', 'a', 't', 'a'});
-            le32(o, pcm.length);
+            wavHeader(o, pcm.length);
             o.write(pcm);
         }
+    }
+
+    /** The same, straight from the recording's buffer (no copy of it in memory). */
+    static void writeWav(File f, ByteArrayOutputStream pcm) throws IOException {
+        try (FileOutputStream o = new FileOutputStream(f)) {
+            wavHeader(o, pcm.size());
+            pcm.writeTo(o);
+        }
+    }
+
+    private static void wavHeader(FileOutputStream o, int pcmBytes) throws IOException {
+        int byteRate = SAMPLE_RATE * 2;
+        o.write(new byte[]{'R', 'I', 'F', 'F'});
+        le32(o, 36 + pcmBytes);
+        o.write(new byte[]{'W', 'A', 'V', 'E', 'f', 'm', 't', ' '});
+        le32(o, 16);
+        le16(o, 1);            // PCM
+        le16(o, 1);            // mono
+        le32(o, SAMPLE_RATE);
+        le32(o, byteRate);
+        le16(o, 2);            // block align
+        le16(o, 16);           // bits per sample
+        o.write(new byte[]{'d', 'a', 't', 'a'});
+        le32(o, pcmBytes);
+    }
+
+    /** The audio of a WAV this service wrote (after its 44-byte header), as a stream. */
+    private static InputStream pcmOf(File wav) throws IOException {
+        InputStream in = new java.io.BufferedInputStream(new FileInputStream(wav), 1 << 16);
+        long skipped = 0;
+        while (skipped < 44) {
+            long s = in.skip(44 - skipped);
+            if (s <= 0) {
+                in.close();
+                throw new IOException("short file");
+            }
+            skipped += s;
+        }
+        return in;
+    }
+
+    /**
+     * Pcm.isSilent on a WAV file, a megabyte at a time (a long note is never read into memory whole). A file that cannot be
+     * read counts as not silent: the send then fails and keeps it for Retry.
+     */
+    private static boolean silentWav(File wav) {
+        try (InputStream in = pcmOf(wav)) {
+            byte[] buf = new byte[1 << 20];
+            int got;
+            do {
+                got = 0;
+                int n;
+                while (got < buf.length && (n = in.read(buf, got, buf.length - got)) > 0) got += n;
+                if (got > 0 && !Pcm.isSilent(java.util.Arrays.copyOf(buf, got))) return false;
+            } while (got == buf.length);
+        } catch (IOException e) {
+            return false;
+        }
+        return true;
     }
 
     private static void le32(FileOutputStream o, int v) throws IOException {
