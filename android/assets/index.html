@@ -641,7 +641,7 @@ function renderHistory() {
   items.slice(0, 200).forEach(e => {
     const d = new Date(e.t * 1000), ds = d.toDateString();
     if (ds !== day) { if (day) html += "</div>"; day = ds; html += `<div class="day">${ds === today ? "Today" : ds === yest ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</div><div class="card list">`; }
-    html += `<div class="entry"><div class="txt">${esc(e.text || e.clean)}</div><div data-fixbox="${e.t}"></div><div class="meta"><span class="grow">${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${e.app ? " · " + esc(e.app) : ""}${e.fidelity_fallback ? " · cleanup rejected, your words as spoken" : ""}</span>
+    html += `<div class="entry"><div class="txt">${esc(e.text || e.clean)}</div><div data-fixbox="${e.t}"></div><div class="meta"><span class="grow">${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${e.app ? " · " + esc(e.app) : ""}${e.fidelity_fallback ? " · cleanup rejected, basic tidying only" : ""}</span>
       ${e.raw && e.raw !== e.text ? `<button class="ib" style="font:inherit;font-size:12px;padding:6px 8px" title="Copy the words as spoken, before any cleanup" data-raw="${e.t}">Use raw</button>` : ""}<button class="ib" data-fix="${e.t}" title="Fix a word Vox got wrong">${ICON_EDIT}</button><button class="ib" data-copy="${e.t}">${ICON_COPY}</button><button class="ib" data-del="${e.t}">${ICON_DEL}</button></div></div>`;
   });
   $("history").innerHTML = html + "</div>";
