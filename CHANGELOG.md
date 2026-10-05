@@ -10,6 +10,7 @@ Cleanup-quality round (2026-10-05; tested with golden rows, a labelled set and f
 - **Cleanup prompt v3 (both apps):** fixed rules and examples first (cache-friendly), the speaker is never talking to the model, Hinglish stays in its script, filler-only dictations give nothing. Only the dictionary terms that sound like the transcript are sent (at most 20). Whisper gets a short sentence of names and recently learned terms.
 - **No-AI fallback (both apps):** when the cleanup is skipped, fails, times out or is rejected, noises and spoken punctuation are cleaned by rules, so the text still reads typed. Dictations under 4 words (was 3) skip the AI; existing PCs move from 3 to 4 once. [ADR 0042]
 - **Speech-to-text (both apps):** silence at the start and end is trimmed before upload; Whisper's low-confidence segments and prompt echoes are dropped (never a whole dictation, never ordinary Hindi); Settings suggests English when you only speak English.
+- **Benchmark wizard:** `tools\bench_wizard.cmd` (double-click) runs recording, transcription and both cleanup comparisons in one guided session, resumable, with a summary file.
 - **Benchmark tools:** `tools/bench_record.py`, `bench_stt.py`, `bench_cleanup.py` and `bench_metrics.py` record your own clips (kept in `%APPDATA%\Vox\bench`, never uploaded except to your own provider when you run them) and compare the old and new prompt and guard (WER, punctuation, over-editing, latency, bootstrap intervals).
 
 ### Fixed
