@@ -75,7 +75,7 @@ No screenshots are in the repository yet. These are the ones to take (made-up te
 
 The Windows app and the earlier Android app have been used on real devices, but much of the newest work has only been checked by unit tests. Please read this before you rely on it.
 
-- **The latest release is older than most of this README.** Release v1.2.0 (2026-09-28) predates the v2 work (providers, voice notes, the relay, keep listening, Improve my cleanup, the Android notes and bubble fixes). Until a new release is tagged, build from source to get them.
+- **Release v2.0.0 (2026-10-05) is the first release with the v2 work** (providers, voice notes, the relay, keep listening, Improve my cleanup, the Android notes and bubble fixes). Its newest features were checked by tests and CI builds, not on every real device: the open checks are the issues with the [`device-test` label](../../issues?q=is%3Aopen+label%3Adevice-test).
 - **Android v2 features have not been run on a phone.** Note mode and the note bubble, relay sync, the speed work, the bubble watchdog and diagnostics, and the Install help card are unit-tested and compile-checked only. Device checklists: [p9b](documentation/specs/p9b-measure-and-speed-up.md), [p9c](documentation/specs/p9c-devices-and-relay-setup.md), [p9d](documentation/specs/p9d-android-bubble.md), [p9g](documentation/specs/p9g-note-bubble.md), [p9g2](documentation/specs/p9g2-install-safety.md).
 - **Keep listening and Improve my cleanup have not run with a real microphone or model.** Checklists: [p9e](documentation/specs/p9e-keep-listening.md), [p9f](documentation/specs/p9f-improve-my-cleanup.md).
 - **The new cleanup prompt and the word check have not been measured on a real model.** The thresholds were tuned on written examples ([p9a](documentation/specs/p9a-cleanup-keeps-my-words.md)).
@@ -100,7 +100,7 @@ The full, current list is in [documentation/12-known-issues-and-roadmap.md](docu
 3. Leave **"Start Vox when I sign in to Windows"** ticked, then click **Install** and **Finish**.
 4. Allow the microphone: Windows **Settings**, **Privacy & security**, **Microphone**: turn on **Microphone access**, **Let apps access your microphone** and **Let desktop apps access your microphone**.
 
-Vox runs in the system tray (near the clock; click **^** if you do not see it). On first start it asks for an AI provider and an API key (release v1.2.0 asks for a Groq key directly).
+Vox runs in the system tray (near the clock; click **^** if you do not see it). On first start it asks for an AI provider and an API key (release v2.0.0 lets you pick the provider).
 
 **A free Groq key (2 minutes):** sign in at [console.groq.com](https://console.groq.com) (no credit card), open **API Keys**, **Create API Key**, copy it (it starts with `gsk_`; Groq shows it once) and paste it into Vox. Keep it private: anyone with it can use your quota. If it leaks, delete it on console.groq.com and make a new one.
 

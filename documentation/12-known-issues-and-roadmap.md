@@ -4,7 +4,7 @@ State of the code, honestly. Update this page when you fix or discover something
 
 ## Status at 2026-10-02
 
-Checked against `main` at `288fe59` (the merge of PR 54). Everything below was read from the code, the GitHub API or a run; what is inferred is marked.
+Checked against `main` at `288fe59` (the merge of PR 54). **Release:** v2.0.0 was tagged on 2026-10-05, so the release itself is done; everything else in this section is still true. Everything below was read from the code, the GitHub API or a run; what is inferred is marked.
 
 **Built and merged.** PRs 25 (v2 part 3: keep my words, speed, devices, bubble, keep listening, Improve my cleanup), 43 (open-source presentation), 47, 48 and 50 (review fixes, the Android microphone choice, relay hardening), 51 (standalone relay programs), 52 (dictations in Win+V clipboard history), 53 (the pill's re-assert and repair) and 54 (lists and paragraphs, code mode, snippets, the new shortcuts, terminal paste, edit by voice, FLAC uploads, Learn from my corrections, the final review fixes). The feature list is [08-features.md](08-features.md). Automated checks: 2944 pytest tests collected (2936 pass, 8 skipped on Windows), 36 Java test programs (34 run without `--integration`, all pass), the Android sources compile (`compile-check`, 51 files). CI: the manual run of the workflow on `288fe59` passed every job (`tests`, the `relay` jobs on x86 and arm64 Linux, the three `relay-exe` builds, `relay-sums`, `windows` with the whole pytest suite, the PyInstaller build and the installer, and `android` including the sync client against the real relay).
 
@@ -175,7 +175,7 @@ The README, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, the issue fo
 
 1. **Turn on GitHub private vulnerability reporting** (repository Settings, Code security). It was still off on 2026-10-02 (checked with the API), so `SECURITY.md` tells reporters what to do without it.
 2. **Take the screenshots** listed in the README (`docs/screenshots/`, made-up text only) and link them from the README.
-3. **Tag a new release.** The latest release, v1.2.0, predates the v2 work, so the README's install steps give the old app.
+3. ~~Tag a new release~~ Done: v2.0.0 (2026-10-05) is the first release with the v2 work, so the README's install steps give the current app.
 4. ~~Neutral example values in the app pages~~ Done: the relay address examples read `your-pi.your-tailnet.ts.net` in `ui-shared/relay-steps.txt` and both pages, and a test (`tests/test_ui_static.py`) fails if a private machine name comes back.
 5. **The public site's contact address.** `docs/index.html` and `docs/privacy.html` give the original author's personal email as the contact; the owner may prefer the repository's issues or private reporting.
 6. ~~Labels for the issue forms~~ Done: the repository has the `device-test` label (checked with the API on 2026-10-02) next to `bug` and `enhancement`.
