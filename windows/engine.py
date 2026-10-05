@@ -1,4 +1,5 @@
 """Background part of Vox: tray icon, global hotkey, recording, Groq pipeline, paste, overlay."""
+import contextlib
 import ctypes
 import json
 import logging
@@ -932,16 +933,20 @@ class Engine:
         Only while none of our streams is open, and at most once every AUDIO_REFRESH_SECONDS (restarting PortAudio takes
         time, and a missing microphone would otherwise restart it for every dictation); True when it was done."""
         now = time.monotonic()
-        if self.recording or self.listening or now - self._audio_refresh_t < AUDIO_REFRESH_SECONDS                 or (self.warm is not None and (self.warm.is_open or self.warm.busy)):   # restarting PortAudio would kill the warm stream, or pull it from under its open (ENG-13)
+        if self.recording or self.listening or now - self._audio_refresh_t < AUDIO_REFRESH_SECONDS:
             return False
-        self._audio_refresh_t = now
-        try:
-            sd._terminate()
-            sd._initialize()
-        except Exception:
-            log.exception("could not refresh the audio device list")
-            return False
-        return True
+        warm = self.warm
+        with warm.idle() if warm is not None else contextlib.nullcontext(True) as free:
+            if not free:   # restarting PortAudio would kill the warm stream, or pull it from under its open (ENG-13)
+                return False
+            self._audio_refresh_t = now
+            try:
+                sd._terminate()
+                sd._initialize()
+            except Exception:
+                log.exception("could not refresh the audio device list")
+                return False
+            return True
 
     def _audio(self, indata, frames, t, status):
         self.chunks.append(bytes(indata))

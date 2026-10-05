@@ -148,9 +148,18 @@ def test_a_stream_that_fails_to_start_is_closed(eng, monkeypatch):
 
 
 def test_portaudio_is_not_restarted_while_the_warm_microphone_is_being_opened(eng, monkeypatch):
+    import warm_mic
     sd = FakeSd()
     monkeypatch.setattr(engine_mod, "sd", sd)
-    eng.warm = types.SimpleNamespace(is_open=False, busy=True)   # the config thread is inside Pa_OpenStream
-    assert eng._refresh_audio() is False and sd.terminated == 0
-    eng.warm = types.SimpleNamespace(is_open=False, busy=False)
-    assert eng._refresh_audio() is True and sd.terminated == 1
+    eng.warm = warm_mic.WarmMic(lambda cb: types.SimpleNamespace(stop=lambda: None, close=lambda: None))
+    eng.warm._op.acquire()   # the config thread is inside Pa_OpenStream
+    try:
+        assert eng._refresh_audio() is False and sd.terminated == 0
+    finally:
+        eng.warm._op.release()
+    held = []
+    sd._terminate = lambda: held.append(eng.warm._op.locked())
+    assert eng._refresh_audio() is True and held == [True]   # no open can start while PortAudio restarts (final review W-M4)
+    eng._audio_refresh_t = float("-inf")
+    eng.warm.ensure("")
+    assert eng._refresh_audio() is False   # an open warm stream would be killed by the restart
