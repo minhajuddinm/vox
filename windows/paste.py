@@ -313,7 +313,9 @@ class SystemDeps:
         return out or None
 
     def clip_restore(self, snapshot):
-        """Puts a clip_snapshot() back, replacing what is on the clipboard now."""
+        """Puts a clip_snapshot() back, replacing what is on the clipboard now. It is marked private (ENG-9): the old
+        item already went to Win+V history and the cloud clipboard once, if at all. A marker the snapshot holds keeps
+        its own value."""
         user32, kernel32 = _api()
         with _Clipboard(owner=True):
             user32.EmptyClipboard()
@@ -322,6 +324,14 @@ class SystemDeps:
                     _put(user32, kernel32, fmt, data)
                 except OSError as e:
                     log.warning("clipboard format %s not restored: %s", fmt, e)
+            held = {fmt for fmt, _ in snapshot}
+            for name, value in _PRIVATE_FORMATS:
+                try:
+                    fmt = user32.RegisterClipboardFormatW(name)
+                    if fmt and fmt not in held:
+                        _put(user32, kernel32, fmt, value)
+                except OSError as e:
+                    log.warning("clipboard history marker %s not set: %s", name, e)
 
     def _send(self, vk, shift=False):
         """Ctrl (+ Shift) + the key `vk`. The virtual key, not the letter: on a layout with no Latin letters (Cyrillic,
