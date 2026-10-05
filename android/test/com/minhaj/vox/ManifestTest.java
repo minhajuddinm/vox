@@ -36,6 +36,21 @@ public final class ManifestTest {
         // The bar colours come from isDark() in onCreate, so a dark-mode flip must still recreate the screen.
         eq("MainActivity does not swallow uiMode changes", false, main != null && main.matches("(?s).*android:configChanges=\"[^\"]*uiMode[^\"]*\".*"));
 
+        // allowBackup="false" stops cloud backup only: on Android 12+ a phone-to-phone transfer still copies the keys, the
+        // history and the notes unless the data extraction rules exclude them (AND-14, PRV-11).
+        eq("no cloud backup", true, xml.contains("android:allowBackup=\"false\""));
+        eq("the manifest names the data extraction rules", true, xml.contains("android:dataExtractionRules=\"@xml/data_extraction_rules\""));
+        String rules = new String(Files.readAllBytes(Paths.get("android/res/xml/data_extraction_rules.xml")), StandardCharsets.UTF_8);
+        int transfer = rules.indexOf("<device-transfer>"), end = rules.indexOf("</device-transfer>");
+        eq("the rules cover a device transfer", true, transfer >= 0 && end > transfer);
+        String d2d = transfer >= 0 && end > transfer ? rules.substring(transfer, end) : "";
+        for (String domain : new String[]{"root", "file", "database", "sharedpref", "external"}) {
+            eq("a device transfer leaves out " + domain, true, d2d.contains("<exclude domain=\"" + domain + "\" path=\".\""));
+        }
+        eq("a device transfer includes nothing", false, d2d.contains("<include"));
+        int cloud = rules.indexOf("<cloud-backup"), cloudEnd = rules.indexOf("</cloud-backup>");
+        eq("the rules cover cloud backup too", true, cloud >= 0 && cloudEnd > cloud && rules.substring(cloud, cloudEnd).contains("<exclude domain=\"sharedpref\" path=\".\""));
+
         System.out.println("OK: " + checks + " checks passed");
     }
 }
