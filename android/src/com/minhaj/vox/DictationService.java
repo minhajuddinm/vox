@@ -565,6 +565,9 @@ public class DictationService extends Service {
                     finish(job);
                     return;
                 }
+                // The silent start and end are not kept or sent (Whisper fills silence with words); the pauses inside stay,
+                // and a recording with no clear speech is kept whole (vox_core.process_detailed does the same).
+                audio = Pcm.trimEdges(audio, true, true);
             }
             PendingQueue.Entry entry = newEntry(pkg, label, dest);
             try {
