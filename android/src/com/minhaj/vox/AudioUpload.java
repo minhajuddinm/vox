@@ -115,7 +115,7 @@ final class AudioUpload {
         if (len == 0) return false;
         MediaCodec codec = null;
         MediaMuxer muxer = null;
-        boolean muxerStarted = false;
+        boolean muxerStarted = false, muxerStopped = false;
         try {
             MediaFormat fmt = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, rate, 1);
             fmt.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC);
@@ -161,7 +161,11 @@ final class AudioUpload {
                     codec.releaseOutputBuffer(o, false);
                 }
             }
-            return muxerStarted;
+            if (!muxerStarted) return false;
+            // stop() writes the index (moov) of the file: only a stop that worked makes an m4a a server can read
+            muxerStopped = true;
+            muxer.stop();
+            return true;
         } catch (Exception e) {
             return false;
         } finally {
@@ -170,7 +174,7 @@ final class AudioUpload {
                 try { codec.release(); } catch (Exception ignored) { }
             }
             if (muxer != null) {
-                if (muxerStarted) {
+                if (muxerStarted && !muxerStopped) {
                     try { muxer.stop(); } catch (Exception ignored) { }
                 }
                 try { muxer.release(); } catch (Exception ignored) { }
