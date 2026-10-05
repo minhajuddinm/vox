@@ -1007,3 +1007,18 @@ autolearn			recieve=>receive;teh=>the	recieve=>receive;teh=>the
 autolearn			user underscore id=>user_id;recieve=>receive;recieve=>receipt	user underscore id=>user_id;recieve=>receive	user_id
 autolearn	vox=>Vox	LoomXR	jason=>JSON;grok cloud=>Groq Cloud	jason=>JSON;grok cloud=>Groq Cloud	JSON
 autolearn					
+# bf-a: the cleanup request bounds (vox_core.cleanup_max_tokens / cleanup_read_ms, Latency.maxTokens / llmReadMs)
+maxtokens	hello there	openai/gpt-oss-20b	1024
+maxtokens	hello there	llama-3.3-70b-versatile	256
+maxtokens	word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word	llama-3.3-70b-versatile	814
+maxtokens	a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a	qwen/qwen3-32b	2032
+maxtokens	नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया नमस्ते दुनिया	Deepseek-R1-Distill-Llama-70B	1390
+maxtokens	👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍👍	llama	464
+maxtokens		gpt-oss-120b	1024
+maxtokens	a b c	my-reasoner	1024
+llmread	0	20000
+llmread	5	20300
+llmread	666	59960
+llmread	667	60000
+llmread	10000	60000
+llmread	-3	20000

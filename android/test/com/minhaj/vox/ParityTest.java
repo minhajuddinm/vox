@@ -346,6 +346,12 @@ public final class ParityTest {
                 case "retry":   // status (0 = no answer), request timeout, via the relay, whether the same request is sent again
                     eq(ln, kind, f[3], ApiClient.retryable(Integer.parseInt(f[0]), f[1].equals("true"), f[2].equals("true")) ? "true" : "false");
                     break;
+                case "maxtokens":   // transcript, model, max_tokens of its cleanup request (with headroom when the model may think)
+                    eq(ln, kind, f[2], String.valueOf(Latency.maxTokens(f[0], Latency.mayThink(f[1]))));
+                    break;
+                case "llmread":   // words, how long to wait for the cleanup answer (ms)
+                    eq(ln, kind, f[1], String.valueOf(Latency.llmReadMs(Integer.parseInt(f[0]))));
+                    break;
                 case "timing_median":
                     eq(ln, kind, f[1], String.valueOf(Timing.median(numbers(f[0]))));
                     break;

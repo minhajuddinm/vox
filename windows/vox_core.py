@@ -1076,10 +1076,11 @@ def retryable(status, timeout, via_relay):
     return status == 0 or status in RETRY_STATUS
 
 
-def post_with_retry(url, retries=2, via_relay=False, **kw):
+def post_with_retry(url, retries=2, via_relay=False, retry_timeouts=True, **kw):
     """POST with a quick retry on dropped connections (flaky Wi-Fi, VPNs, antivirus TLS inspection)
-    and on temporary server errors (see `retryable`; `via_relay` says the relay is the server). The last response is
-    returned as it is."""
+    and on temporary server errors (see `retryable`; `via_relay` says the relay is the server). `retry_timeouts` False:
+    a wait for the answer that ran out is not sent again (the cleanup, which falls back to the spoken words). The last
+    response is returned as it is."""
     for attempt in range(retries + 1):
         try:
             if "files" in kw:   # file objects must be re-sent from the start
@@ -1089,7 +1090,7 @@ def post_with_retry(url, retries=2, via_relay=False, **kw):
             r = _post(url, **kw)
         except (requests.ConnectionError, requests.Timeout) as e:
             timed_out = isinstance(e, requests.Timeout) and not isinstance(e, requests.ConnectTimeout)   # (not "could not connect")
-            if attempt == retries or not retryable(0, timed_out, via_relay):
+            if attempt == retries or not retryable(0, timed_out, via_relay) or (timed_out and not retry_timeouts):
                 raise
         else:
             if not retryable(r.status_code, False, via_relay) or attempt == retries:
@@ -1317,30 +1318,68 @@ def transcribe_segments(cfg, wav_bytes, prompt=None, model=None):
 def chat_text(cfg, body, timeout=60):
     """The text of one chat answer from the cleanup server (or the relay): `body` is the request (model, messages, ...).
     Reasoning fields are added for gpt-oss models and dropped, once, for a server that refuses them. Raises ApiError."""
+    return chat_reply(cfg, body, timeout)[0]
+
+
+def chat_reply(cfg, body, timeout=60, retry_timeouts=True):
+    """chat_text, plus the answer's finish_reason ("" when the server sent none)."""
     base = providers.role_settings(cfg, "llm")[0]
     via_relay = providers.uses_relay(cfg)
     extra = providers.reasoning_params(cfg, base, body["model"])
     body.update(extra)
-    r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout, via_relay=via_relay)
+    r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout,
+                        via_relay=via_relay, retry_timeouts=retry_timeouts)
     if extra and r.status_code in (400, 422):   # this server does not know the reasoning fields: retry without them
         providers.remember_rejected(base, body["model"])
         for k in extra:
             body.pop(k, None)
-        r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout, via_relay=via_relay)
+        r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout,
+                            via_relay=via_relay, retry_timeouts=retry_timeouts)
     data = check_response(r, via_relay)
     try:
-        content = data["choices"][0]["message"].get("content")
+        choice = data["choices"][0]
+        content = choice["message"].get("content")
+        finish = choice.get("finish_reason")
     except (KeyError, IndexError, TypeError, AttributeError):
         raise ApiError(0, "The cleanup server sent an answer Vox could not read")
-    return providers.strip_think(content or "")
+    return providers.strip_think(content or ""), finish if isinstance(finish, str) else ""
+
+
+# The bounds of a cleanup request, the same as the phone's (android Latency.java; golden rows maxtokens and llmread).
+REASONING_HEADROOM = 768   # hidden reasoning tokens of thinking models count against max_tokens even when not returned
+MIN_TOKENS = 256           # the smallest max_tokens, so that a short dictation is never cut off by a tiny bound
+
+
+def may_think(model):
+    """Whether a model may spend tokens on thinking before it answers (gpt-oss, Qwen3, QwQ, DeepSeek R1, *think*, *reasoner*)."""
+    m = (model or "").lower()
+    return any(k in m for k in ("gpt-oss", "qwen3", "qwq", "deepseek-r1", "think", "reasoner"))
+
+
+def cleanup_max_tokens(raw, thinks):
+    """Twice the estimated tokens of the text plus 64, at least MIN_TOKENS, plus REASONING_HEADROOM when the model may
+    think. The estimate is the larger of two per word and half the characters for ASCII text, else one per character
+    (counted in UTF-16 units, as Java does)."""
+    raw = raw or ""
+    chars = len(raw.encode("utf-16-le")) // 2
+    est = max(len(raw.split()) * 2, (chars + 1) // 2) if raw.isascii() else chars
+    return max(MIN_TOKENS, 2 * est + 64) + (REASONING_HEADROOM if thinks else 0)
+
+
+def cleanup_read_ms(words):
+    """How long to wait for a cleanup answer: 20 s plus 60 ms per word, at most 60 s (then the spoken words are used)."""
+    return min(60000, 20000 + max(0, words) * 60)
 
 
 def cleanup(cfg, raw, style, app_label):
-    model = providers.role_settings(cfg, "llm")[2]
+    """The cleaned text. Raises ApiError (or a requests error) when it failed, an answer cut off at max_tokens included.
+    A wait that ran out is not repeated: the caller then uses the spoken words."""
+    base, _, model = providers.role_settings(cfg, "llm")
+    thinks = may_think(model) or bool(providers.reasoning_params(cfg, base, model))
     body = {
         "model": model,
-        "temperature": 0.2,
-        "max_tokens": max(1024, len(raw) * 2),
+        "temperature": 0,
+        "max_tokens": cleanup_max_tokens(raw, thinks),
         "messages": [
             {"role": "system",
              "content": system_prompt(style, dictionary_terms(cfg), app_label, cfg.get("user_context", ""),
@@ -1348,7 +1387,10 @@ def cleanup(cfg, raw, style, app_label):
             {"role": "user", "content": f"<transcript>\n{raw}\n</transcript>"},
         ],
     }
-    return sanitize(chat_text(cfg, body))
+    text, finish = chat_reply(cfg, body, cleanup_read_ms(len(raw.split())) / 1000, retry_timeouts=False)
+    if finish.lower() == "length":
+        raise ApiError(0, "the cleanup answer was cut off (max_tokens)")
+    return sanitize(text)
 
 
 Result = namedtuple("Result", "raw text cleaned cleanup_error fidelity_fallback", defaults=(False,))

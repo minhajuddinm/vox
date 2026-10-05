@@ -31,7 +31,7 @@ Median of an even count averages the two middle values, rounded down; p90 is the
 | 6 | Connect timeout 5 s with one immediate retry on connect failure only (never after a wait that ran out); speech read timeout `20 s + 3 s per audio second` (30 to 180 s); cleanup `20 s + 60 ms per word` (at most 60 s) | `Latency`, `ApiClient` |
 
 ### Plan changes (and why)
-- The plan's cleanup bound `2x + 64` was too small: hidden reasoning counts against `max_tokens`, so a short answer from gpt-oss, Qwen3 or DeepSeek R1 was cut off inside the think block. Now there is a floor of 256, a 768-token headroom for any model `Latency.mayThink` recognises (a name heuristic), also on the retry without reasoning fields, and a cut-off answer is a failed cleanup instead of silently junk. Windows still sends `max(1024, 2 x length)` and shares no rule with this.
+- The plan's cleanup bound `2x + 64` was too small: hidden reasoning counts against `max_tokens`, so a short answer from gpt-oss, Qwen3 or DeepSeek R1 was cut off inside the think block. Now there is a floor of 256, a 768-token headroom for any model `Latency.mayThink` recognises (a name heuristic), also on the retry without reasoning fields, and a cut-off answer is a failed cleanup instead of silently junk. Windows sent `max(1024, 2 x length)` until bf-a (2026-10-05); it now uses the same rule (golden rows `maxtokens`, `llmread`).
 - The "skip cleanup for very short text" item needed no new code: `cleanup_min_words` already does it on both apps.
 - The Windows history timing is built by the engine, not through golden rows (`Timing.entry` needs marks); the key order is pinned by a test instead. The Java rows run through `Timing.historyMap`.
 
