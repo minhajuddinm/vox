@@ -70,6 +70,14 @@ def test_the_windows_job_runs_on_pull_requests_and_runs_pytest():
     assert windows.index("python -m pytest") < windows.index("pyinstaller @g")      # a failing test stops the build
 
 
+def test_the_windows_job_starts_the_built_exe_with_selfcheck_before_the_installer():
+    # CI3: the frozen Vox.exe was never started, so a module, libsndfile or pythonnet left out would ship silently
+    windows = job("windows")
+    check = step("--selfcheck")
+    assert "dist\\Vox\\Vox.exe" in check and "-Wait -PassThru" in check and "ExitCode -ne 0" in check and "exit 1" in check
+    assert windows.index("pyinstaller @g") < windows.index("--selfcheck") < windows.index("ISCC.exe")
+
+
 def test_the_android_job_puts_the_tag_into_the_manifest_before_the_build():
     android = job("android")
     version = step_in(android, "version")

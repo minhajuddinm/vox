@@ -52,7 +52,7 @@ windows/                Windows app (Python) and its installer scripts
 
 | Path | What it is |
 |---|---|
-| `windows/vox_app.py` | Entry point. No argument: start the engine (or, if one is running, open the window). `--window`: open the main window. Sets up rotating logs and the single-instance mutexes. |
+| `windows/vox_app.py` | Entry point. No argument: start the engine (or, if one is running, open the window). `--window`: open the main window. `--relay`: the relay. `--selfcheck`: import every module and exit 0 or 1 (run by CI on the built exe). Sets up rotating logs and the single-instance mutexes. |
 | `windows/vox.py` | Five-line shim that runs `vox_app.main`, kept for a launcher script that is not in git. |
 | `windows/engine.py` | The background engine: tray icon, global hotkey, recording, paste, retry, config watcher, calendar watcher, local control server. Class `Engine`. |
 | `windows/vox_core.py` | Pure-ish logic shared by everything on Windows: config load/save, dictionary, prompts, the HTTP calls to the server, the whole dictation pipeline (`process_detailed`), endpoint safety rules, silence gate, correction suggestions, history file. |
@@ -228,7 +228,9 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_stt_quality.py` | Speech-to-text filters: the edge-silence trim (numpy and plain loop agree, never to nothing, only the edge asked for, a quiet first and last word sent), the whole upload, streamed first/last pieces and `transcribe_rest` sending trimmed audio with segment times moved back (pause paragraphs still at the pause), `verbose_json` for Whisper models, made-up segments and a prompt echo dropped (Hindi in Devanagari and a quiet middle segment kept, a transcript the filter would empty kept), the 400 -> json fallback, the meeting thresholds, and the Language hint and one-time suggestion in both pages. |
 | `tests/test_structure.py` | Lists and paragraphs: the cue rules, prose that stays prose, idempotence over every golden row, the order around the fidelity guard, the prompt per setting, `verbose_json` segments and the pause breaks. |
 | `tests/test_codemode.py` | Code mode: every formatter and symbol, formatters with symbols, whole words only, which apps, the pipeline (no AI cleanup by default, the code prompt), the help box and [15-code-mode.md](15-code-mode.md) list the whole table; ordinary English stays words and plain code (`self dot name equals name`, `user dot name`, `if count greater than limit`) still converts. |
-| `tests/test_snippets.py` | Snippets: matching, caps, the order (after the cleanup and the lists), never sent to the cleanup or the Improve run, the profile field, both Dictionary pages. |
+| `tests/test_snippets.py` | Snippets: matching, caps, the order (after the cleanup and the lists), never sent to the cleanup or the Improve run (also after the snippet changed or was deleted: the history entry's ranges), the profile field, both Dictionary pages. |
+| `tests/test_answer_cap.py` | SEC-9: an AI server's answer over 8 MB is refused (with and without `Content-Length`, not retried), one up to the cap is read whole, a huge cleanup answer falls back to the rules layer; real local HTTP servers. |
+| `tests/test_selfcheck.py` | CI3: `vox_app.py --selfcheck` from source in a child process imports every app module, the list holds every module of `windows/`, a module that does not import or missing FLAC fails it. |
 | `tests/test_listen_session.py` | The keep-listening session, the same-window rule and the crash-safe audio buffer (temp folder, no hardware). |
 | `tests/test_listen.py` | The running session with the speech calls and the window replaced: Note and Type targets, stop phrase, limit, window change, failed pieces, recovery, latency marks. |
 | `tests/test_engine_listen.py` | The engine side: double press, Esc, tray entries, the `listen_target` setting, microphone errors, recovery. |
