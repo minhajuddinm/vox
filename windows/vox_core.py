@@ -2757,8 +2757,33 @@ def chat_text(cfg, body, timeout=60):
     return chat_reply(cfg, body, timeout)[0]
 
 
+_llm_local = threading.local()   # the token usage of this thread's last chat answer (see last_usage)
+
+
+def last_usage():
+    """The token counts of this thread's last chat answer: {"prompt_tokens", "completion_tokens", "cached_tokens",
+    "reasoning_tokens"} (None for a count the server did not send), or None when it sent no usage. Read by the
+    benchmark (tools/bench_cleanup.py) only: nothing is shown or stored by the app."""
+    return getattr(_llm_local, "usage", None)
+
+
+def _usage_of(data):
+    u = data.get("usage") if isinstance(data, dict) else None
+    if not isinstance(u, dict):
+        return None
+
+    def count(d, key):
+        v = d.get(key) if isinstance(d, dict) else None
+        return v if isinstance(v, int) and not isinstance(v, bool) else None
+    return {"prompt_tokens": count(u, "prompt_tokens"), "completion_tokens": count(u, "completion_tokens"),
+            "cached_tokens": count(u.get("prompt_tokens_details"), "cached_tokens"),
+            "reasoning_tokens": count(u.get("completion_tokens_details"), "reasoning_tokens")}
+
+
 def chat_reply(cfg, body, timeout=60, retry_timeouts=True):
-    """chat_text, plus the answer's finish_reason ("" when the server sent none)."""
+    """chat_text, plus the answer's finish_reason ("" when the server sent none). The answer's token usage is kept for
+    last_usage."""
+    _llm_local.usage = None
     base = providers.role_settings(cfg, "llm")[0]
     via_relay = providers.uses_relay(cfg)
     extra = providers.reasoning_params(cfg, base, body["model"])
@@ -2772,6 +2797,7 @@ def chat_reply(cfg, body, timeout=60, retry_timeouts=True):
         r = post_with_retry(f"{base}/chat/completions", headers=auth_headers(cfg, "llm"), json=body, timeout=timeout,
                             via_relay=via_relay, retry_timeouts=retry_timeouts)
     data = check_response(r, via_relay)
+    _llm_local.usage = _usage_of(data)
     try:
         choice = data["choices"][0]
         content = choice["message"].get("content")
