@@ -161,8 +161,15 @@ class Engine:
     _told_elevated = False
     warm = None          # warm_mic.WarmMic while the warm_mic setting is on (windows/warm_mic.py)
     _preroll = 0         # bytes at the front of this recording that came from before the key-down (warm microphone)
+    # start, stop, cancel and the note toggle come from the hotkey, tray, control-server, time-limit and watchdog
+    # threads: one at a time (ENG-12), so two streams never open at once and a late time-limit stop never ends a newer
+    # recording (_rec_gen: which recording it belongs to; _limit_hit: its stop was asked for once already)
+    _ctl_lock = threading.RLock()
+    _rec_gen = 0
+    _limit_hit = False
 
     def __init__(self):
+        self._ctl_lock = threading.RLock()
         self.cfg = core.load_config()
         # None after a load that could not open config.json (issue 63): the next tick of _watch_config reads it again
         self.cfg_mtime = None if core.config_is_fallback() else self._mtime()
@@ -808,6 +815,11 @@ class Engine:
 
     # ------------------------------------------------------------ recording
     def start(self):
+        with self._ctl_lock:
+            if not self.recording:   # another thread may have started one a moment ago (ENG-12): never a second stream
+                self._start()
+
+    def _start(self):
         tm = timing_mod.Timing()
         t = self.event_t   # the key event's time.time(): it may have waited in the hotkey queue (ENG-10)
         tm.mark("key_down", None if t is None else (time.monotonic() - max(0.0, time.time() - t)) * 1000)
@@ -815,6 +827,7 @@ class Engine:
             return
         self.target = foreground_app()
         self.chunks = []
+        self._rec_gen, self._limit_hit = self._rec_gen + 1, False
         self.started_at = time.time()
         self.command_mode, self.latched_t = False, 0.0
         self.streaming = streaming.StreamingStt(self.cfg) if self.cfg.get("stream_stt", True) else None
@@ -955,8 +968,15 @@ class Engine:
         rms = float(np.sqrt(np.mean(np.square(indata.astype(np.float32))))) / 32768.0
         self.level = core.level_from_rms(rms)
         limit = MAX_SECONDS * (3 if self.hands_free else 1)
-        if time.time() - self.started_at > limit:
-            threading.Thread(target=self.stop, daemon=True).start()
+        if time.time() - self.started_at > limit and not self._limit_hit:   # once, not on every later block (ENG-12)
+            self._limit_hit = True
+            threading.Thread(target=self._stop_at_limit, args=(self._rec_gen,), daemon=True).start()
+
+    def _stop_at_limit(self, gen):
+        """The time limit of recording `gen` ran out: stop it, unless it already ended and a newer one runs (ENG-12)."""
+        with self._ctl_lock:
+            if self._rec_gen == gen and self.recording:
+                self.stop()
 
     def _close_stream(self):
         if self.warm is not None and self.warm.detach():
@@ -981,6 +1001,10 @@ class Engine:
 
     def cancel(self):
         """Discard the current recording."""
+        with self._ctl_lock:
+            self._cancel()
+
+    def _cancel(self):
         self.note_mode = self.command_mode = False
         self.latched_t = 0.0
         if self._end_recording():
@@ -994,6 +1018,10 @@ class Engine:
             s.cancel()
 
     def stop(self):
+        with self._ctl_lock:
+            self._stop()
+
+    def _stop(self):
         if not self._end_recording():
             return
         note, self.note_mode = self.note_mode, False
@@ -1029,14 +1057,16 @@ class Engine:
 
     def toggle_note(self, *_):
         """Starts a voice note, or finishes the one being recorded (tray menu, window). The text is saved as a
-        note instead of being pasted. Esc cancels; the dictation hotkey also finishes it."""
-        if self.recording and self.note_mode:
-            self.stop()
-            return
-        if self.recording or self.busy or self.listening:
-            return
-        self.note_mode = True
-        self.start()
+        note instead of being pasted. Esc cancels; the dictation hotkey also finishes it. The check and the start are one
+        step (ENG-12): a dictation the hotkey starts at the same moment is never turned into a note."""
+        with self._ctl_lock:
+            if self.recording and self.note_mode:
+                self.stop()
+                return
+            if self.recording or self.busy or self.listening:
+                return
+            self.note_mode = True
+            self.start()
         if self.recording:
             self.hands_free = True   # keeps recording until finished
         else:
