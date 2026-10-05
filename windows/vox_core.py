@@ -228,7 +228,7 @@ def save_config(cfg):
     if _config_unread:
         raise OSError("config.json could not be opened a moment ago; not saving over it")
     path = config_path()
-    on_disk = dict(cfg, **{k: secret.protect(cfg.get(k) or "") for k in KEY_FIELDS})
+    on_disk = dict(cfg, **{k: secret.protect(cfg.get(k) or "") or _unopened.get(k, "") for k in KEY_FIELDS})
     with file_lock(path):
         _replace_file(path, lambda f: json.dump(on_disk, f, indent=2))
 
@@ -325,6 +325,7 @@ def type_ok(key, value):
 
 
 _config_unread = False   # True while the last load_config could not OPEN config.json: its defaults must not be saved
+_unopened = {}           # protected values the last load_config could not open: written back as they were unless replaced
 _OPEN_TRIES = 4          # another process may be replacing the file for a moment (sharing violation, antivirus)
 _OPEN_PAUSE = 0.05
 
@@ -400,8 +401,11 @@ def _load_config(path):
     merged.update(cfg)
     _fix_types(merged)
     stored = {k: merged.get(k) or "" for k in KEY_FIELDS}
+    _unopened.clear()
     for k, v in stored.items():
         merged[k] = secret.unprotect(v)
+        if secret.is_protected(v) and not merged[k]:
+            _unopened[k] = v   # could not be opened now (DPAPI not ready, another user): saving "" must not erase it
     return merged, secret.available() and any(v and not secret.is_protected(v) for v in stored.values())
 
 
