@@ -2038,3 +2038,15 @@ echoctx	Ada and Grace.	We talked about Ada and Grace. we meet in the morning and
 echoctx	Ada, Grace, meet.	We talked about Ada and Grace. we meet in the morning and then we have lunch with the client	we meet in the morning and then we have lunch with the client	true
 echoctx	हम लोग दफ़्तर	We talked about Ada. कल सुबह हम लोग दफ़्तर जाएंगे	कल सुबह हम लोग दफ़्तर जाएंगे	false
 echoctx	लोग दफ़्तर जाएंगे	We talked about Ada. कल सुबह हम लोग दफ़्तर जाएंगे	कल सुबह हम लोग दफ़्तर जाएंगे	true
+# lo: guard: "err" is a word, not a noise ("to err is human"; errm still is), and after a weak cue a restart
+# needs a first word that is not a common one ("the price ...", "the invoice ..." are no restart).
+guard	light	stop			to err is human	To is human.	reject	missing 1 > 0	-
+guard	standard	stop			to err is human	To is human.	accept	ok	-
+guard	light	stop			to err is human	To err is human.	accept	ok	-
+guard	light	stop			errm i think so	I think so.	accept	ok	-
+guard	light	stop			er i think so	I think so.	accept	ok	-
+guard	standard	stop			i want the red one actually the price is too high	The price is too high.	reject	numbers changed	-
+guard	standard	stop			please send the invoice to amit actually the invoice is ready	The invoice is ready.	reject	missing 7 > 1	-
+guard	standard	stop			send it to the team actually send it to everyone	Send it to everyone.	accept	ok	-
+guard	standard	stop			book the hotel actually book the flight	Book the flight.	accept	ok	-
+guard	standard	stop			two actually three	Three.	accept	ok	-

@@ -1115,8 +1115,8 @@ def fallback_text(raw, style="neutral", strength="light"):
 FILLERS = frozenset({"um", "uh", "er", "erm", "ah", "hmm", "like", "basically", "you know", "i mean", "sort of",
                      "kind of"})
 NOISES = frozenset({"um", "uh", "er", "erm", "ah", "hmm", "hm", "uhm"})   # pure noises: may go even in Light ("mm": 5 mm)
-# the guard reads drawn-out noises the way the rules layer drops them (umm, uhh, hmmm, ahh, err): letters only
-_NOISE_WORD = re.compile("(?:u+m+|u+h+m*|e+r+m*|a+h+|h+m+)")
+# the guard reads drawn-out noises the way the rules layer drops them (umm, uhh, hmmm, ahh, errm): letters only
+_NOISE_WORD = re.compile("(?:u+m+|u+h+m*|e+r(?:r*m+)?|a+h+|h+m+)")   # not "err" ("to err is human"): the rules layer keeps it too
 
 
 def is_noise(word):
@@ -1404,6 +1404,8 @@ _PROTECTED = _NEG | _MONTHS | _WEEKDAYS | {"yes", "he", "she", "they", "we", "yo
                                            "before", "after", "more", "less", "first", "last", "left", "right"}
 _CONNECTORS = frozenset({"and", "but", "because", "so", "or", "then", "although", "while", "if"})
 _FREE_INS = frozenset({"a", "an", "the", "to", "of", "is", "are", "and", "it", "that", "in", "for", "on", "at", "i"})
+# words so common that one of them after a weak cue says nothing about a restart ("the price is too high")
+_RESTART_COMMON = _FREE_INS | {"we", "you", "he", "she", "they", "my", "your", "this", "so", "but", "was", "be", "will"}
 _SCALE_ZEROS = {"thousand": 3, "lakh": 5, "lakhs": 5, "million": 6, "crore": 7, "crores": 7, "billion": 9}
 # spoken commands: the symbols one of them may become in the cleaned text, between its neighbouring words
 _G_COMMANDS = {"new paragraph": ("\n",), "new line": ("\n",), "question mark": ("?",), "exclamation mark": ("!",),
@@ -1682,7 +1684,7 @@ def _g_corrections(toks):
             nxt = next((k for k in range(after, n) if toks[k].kind not in ("noise", "filler")), after)
             repair = (any(_typed_value(toks[k]) for k in range(start, i))
                       and any(_typed_value(toks[k]) for k in range(after, min(n, after + 6))))
-            restart = w[nxt] in w[start:i]
+            restart = w[nxt] in w[start:i] and w[nxt] not in _RESTART_COMMON   # "the", "i", "we" repeat anyway
             chain = any(_is_cue(w, k) for k in range(i + 1, min(n, nxt + 1)))
             if not (repair or restart or chain):
                 continue   # an everyday "actually" / "sorry": its words are ordinary words

@@ -26,8 +26,11 @@ final class Fidelity {
 
     /** Pure noises: may be missing from the cleaned text even in Light strength. */
     static final Set<String> NOISES = new HashSet<>(Arrays.asList("um", "uh", "er", "erm", "ah", "hmm", "hm", "uhm"));
-    /** The guard reads drawn-out noises the way the rules layer drops them (umm, uhh, hmmm, ahh, err): letters only. */
-    private static final Pattern NOISE_WORD = Pattern.compile("(?:u+m+|u+h+m*|e+r+m*|a+h+|h+m+)");
+    /**
+     * The guard reads drawn-out noises the way the rules layer drops them (umm, uhh, hmmm, ahh, errm): letters only. Not
+     * "err" ("to err is human"): the rules layer keeps it too.
+     */
+    private static final Pattern NOISE_WORD = Pattern.compile("(?:u+m+|u+h+m*|e+r(?:r*m+)?|a+h+|h+m+)");
 
     /** True for a pure noise word (lowercase): um, umm, uh, uhh, uhm, er, erm, ah, ahh, hm, hmm, hmmm. Twin: is_noise. */
     static boolean isNoise(String word) {
@@ -453,6 +456,11 @@ final class Fidelity {
             "if");
     private static final Set<String> FREE_INS = set("a", "an", "the", "to", "of", "is", "are", "and", "it", "that", "in",
             "for", "on", "at", "i");
+    /** Words so common that one of them after a weak cue says nothing about a restart (vox_core._RESTART_COMMON). */
+    private static final Set<String> RESTART_COMMON = new HashSet<>(FREE_INS);
+    static {
+        RESTART_COMMON.addAll(Arrays.asList("we", "you", "he", "she", "they", "my", "your", "this", "so", "but", "was", "be", "will"));
+    }
     private static final Map<String, Integer> SCALE_ZEROS = new HashMap<>();
     /** Spoken commands: the symbols one of them may become in the cleaned text, between its neighbouring words. */
     private static final Map<String, String[]> COMMANDS = new HashMap<>();
@@ -892,7 +900,7 @@ final class Fidelity {
                 boolean chain = false;
                 for (int k = start; k < i; k++) {
                     if (typedValue(toks.get(k))) before = true;
-                    if (toks.get(k).t.equals(toks.get(nxt).t)) restart = true;
+                    if (toks.get(k).t.equals(toks.get(nxt).t) && !RESTART_COMMON.contains(toks.get(nxt).t)) restart = true;
                 }
                 for (int k = after; k < Math.min(n, after + 6); k++) if (typedValue(toks.get(k))) later = true;
                 for (int k = i + 1; k < Math.min(n, nxt + 1); k++) if (isCue(toks, k)) chain = true;
