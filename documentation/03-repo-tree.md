@@ -191,6 +191,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_fuzzy_dictionary.py` | The fuzzy dictionary pass: pipeline wiring, replacement lines win, idempotent over every golden row, speed, Python and Java share one stoplist. |
 | `tests/test_bench_cleanup.py` | The cleanup benchmark with a fake provider (no network): each metric, the corpus (size, fields, kinds, no keys), the run loop, the table, and `main` (the key never in the output, never sent to another provider's server, the relay bypassed when a provider is chosen). |
 | `tests/test_cleanup_fidelity.py` | The fidelity guard: tokens, recall (numbers, symbols, spoken commands), Light and Standard, long dictations, `looks_valid`, `process_text` fallback. |
+| `tests/test_cleanup_call.py` | The Windows cleanup request as on Android: temperature 0, `max_tokens` with headroom for thinking models, the wait by words with no retry after a read timeout, an answer cut off at `max_tokens` used as a failed cleanup; line breaks inside a speech answer become spaces. |
 | `tests/test_level.py` | The meter curve and the scrolling level history. |
 | `tests/test_notes.py` | The notes store: add, edit, delete, search with FTS5 and the LIKE fallback, filters. |
 | `tests/test_relay.py` | The relay over real HTTP: auth, sync cursor, conflicts, delete markers, search, profile versions, limits. |
@@ -216,6 +217,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_note_hotkey.py` | The note shortcut: the pure parse and duplicate rule, and the window bridge that saves it. |
 | `tests/test_hotkeys.py` | The extra shortcuts (`hotkeys.py`): parse, conflicts and duplicates, the style setting, the tap-or-hold rule, and the window bridge (`set_shortcut`, `shortcut_problems`). |
 | `tests/test_engine_hotkeys.py` | The engine's shortcuts through `_on_press`/`_on_release`: classic and hold-or-tap, the hands-free shortcut, Esc cancel, paste and copy last, edit by voice, stale keys after a pause (R2-M2), the hotkey thread (R2-M1), and what a dictation leaves behind (last text, timing fields). |
+| `tests/test_engine_lifecycle.py` | Issue 63: a config.json that could not be opened is read again on the next tick instead of running on the defaults, and Quit lets a dictation that is being sent finish (skipped where the Windows packages are missing). |
 | `tests/test_improve.py` | The pure improvement core with a fake provider: transcript selection and budget, request, tolerant parsing and caps, apply and revert (revert keeps rules written later), About you never applied, the fidelity report. |
 | `tests/test_improve_card.py` | The Improve my cleanup card: preview and confirm sentence, versions, reminder rule, the one server call, the window bridge (nothing is sent before the confirmed numbers) and the tray reminder. |
 | `tests/test_ui_improve.py` | The card's ids and place on the Windows page, that only the confirm button runs it, and its two renderers (escaping). |
