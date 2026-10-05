@@ -52,6 +52,7 @@ AUDIO_REFRESH_SECONDS = 30   # PortAudio's device list is rebuilt at most this o
 FLASH_SECONDS = {"sent": 0.7, "error": 1.8}
 STUCK_MARGIN = 60       # a recording this long past its longest limit (hands-free) means the audio callback stopped
 MAX_PENDING = 5         # failed recordings kept for Retry, oldest first (as Android's PendingQueue.MAX_KEPT)
+QUIT_BUSY_WAIT = 120          # seconds Quit waits for a dictation that is still being sent (issue 63)
 PASTE_RESTORE_QUIT_WAIT = 3.0   # seconds Quit waits for the old clipboard of the last paste to be put back
 BUSY_TOLD_GAP = 5.0     # seconds between two "still sending" balloons for presses ignored while busy
 # The once-a-second watchdog ran this late: Python was frozen for longer than Windows' keyboard hook timeout (at most 1 s
@@ -139,6 +140,7 @@ class Engine:
     flash_until = 0.0
     timing = None   # the timing.Timing of the recording in progress (the Speed card); None when there is none
     listening = None   # the listen.Listening of the keep-listening session in progress (also while it saves); None when none
+    busy = False       # a recording is being sent (or a session saves): presses, Retry and recovery wait
     note_hotkey = None   # the session.NoteHotkey of the note shortcut; None when it is off or unusable
     note_key_down = False   # its main key is held (a key repeat must not toggle again)
     state_since = 0.0   # time.monotonic() when set_state last ran (the overlay watchdog's stuck-state check)
@@ -160,7 +162,8 @@ class Engine:
 
     def __init__(self):
         self.cfg = core.load_config()
-        self.cfg_mtime = self._mtime()
+        # None after a load that could not open config.json (issue 63): the next tick of _watch_config reads it again
+        self.cfg_mtime = None if core.config_is_fallback() else self._mtime()
         self.hotkey = self._hotkey()
         self.note_hotkey = self._note_hotkey()
         self.chords = self._chords()
@@ -243,8 +246,12 @@ class Engine:
     def reload_if_changed(self):
         m = self._mtime()
         if m != self.cfg_mtime:
+            cfg = core.load_config()
+            if core.config_is_fallback():   # could not open it for a moment: keep what we have and try again next tick
+                log.warning("settings not reloaded: config.json could not be opened, trying again")
+                return
             self.cfg_mtime = m
-            self.cfg = core.load_config()
+            self.cfg = cfg
             self.hotkey = self._hotkey()
             self.note_hotkey = self._note_hotkey()
             self.chords = self._chords()
@@ -277,6 +284,11 @@ class Engine:
             deadline = time.time() + 180
             while self.listening and time.time() < deadline:
                 time.sleep(0.5)
+        if self.busy:   # a dictation still being sent: let it land instead of losing its audio (issue 63)
+            self.notify("Finishing your dictation before quitting...")
+            deadline = time.time() + QUIT_BUSY_WAIT
+            while self.busy and time.time() < deadline:
+                time.sleep(0.2)
         paste_mod.wait_restored(PASTE_RESTORE_QUIT_WAIT)   # the old clipboard of the last paste is put back first
         if self.warm is not None:
             self.warm.close()   # the microphone is let go, and the audio it held with it

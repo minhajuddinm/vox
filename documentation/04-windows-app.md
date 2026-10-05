@@ -75,11 +75,11 @@ Open Vox (default action) · Retry last dictation (visible only while `pending` 
 
 ### Config reload
 
-`_watch_config` polls the modified time of `config.json` every second and reloads settings (and the hotkey) when it changes, but never while recording. This is how the window process changes engine behaviour.
+`_watch_config` polls the modified time of `config.json` every second and reloads settings (and the hotkey) when it changes, but never while recording. This is how the window process changes engine behaviour. A load that could not open the file (`core.config_is_fallback()`, for example another process was replacing it) is not taken: the engine keeps its settings and tries again on the next tick, and a start on such defaults leaves `cfg_mtime` unset so the file is read at the next tick (issue 63).
 
 ### Quit (`Engine.quit`)
 
-If a meeting is active it is stopped; if a keep-listening session runs it is ended and the engine waits up to 180 s for its note to be saved; if notes are still being written the engine waits up to 180 s, then stops the relay child process (if running), the tray icon and overlay, deletes `engine.json` and exits with `os._exit(0)`. Ctrl+C in the launching terminal calls `quit` too.
+If a meeting is active it is stopped; if a keep-listening session runs it is ended and the engine waits up to 180 s for its note to be saved; if notes are still being written the engine waits up to 180 s; a dictation still being sent (`busy`) gets up to 120 s (`QUIT_BUSY_WAIT`, balloon "Finishing your dictation before quitting...", issue 63) and the old clipboard of the last paste up to 3 s to come back; then it stops the relay child process (if running), the tray icon and overlay, deletes `engine.json` and exits with `os._exit(0)`. Ctrl+C in the launching terminal calls `quit` too.
 
 ### Local control server
 
