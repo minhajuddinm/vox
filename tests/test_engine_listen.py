@@ -448,3 +448,12 @@ def test_a_saved_session_that_cannot_be_read_is_left_alone_and_no_session_is_sta
     assert FakeListening.made == [] and eng.listening is None
     assert __import__("os").path.exists(path)
     assert eng.messages and "kept" in eng.messages[-1]
+
+
+def test_altgr_n_is_not_the_note_shortcut(noted):
+    """Issue 63: Polish ń is AltGr+N, which Windows sends as a made-up Left Ctrl plus Right Alt."""
+    now = time.time()
+    noted._on_press(Key.ctrl_l, now)
+    noted._on_press(Key.alt_gr, now + 0.001)
+    noted._on_press(n_key(), now + 0.05)
+    assert noted.calls == []

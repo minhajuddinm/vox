@@ -57,6 +57,10 @@ BUSY_TOLD_GAP = 5.0     # seconds between two "still sending" balloons for press
 # The once-a-second watchdog ran this late: Python was frozen for longer than Windows' keyboard hook timeout (at most 1 s
 # since Windows 10 1709), and Windows removes a hook that times out without telling anyone, so it is installed again (ENG-2).
 HOOK_STALL_SECONDS = 2.0
+# AltGr reaches the hook as a Left Ctrl that Windows makes up (scan code 0x21D) and a Right Alt at the same moment: that
+# Ctrl is not the user's, so AltGr is never Ctrl+Alt (ENG-6, issue 63). ALTGR_GAP: the most time between the two.
+ALTGR_CTRL_SCAN = 0x21D
+ALTGR_GAP = 0.02
 
 KEY_ALIASES = {
     "ctrl": {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r},
@@ -362,7 +366,7 @@ class Engine:
                 old.stop()
             except Exception:
                 log.exception("could not stop the old keyboard hook")
-        lis = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
+        lis = keyboard.Listener(on_press=self.on_press, on_release=self.on_release, win32_event_filter=self._hook_filter)
         lis.daemon = True
         lis.start()
         self._listener = lis
@@ -472,7 +476,20 @@ class Engine:
         except Exception:
             log.exception("start-menu tap failed")
 
-    def on_press(self, key):
+    @staticmethod
+    def _hook_filter(msg, data):
+        """win32_event_filter of the keyboard listener, inside the hook (quick, never raises): False drops the event
+        before Vox sees it (Windows still gets it). Drops the Left Ctrl that Windows makes up for AltGr."""
+        try:
+            return not (data.vkCode in (0x11, 0xA2) and data.scanCode == ALTGR_CTRL_SCAN)
+        except Exception:
+            return True
+
+    def on_press(self, key, injected=False):
+        # pynput passes `injected` (a key sent by a program: Vox's own paste keys, its Start-menu tap). They are never
+        # the user's shortcut (ENG-5): with the Ctrl+Shift preset Vox's Ctrl+Shift+V started a recording.
+        if injected:
+            return
         self._hook_tap(key, True)
         q = self._hotkey_q
         if q is not None:
@@ -483,7 +500,9 @@ class Engine:
         except Exception:   # pynput stops the listener when a handler raises: keep the hotkey alive
             self._hotkey_failed()
 
-    def on_release(self, key):
+    def on_release(self, key, injected=False):
+        if injected:
+            return
         self._hook_tap(key, False)
         q = self._hotkey_q
         if q is not None:
@@ -543,10 +562,19 @@ class Engine:
         out = [("note_hotkey", self.note_hotkey)] if self.note_hotkey and self.note_hotkey.vk == vk else []
         return out + [(n, c) for n, c in self.chords.items() if c.vk is not None and c.vk == vk]
 
+    combo_other_key = False   # another key went down while the dictation keys were held: that press was another shortcut
+    _ctrl_l_t = float("-inf")  # when the Left Ctrl last went down (AltGr check)
+
     def _on_press(self, key, t=None):
         self.event_t = time.time() if t is None else t
         try:
             self._check_gap()
+            if key == keyboard.Key.ctrl_l and key not in self.pressed:
+                self._ctrl_l_t = self.event_t
+            elif key in (keyboard.Key.alt_gr, keyboard.Key.alt_r) and keyboard.Key.ctrl_l in self.pressed                     and self.event_t - self._ctrl_l_t <= ALTGR_GAP:
+                self.pressed.discard(keyboard.Key.ctrl_l)   # AltGr's made-up Left Ctrl, when the hook filter missed it
+            if self.combo_was_down and not any(key in group for group in self.hotkey):
+                self.combo_other_key = True
             keyed = self._keyed(key_vk(key))
             if keyed:   # the main key of a shortcut: never kept in `pressed` (its char varies with the modifiers)
                 for name, chord in keyed:
@@ -559,7 +587,7 @@ class Engine:
                 self.cancel_any()
                 return
             if self.combo_down() and not self.combo_was_down:
-                self.combo_was_down = True
+                self.combo_was_down, self.combo_other_key = True, False
                 self.on_combo_down()
             if self._command_down() and not self.command_was_down:
                 self.command_was_down = True
@@ -652,6 +680,9 @@ class Engine:
         action = hotkeys.tap_action(hotkeys.style(self.cfg), now - self.press_t, self.command_mode)
         if action == "stop":
             self.stop()
+            return
+        if self.combo_other_key:   # a short press with another key in it was another shortcut (Ctrl+Win+Left, ...): no tap
+            self.cancel()
             return
         self.last_tap_t = now   # a tap: wait for a possible second tap
         if action == "latch":

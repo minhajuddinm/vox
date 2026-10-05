@@ -410,3 +410,73 @@ def test_the_history_timing_says_how_many_pieces_were_streamed_and_the_upload_fo
     eng._process(b"\x10\x27" * 16000, "notepad.exe", False, Streamer(), timing.Timing())
     entry = core.read_history()[-1]["timing"]
     assert entry["pieces"] == 3 and entry["upload"] == "flac"
+
+
+# ------------------------------------------------------------------ ENG-5: another shortcut, or Vox's own keys
+def test_a_tap_during_which_another_key_went_down_is_not_a_tap(eng):
+    """Ctrl+Win+Left (switch desktop) twice: no keep listening, nothing latched."""
+    now = time.time()
+    for t in (now, now + 0.2):
+        down(eng, Key.ctrl_l, Key.cmd, Key.left, t=t)
+        up(eng, Key.left, Key.cmd, Key.ctrl_l, t=t + 0.05)
+    assert "listen" not in eng.calls and eng.last_tap_t == 0.0 and not eng.recording
+
+
+def test_hold_or_tap_does_not_latch_on_another_shortcut(eng):
+    configure(eng, hotkey_style="hold_or_tap")
+    eng.hotkey = [engine_mod.KEY_ALIASES["ctrl"], engine_mod.KEY_ALIASES["shift"]]
+    now = time.time()
+    down(eng, Key.ctrl_l, Key.shift, KeyCode.from_vk(0x54, char="\x14"), t=now)   # the user's own Ctrl+Shift+T
+    up(eng, KeyCode.from_vk(0x54, char="T"), Key.shift, Key.ctrl_l, t=now + 0.05)
+    assert not eng.recording and not eng.hands_free and eng.calls[-1] == "cancel"
+
+
+def test_a_long_hold_with_another_key_is_still_sent(eng):
+    now = time.time()
+    down(eng, Key.ctrl_l, Key.cmd, t=now)
+    down(eng, Key.left, t=now + 2)
+    up(eng, Key.left, Key.cmd, t=now + 2.1)
+    assert eng.calls[-1] == ("stop", False)
+
+
+def test_keys_vox_sends_itself_are_ignored(eng):
+    """Vox's Ctrl+Shift+V into a terminal (paste last, keep listening's Type) must not look like the Ctrl+Shift preset."""
+    eng.hotkey = [engine_mod.KEY_ALIASES["ctrl"], engine_mod.KEY_ALIASES["shift"]]
+    for k in (Key.ctrl, Key.shift, KeyCode.from_vk(0x56)):
+        eng.on_press(k, True)
+    for k in (KeyCode.from_vk(0x56), Key.shift, Key.ctrl):
+        eng.on_release(k, True)
+    assert eng.calls == [] and eng.pressed == set()
+
+
+def test_pynput_passes_the_injected_flag():
+    import inspect
+    assert list(inspect.signature(engine_mod.Engine.on_press).parameters)[1:] == ["key", "injected"]
+    assert list(inspect.signature(engine_mod.Engine.on_release).parameters)[1:] == ["key", "injected"]
+
+
+# ------------------------------------------------------------------ ENG-6 and issue 63: AltGr is not Ctrl+Alt
+def test_altgr_characters_do_not_start_the_ctrl_alt_preset(eng):
+    """AltGr arrives as a made-up Left Ctrl and a Right Alt at the same moment (Polish ł, German @, French {)."""
+    eng.hotkey = [engine_mod.KEY_ALIASES["ctrl"], engine_mod.KEY_ALIASES["alt"]]
+    now = time.time()
+    for t in (now, now + 0.15):
+        down(eng, Key.ctrl_l, t=t)
+        down(eng, Key.alt_gr, KeyCode.from_vk(0x4C), t=t + 0.001)
+        up(eng, KeyCode.from_vk(0x4C), Key.ctrl_l, Key.alt_gr, t=t + 0.05)
+    assert eng.calls == []
+
+
+def test_a_real_ctrl_then_right_alt_is_still_ctrl_alt(eng):
+    eng.hotkey = [engine_mod.KEY_ALIASES["ctrl"], engine_mod.KEY_ALIASES["alt"]]
+    now = time.time()
+    down(eng, Key.ctrl_l, t=now)
+    down(eng, Key.alt_gr, t=now + 0.2)
+    assert eng.calls == ["start"]
+
+
+def test_the_hook_drops_the_ctrl_that_windows_makes_up_for_altgr():
+    data = type("D", (), {"vkCode": 0xA2, "scanCode": 0x21D})()
+    assert engine_mod.Engine._hook_filter(0x100, data) is False
+    data.scanCode = 0x1D   # a real Left Ctrl
+    assert engine_mod.Engine._hook_filter(0x100, data) is True
