@@ -144,11 +144,30 @@ def test_only_a_tag_build_gets_the_release_key_and_only_after_the_tests():
     assert 'if [[ "$GITHUB_REF" == refs/tags/v* ]]' in signing
 
 
-def test_build_sh_needs_the_password_on_a_tag_and_keeps_it_off_the_command_line():
+NL = "\n"
+
+
+def test_build_sh_warns_without_the_password_and_keeps_it_off_the_command_line():
+    """Controller ruling: a tag build without ANDROID_KEYSTORE_PASS warns and uses the old default password; it does not
+    fail (the repository has no such secret yet, and a failing android job would publish no release)."""
     sh = read("android", "build.sh")
     assert '--ks-pass env:KS_PASS' in sh and '--key-pass env:KS_PASS' in sh and 'pass:$PASS' not in sh
-    tag = sh.split('if [ -f "$KS" ]; then', 1)[1].split("else", 1)[0]
-    assert "refs/tags/v" in tag and "KS_PASS" in tag and "exit 1" in tag
+    assert 'PASS="${KS_PASS:-voxvox}"' in sh
+    existing = sh.split('if [ -f "$KS" ]; then', 1)[1].split("else", 1)[0]
+    assert "exit 1" not in existing and "Warning" in existing and "KS_PASS" in existing
+    missing = sh.split('if [ -f "$KS" ]; then', 1)[1].split("else", 1)[1].split("fi" + NL, 1)[0]
+    assert "refs/tags/v" in missing and "exit 1" in missing   # never a throw-away key on a tag
+
+
+def test_a_tag_build_fails_only_without_the_keystore_and_warns_without_its_password():
+    signing = step_in(job("android"), "signing key")
+    tag = signing.split('if [[ "$GITHUB_REF" == refs/tags/v* ]]; then', 1)[1].split(NL + "          else", 1)[0]
+    blocks = tag.split("fi" + NL)
+    keystore = next(b for b in blocks if "exit 1" in b)
+    assert '-z "$ANDROID_KEYSTORE_B64"' in keystore and "KS_PASS" not in keystore
+    assert sum("exit 1" in b for b in blocks) == 1
+    password = next(b for b in blocks if '-z "$KS_PASS"' in b)
+    assert "::warning::" in password and "ANDROID_KEYSTORE_PASS" in password and "exit" not in password
 
 
 def test_a_release_is_published_only_from_a_commit_on_main():

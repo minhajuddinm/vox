@@ -180,9 +180,12 @@ jobs:
           KS_PASS: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.ANDROID_KEYSTORE_PASS || '' }}
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            if [ -z "$ANDROID_KEYSTORE_B64" ] || [ -z "$KS_PASS" ]; then
-              echo "::error::A release APK needs the ANDROID_KEYSTORE_B64 and ANDROID_KEYSTORE_PASS secrets (a repository admin sets them; a throw-away key could not update installed apps). Add them and push the tag again."
+            if [ -z "$ANDROID_KEYSTORE_B64" ]; then
+              echo "::error::A release APK needs the ANDROID_KEYSTORE_B64 secret (a throw-away key could not update installed apps). Add it and push the tag again."
               exit 1
+            fi
+            if [ -z "$KS_PASS" ]; then
+              echo "::warning::No ANDROID_KEYSTORE_PASS secret: the release key is opened with the old default password. A repository admin should set it (documentation/10-build-test-release.md, 'For the repository admin')."
             fi
             echo "$ANDROID_KEYSTORE_B64" | base64 -d > android/vox.keystore
             echo "Using the project signing key"

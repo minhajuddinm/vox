@@ -38,9 +38,7 @@ KS="vox.keystore"
 # Keystore password: the ANDROID_KEYSTORE_PASS secret in CI (KS_PASS). The old default keeps existing keys working.
 PASS="${KS_PASS:-voxvox}"
 if [ -f "$KS" ]; then
-  case "${GITHUB_REF:-}" in
-    refs/tags/v*) [ -n "${KS_PASS:-}" ] || { echo "No KS_PASS (the ANDROID_KEYSTORE_PASS secret) on a tag build: the release key must not rely on the public default password." >&2; exit 1; } ;;
-  esac
+  [ -n "${KS_PASS:-}" ] || echo "Warning: no KS_PASS (the ANDROID_KEYSTORE_PASS secret): the key is opened with the old default password." >&2
   echo "> signing with the existing $KS"
 else
   case "${GITHUB_REF:-}" in
