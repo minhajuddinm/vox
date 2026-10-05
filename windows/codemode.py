@@ -61,6 +61,16 @@ COMMANDS = frozenset("""git ls cd cat grep npm npx pnpm yarn pip pip3 python pyt
 curl wget echo rm mv cp mkdir rmdir chmod chown sudo cargo rustc dotnet gh vim nano sed awk tar unzip conda poetry uv mise
 winget choco""".split())   # not go, head, touch...: everyday words at the start of a sentence
 _ARTICLES = frozenset("an the this that these those my your our his her their its one another each every some any no".split())
+# Words of a sentence, not of code: an AMBIGUOUS symbol next to one of these is no sign of code ("a five star hotel plus a
+# spa", "that equals trouble"). Not "this": this.state is code.
+_FUNCTION = frozenset("""a an the to of in on at for with from by about into onto over under after before than then as
+and or but nor so yet if is are was were be been being am do does did have has had will would can could shall should may
+might must not i you he she it we they me him her us them my your our his their its that these those each every some any
+no another what which who whom whose there here very too also just""".split())
+# A dictation that starts with one of these is a statement: a comparison between two names in it is code
+# ("if count greater than limit").
+_STATEMENTS = frozenset("if elif while until assert return".split())
+_COMPARISONS = frozenset({"equals", "greater than", "less than"})
 _FORMATTER_WORDS = sorted([(tuple(k.split()), k) for k in FORMATTERS] + [((a,), k) for a, k in ALIASES.items()],
                           key=lambda x: -len(x[0]))
 _CHUNK = re.compile(r"\n|[^\s]+")
@@ -130,32 +140,86 @@ def _codeish(word):
         or any(c.isupper() for c in word[1:])
 
 
+def _name(chunks, k, last=False):
+    """True when chunks[k] is a plain word that can be a name in code: no punctuation around it (the `last` word of a
+    statement may end the sentence), no apostrophe, and not a _FUNCTION word."""
+    if k < 0 or k >= len(chunks) or chunks[k] == "\n" or _match(chunks, k, _BY_WORDS):
+        return False
+    lead, core, trail = _split(chunks[k])
+    return bool(core) and not lead and (not trail or (last and set(trail) <= _NOISE)) \
+        and "'" not in core and "’" not in core and core.lower() not in _FUNCTION
+
+
+def _clean_symbol(chunks, i, n):
+    """True when the spoken symbol of chunks[i:i+n] has no punctuation before or after it."""
+    return not _split(chunks[i])[0] and not _split(chunks[i + n - 1])[2]
+
+
+def _statement(chunks):
+    """True when two or more AMBIGUOUS spoken symbols each stand between two names (_name), one name between each two:
+    "self dot name equals name", "total equals price star quantity", "count equals count plus one". Prose has words such
+    as "and", "a" or "is" there ("open a new tab and star the repo", "two plus two is more than three")."""
+    i, run, prev_end = 0, 0, -1
+    while i < len(chunks):
+        sm = _match(chunks, i, _BY_WORDS)
+        if not sm or sm[0][3] not in AMBIGUOUS:
+            i += 1
+            continue
+        n = sm[1]
+        if _clean_symbol(chunks, i, n) and _name(chunks, i - 1) and _name(chunks, i + n, last=True):
+            run = run + 1 if prev_end == i - 1 else 1   # this symbol's left name is the last one's right name
+            if run >= 2:
+                return True
+            prev_end = i + n
+        else:
+            run, prev_end = 0, -1
+        i += n
+    return False
+
+
+def _command(chunks):
+    """True when the dictation starts with a command name (COMMANDS) used as one: "git commit", "ls dash la", not "Python is
+    great" (a _FUNCTION word after it)."""
+    if not chunks or _split(chunks[0])[1].lower() not in COMMANDS:
+        return False
+    nxt = _split(chunks[1])[1].lower() if len(chunks) > 1 else ""
+    return nxt not in _FUNCTION
+
+
 def _has_code(chunks):
-    """True when the dictation is code: it starts with a command name (COMMANDS), or has a formatter or a spoken symbol
-    that is neither AMBIGUOUS nor PUNCTUATION ("open paren", "underscore", "tilde")."""
-    if chunks and _split(chunks[0])[1].lower() in COMMANDS:
+    """True when the dictation is code: it starts with a command (_command), has a formatter or a spoken symbol that is
+    neither AMBIGUOUS nor PUNCTUATION ("open paren", "underscore", "tilde"), or is a statement (_statement)."""
+    if _command(chunks):
         return True
     for i in range(len(chunks)):
         sm = _match(chunks, i, _BY_WORDS)
         if _match(chunks, i, _FORMATTER_WORDS) or (sm and sm[0][3] not in AMBIGUOUS | PUNCTUATION):
             return True
-    return False
+    return _statement(chunks)
 
 
-def _code_here(chunks, i, n, out, code):
-    """True when the AMBIGUOUS spoken symbol of chunks[i:i+n] is meant as the symbol: the dictation is code (`code`) or a
-    word next to it looks like code (_codeish) or is a symbol, and the word before it is not an article or possessive
-    (_ARTICLES: "add the dot env file" keeps "dot")."""
+def _code_here(chunks, i, n, out, code, quoted=False):
+    """True when the AMBIGUOUS spoken symbol of chunks[i:i+n] is meant as the symbol: the dictation is code (`code`), a
+    word next to it looks like code (_codeish) or is a symbol, "dot" stands between two names ("user dot name"), or a
+    comparison stands between two names in a statement ("if count greater than limit"). Outside code, and inside quotes
+    (`quoted`: a commit message), the word before it must not be an article or possessive (_ARTICLES: "add the dot env
+    file" keeps "dot")."""
     before = _split(chunks[i - 1]) if i > 0 and chunks[i - 1] != "\n" else None
-    if before and before[1].lower() in _ARTICLES and not before[2]:
+    if before and before[1].lower() in _ARTICLES and not before[2] and (quoted or not code):
         return False
+    if code:
+        return True
+    spoken = _match(chunks, i, _BY_WORDS)[0][3]
+    if _clean_symbol(chunks, i, n) and _name(chunks, i - 1) and _name(chunks, i + n, last=True) and (
+            spoken == "dot" or (spoken in _COMPARISONS and _split(chunks[0])[1].lower() in _STATEMENTS)):
+        return True
     left = before is not None and ((out and out[-1][3] in ("sym", "fmt")) or _codeish(before[1]))
     j = i + n
     after = _match(chunks, j, _BY_WORDS) if j < len(chunks) else None   # a code symbol, or the same one ("dash dash")
     right = j < len(chunks) and chunks[j] != "\n" and bool(
         (after and (after[0][3] not in AMBIGUOUS or after[0][3] == _match(chunks, i, _BY_WORDS)[0][3]))
         or _match(chunks, j, _FORMATTER_WORDS) or _codeish(_split(chunks[j])[1]))
-    return code or left or right
+    return left or right
 
 
 def format_code(text):
@@ -199,7 +263,7 @@ def format_code(text):
                 continue
         sm = _match(chunks, i, _BY_WORDS)
         if sm and sm[0][3] in AMBIGUOUS and not (sm[0][0] in open_quotes and sm[0][1] is None) \
-                and not _code_here(chunks, i, sm[1], out, code):
+                and not _code_here(chunks, i, sm[1], out, code, bool(open_quotes)):
             sm = None   # an everyday word here, not code (a quote that closes an open one always counts)
         if sm:
             (typed, left, right, _), n = sm

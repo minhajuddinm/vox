@@ -232,6 +232,9 @@ def test_the_docs_page_lists_every_formatter_and_symbol():
     "two plus two is more than three minus one",
     "Go to the slash command page and star it.",
     "Ten percent plus tax, minus the discount.",
+    "a five star hotel plus a spa",                 # names between the symbols, but "a" after the last one
+    "Python is great plus it is easy",              # a command name used as a word: not a command line
+    "If that equals trouble, call me.",
 ])
 def test_ordinary_sentences_keep_their_words(text):
     assert codemode.format_code(text) == text
@@ -248,6 +251,17 @@ def test_ordinary_sentences_keep_their_words(text):
     ("user underscore id equals my var", "user_id = my var"),
     ("if x less than 10 colon", "if x < 10:"),
     ("dash dash verbose", "--verbose"),                                 # the same symbol twice
+    # plain names (final review C1): a statement of two or more symbols between names, "dot" between two names, a
+    # comparison in an if; in a command line "no" and "this" are words of the code
+    ("self dot name equals name", "self.name = name"),
+    ("this dot state equals five", "this.state = five"),
+    ("Self dot name equals name.", "self.name = name"),
+    ("user dot name", "user.name"),
+    ("import os dot path", "import os.path"),
+    ("total equals price star quantity", "total = price * quantity"),
+    ("if count greater than limit", "if count > limit"),
+    ("count equals count plus one", "count = count + one"),
+    ("git commit dash dash no dash verify", "git commit --no -verify"),
 ])
 def test_code_words_still_become_symbols(spoken, typed):
     assert codemode.format_code(spoken) == typed

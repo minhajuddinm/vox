@@ -83,11 +83,12 @@ Examples (from the tests): `print open paren quote hello quote close paren` type
 
 Code apps are also where people write commit messages, chat in a terminal or type a comment, so a spoken symbol that is also an everyday word stays a word unless the dictation is code. These are the ambiguous ones (`codemode.AMBIGUOUS`): equals, arrow, dot, dash, slash, quote, single quote, pipe, hash, percent, star, plus, minus, tab, less than, greater than. One of them becomes its symbol when:
 
-- the dictation is code: it starts with a command name (`codemode.COMMANDS`: git, ls, cd, cat, grep, npm, pip, python, node, docker, ssh, curl, echo, rm, mkdir, sudo, cargo, ... but not everyday words such as go or head), or it has a formatter or a spoken symbol that is not ambiguous and not plain punctuation (open paren, underscore, tilde, at sign, equals equals...); or
+- the dictation is code: it starts with a command name (`codemode.COMMANDS`: git, ls, cd, cat, grep, npm, pip, python, node, docker, ssh, curl, echo, rm, mkdir, sudo, cargo, ... but not everyday words such as go or head) that is not followed by a sentence word such as is, the or and (`Python is great` is prose); or it has a formatter or a spoken symbol that is not ambiguous and not plain punctuation (open paren, underscore, tilde, at sign, equals equals...); or it is a statement: two or more ambiguous symbols, each between two plain names with one name between each two (`self dot name equals name`, `total equals price star quantity`, `count equals count plus one`). A name here is a word with no punctuation around it and no apostrophe that is not a sentence word (a, the, and, is, to, it...: `codemode._FUNCTION`; "this" is a name); or
 - a word next to it looks like code: one letter other than a and I (`x dot y`), a digit (`total equals 5`), a character other than letters and apostrophes (`log.txt`), a capital inside the word (`getUser`), or another symbol (`dash dash verbose`, `cd dot dot`); or
+- it is `dot` between two names (`user dot name`, `import os dot path`), or `equals`, `greater than` or `less than` between two names in a dictation that starts with if, elif, while, until, assert or return (`if count greater than limit`); or
 - it is a quote that closes one opened before.
 
-And never right after an article or possessive (the, an, this, that, my, your, one, another, each, every, some, any, no...): `add the dot env file` keeps `dot`. Comma, colon, semicolon and new line are always typed as symbols but do not by themselves make a dictation code.
+Outside code, and inside quotes in code (a commit message), never right after an article or possessive (the, an, this, that, my, your, one, another, each, every, some, any, no...): `add the dot env file` keeps `dot`. In code outside quotes these are words of the code (`git commit dash dash no dash verify`). Comma, colon, semicolon and new line are always typed as symbols but do not by themselves make a dictation code.
 
 | Said in a code app | Typed |
 |---|---|
@@ -99,6 +100,11 @@ And never right after an article or possessive (the, an, this, that, my, your, o
 | cat log dot txt pipe grep error | cat log.txt \| grep error |
 | git commit dash m quote add the dot env file quote | git commit -m "add the dot env file" |
 | x dot y | x.y |
+| a five star hotel plus a spa | a five star hotel plus a spa |
+| self dot name equals name | self.name = name |
+| total equals price star quantity | total = price * quantity |
+| if count greater than limit | if count > limit |
+| import os dot path | import os.path |
 
 The formatters always apply, so `no space` and `all caps` inside a sentence (`there is no space left`) are still read as formatters.
 
