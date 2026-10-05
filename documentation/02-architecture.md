@@ -123,11 +123,11 @@ The same functions exist in both languages:
 | Cleanup system prompt (v3: static part first) and the answer `EMPTY` as nothing | `system_prompt`, `static_prompt`, `cleanup_answer` | `ApiClient.systemPrompt`, `staticPrompt`, `cleanupAnswer` |
 | Whisper spelling hint (one sentence: people, recent terms, dictionary; token budget) | `whisper_prompt`, `whisper_prompt_with_context`, `est_tokens` | `ApiClient.whisperPrompt`, `whisperPromptWith`, `estTokens` |
 | Strip model tags/quotes | `sanitize` | `ApiClient.sanitize` |
-| Reject runaway or word-losing cleanup answers | `looks_valid`, `fidelity_ok`, `word_recall` | `ApiClient.looksValid`, `Fidelity.ok`, `Fidelity.wordRecall` |
+| Reject runaway or word-losing cleanup answers (guard v2; `looks_valid` / `ApiClient.looksValid` and `fidelity_ok` are the same check without a dictionary) | `fidelity_check`, `word_recall` | `Fidelity.check`, `Fidelity.wordRecall` |
 | The text used when the AI cleanup gives none (skipped as short, failed, rejected): the rules layer; the strength setting as light or standard | `fallback_text`, `rules_layer.rules_cleanup`, `clean_strength` | `ApiClient.fallbackText`, `RulesLayer.clean`, `Fidelity.cleanStrength` |
 | Dictionary replacements | `apply_replacements` | `ApiClient.applyReplacements` |
 | Dictionary terms | `dictionary_terms` | `Terms.terms` |
-| The terms the cleanup prompt names (those that occur in the transcript or sound like it, at most 20) | `select_terms`, `term_key` | `Terms.select`, `Terms.key` |
+| The terms the cleanup prompt names (a dictionary of 20 or fewer whole, else those that occur in the transcript or sound like it, at most 20) | `prompt_terms`, `select_terms`, `term_key` | `Terms.forPrompt`, `Terms.select`, `Terms.key` |
 | Spoken "new line" | `apply_spoken_commands` | `ApiClient.applySpokenCommands` |
 | Silence hallucinations | `is_silence_hallucination` | `ApiClient.isSilenceHallucination` |
 | Silence gate | `is_silent` | `Pcm.isSilent` |
