@@ -401,6 +401,9 @@ def _small_server(tmp_path, monkeypatch, **limits):
 def test_connections_over_the_cap_are_answered_503_without_a_thread(tmp_path, monkeypatch):
     import socket
     srv = _small_server(tmp_path, monkeypatch, MAX_CONNECTIONS=3)
+    handlers = []
+    real_setup = relay.Handler.setup
+    monkeypatch.setattr(relay.Handler, "setup", lambda self: handlers.append(self) or real_setup(self))
     held = []
     try:
         for _ in range(3):
@@ -408,9 +411,8 @@ def test_connections_over_the_cap_are_answered_503_without_a_thread(tmp_path, mo
             s.sendall(b"G")      # a request that has begun and stalls
             held.append(s)
         time.sleep(0.3)
-        threads = threading.active_count()
         assert " 503 " in _raw_request(srv, "GET /health HTTP/1.1\r\nHost: x\r\n\r\n")
-        assert threading.active_count() <= threads
+        assert len(handlers) == 3        # the refused connection got no handler (and so no thread)
         for s in held:
             s.close()
         held = []

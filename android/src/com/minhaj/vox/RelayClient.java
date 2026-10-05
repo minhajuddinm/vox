@@ -201,6 +201,8 @@ final class RelayClient implements RelayApi {
      * an answer that is not JSON (status 0) and a network failure (status 0).
      */
     private Object call(String method, String path, String ifMatch, Object body) throws RelayError {
+        String where = Endpoint.resolvedError(base);    // plain http: the name must still lead to a private address
+        if (where != null) throw new RelayError(0, where);
         try {
             HttpURLConnection c = (HttpURLConnection) new URL(base + path).openConnection();
             c.setConnectTimeout(TIMEOUT_MS);

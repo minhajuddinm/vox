@@ -17,6 +17,8 @@ from contextlib import contextmanager
 from urllib.parse import urlparse
 
 import requests
+import urllib3.connection
+import urllib3.connectionpool
 
 import codemode
 import providers
@@ -1153,9 +1155,62 @@ def is_private_host(host):
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
-        # A name: single-label names, .local/.lan and Tailscale MagicDNS names never leave the private network.
+        if _NUMERIC_LABEL.fullmatch(host.rsplit(".", 1)[-1]):
+            return False    # not a name: the resolver reads 134744072 or 0x08080808 as 8.8.8.8 (golden rows, SEC-3)
+        # A name: single-label names, .local/.lan and Tailscale MagicDNS names. Where they lead is checked again when
+        # the connection is made (PrivatePeerConnection): a foreign network can answer for them.
         return "." not in host or host.endswith((".local", ".lan", ".ts.net"))
     return any(ip in net for net in _PRIVATE_NETS)
+
+
+_NUMERIC_LABEL = re.compile(r"[0-9]+|0x[0-9a-f]*")
+
+
+def private_peer(address):
+    """True when a connected socket's peer address (as getpeername gives it) is one plain http may go to."""
+    try:
+        ip = ipaddress.ip_address(str(address).split("%", 1)[0])
+    except ValueError:
+        return False
+    ip = getattr(ip, "ipv4_mapped", None) or ip
+    return any(ip in net for net in _PRIVATE_NETS)
+
+
+class PlainHttpRefused(OSError):
+    """A plain http connection reached an address outside this PC, the LAN and Tailscale (a name that resolved there)."""
+
+
+PLAIN_HTTP_ELSEWHERE = ("Plain http only goes to this PC, your local network or Tailscale, and this name led somewhere else. "
+                        "Use https:// or the address in numbers.")   # Android twin: Endpoint.resolvedError
+
+
+def refused_plain_http(exc):
+    """True when a requests error comes from PrivatePeerConnection refusing where a name led."""
+    for _ in range(10):
+        if exc is None or isinstance(exc, PlainHttpRefused):
+            return exc is not None
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+class PrivatePeerConnection(urllib3.connection.HTTPConnection):
+    """Every plain http connection the app makes (requests, through urllib3): the address it really connected to must be
+    private, whatever the name resolved to. The address rule (endpoint_error) only sees the name, and a foreign network
+    (hotel DNS, LLMNR or mDNS) can answer for `gpu-pc` or `pi.lan`: nothing is sent before this check."""
+
+    def connect(self):
+        super().connect()
+        try:
+            peer = self.sock.getpeername()[0]
+        except (OSError, AttributeError, IndexError):
+            peer = ""
+        if not private_peer(peer):
+            self.close()
+            raise PlainHttpRefused("plain http is only sent to this PC, the local network or Tailscale; this name led elsewhere")
+
+
+# https pools have their own connection class, so only plain http is affected
+urllib3.connectionpool.HTTPConnectionPool.ConnectionCls = PrivatePeerConnection
 
 
 def endpoint_error(cfg):

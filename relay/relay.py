@@ -495,8 +495,24 @@ def is_private_host(host):
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
-        # A name: single-label names, .local/.lan and Tailscale MagicDNS names never leave the private network.
+        if _NUMERIC_LABEL.fullmatch(host.rsplit(".", 1)[-1]):
+            return False    # not a name: the resolver reads 134744072 or 0x08080808 as 8.8.8.8 (golden rows, SEC-3)
+        # A name: single-label names, .local/.lan and Tailscale MagicDNS names. Where they lead is checked again when the
+        # relay connects (_open_socket): a network can answer for them with any address.
         return "." not in host or host.endswith((".local", ".lan", ".ts.net"))
+    return any(ip in net for net in _PRIVATE_NETS)
+
+
+_NUMERIC_LABEL = re.compile(r"[0-9]+|0x[0-9a-f]*")
+
+
+def private_address(address):
+    """True when a resolved address (a getaddrinfo or getpeername address string) is one plain http may go to."""
+    try:
+        ip = ipaddress.ip_address(str(address).split("%", 1)[0])
+    except ValueError:
+        return False
+    ip = getattr(ip, "ipv4_mapped", None) or ip
     return any(ip in net for net in _PRIVATE_NETS)
 
 
@@ -602,10 +618,12 @@ def _scrub(data, key):
     return data
 
 
-def _open_socket(host, port, deadline):
+def _open_socket(host, port, deadline, private_only=False):
     """A connected TCP socket to host:port, like socket.create_connection, except that the name lookup and all the
     connection attempts share one deadline (a time.monotonic() value) instead of each getting a whole timeout. The
-    socket comes back with what is left as its timeout, which also bounds an https handshake. Raises OSError."""
+    socket comes back with what is left as its timeout, which also bounds an https handshake. Raises OSError.
+    `private_only` (plain http): every address the name resolves to must be private (`private_address`), or nothing is
+    connected and UpstreamError is raised; upstream_problem only saw the name."""
     found = []
 
     def look_up():
@@ -621,6 +639,8 @@ def _open_socket(host, port, deadline):
         raise OSError("name lookup timed out")
     if isinstance(found[0], Exception):
         raise found[0]
+    if private_only and not all(private_address(a[4][0]) for a in found[0]):
+        raise UpstreamError("the plain http upstream's name led outside this machine, the local network and Tailscale")
     err = OSError("no address to connect to")
     for family, kind, proto, _name, address in found[0]:
         left = deadline - time.monotonic()
@@ -673,7 +693,7 @@ def forward_upstream(base_url, api_key, suffix, method, body, content_type, acce
     deadline = time.monotonic() + timeout
     conn = (http.client.HTTPSConnection if https else http.client.HTTPConnection)(u.hostname, u.port or (443 if https else 80), timeout=timeout)
     # http.client calls this (an instance attribute, set here) to open the TCP connection; https still wraps it its own way
-    conn._create_connection = lambda address, *_ignored: _open_socket(address[0], address[1], deadline)
+    conn._create_connection = lambda address, *_ignored: _open_socket(address[0], address[1], deadline, private_only=not https)
     expired = threading.Event()
     abandoned = threading.Event()
     watchdog = None

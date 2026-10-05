@@ -113,6 +113,8 @@ def _call(method, url, path, token, device, headers=None, allow=(), **kw):
     try:
         r = _session.request(method, url + path, headers=h, timeout=TIMEOUT, **kw)
     except requests.RequestException as e:
+        if core.refused_plain_http(e):
+            raise SyncError(core.PLAIN_HTTP_ELSEWHERE)
         raise SyncError("Cannot reach the relay (is Tailscale running?): " + type(e).__name__)
     if r.status_code not in allow:
         if r.status_code == 401:

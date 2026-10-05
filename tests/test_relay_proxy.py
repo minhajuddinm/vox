@@ -640,7 +640,7 @@ def test_the_connection_attempts_share_the_deadline_instead_of_each_getting_the_
     fake_sockets(monkeypatch, lookup, Unreachable)
     t0 = time.monotonic()
     with pytest.raises(relay.UpstreamError) as err:
-        relay.forward_upstream("http://many.example.test:8080/v1", "", "/models", "GET", b"", None, None, 0.5)
+        relay.forward_upstream("https://many.example.test:8080/v1", "", "/models", "GET", b"", None, None, 0.5)
     assert err.value.message == "upstream unreachable"
     assert looked_up == [("many.example.test", 8080)]          # the fake was used, not the real resolver
     assert time.monotonic() - t0 < 1.2                         # (seven attempts with a whole timeout each would be 2.1 s)
@@ -1464,3 +1464,32 @@ def test_the_proxy_hands_the_body_to_the_exchange_and_keeps_none_while_it_waits(
         release.set()
         t.join(10)
 
+
+
+# ------------------------------------------------------------------ bf-e: SEC-3, where a plain http name really leads
+def test_a_plain_http_upstream_name_that_resolves_to_loopback_is_used(server, llm_stub):
+    server.set_upstream("llm", llm_stub.url.replace("127.0.0.1", "localhost"), LLM_KEY)
+    assert send_route(server, ROUTES[2]).status == 200 and len(llm_stub.seen) == 1
+
+
+def test_a_plain_http_upstream_name_that_resolves_to_a_public_address_gets_nothing(server, llm_stub, monkeypatch):
+    real = socket.getaddrinfo
+    port = llm_stub.server_address[1]
+
+    def lookup(host, *a, **kw):    # a hostile network answers for the name: one private and one public address
+        if host == "gpu-pc":
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port)),
+                    (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", port))]
+        return real(host, *a, **kw)
+    monkeypatch.setattr(relay.socket, "getaddrinfo", lookup)
+    server.set_upstream("llm", "http://gpu-pc:%d/v1" % port, LLM_KEY)
+    resp = send_route(server, ROUTES[2])
+    assert resp.status == 502 and "outside this machine" in resp.json()["error"]["message"]
+    assert llm_stub.seen == [] and LLM_KEY.encode() not in resp.raw and free_slots(server)
+
+
+@pytest.mark.parametrize("address, ok", [("127.0.0.1", True), ("::1", True), ("fe80::1%3", True), ("100.100.1.1", True),
+                                         ("192.168.1.9", True), ("8.8.8.8", False), ("::ffff:8.8.8.8", False),
+                                         ("::ffff:127.0.0.1", True), ("2606:4700::1111", False), ("junk", False)])
+def test_private_address_judges_a_resolved_address(address, ok):
+    assert relay.private_address(address) is ok

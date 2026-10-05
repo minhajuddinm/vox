@@ -42,6 +42,7 @@ public final class ApiClient {
     /** True when Groq accepts the key, false when it rejects it. Throws on network errors. */
     public boolean checkKey() throws IOException {
         String problem = Endpoint.error(base);
+        if (problem == null) problem = Endpoint.resolvedError(base);
         if (problem != null) throw new IOException(problem);   // the same address rule as every other call: never send the key to a refused address
         HttpURLConnection c = (HttpURLConnection) new URL(base + "/models").openConnection();
         c.setConnectTimeout(15000);
@@ -670,6 +671,8 @@ public final class ApiClient {
 
     private HttpURLConnection get(String url) throws IOException {
         if (aborted) throw new IOException("cancelled");
+        String problem = Endpoint.resolvedError(base);
+        if (problem != null) throw new IOException(problem);
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         active = c;
         if (aborted) throw new IOException("cancelled");
@@ -683,6 +686,7 @@ public final class ApiClient {
 
     private HttpURLConnection open(String url, int readMs) throws IOException {
         String problem = Endpoint.error(base);
+        if (problem == null) problem = Endpoint.resolvedError(base);
         if (problem != null) throw new IOException(problem);
         if (aborted) throw new IOException("cancelled");
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();

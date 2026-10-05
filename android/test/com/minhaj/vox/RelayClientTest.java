@@ -131,10 +131,31 @@ public final class RelayClientTest {
         HttpServer server = start(true);
         try {
             run(server);
+            resolved(server);
         } finally {
             server.stop(0);
         }
         System.out.println("OK: " + checks + " checks passed");
+    }
+
+    /** bf-e SEC-3: a plain http relay name is looked up first, and nothing is sent when it leads outside the private ranges. */
+    private static void resolved(HttpServer server) throws Exception {
+        final int port = server.getAddress().getPort();
+        answer(200, "{\"ok\": true, \"notes\": 0, \"seq\": 0}");
+        eq("a name that leads to loopback works", true, RelayClient.check("http://localhost:" + port, TOKEN, "Pixel").ok);
+        eq("the request arrived", 1, seen.size());
+        Endpoint.Resolver real = Endpoint.resolver;
+        Endpoint.resolver = host -> new InetAddress[]{InetAddress.getByName("127.0.0.1"), InetAddress.getByName("8.8.8.8")};
+        try {
+            seen.clear();
+            final RelayClient c = new RelayClient("http://localhost:" + port, TOKEN, "Pixel");
+            RelayApi.RelayError e = fails("a name with a public address", () -> c.getProfile());
+            eq("its message", true, e.getMessage().startsWith("Plain http only goes to"));
+            eq("nothing was sent", 0, seen.size());
+            eq("https is not looked up", null, Endpoint.resolvedError("https://localhost:" + port));
+        } finally {
+            Endpoint.resolver = real;
+        }
     }
 
     private static void run(HttpServer server) throws Exception {
