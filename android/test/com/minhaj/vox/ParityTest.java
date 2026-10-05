@@ -431,6 +431,25 @@ public final class ParityTest {
                 case "fidelity":   // strength, raw, cleaned, whether the cleanup kept enough of the spoken words
                     eq(ln, kind, f[3], Fidelity.ok(f[1], f[2], f[0]) ? "true" : "false");
                     break;
+                case "guard": {   // strength, finish, terms, replacements, raw, cleaned => accept|empty|reject, reason (label ignored)
+                    Map<String, String> repl = new LinkedHashMap<>();
+                    for (String p : items(f[3], ";")) repl.put(p.substring(0, p.indexOf("=>")), p.substring(p.indexOf("=>") + 2));
+                    Fidelity.Verdict v = Fidelity.check(f[4], f[5], f[0], f[1], items(f[2], "|"), repl);
+                    eq(ln, kind, f[6] + " " + f[7], (v.empty ? "empty" : v.ok ? "accept" : "reject") + " " + v.reason);
+                    break;
+                }
+                case "lcs": {   // tokens a, tokens b => aligned index pairs i:j
+                    StringBuilder sb = new StringBuilder();
+                    for (int[] p : Fidelity.lcsPairs(items(f[0], "|"), items(f[1], "|"))) {
+                        if (sb.length() > 0) sb.append('|');
+                        sb.append(p[0]).append(':').append(p[1]);
+                    }
+                    eq(ln, kind, f[2], sb.toString());
+                    break;
+                }
+                case "pkey":   // word, its phonetic key
+                    eq(ln, kind, f[1], Fidelity.pkey(f[0]));
+                    break;
                 case "tokens":   // text, its word tokens joined by |
                     eq(ln, kind, f[1], String.join("|", Fidelity.wordTokens(f[0])));
                     break;
