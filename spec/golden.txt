@@ -1022,3 +1022,145 @@ llmread	666	59960
 llmread	667	60000
 llmread	10000	60000
 llmread	-3	20000
+# bf-c
+# TXT-1: a grammar edit is not learned: a word given or losing an ending (s, es, ies, d, ed, ied, ing, er, ers, est, ly;
+# with a dropped e, a doubled last letter or y/ies), an ordinary word or a Hindi function word (है हैं में मैं की के को...)
+# changed into another, in pairs of the same number of words. A plain word made into a name (postgre => Postgres) still is.
+autocorrect	we need to complete the report	we need to completed the report	
+autocorrect	the client wants changes	the clients wants changes	
+autocorrect	Client wants changes today	Clients wants changes today	
+autocorrect	please update the doc	please updated the doc	
+autocorrect	it will happen soon	it will happened soon	
+autocorrect	the deployment failed again	the deployments failed again	
+autocorrect	we create the file now	we creating the file now	
+autocorrect	i commit the code daily	i committed the code daily	
+autocorrect	the company grew fast	the companies grew fast	
+autocorrect	send the invoice today	send the invoices today	
+autocorrect	the meeting is at five	the meetings are at five	
+autocorrect	the users report bugs often	the user reports bugs often	
+autocorrect	यह में ठीक हूं	यह मैं ठीक हूं	
+autocorrect	राम की किताब यहाँ	राम के किताब यहाँ	
+autocorrect	वे यहाँ है अभी	वे यहाँ हैं अभी	
+autocorrect	मैं ठीक हूं दोस्त	मैं ठीक हूँ दोस्त	
+autocorrect	use the postgre server now	use the Postgres server now	postgre=>Postgres
+autocorrect	call jone now please	call Jones now please	jone=>Jones
+autocorrect	run wisper on it	run Whisper on it	wisper=>Whisper
+autocorrect	i definately agree here	i definitely agree here	definately=>definitely
+autocorrect	keep them seperate please	keep them separate please	seperate=>separate
+# TXT-2: a word's combining marks (Devanagari vowel signs and virama, the accent of a decomposed letter) are part of the
+# word: a replacement, a snippet trigger or a fuzzy term never matches inside a longer word through them.
+replace	आप करें, हम कर देंगे	कर=>करो	आप करें, हम करो देंगे
+replace	यह सही हैं और वह है	है=>हैं	यह सही हैं और वह हैं
+replace	बाकी की बात	की=>के	बाकी के बात
+replace	नमस्ते नमस	नमस=>X	नमस्ते X
+replace	café cafe	cafe=>CAFE	café CAFE
+snippets	आप करें, हम कर देंगे	आप करें, हम X देंगे	कर	X
+snippets	बाकी की बात	बाकी Y बात	की	Y
+fuzzydict	Christina	ask christiné now	ask christiné now
+fuzzydict	Christina	ask christine now	ask Christina now
+# TXT-9: a replacement or a fuzzy term is not applied to a word joined by . @ / or a backslash to another word (an email, a web or
+# file address, code such as ai.predict).
+replace	visit groq.com/ai now	groq=>Groq;ai=>AI	visit groq.com/ai now
+replace	mail ai@x.com or ai	ai=>AI	mail ai@x.com or AI
+replace	call ai.predict() then ai.	ai=>AI	call ai.predict() then AI.
+replace	open c:\\ai\\vox and vox	vox=>Vox	open c:\\ai\\vox and Vox
+replace	pay $5.00 or $5	$5=>five dollars	pay $5.00 or five dollars
+fuzzydict	Kubernetes	see kubernetes.io/docs on kubernetes	see kubernetes.io/docs on Kubernetes
+fuzzydict	Kubernetes	mail kubernetes@x.org or kubernetis	mail kubernetes@x.org or Kubernetes
+# TXT-3: a date with a year after a comma, money with cents and a spoken "oh" for zero are written forms of the spoken
+# numbers. Digit groups after ", " are also compared unjoined; "N dollars and M cents" is $N.MM; "oh" or "o" between two
+# single digits is 0.
+fidelity	light	the meeting is on march third twenty twenty six	The meeting is on March 3, 2026.	true
+fidelity	light	born on may fifth nineteen ninety	Born on May 5, 1990.	true
+fidelity	light	the meeting is on march third twenty twenty six	The meeting is on March 3, 2025.	false
+fidelity	light	it costs five dollars and fifty cents	It costs $5.50.	true
+fidelity	light	it costs five dollars fifty cents	It costs $5.50.	true
+fidelity	light	it costs five dollars and fifty cents	It costs $5.15.	false
+fidelity	light	it costs five dollars and fifty cents	It costs $5 and 50 cents.	true
+fidelity	light	pay five rupees and fifty paise	Pay ₹5.50.	true
+fidelity	light	five and fifty cents	5.50	false
+fidelity	light	rooms one oh four	Rooms 104	true
+fidelity	light	call me at five five five oh one two three	Call me at 555-0123.	true
+fidelity	light	call me at five five five oh one two three	Call me at 555-1123.	false
+fidelity	light	i said oh no to him	I said oh no to him.	true
+fidelity	light	count two three four	Count 2, 3, 4.	true
+tokens	Rooms 104, 2026	rooms|104|2026
+# TXT-10: a spoken comma, period, colon, question mark or new line counts as kept only while the cleaned text has that
+# symbol or a line break left for it.
+fidelity	light	put a comma here	Put a here.	false
+fidelity	light	put a comma here	Put a, here.	true
+fidelity	light	first line new line second line	First line second line.	false
+fidelity	light	first line new line second line	First line\nsecond line	true
+fidelity	light	is it done question mark	Is it done	false
+fidelity	light	is it done question mark	Is it done?	true
+fidelity	light	add a new line of products	Add a new line of products.	true
+# TXT-5: an ordinal, numbered or bare-number cue with no punctuation after it starts an item only before a word that
+# starts one (we, the, it, let's...), so "number one priority", "two people", "first impressions" stay prose; "second of
+# all" is not a cue; "bullet point" after a determiner (a, one, the...) is the noun.
+# TXT-4: the dot of an abbreviation (Dr. Mr. Mrs. Ms. St. vs. etc. Jr. Sr. Prof.) or of a single letter (p.m., e.g.)
+# ends no sentence: the last item is not cut there.
+structure	auto	neutral	Number one priority is getting the release out. Two customers are waiting on the fix.	Number one priority is getting the release out. Two customers are waiting on the fix.
+structure	auto	neutral	Number one priority is hiring. Two of our engineers left.	Number one priority is hiring. Two of our engineers left.
+structure	auto	neutral	Step one is easy. Two people disagreed with that.	Step one is easy. Two people disagreed with that.
+structure	auto	neutral	First of all, congrats on the promotion. Second of all, you owe us drinks.	First of all, congrats on the promotion. Second of all, you owe us drinks.
+structure	auto	neutral	First I went to the store. Then I went home. Second time I went, it was closed.	First I went to the store. Then I went home. Second time I went, it was closed.
+structure	auto	neutral	First impressions of the new laptop: fast, quiet, but the keyboard is mushy. Second monitor support is flaky.	First impressions of the new laptop: fast, quiet, but the keyboard is mushy. Second monitor support is flaky.
+structure	auto	neutral	I have one bullet point to make. Bullet point it is.	I have one bullet point to make. Bullet point it is.
+structure	auto	neutral	Point one, we ship on Friday. Two people will test it.	Point one, we ship on Friday. Two people will test it.
+structure	auto	neutral	First buy milk. Second call mom.	First buy milk. Second call mom.
+structure	auto	neutral	Point one we ship on Friday. Point two we test on Monday.	1. We ship on Friday\n2. We test on Monday
+structure	auto	neutral	Firstly it is cheap. Secondly it is fast.	1. It is cheap\n2. It is fast
+structure	auto	neutral	First of all thanks for coming. Second, the budget is late.	1. Thanks for coming\n2. The budget is late
+structure	auto	neutral	Bullet point milk, a bullet point eggs, bullet point bread.	- Milk, a bullet point eggs\n- Bread
+structure	auto	neutral	First, book the room. Second, call Dr. Smith tomorrow.	1. Book the room\n2. Call Dr. Smith tomorrow
+structure	auto	neutral	First, book the room. Second, the demo at 3 p.m. today.	1. Book the room\n2. The demo at 3 p.m. today
+structure	auto	neutral	First, call the bank. Second, email Mr. Patel and Mrs. Rao. Thanks.	1. Call the bank\n2. Email Mr. Patel and Mrs. Rao\n\nThanks.
+structure	auto	neutral	First, call Dr. Smith. Second, book the room.	1. Call Dr. Smith\n2. Book the room
+structure	auto	neutral	First, tea. Second, e.g. coffee or juice. That is all.	1. Tea\n2. e.g. coffee or juice\n\nThat is all.
+structure	auto	neutral	First, it is cheap. It is good. Second, fast.	1. It is cheap. It is good.\n2. Fast
+# DAT-6 / #63: when both sides changed a list field (dictionary, people), the lists merge item by item instead of the
+# relay's list winning whole: an item added on either side is kept, an item removed on either side (it was in the base)
+# goes; the relay's order first, then this device's additions. mergelist: base, local, remote, expected (items joined
+# by |; ~ = the field is absent there; an empty column = an empty list). sync.merge3 / ProfileMerge.merge3.
+mergelist	Vox	Vox|Foobar	Vox|Bar	Vox|Bar|Foobar
+mergelist	Vox|Old	Vox|Foobar	Vox|Old|Bar	Vox|Bar|Foobar
+mergelist	Vox|Old	Vox|Old|Foobar	Vox|Bar	Vox|Bar|Foobar
+mergelist	~	Mine|Both	Both|Theirs	Both|Theirs|Mine
+mergelist	~	Mine		Mine
+mergelist	a|b	a|b	a|b|c	a|b|c
+mergelist	a|b	a|b|c	a|b	a|b|c
+mergelist	a|b	b|a	a|b|c	a|b|c
+mergelist	a|b		a|b|c	c
+mergelist	a	b	c	c|b
+mergelist	a	~	a|c	a|c
+mergelist	a	a|b	~	~
+# mergemap: the snippets map merges the same way, trigger by trigger (a trigger changed on both sides takes the relay's
+# text). Entries trigger=text joined by |.
+mergemap	home=1 Main St	home=1 Main St|sig=Best, Yuvi	home=1 Main St|mail=me@x.com	home=1 Main St|mail=me@x.com|sig=Best, Yuvi
+mergemap	home=1 Main St|old=x	home=2 Main St	home=1 Main St|old=x|mail=me@x.com	home=2 Main St|mail=me@x.com
+mergemap	home=1	home=2|a=b	home=3	home=3|a=b
+mergemap	~	mine=1	theirs=2	theirs=2|mine=1
+# TXT-8 / AND-5: Unicode spaces (no-break, thin, ideographic) count as spaces on both platforms (Python's isspace):
+# trimmed from dictionary and people lines, the cleanup answer and About you, around spoken commands; a people line
+# starting with # is a comment, as in the dictionary; the speech prompt's 600-character cap counts code points.
+terms	#note|Ada 	 grok => Groq |Kubernetes　| # hidden	Ada|Groq|Kubernetes
+sanitize	"quoted" 	quoted
+sanitize	　Hello there　	Hello there
+spoken	one new line two	one\ntwo
+spoken	end　new paragraph next	end\n\nnext
+context	 I lead Atlas.　	I lead Atlas.
+whisper	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|😀	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, 😀.
+whisper	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|😀	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.
+# TXT-7 / AND-6: the phone splits an edit into swaps with the same diff as the PC (difflib's matching blocks, ported to
+# Corrections.java), so both learn the same pairs. suggest: text typed, the user's edit, the swaps found (Fix a word;
+# vox_core.suggest_corrections / Corrections.suggest, at most 3 words a side).
+autocorrect	we use node.js node.js daily	we use node.js nkde.js daily	node.js=>nkde.js
+autocorrect	mail john@x.com john@x.com now	mail john@x.coz john@x.com now	john@x.com=>john@x.coz
+autocorrect	the grok grok grok api	the Groq grok grok api	the grok=>Groq
+suggest	the grok grok grok api	the Groq grok grok api	grok=>Groq
+suggest	so naive naive nahi it is	so naiv naive Nahi it is	naive nahi=>Nahi
+suggest	kubernetis: you) you two second	kubernetis: You) you Question question second	you two=>Question question
+suggest	a b a b c	a c a b b	
+suggest	send it to Minhaj today	send it to Minhajuddin today	Minhaj=>Minhajuddin
+# TXT-1: one ordinary word fixed into a name (Mark -> Marc) is still learned, whatever its case.
+autocorrect	ask Mark about it	ask Marc about it	Mark=>Marc

@@ -46,6 +46,30 @@ public final class ParityTest {
         return v.equals("~") ? null : v;
     }
 
+    /** ProfileMerge.merge3 on one list field (items joined by |) or one map field (key=value entries); "~" = absent. */
+    @SuppressWarnings("unchecked")
+    private static String mergedList(String base, String local, String remote, boolean asMap) {
+        Object v = ProfileMerge.merge3(side(base, asMap), side(local, asMap), side(remote, asMap));
+        if (v == null) return "~";
+        StringBuilder b = new StringBuilder();
+        if (asMap) {
+            for (Map.Entry<String, Object> e : ((Map<String, Object>) v).entrySet()) {
+                b.append(b.length() == 0 ? "" : "|").append(e.getKey()).append('=').append(e.getValue());
+            }
+        } else {
+            for (Object x : (List<Object>) v) b.append(b.length() == 0 ? "" : "|").append(x);
+        }
+        return b.toString();
+    }
+
+    private static Object side(String v, boolean asMap) {
+        if (v.equals("~")) return null;
+        if (!asMap) return new ArrayList<Object>(items(v, "|"));
+        Map<String, Object> m = new LinkedHashMap<>();
+        for (String e : items(v, "|")) m.put(e.substring(0, e.indexOf('=')), e.substring(e.indexOf('=') + 1));
+        return m;
+    }
+
     /** Golden audio (see segcuts in spec/golden.txt): | separated runs, each a letter and a length in milliseconds. */
     private static byte[] segAudio(String runs) {
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
@@ -328,6 +352,12 @@ public final class ParityTest {
                 case "merge3":
                     eq(ln, kind, f[3], mergedValue(f[0], f[1], f[2]));
                     break;
+                case "mergelist":   // base, local, remote list (| between items, ~ absent) => the merged list
+                    eq(ln, kind, f[3], mergedList(f[0], f[1], f[2], false));
+                    break;
+                case "mergemap":   // the same for a map (key=value entries)
+                    eq(ln, kind, f[3], mergedList(f[0], f[1], f[2], true));
+                    break;
                 case "profilefields":
                     eq(ln, kind, f[1], String.join("|", f[0].equals("keys") ? ProfileMerge.KEY_FIELDS : ProfileMerge.SHARED_FIELDS));
                     break;
@@ -433,6 +463,9 @@ public final class ParityTest {
                     break;
                 case "autocorrect":   // text Vox typed, the field's whole text now, the corrections found
                     eq(ln, kind, f[2], pairsText(AutoLearn.detect(f[0], f[1])));
+                    break;
+                case "suggest":   // text typed, the user's edit, the swaps Fix a word suggests (at most 3 words a side)
+                    eq(ln, kind, f[2], pairsText(Corrections.suggest(f[0], f[1], 3)));
                     break;
                 case "autolearn": {   // replacements, words, pairs found => the replacements and words added
                     AutoLearn.Learned l = AutoLearn.learn(pairs(f[0]), items(f[1], "|"), pairs(f[2]));

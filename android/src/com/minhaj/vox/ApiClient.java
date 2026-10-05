@@ -187,15 +187,16 @@ public final class ApiClient {
         return cps <= 600 ? all : all.substring(all.offsetByCodePoints(0, cps - 600));
     }
 
-    /** Python's str.strip(): removes white space, which differs a little from Java's trim(). */
-    private static String pyStrip(String s) {
+    /** Python's str.strip(): removes white space, which differs a little from Java's trim() (no-break and ideographic spaces). */
+    static String pyStrip(String s) {
         int a = 0, b = s.length();
         while (a < b && isPyWhitespace(s.charAt(a))) a++;
         while (b > a && isPyWhitespace(s.charAt(b - 1))) b--;
         return s.substring(a, b);
     }
 
-    private static boolean isPyWhitespace(char c) {
+    /** Python's str.isspace() for one character: what str.split() and str.strip() treat as a space. */
+    static boolean isPyWhitespace(char c) {
         return Character.isWhitespace(c) || Character.isSpaceChar(c) || c == '';
     }
 
@@ -203,10 +204,13 @@ public final class ApiClient {
     static String whisperPrompt(List<String> terms) {
         if (terms == null || terms.isEmpty()) return "";
         StringBuilder sb = new StringBuilder();
+        int n = 0;   // code points, as Python's len counts them (an emoji is one)
         for (String t : terms) {
-            if (sb.length() + t.length() + 2 > 600) break;
-            if (sb.length() > 0) sb.append(", ");
+            int len = t.codePointCount(0, t.length());
+            if (n + len + 2 > 600) break;
+            if (sb.length() > 0) { sb.append(", "); n += 2; }
             sb.append(t);
+            n += len;
         }
         return sb.toString() + ".";
     }
@@ -288,8 +292,8 @@ public final class ApiClient {
             before = t;
             t = OWN_TAGS.matcher(t).replaceAll("");
         }
-        t = t.trim();
-        if (t.length() > cap) t = t.substring(0, cap).trim();
+        t = pyStrip(t);
+        if (t.codePointCount(0, t.length()) > cap) t = pyStrip(t.substring(0, t.offsetByCodePoints(0, cap)));
         return t;
     }
 
@@ -446,15 +450,20 @@ public final class ApiClient {
 
     static String sanitize(String text) {
         String t = THINK.matcher(text == null ? "" : text).replaceAll("");
-        t = t.replace("<transcript>", "").replace("</transcript>", "").trim();
+        t = pyStrip(t.replace("<transcript>", "").replace("</transcript>", ""));
         if (t.length() >= 2 && t.startsWith("\"") && t.endsWith("\"") && t.indexOf('"', 1) == t.length() - 1) {
-            t = t.substring(1, t.length() - 1).trim();
+            t = pyStrip(t.substring(1, t.length() - 1));
         }
         return t;
     }
 
-    private static final Pattern NEW_PARAGRAPH = Pattern.compile("(?i)[,;:]?\\s*\\bnew paragraph\\b[.,;:!?]?\\s*");
-    private static final Pattern NEW_LINE = Pattern.compile("(?i)[,;:]?\\s*\\bnew line\\b[.,;:!?]?\\s*");
+    /**
+     * Python's \s (str.isspace) written out: Java's \s leaves out the no-break and ideographic spaces, and Android's ICU
+     * regex may differ from the JDK, so neither \s nor \b is used here.
+     */
+    private static final String PY_SPACE = "[\\t\\n\\x0B\\f\\r\\x1C-\\x20\\x85\\xA0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]";
+    private static final Pattern NEW_PARAGRAPH = Pattern.compile("(?i)[,;:]?" + PY_SPACE + "*(?<![\\p{L}\\p{N}_])new paragraph(?![\\p{L}\\p{N}_])[.,;:!?]?" + PY_SPACE + "*");
+    private static final Pattern NEW_LINE = Pattern.compile("(?i)[,;:]?" + PY_SPACE + "*(?<![\\p{L}\\p{N}_])new line(?![\\p{L}\\p{N}_])[.,;:!?]?" + PY_SPACE + "*");
 
     /**
      * Turns the spoken words "new paragraph" and "new line" into line breaks. Used when the AI cleanup did
@@ -553,19 +562,27 @@ public final class ApiClient {
         int words = 0;
         boolean inWord = false;
         for (int i = 0; raw != null && i < raw.length(); i++) {
-            char c = raw.charAt(i);
-            boolean space = Character.isWhitespace(c) || Character.isSpaceChar(c);
+            boolean space = isPyWhitespace(raw.charAt(i));   // Python's split(): also U+0085
             if (!space && !inWord) words++;
             inWord = !space;
         }
         return words >= cleanMinWords(minWords);
     }
 
-    /** Applies "wrong => right" pairs as whole-word, case-insensitive replacements. */
+    /** A character of a word: letters, combining marks (Devanagari vowel signs, an accent), numbers and _ (Python's \w plus the marks). */
+    static final String WORD_CHAR = "[\\p{L}\\p{M}\\p{N}_]";
+
+    /**
+     * Applies "wrong => right" pairs as whole-word, case-insensitive replacements. A word's combining marks count as part of
+     * it, and a word joined to another by . @ / or a backslash (an address or code, see Terms.inAddress) is left alone.
+     * Twin of apply_replacements in windows/vox_core.py.
+     */
     static String applyReplacements(String text, Map<String, String> repl) {
         String out = text;
         for (Map.Entry<String, String> e : repl.entrySet()) {
-            Pattern p = Pattern.compile("(?iu)(?<![\\p{L}\\p{N}_])" + Pattern.quote(e.getKey()) + "(?![\\p{L}\\p{N}_])");
+            if (e.getKey().isEmpty()) continue;
+            Pattern p = Pattern.compile("(?iu)(?<!" + WORD_CHAR + ")(?<!" + WORD_CHAR + "[.@/\\\\])" + Pattern.quote(e.getKey())
+                    + "(?!" + WORD_CHAR + ")(?![.@/\\\\]" + WORD_CHAR + ")");
             out = p.matcher(out).replaceAll(Matcher.quoteReplacement(e.getValue()));
         }
         return out;

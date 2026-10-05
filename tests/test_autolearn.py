@@ -174,6 +174,14 @@ def test_the_learned_log_keeps_the_last_twenty_and_drops_junk():
     assert al.learned_log({"learned_log": "nope"}) == [] and al.learned_log({}) == []
 
 
+def test_a_learned_entry_whose_line_left_the_dictionary_leaves_the_log():
+    log = [{"t": 1, "wrong": "fubar", "right": "Foobar"}, {"t": 2, "wrong": "grok", "right": "Groq"}]
+    cfg = {"dictionary": ["Vox", "grok => Groq", "# fubar => Foobar"], "learned_log": log}   # DAT-6: dropped on the phone
+    assert [e["wrong"] for e in al.learned_log(cfg)] == ["grok"]
+    parts, _ = al.apply_learned(cfg, [["teh", "the"]], now=3.0)
+    assert [e["wrong"] for e in parts["learned_log"]] == ["grok", "teh"]
+
+
 def test_enabled_defaults_to_on():
     assert al.enabled({}) and al.enabled({"auto_learn": True}) and not al.enabled({"auto_learn": False})
 
@@ -325,3 +333,28 @@ def test_end_drops_the_snapshot():
 def test_unarmed_watch_does_nothing():
     w = al.Watch(clock=Clock())
     assert w.observe("app", "x") == [] and not w.is_armed() and w.arm("app", "  ") == [] and not w.armed
+
+
+# ------------------------------------------------------------------ TXT-1: grammar edits are not learned
+
+@pytest.mark.parametrize("wrong,right", [
+    ("complete", "completed"), ("client", "clients"), ("update", "updated"), ("deployment", "deployments"),
+    ("invoice", "invoices"), ("happen", "happened"), ("create", "creating"), ("commit", "committed"),
+    ("company", "companies"), ("schedule", "scheduled"), ("process", "processes"), ("manager", "managers"),
+    ("Client", "Clients"), ("meeting is", "meetings are"), ("users report", "user reports"),
+    ("में", "मैं"), ("की", "के"), ("को", "के"), ("है", "हैं"), ("हूं", "हूँ"),
+])
+def test_a_grammar_edit_is_not_learned(wrong, right):
+    assert not al.looks_like_fix(wrong, right)
+    assert al.grammar_edit(wrong, right) or al.ordinary(wrong)   # one Hindi function word: the ordinary-word rule
+
+
+@pytest.mark.parametrize("wrong,right", [
+    ("Minhaj", "Minhajuddin"), ("grok", "Groq"), ("jason", "JSON"), ("shital", "Sheetal"), ("you vrag", "Yuvraj"),
+    ("ec two", "EC2"), ("get user name", "getUserName"), ("postgre", "Postgres"), ("jone", "Jones"),
+    ("wisper", "Whisper"), ("lama", "Llama"), ("cloud flare", "Cloudflare"), ("teh", "the"), ("recieve", "receive"),
+    ("nite", "night"), ("seperate", "separate"), ("definately", "definitely"), ("accomodate", "accommodate"),
+    ("acha", "accha"), ("यार", "यारा"), ("Mark", "Marc"), ("their", "Thier"),
+])
+def test_names_and_misheard_words_are_still_learned(wrong, right):
+    assert al.looks_like_fix(wrong, right)

@@ -1,9 +1,12 @@
 package com.minhaj.vox;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -36,15 +39,59 @@ final class ProfileMerge {
      * result means the field is dropped (a removal is a change like any other). The values are compared with
      * {@code equals}, which agrees with Python's {@code ==} for strings, booleans and lists of them; convert numbers
      * to one type first, since an Integer 1 is not equal to a Long 1.
-     * One exception: a field with no base (this device's first sync) whose relay value is blank ("" or an empty
-     * list) keeps the local value when that is not blank, because the blank is only the other device's default.
+     * A list (dictionary, people) or a map (snippets) changed on both sides merges item by item instead
+     * ({@link #mergeItems}), so a word learned here while the PC added another keeps both. One more exception: a field
+     * with no base (this device's first sync) whose relay value is blank ("" or an empty list) keeps the local value when
+     * that is not blank, because the blank is only the other device's default.
      */
     static Object merge3(Object base, Object local, Object remote) {
         if (base == null && local != null && remote != null && isBlank(remote) && !isBlank(local)) return local;
-        if (Objects.equals(local, remote)) return local;
+        return mergeOne(base, local, remote);
+    }
+
+    private static Object mergeOne(Object base, Object local, Object remote) {
+        if (Objects.equals(local, remote) || Objects.equals(remote, base)) return local;
         if (Objects.equals(local, base)) return remote;
-        if (Objects.equals(remote, base)) return local;
+        return mergeItems(base, local, remote);
+    }
+
+    /**
+     * Both sides changed a list or a map: an item (a map's key) added on either side is kept, one removed on either side
+     * goes, and a map key changed on both takes the relay's value; the relay's order first, then this device's additions.
+     * Anything else (different types) is the relay's value. Twin of _merge_items in windows/sync.py.
+     */
+    @SuppressWarnings("unchecked")
+    static Object mergeItems(Object base, Object local, Object remote) {
+        if (local instanceof List && remote instanceof List && (base == null || base instanceof List)) {
+            Set<Object> b = new HashSet<>(base == null ? Collections.emptyList() : (List<Object>) base);
+            Set<Object> l = new HashSet<>((List<Object>) local), r = new HashSet<>((List<Object>) remote);
+            List<Object> out = new ArrayList<>();
+            Set<Object> seen = new HashSet<>();
+            for (Object x : (List<Object>) remote) {
+                if (kept(x, b, l, r)) { out.add(x); seen.add(x); }
+            }
+            for (Object x : (List<Object>) local) {
+                if (!r.contains(x) && !seen.contains(x) && kept(x, b, l, r)) { out.add(x); seen.add(x); }
+            }
+            return out;
+        }
+        if (local instanceof Map && remote instanceof Map && (base == null || base instanceof Map)) {
+            Map<Object, Object> b = base == null ? Collections.emptyMap() : (Map<Object, Object>) base;
+            Map<Object, Object> l = (Map<Object, Object>) local, r = (Map<Object, Object>) remote;
+            List<Object> keys = new ArrayList<>(r.keySet());
+            for (Object k : l.keySet()) if (!r.containsKey(k)) keys.add(k);
+            Map<Object, Object> out = new LinkedHashMap<>();
+            for (Object k : keys) {
+                Object v = mergeOne(b.get(k), l.get(k), r.get(k));
+                if (v != null) out.put(k, v);
+            }
+            return out;
+        }
         return remote;
+    }
+
+    private static boolean kept(Object x, Set<Object> b, Set<Object> l, Set<Object> r) {
+        return (Boolean) mergeOne(b.contains(x), l.contains(x), r.contains(x));
     }
 
     private static boolean isBlank(Object v) {

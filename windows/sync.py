@@ -294,17 +294,59 @@ def _blank(v):
     return isinstance(v, (str, list, dict)) and len(v) == 0
 
 
+def _merge_one(b, l, r):
+    """One value, three-way: the side that changed since b wins; if both changed differently, the relay's (r). Two lists
+    (dictionary, people) or two maps (snippets) that both changed merge item by item instead (_merge_items). None is
+    absent."""
+    if l == r or r == b:
+        return l
+    if l == b:
+        return r
+    return _merge_items(b, l, r)
+
+
+def _merge_items(b, l, r):
+    """Both sides changed a list or a map: an item (a map's key) added on either side is kept, one removed on either side
+    goes, and a map key changed on both takes the relay's value; the relay's order first, then this device's additions.
+    Anything else (different types) is the relay's value. Twin: ProfileMerge.mergeItems."""
+    if isinstance(l, list) and isinstance(r, list) and isinstance(b, (list, type(None))):
+        try:
+            bs, ls, rs = set(b or []), set(l), set(r)
+        except TypeError:   # an item that is not text: not mergeable
+            return r
+        def kept(x):
+            return _merge_one(x in bs, x in ls, x in rs)
+        out = [x for x in r if kept(x)]
+        seen = set(out)
+        for x in l:
+            if x not in rs and x not in seen and kept(x):
+                out.append(x)
+                seen.add(x)
+        return out
+    if isinstance(l, dict) and isinstance(r, dict) and isinstance(b, (dict, type(None))):
+        b = b or {}
+        out = {}
+        for k in list(r) + [k for k in l if k not in r]:
+            v = _merge_one(b.get(k), l.get(k), r.get(k))
+            if v is not None:
+                out[k] = v
+        return out
+    return r
+
+
 def merge3(base, local, remote):
-    """Field by field: the side that changed since `base` wins; if both changed differently, the relay's value wins.
-    One exception: a field with no base (this device's first sync) whose relay value is blank ("", an empty list or an
-    empty map) keeps this device's value when that is not blank, because the blank is only the other device's default."""
+    """Field by field: the side that changed since `base` wins; if both changed differently, the relay's value wins, except
+    a list or a map changed on both sides, which merges item by item (_merge_items: a word learned here while the phone
+    added another keeps both). One more exception: a field with no base (this device's first sync) whose relay value is
+    blank ("", an empty list or an empty map) keeps this device's value when that is not blank, because the blank is only
+    the other device's default. Twin: ProfileMerge.merge3."""
     out = {}
     for k in set(base) | set(local) | set(remote):
         b, l, r = base.get(k), local.get(k), remote.get(k)
         if b is None and l is not None and r is not None and _blank(r) and not _blank(l):
             out[k] = l
             continue
-        v = l if l == r else r if l == b else l if r == b else r
+        v = _merge_one(b, l, r)
         if v is not None:
             out[k] = v
     return out

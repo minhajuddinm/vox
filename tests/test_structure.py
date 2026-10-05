@@ -63,6 +63,30 @@ def test_prose_stays_prose(text):
     assert fmt(text) == text
 
 
+@pytest.mark.parametrize("style", ["neutral", "formal", "casual", "very_casual"])
+@pytest.mark.parametrize("text", [   # TXT-5: everyday prose with cue-like words (from the review's 65 test dictations)
+    "Number one priority is getting the release out. Two customers are waiting on the fix.",
+    "First of all, congrats on the promotion. Second of all, you owe us drinks.",
+    "First impressions of the new laptop: fast, quiet, but the keyboard is mushy. Second monitor support is flaky.",
+    "Hi Nina, number one priority this week is the security review. Everything else can wait.",
+    "Hey, step two of the deploy failed again. Same error as last time, something about the certificate.",
+    "Thanks for the feedback. Point two is fair, I'll rewrite that section. Point five I disagree with, but happy to discuss.",
+    "Hello, the first payment went through, but the second one bounced. Could you check the account details?",
+    "Haha, that's hilarious. Number one rule of the group chat, no spoilers.",
+    "Did you watch the game last night? Second half was insane.",
+    "I'm so tired. Two meetings back to back and then a dentist appointment.",
+    "Let's do dinner at seven. First round of drinks is on me.",
+    "That movie was way better the second time. One of the best endings ever.",
+    "Thanks again for yesterday. Second time this month you've saved me.",
+    "One sec, my phone is about to die. Two percent battery left.",
+    "Three people signed up for the workshop so far. Two of them are from the sales team.",
+    "First thing tomorrow, email the accountant. Then pay the electricity bill.",
+    "Look into why the nightly backup failed. Third time this week.",
+])
+def test_everyday_prose_with_cue_words_stays_prose(text, style):
+    assert fmt(text, "auto", style) == text
+
+
 def test_off_and_raw_never_change_anything():
     text = "First, milk. Second, eggs."
     assert fmt(text, "off") == text

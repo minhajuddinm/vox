@@ -7,6 +7,7 @@ symbol ("open paren", "equals equals", ...) becomes the character. Words are mat
 another word. The full table is in documentation/15-code-mode.md and in the window's help box (tests keep all three equal).
 """
 import re
+import unicodedata
 
 CODE_APPS = ["Code.exe", "Code - Insiders.exe", "cursor.exe", "windsurf.exe", "devenv.exe", "idea64.exe", "pycharm64.exe",
              "webstorm64.exe", "clion64.exe", "rider64.exe", "sublime_text.exe", "notepad++.exe", "WindowsTerminal.exe",
@@ -48,11 +49,21 @@ SYMBOLS = [
     ("star", "*", False, False), ("plus", "+", False, False), ("minus", "-", False, False), ("tilde", "~", False, True),
     ("new line", "\n", True, True), ("tab", "\t", True, True),
 ]
-_BY_WORDS = sorted(((tuple(s.split()), (t, l, r)) for s, t, l, r in SYMBOLS), key=lambda x: -len(x[0]))
+_BY_WORDS = sorted(((tuple(s.split()), (t, l, r, s)) for s, t, l, r in SYMBOLS), key=lambda x: -len(x[0]))
+# Spoken symbols that are also everyday English ("add a quote", "a five star review", "less than a minute"): they become
+# the symbol only in code (see _code_here). The others, and the formatters, always do.
+AMBIGUOUS = frozenset({"equals", "arrow", "dot", "dash", "slash", "quote", "single quote", "pipe", "hash", "percent", "star",
+                       "plus", "minus", "tab", "less than", "greater than"})
+# Spoken punctuation: always a symbol, but no sign that the dictation is code.
+PUNCTUATION = frozenset({"comma", "colon", "semicolon", "new line"})
+# A dictation that starts with one of these is a command line ("ls dash la", "git commit dash m ...").
+COMMANDS = frozenset("""git ls cd cat grep npm npx pnpm yarn pip pip3 python python3 py node deno bun docker kubectl ssh scp
+curl wget echo rm mv cp mkdir rmdir chmod chown sudo cargo rustc dotnet gh vim nano sed awk tar unzip conda poetry uv mise
+winget choco""".split())   # not go, head, touch...: everyday words at the start of a sentence
+_ARTICLES = frozenset("an the this that these those my your our his her their its one another each every some any no".split())
 _FORMATTER_WORDS = sorted([(tuple(k.split()), k) for k in FORMATTERS] + [((a,), k) for a, k in ALIASES.items()],
                           key=lambda x: -len(x[0]))
 _CHUNK = re.compile(r"\n|[^\s]+")
-_EDGE = re.compile(r"^([^\w]*)(.*?)([^\w]*)$", re.S)
 _NOISE = set(",.;:!?")
 
 
@@ -77,9 +88,18 @@ def is_code_app(cfg, exe, style):
     return bool(exe) and exe.lower() in {a.strip().lower() for a in apps if isinstance(a, str)}
 
 
+def _word_char(c):
+    return c.isalnum() or c == "_" or unicodedata.category(c)[0] == "M"   # \w, and the vowel signs of a Hindi word
+
+
 def _split(chunk):
     """A chunk of text as (leading punctuation, the word part, trailing punctuation)."""
-    return _EDGE.match(chunk).groups()
+    a, b = 0, len(chunk)
+    while a < b and not _word_char(chunk[a]):
+        a += 1
+    while b > a and not _word_char(chunk[b - 1]):
+        b -= 1
+    return chunk[:a], chunk[a:b], chunk[b:]
 
 
 def _match(chunks, i, table):
@@ -99,11 +119,53 @@ def _match(chunks, i, table):
     return None
 
 
+def _codeish(word):
+    """A word that looks like code: one letter other than a and I, a digit, a character that is not a letter, mark or
+    apostrophe (my_var, log.txt), or a capital after the first letter (getUser)."""
+    if any(c.isdigit() for c in word):
+        return True
+    if len(word) == 1:
+        return word.isalpha() and word.lower() not in ("a", "i")
+    return any(not (c.isalpha() or c in "'’" or unicodedata.category(c)[0] == "M") for c in word) \
+        or any(c.isupper() for c in word[1:])
+
+
+def _has_code(chunks):
+    """True when the dictation is code: it starts with a command name (COMMANDS), or has a formatter or a spoken symbol
+    that is neither AMBIGUOUS nor PUNCTUATION ("open paren", "underscore", "tilde")."""
+    if chunks and _split(chunks[0])[1].lower() in COMMANDS:
+        return True
+    for i in range(len(chunks)):
+        sm = _match(chunks, i, _BY_WORDS)
+        if _match(chunks, i, _FORMATTER_WORDS) or (sm and sm[0][3] not in AMBIGUOUS | PUNCTUATION):
+            return True
+    return False
+
+
+def _code_here(chunks, i, n, out, code):
+    """True when the AMBIGUOUS spoken symbol of chunks[i:i+n] is meant as the symbol: the dictation is code (`code`) or a
+    word next to it looks like code (_codeish) or is a symbol, and the word before it is not an article or possessive
+    (_ARTICLES: "add the dot env file" keeps "dot")."""
+    before = _split(chunks[i - 1]) if i > 0 and chunks[i - 1] != "\n" else None
+    if before and before[1].lower() in _ARTICLES and not before[2]:
+        return False
+    left = before is not None and ((out and out[-1][3] in ("sym", "fmt")) or _codeish(before[1]))
+    j = i + n
+    after = _match(chunks, j, _BY_WORDS) if j < len(chunks) else None   # a code symbol, or the same one ("dash dash")
+    right = j < len(chunks) and chunks[j] != "\n" and bool(
+        (after and (after[0][3] not in AMBIGUOUS or after[0][3] == _match(chunks, i, _BY_WORDS)[0][3]))
+        or _match(chunks, j, _FORMATTER_WORDS) or _codeish(_split(chunks[j])[1]))
+    return code or left or right
+
+
 def format_code(text):
-    """Text with the spoken formatters and symbols applied. Text without any of them comes back unchanged."""
+    """Text with the spoken formatters and symbols applied. Text without any of them comes back unchanged. A spoken
+    symbol that is also an everyday word (AMBIGUOUS) is only turned into the symbol in code (_code_here), so "add a quote
+    from the ceo" stays as said."""
     chunks = _CHUNK.findall(text or "")
     out = []          # (text, no space before, no space after, kind) with kind "word", "sym" or "fmt"
     open_quotes = set()
+    code = _has_code(chunks)
     i, used = 0, False
     while i < len(chunks):
         c = chunks[i]
@@ -125,7 +187,8 @@ def format_code(text):
                         break
                     if lead:
                         break
-                    words += [w for w in re.split(r"[^0-9a-z]+", core.lower().replace("'", "").replace("’", "")) if w]
+                    words += "".join(c if unicodedata.category(c)[0] in "LMN" else " "   # letters of any script (café)
+                                     for c in core.lower().replace("'", "").replace("’", "")).split()
                     j += 1
                     if trail:
                         break
@@ -135,8 +198,11 @@ def format_code(text):
                 i = j
                 continue
         sm = _match(chunks, i, _BY_WORDS)
+        if sm and sm[0][3] in AMBIGUOUS and not (sm[0][0] in open_quotes and sm[0][1] is None) \
+                and not _code_here(chunks, i, sm[1], out, code):
+            sm = None   # an everyday word here, not code (a quote that closes an open one always counts)
         if sm:
-            (typed, left, right), n = sm
+            (typed, left, right, _), n = sm
             lead, trail = _split(chunks[i])[0], _split(chunks[i + n - 1])[2]
             if lead:
                 out.append((lead, False, True, "word"))
