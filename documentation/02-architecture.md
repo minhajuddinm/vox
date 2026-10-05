@@ -82,7 +82,8 @@ Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording)
  _process: streamer.finish() gave text (long recording cut into pieces)?  -> core.process_text(text)
            otherwise                                                        -> core.process_detailed(whole pcm)
               transcribe (Whisper)  -> silence-hallucination filter
-              cleanup (chat model)  -> looks_valid guard  (fallback: raw text + spoken commands, with sentence-start capitals when the guard rejected it)
+              cleanup (chat model)  -> fidelity guard (fidelity_check; EMPTY for filler-only speech types nothing)
+                                       (skipped as short, failed or rejected: the rules layer, fallback_text)
               (code app: spoken formatters and symbols, codemode.py)
               apply_replacements (dictionary "wrong => right"), fuzzy_dictionary, snippets
               lists from spoken cues and pause paragraphs (structure.py; not in a code app)
@@ -119,13 +120,14 @@ The same functions exist in both languages:
 
 | Behaviour | Python (`windows/vox_core.py`) | Java (`android/src/com/minhaj/vox/`) |
 |---|---|---|
-| Cleanup system prompt | `system_prompt` | `ApiClient.systemPrompt` |
-| Whisper spelling hint | `whisper_prompt` | `ApiClient.whisperPrompt` |
+| Cleanup system prompt (v3: static part first) and the answer `EMPTY` as nothing | `system_prompt`, `static_prompt`, `cleanup_answer` | `ApiClient.systemPrompt`, `staticPrompt`, `cleanupAnswer` |
+| Whisper spelling hint (one sentence: people, recent terms, dictionary; token budget) | `whisper_prompt`, `whisper_prompt_with_context`, `est_tokens` | `ApiClient.whisperPrompt`, `whisperPromptWith`, `estTokens` |
 | Strip model tags/quotes | `sanitize` | `ApiClient.sanitize` |
-| Reject runaway or word-losing cleanup answers | `looks_valid`, `fidelity_ok`, `word_recall` | `ApiClient.looksValid`, `Fidelity.ok`, `Fidelity.wordRecall` |
-| The text used when the guard rejects an answer; the strength setting as light or standard | `fallback_text`, `clean_strength` | `ApiClient.fallbackText`, `Fidelity.cleanStrength` |
+| Reject runaway or word-losing cleanup answers (guard v2; `looks_valid` / `ApiClient.looksValid` and `fidelity_ok` are the same check without a dictionary) | `fidelity_check`, `word_recall` | `Fidelity.check`, `Fidelity.wordRecall` |
+| The text used when the AI cleanup gives none (skipped as short, failed, rejected): the rules layer; the strength setting as light or standard | `fallback_text`, `rules_layer.rules_cleanup`, `clean_strength` | `ApiClient.fallbackText`, `RulesLayer.clean`, `Fidelity.cleanStrength` |
 | Dictionary replacements | `apply_replacements` | `ApiClient.applyReplacements` |
 | Dictionary terms | `dictionary_terms` | `Terms.terms` |
+| The terms the cleanup prompt names (a dictionary of 20 or fewer whole, else those that occur in the transcript or sound like it, at most 20) | `prompt_terms`, `select_terms`, `term_key` | `Terms.forPrompt`, `Terms.select`, `Terms.key` |
 | Spoken "new line" | `apply_spoken_commands` | `ApiClient.applySpokenCommands` |
 | Silence hallucinations | `is_silence_hallucination` | `ApiClient.isSilenceHallucination` |
 | Silence gate | `is_silent` | `Pcm.isSilent` |
@@ -133,7 +135,7 @@ The same functions exist in both languages:
 | Correction suggestions | `suggest_corrections` | `Corrections.suggest` |
 | Per-role settings, model classification | `providers.role_settings`, `providers.classify` | `Providers.roleSettings`, `Providers.classify` |
 | About-you cleaning and the prompt with context | `clean_context`, `system_prompt` | `ApiClient.cleanContext`, `systemPrompt` |
-| The learned cleanup rules (`my_cleanup_rules`) made safe and put into the prompt after the strength rule | `clean_rules`, `system_prompt(..., rules)` | `ApiClient.cleanRules`, `systemPrompt(..., rules)` (golden kinds `rules`, `promptrules`) |
+| The learned cleanup rules (`my_cleanup_rules`) made safe and put into the prompt after the terms | `clean_rules`, `system_prompt(..., rules)` | `ApiClient.cleanRules`, `systemPrompt(..., rules)` (golden kinds `rules`, `promptrules`) |
 | Meter level | `level_from_rms` | `Pcm.levelFromRms` |
 | Voice-note title (first 7 words) and search string (`"word"*` tokens) | `notes.auto_title`, `notes.fts_query` | `NoteLogic.autoTitle`, `NoteLogic.ftsQuery` |
 | Which version wins a note sync (strictly newer; a tie keeps the local one; a delete of an unknown note is ignored) | `notes.apply_remote` | `NoteLogic.remoteWins` |

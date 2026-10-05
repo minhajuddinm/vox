@@ -154,7 +154,7 @@ def view_text(v):
     return "%s models=%s last=%s" % (summary_text(s), models_text(v["models"]), last)
 
 
-SEG_LEVEL = {"t": 8000, "s": 0, "q": 899, "n": 900, "m": 2000}
+SEG_LEVEL = {"t": 8000, "s": 0, "q": 899, "n": 900, "m": 2000, "v": 655, "w": 654, "h": 500, "r": 100, "x": 327, "y": 326}
 
 
 def seg_audio(runs):
@@ -175,6 +175,24 @@ def segcuts(params, runs, block):
     rest = seg.rest()
     assert b"".join(pieces) + rest == pcm   # nothing is lost or repeated
     return "|".join(str(len(p)) for p in pieces) + "/" + str(len(rest))
+
+
+def edgetrim(flags, runs):
+    """flags (both, lead or tail), runs => the bytes kept of that audio, as start/end (vox_core.trim_edges)."""
+    pcm = seg_audio(runs)
+    out, head = core.trim_edges(pcm, lead=flags in ("both", "lead"), tail=flags in ("both", "tail"))
+    start = round(head * core.SAMPLE_RATE * 2)
+    assert pcm[start:start + len(out)] == out
+    return "%d/%d" % (start, start + len(out))
+
+
+def stt_segments(field):
+    """text;no_speech;logprob;compression items, | separated, as _segments_of gives them."""
+    out = []
+    for item in field.split("|"):
+        t, ns, lp, cr = item.split(";")
+        out.append({"text": t, "no_speech": float(ns), "logprob": float(lp), "compression": float(cr)})
+    return out
 
 
 def relay_devices(field):
@@ -334,14 +352,23 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert bubble_action(*[v == "true" for v in f[:3]]) == f[3]
     elif kind == "fidelity":   # strength, raw, cleaned, whether the cleanup kept enough of the spoken words
         assert core.fidelity_ok(f[1], f[2], f[0]) == (f[3] == "true")
+    elif kind == "guard":   # strength, finish, terms, replacements, raw, cleaned => accept|empty|reject, reason (label ignored)
+        v = core.fidelity_check(f[4], f[5], f[0], f[1], items(f[2]), dict(pairs(f[3])))
+        assert ("empty" if v.empty else "accept" if v.ok else "reject", v.reason) == (f[6], f[7])
+    elif kind == "lcs":   # tokens a, tokens b => aligned index pairs i:j
+        assert "|".join("%d:%d" % p for p in core.lcs_pairs(items(f[0]), items(f[1]))) == f[2]
+    elif kind == "pkey":   # word, its phonetic key
+        assert core.pkey(f[0]) == f[1]
     elif kind == "tokens":   # text, its word tokens joined by |
         assert "|".join(core.word_tokens(f[0])) == f[1]
     elif kind == "recall":   # raw, cleaned, share of raw's words still in cleaned (3 decimals)
         assert "%.3f" % core.word_recall(f[0], f[1]) == f[2]
     elif kind == "cleanstrength":   # the stored setting, the strength it means
         assert core.clean_strength(f[0]) == f[1]
-    elif kind == "fallback":   # raw words, the text used when the fidelity guard rejects the cleanup
+    elif kind == "fallback":   # raw words, the text used when the AI cleanup gave none (neutral style, Light)
         assert core.fallback_text(f[0]) == f[1]
+    elif kind == "rulelayer":   # style, strength, raw words, the rules layer's text (fallback_text with that style)
+        assert core.fallback_text(f[2], f[0], f[1]) == f[3]
     elif kind == "fuzzydict":   # terms, text, the text with the dictionary's spellings applied
         assert core.fuzzy_dictionary(f[1], items(f[0])) == f[2]
     elif kind == "structure":   # mode, style, text, the text with a spoken list written as one
@@ -359,5 +386,25 @@ def test_golden(kind, f, tmp_path, monkeypatch):
     elif kind == "autolearn":   # replacements, words, pairs found => the replacements and words added
         out = autolearn.learn(pairs(f[0]), items(f[1]), pairs(f[2]))
         assert (pairs_text(out["replacements"]), "|".join(out["words"])) == (f[3], f[4])
+    elif kind == "pickterms":   # transcript, terms, wrong=>right pairs => the terms the cleanup prompt names
+        repl = dict(p.split("=>", 1) for p in items(f[2], ";"))
+        assert "|".join(core.select_terms(f[0], items(f[1]), repl)) == f[3]
+    elif kind == "promptterms":   # transcript, terms, wrong=>right pairs => the terms the cleanup prompt names (prompt_terms)
+        repl = dict(p.split("=>", 1) for p in items(f[2], ";"))
+        assert "|".join(core.prompt_terms(f[0], items(f[1]), repl)) == f[3]
+    elif kind == "termkey":   # word => its sound key
+        assert core.term_key(f[0]) == f[1]
+    elif kind == "whisperv2":   # people, terms, recently learned terms, text before this piece => the speech prompt
+        assert core.whisper_prompt_with_context(items(f[1]), f[3], items(f[0]), items(f[2])) == f[4]
+    elif kind == "cleananswer":   # the cleanup model's answer => the text used ("" for EMPTY)
+        assert core.cleanup_answer(f[0]) == f[1]
+    elif kind == "edgetrim":   # both|lead|tail, runs (as segcuts, plus v = 655 and w = 654) => kept bytes start/end
+        assert edgetrim(f[0], f[1]) == f[2]
+    elif kind == "sttseg":   # no_speech_prob, avg_logprob, compression_ratio => whether the segment is kept
+        assert core.keep_segment(float(f[0]), float(f[1]), float(f[2])) == (f[3] == "true")
+    elif kind == "sttkept":   # text, segments (text;no_speech;logprob;compression | ...) => the transcript kept
+        assert core.kept_text(f[0], stt_segments(f[1])) == f[2]
+    elif kind == "echo":   # transcript, Whisper prompt => whether it only reads the prompt back
+        assert core.is_prompt_echo(f[0], f[1]) == (f[2] == "true")
     else:
         pytest.fail(f"unknown case kind {kind}")

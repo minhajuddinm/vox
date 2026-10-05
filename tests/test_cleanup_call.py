@@ -91,7 +91,7 @@ def test_the_speech_request_still_retries_a_read_timeout(monkeypatch):
 def test_an_answer_cut_off_at_max_tokens_falls_back_to_the_spoken_words(monkeypatch):
     monkeypatch.setattr(core.requests, "post", lambda url, **kw: Reply("Hello the", finish="length"))
     res = core.process_text(dict(CFG), "hello there friend", "", "")
-    assert not res.cleaned and "cut off" in res.cleanup_error and res.text == "hello there friend"
+    assert not res.cleaned and "cut off" in res.cleanup_error and res.text == "Hello there friend."   # the rules layer
 
 
 @pytest.mark.parametrize("model, thinks", [("openai/gpt-oss-20b", True), ("qwen/qwen3-32b", True), ("deepseek-r1-distill", True),

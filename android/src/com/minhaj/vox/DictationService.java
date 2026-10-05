@@ -477,7 +477,7 @@ public class DictationService extends Service {
             if (aborted) api.abort();   // the cancel came between the check above and the client being published
             ApiClient.Upload up = AudioUpload.fromPcm(dir, piece, api.m4aAllowed());
             try {
-                return api.transcribe(up, p.sttModel(), p.language(), terms, context);
+                return api.transcribe(up, p.sttModel(), p.language(), terms, context, p.people(), p.recentTerms());
             } finally {
                 up.release();
                 active = null;
@@ -564,6 +564,13 @@ public class DictationService extends Service {
                     postError("Vox did not hear anything");
                     finish(job);
                     return;
+                }
+                // The silent start and end are not kept or sent (Whisper fills silence with words); the pauses inside stay,
+                // and a recording with no clear speech is kept whole (vox_core.process_detailed does the same).
+                try {
+                    audio = Pcm.trimEdges(audio, true, true);
+                } catch (OutOfMemoryError e) {
+                    // the trimmed copy did not fit: the whole clip is saved and sent, as before
                 }
             }
             PendingQueue.Entry entry = newEntry(pkg, label, dest);
@@ -828,7 +835,7 @@ public class DictationService extends Service {
                     for (int attempt = 1; attempt <= SEND_ATTEMPTS && raw == null; attempt++) {
                         if (!isCurrent(job)) return;
                         try {
-                            raw = g.transcribe(up, p.sttModel(), p.language(), p.dictionaryTerms(), "");
+                            raw = g.transcribe(up, p.sttModel(), p.language(), p.dictionaryTerms(), "", p.people(), p.recentTerms());
                         } catch (IOException e) {
                             // A connection that could not be opened was already tried twice (ApiClient): do not wait for a third.
                             if (!ApiClient.isRetryable(e, p.usesRelay()) || Latency.isConnectFailure(e) || attempt == SEND_ATTEMPTS) throw e;
@@ -855,18 +862,28 @@ public class DictationService extends Service {
                 if (tm != null) tm.mark("llm_start");
                 try {
                     String strength = p.cleanupStrength();   // the prompt and the guard use the same value
-                    String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext(), strength, p.myCleanupRules(),
-                            p.structure());
-                    if (ApiClient.looksValid(raw, c, strength)) { out = c; cleaned = true; }
-                    else { cleanupFailed = rejected = true; Log.w("vox", "fidelity guard: the cleanup answer lost the spoken words, used the raw words"); }
+                    // a small dictionary goes whole, a big one only with the terms this transcript needs (Terms.forPrompt, as vox_core.cleanup)
+                    String c = gl.cleanup(raw, style, p.llmModel(), Terms.forPrompt(raw, p.dictionaryTerms(), p.replacements()), label,
+                            p.userContext(), strength, p.myCleanupRules(), p.structure());
+                    Fidelity.Verdict v = Fidelity.check(raw, c, strength, "", p.dictionaryTerms(), p.replacements());
+                    if (v.ok) { out = v.empty ? "" : c; cleaned = true; }   // empty: only filler words were said (EMPTY)
+                    else { cleanupFailed = rejected = true; Log.w("vox", "fidelity guard: " + v.reason + ", used the rules layer's text"); }   // the reason holds no dictated word
                 } catch (IOException e) {
-                    // Cleanup failure should never lose the dictation. Fall back to the raw transcript.
+                    // Cleanup failure should never lose the dictation: the rules layer's text is used below.
                     cleanupFailed = true;
                 } finally {
                     if (tm != null) tm.mark("llm_done");
                 }
             }
-            if (!cleaned) out = rejected ? ApiClient.fallbackText(out) : ApiClient.applySpokenCommands(out);
+            // wanted but skipped as short, failed or rejected: the rules layer; cleanup off or the raw style: as spoken
+            if (!cleaned) out = p.cleanupEnabled() && !"raw".equals(style)
+                    ? ApiClient.fallbackText(out, style, p.cleanupStrength()) : ApiClient.applySpokenCommands(out);
+            if (!isCurrent(job)) return;   // cancelled during the cleanup: no toast, and a Retry keeps its file
+            if (out.isEmpty()) {   // EMPTY for filler-only speech, or the rules layer left no word: nothing to type, as for silence (Windows: `if not text`)
+                discard(entry.id);
+                postError(InsertGuard.fillerResult(note));   // words came back, only fillers: not the silence advice
+                return;
+            }
             // A cancel during the cleanup makes it throw (the request was aborted): that is not a failure to report.
             String notice = InsertGuard.cleanupNotice(isCurrent(job), cleanupFailed, note);
             if (notice != null) postError(notice);

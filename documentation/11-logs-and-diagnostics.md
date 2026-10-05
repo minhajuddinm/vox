@@ -34,6 +34,7 @@ Messages worth knowing:
 | `recording cancelled (Esc)` / `keep listening: cancelled after N s[, audio kept]` | Esc ended a recording or a session without sending anything more |
 | `hotkey: N key(s) were not really held after a pause, forgotten` | After more than 2 s without key events some keys the engine thought were held were up (a lost key-up, for example after Win+L); they were dropped |
 | `modifier keys still held after 2.0 s, going on` | The paste waited for Shift/Ctrl/Alt/Win to come up and gave up; the paste was sent anyway |
+| `fidelity guard: <reason>` (info) and `fidelity guard: the cleanup answer lost the spoken words, used the rules layer's text (N words)` (warning; not when nothing was left to type) | The guard rejected the cleanup answer (`missing 3 > 1`, `numbers changed`, `added sentence`, `scaffold echo: rules:`, ...); the reason never holds a dictated word. The phone writes `fidelity guard: <reason>, used the rules layer's text` to logcat (tag `vox`). The rules layer's text is the spoken words with noises and spoken punctuation commands handled, capitals and a final mark |
 | `streaming: N pieces, M sent while speaking` | A dictation went to speech-to-text in N pieces, M of them before the key was released |
 | `FLAC encoding failed (...), sending WAV` | The FLAC upload could not be made; the dictation went as WAV |
 | `clipboard format N (B bytes) is too big to keep, it is not put back` | One clipboard format was over 16 MB and was left out of the copy taken before a paste |
@@ -69,6 +70,7 @@ The Android app writes one small file: the bubble diagnostics, `files/overlay_di
 | Window will not open | `window.log`; see the WebView2 line above |
 | Android bubble never appears or keeps disappearing | Settings, System, Bubble diagnostics: "Switched on but not running" means Android stopped the service (switch it off and on in Accessibility settings); "Bubble hidden by only-typing" means no text field was focused; "Bubble could not be added" names the exception; a screen off or unlock line just before a removal points at the screen; a battery line saying Vox may be stopped points at battery optimisation (the card then shows an Open battery settings button); "Bubble put back by the watchdog" means Android had dropped the window and Vox added it again; "Always show the bubble" in Settings, System keeps the bubble up without a focused text field |
 | "Vox heard no usable words in that recording" | The text came back empty: a lone "Thank you.", "Bye." or "You" is filtered as a Whisper silence phrase, or the server returned nothing. Speak a little longer; if it is a real "Thank you.", type it |
+| "Vox heard only filler sounds (um, uh) in that recording, so nothing was typed." (both apps) | Words came back, but only noises or fillers (the cleanup answered EMPTY, or the rules layer left no word). Nothing is wrong with the microphone |
 | Android "Vox did not hear anything" | Silent recording (mic covered, wrong source) |
 | Android dictation fails with a network message | The recording is kept; tap Retry in the Vox notification |
 

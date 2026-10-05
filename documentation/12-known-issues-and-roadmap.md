@@ -44,6 +44,13 @@ Checked against `main` at `288fe59` (the merge of PR 54). **Release:** v2.0.0 wa
 - Relay: no way to clear a relay pin after a reinstall except updating the relay; a refused upstream upload is retried twice (about 2 s); Android has a small check-then-connect window in the http rule.
 - Quality work not done (it is not a bug): guard v2, prompt v3, phonetic term selection and a deterministic fallback layer were designed and tested offline in the review notes (not in the repo).
 
+**Cleanup-quality round (2026-10-05), known trade-offs** (guard v2, prompt v3, rules layer, STT basics; ADR 0042, 0043; all tested only with golden rows, a labelled set and fakes until the tuning round runs on real clips):
+- A self-correction that drops a "not" ("i can't come monday no wait i can come monday") is rejected and gets the rules-layer text instead of the cleaned one.
+- "actually" before a common word still opens the self-correction window in Standard, so other words there may be dropped by a cleanup and accepted.
+- A spoken "period" after "the", "in" and similar stays a word; a cleanup answer that is only a repetition loop is pasted; "err" counts as a noise.
+- The edge trim does nothing when room noise peaks between 327 and 655 (it keeps the clip whole); the prompt-echo check does not look inside the previous-text context; comma leftovers after a removed noise ("I was, thinking") stay.
+- Thresholds (insertion budget, cue window, trim padding, Whisper prompt size, `cleanup_min_words`) are first guesses until `tools/bench_*` runs on the user's own recordings.
+
 **Plan to match Wispr Flow** (staged; none of stages 2 to 4 is started):
 1. Fix what the device and desktop tests find (the lists above). Nothing else is worth tuning before real use shows what breaks.
 2. Accuracy and speed levers: run the cleanup model benchmark (`tools/bench_cleanup.py`) on real models and pick by its numbers; a Hinglish speech engine or setting; cleanup per sentence instead of per whole text.

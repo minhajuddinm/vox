@@ -156,8 +156,8 @@ def test_lists_are_made_after_the_cleanup_and_its_guard(monkeypatch):
 
 def test_the_guard_sees_the_cleanup_answer_not_the_list(monkeypatch):
     seen = []
-    real = core.looks_valid
-    monkeypatch.setattr(core, "looks_valid", lambda raw, c, s=None: seen.append(c) or real(raw, c, s))
+    real = core.fidelity_check
+    monkeypatch.setattr(core, "fidelity_check", lambda raw, c, *a: seen.append(c) or real(raw, c, *a))
     monkeypatch.setattr(core, "cleanup", lambda cfg, r, style, label: "First, milk. Second, eggs.")
     core.process_text(_cfg(cleanup_min_words=1), "first milk second eggs", "notepad.exe", "Notepad")
     assert seen == ["First, milk. Second, eggs."]
@@ -193,8 +193,9 @@ def test_a_raw_style_app_gets_no_list():
 
 def test_the_prompt_asks_for_no_list_when_structure_is_off():
     off = core.system_prompt("formal", [], "", "", "light", "", "off")
-    assert '"- "' not in off and "- First, the pricing page" not in off
-    assert core.STRUCTURE_BY_STYLE["casual"] in off
+    # the examples are part of the static (cached) prompt; the late Layout line says flat, and the list rule defers to it
+    assert "\n" + core.LAYOUT_TEXT["flat"] + "\n" in off and "Lists, unless the Layout line below says flat" in off
+    assert core.LAYOUT_TEXT["auto"] not in off and core.STRUCTURE_BY_STYLE["casual"] in off
 
 
 def test_auto_is_the_prompt_as_before():
@@ -204,8 +205,8 @@ def test_auto_is_the_prompt_as_before():
 
 def test_lists_only_asks_for_lists_and_no_paragraph_breaks():
     p = core.system_prompt("neutral", [], "", "", "light", "", "lists")
-    assert "Start a new paragraph" not in p and "No blank lines unless the speaker says new paragraph." in p
-    assert "- First, the pricing page" in p and "\n\nThen I looked" not in p
+    assert "\nLayout: lists as described above; no blank lines unless the speaker says new paragraph.\n" in p
+    assert core.LAYOUT_TEXT["auto"] not in p and "- First, the pricing page" in p
     assert core.system_prompt("casual", [], "", "", "light", "", "lists").count(core.STRUCTURE_BY_STYLE["casual"]) == 1
 
 
@@ -294,9 +295,11 @@ def test_transcribe_asks_whisper_for_segments_and_passes_them_on(monkeypatch):
 
 
 @pytest.mark.parametrize("cfg", [
-    dict(structure="lists"), dict(structure="off"), dict(stt_model="gpt-4o-transcribe"),
+    dict(stt_model="gpt-4o-transcribe"), dict(stt_model="gpt-4o-transcribe", structure="lists"),
 ])
-def test_plain_json_when_no_paragraphs_are_wanted_or_the_model_has_no_segments(monkeypatch, cfg):
+def test_plain_json_when_the_model_has_no_segments(monkeypatch, cfg):
+    # Whisper models get verbose_json whatever "Lists and paragraphs" says (its scores drop made-up text, cq-5):
+    # see test_stt_quality.py.
     sent = []
     monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: sent.append(kw["data"]) or _Answer({"text": "hi"}))
     assert core.transcribe(_cfg(**cfg), b"RIFF") == "hi"

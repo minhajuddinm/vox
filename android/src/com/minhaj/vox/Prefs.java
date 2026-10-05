@@ -85,6 +85,8 @@ public final class Prefs {
     /** The cleanup rules learned on the PC (Improve my cleanup), received through profile sync; the phone only reads them. */
     public String myCleanupRules() { return sp.getString("my_cleanup_rules", ""); }
     public String language() { return sp.getString("language", "").trim(); }
+    /** The one-time "English only?" suggestion on Home was answered (either button). Kept on this phone only. */
+    public boolean languageTipDone() { return sp.getBoolean("language_tip_done", false); }
     /** The microphone chosen in Settings as a {@link MicChoice#key}; empty means the phone's default. Kept on this phone only (not in the synced profile). */
     public String micDevice() { return sp.getString("mic_device", ""); }
     public void setMicDevice(String key) { sp.edit().putString("mic_device", key == null ? "" : key).apply(); }
@@ -116,7 +118,7 @@ public final class Prefs {
     public boolean keepHistory() { return sp.getBoolean("keep_history", true); }
     public boolean cleanupEnabled() { return sp.getBoolean("cleanup", true); }
     /** The setting "skip AI cleanup for phrases shorter than N words" as stored; read it with ApiClient.cleanMinWords. */
-    public String cleanupMinWords() { return sp.getString("cleanup_min_words", "3"); }
+    public String cleanupMinWords() { return sp.getString("cleanup_min_words", "4"); }
     /** The setting "Cleanup strength": "light" (the default: keep every spoken word) or "standard" (fillers and false starts may go). */
     public String cleanupStrength() { return Fidelity.cleanStrength(sp.getString("cleanup_strength", "")); }
     /** The setting "Lists and paragraphs": off, auto (the default) or lists (Structure.mode). Per device, not synced. */
@@ -212,6 +214,25 @@ public final class Prefs {
     /** Plain dictionary terms (lines without "=>"). */
     public List<String> dictionaryTerms() {
         return Terms.terms(peopleRaw(), dictionaryRaw());
+    }
+
+    /** The People list as terms (comments and blanks dropped, no duplicates): the names the speech prompt names first. */
+    public List<String> people() {
+        return Terms.terms(peopleRaw(), "");
+    }
+
+    /** A word learned this recently (learned_log) is named in the speech prompt before the rest of the dictionary. */
+    static final int RECENT_TERM_DAYS = 14;
+
+    /** The words learned in the last RECENT_TERM_DAYS days (the right sides of learned_log). Twin of recent_terms in windows/vox_core.py. */
+    public List<String> recentTerms() {
+        double now = System.currentTimeMillis() / 1000.0;
+        List<String> out = new java.util.ArrayList<>();
+        for (Map<String, Object> e : AutoLearn.learnedLog(learnedLogRaw())) {
+            String right = ApiClient.pyStrip(String.valueOf(e.get("right")));
+            if (now - (Double) e.get("t") <= RECENT_TERM_DAYS * 86400.0 && !right.isEmpty() && !out.contains(right)) out.add(right);
+        }
+        return out;
     }
 
     /** Forced replacements from lines of the form "wrong => right". */

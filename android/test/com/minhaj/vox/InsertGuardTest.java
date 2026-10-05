@@ -28,8 +28,8 @@ public final class InsertGuardTest {
         eq("check in the same app", InsertGuard.TYPE, InsertGuard.check("a.b", "a.b"));
 
         // cleanupNotice: "Cleanup did not work" is only said while the job is still the current one (a cancel during cleanup says nothing)
-        eq("a failed cleanup of a dictation is reported", "Cleanup did not work, so Vox typed your words as spoken", InsertGuard.cleanupNotice(true, true, false));
-        eq("a failed cleanup of a note is reported", "Cleanup did not work, so Vox saved your words as spoken", InsertGuard.cleanupNotice(true, true, true));
+        eq("a failed cleanup of a dictation is reported", "Cleanup did not work, so Vox typed your words with basic tidying only", InsertGuard.cleanupNotice(true, true, false));
+        eq("a failed cleanup of a note is reported", "Cleanup did not work, so Vox saved your words with basic tidying only", InsertGuard.cleanupNotice(true, true, true));
         eq("no failure, no notice", null, InsertGuard.cleanupNotice(true, false, false));
         eq("a cancelled job says nothing about a failed cleanup", null, InsertGuard.cleanupNotice(false, true, false));
         eq("a cancelled note says nothing about a failed cleanup", null, InsertGuard.cleanupNotice(false, true, true));
@@ -38,6 +38,10 @@ public final class InsertGuardTest {
         eq("an empty dictation says so, in the PC app's words", "Vox heard no usable words in that recording (a lone \"Thank you\" counts as silence). "
                 + "Speak a little longer, or check the microphone.", InsertGuard.emptyResult(false));
         eq("an empty note says no note was saved", "Vox did not hear any words, so no note was saved", InsertGuard.emptyResult(true));
+        // fillerResult: words came back, but only fillers (cqf M3): no advice about the microphone
+        eq("filler-only speech is not called silence", "Vox heard only filler sounds (um, uh) in that recording, so nothing was typed.",
+                InsertGuard.fillerResult(false));
+        eq("a filler-only note says no note was saved", "Vox heard only filler sounds (um, uh), so no note was saved", InsertGuard.fillerResult(true));
 
         // sendFailed: the action comes first (a toast shows two lines), the server's own text is capped (AND-13)
         eq("a server error keeps the recording, action first", "Recording kept: tap Retry in the notification. API 400: bad file",

@@ -185,3 +185,24 @@ def test_a_list_or_number_where_text_or_a_switch_belongs_falls_back_to_the_defau
     assert cfg["cleanup"] is True and cfg["keep_history"] is True
     out = core.process_text(dict(cfg, cleanup=False), "hello there friend", "x.exe", "")
     assert out[0]
+
+
+def test_the_old_default_cleanup_min_words_3_becomes_4_once(appdata):
+    # cqf (final review I2, controller ruling): an older config.json holds the old default 3; it becomes 4 like Android,
+    # once (cleanup_min_words_v marks it), so a 3 set after the upgrade is kept
+    _write(appdata, json.dumps({"cleanup_min_words": 3, "language": "de"}).encode())
+    cfg = core.load_config()
+    assert cfg["cleanup_min_words"] == 4 and cfg["language"] == "de"
+    core.update_config(lambda c: c.__setitem__("cleanup_min_words", 3))   # the user sets 3 again in Settings
+    assert core.load_config()["cleanup_min_words"] == 3
+    with open(core.config_path(), encoding="utf-8") as f:
+        assert json.load(f)["cleanup_min_words_v"] == core.DEFAULT_CONFIG["cleanup_min_words_v"]
+
+
+def test_the_cleanup_min_words_migration_leaves_other_values_and_new_installs_alone(appdata):
+    _write(appdata, json.dumps({"cleanup_min_words": 6}).encode())
+    assert core.load_config()["cleanup_min_words"] == 6
+    os.remove(core.config_path())
+    assert core.load_config()["cleanup_min_words"] == 4   # a new install: the defaults, with the marker
+    with open(core.config_path(), encoding="utf-8") as f:
+        assert "cleanup_min_words_v" in json.load(f)

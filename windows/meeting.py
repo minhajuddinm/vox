@@ -231,9 +231,7 @@ def _good(seg):
     t = _norm(seg["text"])
     if not t or t in HALLUCINATIONS:
         return False
-    if seg["compression"] > 2.4:                       # repetitive loops ("either the either the...")
-        return False
-    if seg["logprob"] < -1.0 and seg["no_speech"] > 0.5:
+    if not core.keep_segment(seg["no_speech"], seg["logprob"], seg["compression"]):   # a loop, or silence (as dictations)
         return False
     if seg["logprob"] < -1.4:
         return False

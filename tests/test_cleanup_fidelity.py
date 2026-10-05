@@ -276,17 +276,16 @@ def _without_block(words, start, n):
     return " ".join(words[:start] + words[start + n:])
 
 
-def test_light_loses_at_most_twelve_words_whatever_the_percentage():
-    """Review fix: 97% of 1000 words is 30 words, enough to drop a whole paragraph silently. Light also has an
-    absolute cap of 12 missing words (Fidelity.LIGHT_MAX_MISSING)."""
+def test_light_lets_no_two_words_in_a_row_go_whatever_the_length():
+    """Guard v2 (replaced the cap of 12 missing words): Light lets single scattered words go (n // 33 of them) but never
+    two in a row, so a dropped clause fails in any length; the old percentage alone would have passed it."""
     raw = long_text(1000)
     words = punctuate(raw).split()
-    assert core.fidelity_ok(raw, _without_block(words, 400, 12), "light")        # 12 missing: the limit
-    assert not core.fidelity_ok(raw, _without_block(words, 400, 13), "light")    # 13 missing
-    assert not core.fidelity_ok(raw, _without_block(words, 400, 25), "light")    # a dropped sentence or two
-    assert not core.fidelity_ok(raw, _without_block(words, 400, 30), "light")
-    assert core.word_recall(raw, _without_block(words, 400, 25)) >= 0.97         # the percentage alone would pass
-    assert not core.looks_valid(raw, _without_block(words, 400, 25), "light")
+    assert core.fidelity_ok(raw, _without_block(words, 410, 1), "light")
+    assert not core.fidelity_ok(raw, _without_block(words, 410, 2), "light")
+    assert not core.fidelity_ok(raw, _without_block(words, 410, 12), "light")
+    assert core.word_recall(raw, _without_block(words, 410, 25)) >= 0.97         # the percentage alone would pass
+    assert not core.looks_valid(raw, _without_block(words, 410, 25), "light")
 
 
 def test_the_light_cap_does_not_touch_short_dictations_and_noises_do_not_count():
@@ -297,11 +296,14 @@ def test_the_light_cap_does_not_touch_short_dictations_and_noises_do_not_count()
     assert not core.fidelity_ok(short, _without_block(punctuate(short).split(), 40, 4), "light")   # 4% still fails
 
 
-def test_standard_keeps_the_percentage_rule_only():
-    """Standard removes false starts and self-corrections, so no absolute cap: 4% of 1000 words may go."""
+def test_standard_lets_two_words_in_a_row_go_but_not_a_clause():
+    """Standard drops false starts and self-corrections: two missing words in a row pass (1 + n // 15 in all), three
+    in a row or a dropped clause fail."""
     raw = long_text(1000)
     words = punctuate(raw).split()
-    assert core.fidelity_ok(raw, _without_block(words, 400, 25), "standard")
+    assert core.fidelity_ok(raw, _without_block(words, 410, 2), "standard")
+    assert not core.fidelity_ok(raw, _without_block(words, 410, 3), "standard")
+    assert not core.fidelity_ok(raw, _without_block(words, 410, 25), "standard")
     assert not core.fidelity_ok(raw, _without_block(words, 400, 200), "standard")
 
 
@@ -370,7 +372,7 @@ def test_a_summarising_cleanup_is_rejected_and_the_raw_words_are_used(monkeypatc
     raw = long_text(60)
     r = run_pipeline(monkeypatch, raw, "I went to the market and cooked dinner.")
     assert not r.cleaned and r.cleanup_error
-    assert r.text == "S" + raw[1:] and r.raw == raw   # the spoken words, with a capital to start
+    assert r.text == "S" + raw[1:] + "." and r.raw == raw   # the spoken words, with a capital to start and a final mark
 
 
 def test_a_faithful_cleanup_is_used(monkeypatch):
@@ -430,7 +432,7 @@ def test_a_rejected_cleanup_falls_back_to_the_spoken_words_with_capitals(monkeyp
     r = run_pipeline(monkeypatch, raw, "Short summary.")
     assert r.fidelity_fallback and not r.cleaned and r.raw == raw
     assert r.text.startswith("Hello there\n\nSo yesterday")   # new paragraph applied, the sentence starts are capitals
-    assert r.text.replace("\n", " ").lower().split() == raw.replace(" new paragraph", "").lower().split()
+    assert r.text.rstrip(".").replace("\n", " ").lower().split() == raw.replace(" new paragraph", "").lower().split()
 
 
 def test_a_network_error_is_not_a_fidelity_fallback(monkeypatch):
@@ -440,7 +442,7 @@ def test_a_network_error_is_not_a_fidelity_fallback(monkeypatch):
     monkeypatch.setattr(core.requests, "post", boom)
     monkeypatch.setattr(core.time, "sleep", lambda s: None)
     r = core.process_text(dict(core.DEFAULT_CONFIG, api_key="k"), long_text(30), "notepad.exe", "Notepad")
-    assert not r.fidelity_fallback and r.text == long_text(30)
+    assert not r.fidelity_fallback and r.text == "S" + long_text(30)[1:] + "."   # the rules layer's text
 
 
 def test_an_accepted_or_skipped_cleanup_is_not_a_fallback(monkeypatch):

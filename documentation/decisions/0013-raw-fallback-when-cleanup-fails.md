@@ -1,6 +1,6 @@
 # 0013. Raw transcript is the fallback when cleanup fails
 
-Status: Accepted
+Status: Accepted (the text used on a failure is now the rules layer's: [0042](0042-a-rules-layer-when-the-ai-gives-no-text.md))
 Date: 2026-09-29 (original fallback: 2026-09-27; notice and spoken commands added 2026-09-29)
 
 ## Context

@@ -165,6 +165,7 @@ public class MainActivity extends Activity {
                 cfg.put("api_key", prefs.apiKey());
                 cfg.put("base_url", prefs.baseUrl());
                 cfg.put("language", prefs.language());
+                cfg.put("language_tip_done", prefs.languageTipDone());
                 cfg.put("cleanup", prefs.cleanupEnabled());
                 cfg.put("cleanup_min_words", ApiClient.cleanMinWords(prefs.cleanupMinWords()));
                 cfg.put("cleanup_strength", prefs.cleanupStrength());
@@ -267,6 +268,7 @@ public class MainActivity extends Activity {
                     e.putString("base_url", Endpoint.normalize(c.getString("base_url")));
                 }
                 if (c.has("language")) e.putString("language", c.getString("language"));
+                if (c.has("language_tip_done")) e.putBoolean("language_tip_done", c.getBoolean("language_tip_done"));
                 if (c.has("cleanup")) e.putBoolean("cleanup", c.getBoolean("cleanup"));
                 if (c.has("cleanup_min_words")) e.putString("cleanup_min_words", String.valueOf(ApiClient.cleanMinWords(c.getString("cleanup_min_words"))));
                 if (c.has("cleanup_strength")) e.putString("cleanup_strength", Fidelity.cleanStrength(c.getString("cleanup_strength")));

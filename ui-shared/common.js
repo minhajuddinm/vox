@@ -35,6 +35,11 @@ function snippetsAdd(map, trigger, text) {
 function snippetsRemove(map, trigger) { const out = {}; for (const [k, v] of Object.entries(map || {})) if (k !== trigger) out[k] = v; return out; }
 // One line of a saved text for the list: line breaks shown as " / ", cut at 80 characters.
 function snippetPreview(text) { const s = String(text ?? "").replace(/\n+/g, " / "); return s.length > 80 ? s.slice(0, 79) + "…" : s; }
+// Language: the hint under Settings > Language, and the suggestion Home shows once (while the language is Auto and the
+// suggestion was never answered: language_tip_done). Nothing changes unless the user picks English.
+const LANGUAGE_HINT = "English only? Choose English for fewer mistakes.";
+const LANGUAGE_TIP = "Auto detect guesses the language of every dictation, and a short phrase can come out in the wrong language. If you speak only English, choosing English gives fewer mistakes. Mixing Hindi or another language in? Keep Auto detect. You can change it any time in Settings, Language.";
+function languageTipDue(cfg) { const c = cfg || {}; return !String(c.language || "").trim() && !c.language_tip_done; }
 // "Lists and paragraphs": off, auto or lists; anything else is auto (structure.py structure_mode, Structure.mode).
 function structureMode(v) { const s = String(v ?? "").trim().toLowerCase(); return ["off", "auto", "lists"].includes(s) ? s : "auto"; }
 function aboutCount() {

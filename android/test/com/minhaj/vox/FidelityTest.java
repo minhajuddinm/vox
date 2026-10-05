@@ -162,13 +162,33 @@ public final class FidelityTest {
         // Light also loses at most 12 words whatever the percentage (twin of the Python tests)
         String raw1k = longText(1000);
         String[] w1k = punctuate(raw1k).split("\\s+");
-        eq("light cap 12 passes", true, Fidelity.ok(raw1k, withoutBlock(w1k, 400, 12), "light"));
-        eq("light cap 13 fails", false, Fidelity.ok(raw1k, withoutBlock(w1k, 400, 13), "light"));
-        eq("light cap 25 fails", false, Fidelity.ok(raw1k, withoutBlock(w1k, 400, 25), "light"));
-        eq("light cap 25 recall alone passes", true, Fidelity.wordRecall(raw1k, withoutBlock(w1k, 400, 25)) >= 0.97);
-        eq("light cap 25 looksValid", false, ApiClient.looksValid(raw1k, withoutBlock(w1k, 400, 25), "light"));
-        eq("standard 25 passes", true, Fidelity.ok(raw1k, withoutBlock(w1k, 400, 25), "standard"));
+        // guard v2 (replaced the cap of 12 missing words): Light lets single words go, never two in a row; Standard two, not three
+        eq("light one word passes", true, Fidelity.ok(raw1k, withoutBlock(w1k, 410, 1), "light"));
+        eq("light two in a row fail", false, Fidelity.ok(raw1k, withoutBlock(w1k, 410, 2), "light"));
+        eq("light 12 fail", false, Fidelity.ok(raw1k, withoutBlock(w1k, 410, 12), "light"));
+        eq("light 25 recall alone passes", true, Fidelity.wordRecall(raw1k, withoutBlock(w1k, 410, 25)) >= 0.97);
+        eq("light 25 looksValid", false, ApiClient.looksValid(raw1k, withoutBlock(w1k, 410, 25), "light"));
+        eq("standard two in a row pass", true, Fidelity.ok(raw1k, withoutBlock(w1k, 410, 2), "standard"));
+        eq("standard three fail", false, Fidelity.ok(raw1k, withoutBlock(w1k, 410, 3), "standard"));
+        eq("standard 25 fail", false, Fidelity.ok(raw1k, withoutBlock(w1k, 410, 25), "standard"));
         eq("standard 200 fails", false, Fidelity.ok(raw1k, withoutBlock(w1k, 400, 200), "standard"));
+        // the verdict: EMPTY for filler-only speech, a dictionary term, a reason without dictated words, speed
+        Fidelity.Verdict v = Fidelity.check("um uh hmm", "EMPTY", "light", "", null, null);
+        eq("empty for noises", true, v.ok && v.empty);
+        eq("empty for words", false, Fidelity.check("send it now", "EMPTY", "standard", "", null, null).ok);
+        String tsRaw = "please turn on tailscale before the call starts today";
+        String tsClean = "Please turn on before the call starts today.";
+        eq("standard drops an ordinary word", true, Fidelity.check(tsRaw, tsClean, "standard", "", null, null).ok);
+        v = Fidelity.check(tsRaw, tsClean, "standard", "", Arrays.asList("Tailscale"), null);
+        eq("a dictionary term may not go", "critical word dropped", v.reason);
+        eq("a self-correction in standard", true, Fidelity.check("lets meet on thursday no wait friday at noon",
+                "Let's meet on Friday at noon.", "standard", "", null, null).ok);
+        eq("finish length", "finish_reason", Fidelity.check("a b c", "A b c.", "light", "length", null, null).reason);
+        String r300 = longText(300);
+        String c300 = punctuate(r300);
+        long t0 = System.nanoTime();
+        for (int i = 0; i < 5; i++) Fidelity.check(r300, c300, "standard", "", Arrays.asList("Vox", "Groq"), null);
+        eq("300 words in a few ms (bound 100 ms)", true, (System.nanoTime() - t0) / 5 < 100_000_000L);
         String noisy = raw1k.replaceAll(" and ", " um and ");
         eq("noises are not counted", true, Fidelity.ok(noisy, punctuate(raw1k), "light"));
 
@@ -188,7 +208,9 @@ public final class FidelityTest {
         eq("cleanStrength null is light", "light", Fidelity.cleanStrength(null));
         eq("cleanStrength standard", "standard", Fidelity.cleanStrength("standard"));
         eq("fallbackText null", "", ApiClient.fallbackText(null));
-        eq("fallbackText capitalises after a spoken line break", "One\nTwo", ApiClient.fallbackText("one new line two"));
+        eq("fallbackText capitalises after a spoken line break", "One\nTwo.", ApiClient.fallbackText("one new line two"));
+        eq("fallbackText null style counts as neutral", "Hello there.", ApiClient.fallbackText("um hello there", null, null));
+        eq("fallbackText raw style keeps the words", "Um hello there", ApiClient.fallbackText("um hello there", "raw", "light"));
 
         System.out.println("OK: " + checks + " fidelity checks passed");
     }

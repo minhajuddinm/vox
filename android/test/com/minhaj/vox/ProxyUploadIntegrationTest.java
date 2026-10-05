@@ -90,7 +90,10 @@ public final class ProxyUploadIntegrationTest {
             String text = new String(s.body, StandardCharsets.ISO_8859_1);
             eq("it is multipart", true, s.contentType.startsWith("multipart/form-data; boundary="));
             eq("the model field", true, text.contains("name=\"model\"\r\n\r\nwhisper-large-v3-turbo\r\n"));
-            eq("the unicode prompt, as UTF-8", true, text.contains(new String("Café, 東京.".getBytes(StandardCharsets.UTF_8), StandardCharsets.ISO_8859_1)));
+            // Prompt v2 is a sentence ("We talked about Café and 東京."), not a bare list: expect exactly what ApiClient builds.
+            String prompt = ApiClient.whisperPrompt(Arrays.asList("Café", "東京"));
+            eq("the prompt is the v2 sentence with the non-ASCII terms", "We talked about Café and 東京.", prompt);
+            eq("the unicode prompt, as UTF-8", true, text.contains(new String(prompt.getBytes(StandardCharsets.UTF_8), StandardCharsets.ISO_8859_1)));
             eq("the audio file, byte for byte", true, indexOf(s.body, audio) > 0);
             ok = true;
         } catch (Throwable t) {

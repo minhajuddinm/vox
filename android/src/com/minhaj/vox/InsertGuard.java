@@ -23,13 +23,13 @@ public final class InsertGuard {
     }
 
     /**
-     * What to tell the user when the cleanup step failed and the words are used as spoken, or null for nothing. A job that
+     * What to tell the user when the cleanup step failed and the rules layer's text is used (noises and spoken commands only), or null for nothing. A job that
      * is no longer current was cancelled (or replaced) while it was cleaning: nothing is typed or saved, so nothing is said.
      */
     public static String cleanupNotice(boolean current, boolean cleanupFailed, boolean note) {
         if (!current || !cleanupFailed) return null;
-        return note ? "Cleanup did not work, so Vox saved your words as spoken"
-                : "Cleanup did not work, so Vox typed your words as spoken";
+        return note ? "Cleanup did not work, so Vox saved your words with basic tidying only"
+                : "Cleanup did not work, so Vox typed your words with basic tidying only";
     }
 
     /**
@@ -39,6 +39,15 @@ public final class InsertGuard {
     public static String emptyResult(boolean note) {
         return note ? "Vox did not hear any words, so no note was saved"
                 : "Vox heard no usable words in that recording (a lone \"Thank you\" counts as silence). Speak a little longer, or check the microphone.";
+    }
+
+    /**
+     * What to say when words came back but only noises or fillers (an accepted EMPTY, or the rules layer left nothing): not
+     * the silence text, whose advice about the microphone would be wrong. The PC app says the same (windows/engine.py).
+     */
+    public static String fillerResult(boolean note) {
+        return note ? "Vox heard only filler sounds (um, uh), so no note was saved"
+                : "Vox heard only filler sounds (um, uh) in that recording, so nothing was typed.";
     }
 
     /** The start of every message about a failed send: first, so a toast cut to two lines still says what to do. */

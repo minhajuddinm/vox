@@ -74,7 +74,9 @@ public final class ParityTest {
     private static byte[] segAudio(String runs) {
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
         for (String r : items(runs, "|")) {
-            int v = r.charAt(0) == 't' ? 8000 : r.charAt(0) == 'q' ? 899 : r.charAt(0) == 'n' ? 900 : r.charAt(0) == 'm' ? 2000 : 0;
+            char k = r.charAt(0);
+            int v = k == 't' ? 8000 : k == 'q' ? 899 : k == 'n' ? 900 : k == 'm' ? 2000 : k == 'v' ? 655 : k == 'w' ? 654
+                    : k == 'h' ? 500 : k == 'r' ? 100 : k == 'x' ? 327 : k == 'y' ? 326 : 0;
             int n = Integer.parseInt(r.substring(1)) * 16;
             for (int i = 0; i < n; i++) { out.write(v & 0xff); out.write((v >> 8) & 0xff); }
         }
@@ -97,6 +99,25 @@ public final class ParityTest {
         byte[] rest = seg.rest();
         if (total + rest.length != pcm.length) throw new IllegalStateException("audio was lost or repeated");
         return b + "/" + rest.length;
+    }
+
+    /** both|lead|tail, runs => the bytes of that audio that are sent, as start/end (Pcm.trimRange). */
+    private static String edgeTrim(String flags, String runs) {
+        byte[] pcm = segAudio(runs);
+        int[] r = Pcm.trimRange(pcm, flags.equals("both") || flags.equals("lead"), flags.equals("both") || flags.equals("tail"));
+        byte[] out = Pcm.trimEdges(pcm, flags.equals("both") || flags.equals("lead"), flags.equals("both") || flags.equals("tail"));
+        if (out.length != r[1] - r[0]) throw new IllegalStateException("trimEdges and trimRange disagree");
+        return r[0] + "/" + r[1];
+    }
+
+    /** text;no_speech;logprob;compression items, | separated. */
+    private static List<ApiClient.Segment> sttSegments(String field) {
+        List<ApiClient.Segment> out = new ArrayList<>();
+        for (String item : field.split("\\|", -1)) {
+            String[] p = item.split(";", -1);
+            out.add(new ApiClient.Segment(p[0], Double.parseDouble(p[1]), Double.parseDouble(p[2]), Double.parseDouble(p[3])));
+        }
+        return out;
     }
 
     /** A | separated list of whole numbers. */
@@ -431,6 +452,25 @@ public final class ParityTest {
                 case "fidelity":   // strength, raw, cleaned, whether the cleanup kept enough of the spoken words
                     eq(ln, kind, f[3], Fidelity.ok(f[1], f[2], f[0]) ? "true" : "false");
                     break;
+                case "guard": {   // strength, finish, terms, replacements, raw, cleaned => accept|empty|reject, reason (label ignored)
+                    Map<String, String> repl = new LinkedHashMap<>();
+                    for (String p : items(f[3], ";")) repl.put(p.substring(0, p.indexOf("=>")), p.substring(p.indexOf("=>") + 2));
+                    Fidelity.Verdict v = Fidelity.check(f[4], f[5], f[0], f[1], items(f[2], "|"), repl);
+                    eq(ln, kind, f[6] + " " + f[7], (v.empty ? "empty" : v.ok ? "accept" : "reject") + " " + v.reason);
+                    break;
+                }
+                case "lcs": {   // tokens a, tokens b => aligned index pairs i:j
+                    StringBuilder sb = new StringBuilder();
+                    for (int[] p : Fidelity.lcsPairs(items(f[0], "|"), items(f[1], "|"))) {
+                        if (sb.length() > 0) sb.append('|');
+                        sb.append(p[0]).append(':').append(p[1]);
+                    }
+                    eq(ln, kind, f[2], sb.toString());
+                    break;
+                }
+                case "pkey":   // word, its phonetic key
+                    eq(ln, kind, f[1], Fidelity.pkey(f[0]));
+                    break;
                 case "tokens":   // text, its word tokens joined by |
                     eq(ln, kind, f[1], String.join("|", Fidelity.wordTokens(f[0])));
                     break;
@@ -440,8 +480,11 @@ public final class ParityTest {
                 case "cleanstrength":   // the stored setting, the strength it means
                     eq(ln, kind, f[1], Fidelity.cleanStrength(f[0]));
                     break;
-                case "fallback":   // raw words, the text used when the fidelity guard rejects the cleanup
+                case "fallback":   // raw words, the text used when the AI cleanup gave none (neutral style, Light)
                     eq(ln, kind, f[1], ApiClient.fallbackText(f[0]));
+                    break;
+                case "rulelayer":   // style, strength, raw words, the rules layer's text (fallbackText with that style)
+                    eq(ln, kind, f[3], ApiClient.fallbackText(f[2], f[0], f[1]));
                     break;
                 case "fuzzydict":   // terms, text, the text with the dictionary's spellings applied
                     eq(ln, kind, f[2], Terms.fuzzy(f[1], items(f[0], "|")));
@@ -472,6 +515,39 @@ public final class ParityTest {
                     eq(ln, kind, f[3] + " / " + f[4], pairsText(l.replacements) + " / " + String.join("|", l.words));
                     break;
                 }
+                case "pickterms": {   // transcript, terms, wrong=>right pairs => the terms the cleanup prompt names
+                    Map<String, String> repl = new LinkedHashMap<>();
+                    for (String p : items(f[2], ";")) repl.put(p.substring(0, p.indexOf("=>")), p.substring(p.indexOf("=>") + 2));
+                    eq(ln, kind, f[3], String.join("|", Terms.select(f[0], items(f[1], "|"), repl)));
+                    break;
+                }
+                case "promptterms": {   // transcript, terms, wrong=>right pairs => the terms the cleanup prompt names (Terms.forPrompt)
+                    Map<String, String> repl = new LinkedHashMap<>();
+                    for (String p : items(f[2], ";")) repl.put(p.substring(0, p.indexOf("=>")), p.substring(p.indexOf("=>") + 2));
+                    eq(ln, kind, f[3], String.join("|", Terms.forPrompt(f[0], items(f[1], "|"), repl)));
+                    break;
+                }
+                case "termkey":   // word => its sound key
+                    eq(ln, kind, f[1], Terms.key(f[0]));
+                    break;
+                case "whisperv2":   // people, terms, recently learned terms, text before this piece => the speech prompt
+                    eq(ln, kind, f[4], ApiClient.whisperPromptWith(items(f[1], "|"), f[3], items(f[0], "|"), items(f[2], "|")));
+                    break;
+                case "cleananswer":   // the cleanup model's answer => the text used ("" for EMPTY)
+                    eq(ln, kind, f[1], ApiClient.cleanupAnswer(f[0]));
+                    break;
+                case "edgetrim":   // both|lead|tail, runs => kept bytes start/end
+                    eq(ln, kind, f[2], edgeTrim(f[0], f[1]));
+                    break;
+                case "sttseg":   // no_speech_prob, avg_logprob, compression_ratio => kept
+                    eq(ln, kind, f[3], ApiClient.keepSegment(Double.parseDouble(f[0]), Double.parseDouble(f[1]), Double.parseDouble(f[2])) ? "true" : "false");
+                    break;
+                case "sttkept":   // text, segments => the transcript kept
+                    eq(ln, kind, f[2], ApiClient.keptText(f[0], sttSegments(f[1])));
+                    break;
+                case "echo":   // transcript, Whisper prompt => only the prompt read back
+                    eq(ln, kind, f[2], ApiClient.isPromptEcho(f[0], f[1]) ? "true" : "false");
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);

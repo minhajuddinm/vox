@@ -38,7 +38,7 @@ Own server: Settings, preset or **Server address** (e.g. `http://100.x.y.z:8000/
 
 | Area | Both apps | Windows only |
 |---|---|---|
-| Cleanup | Prompt copies words and fixes punctuation, case, spelling. A fidelity guard compares output with the transcript and falls back to your raw words on word loss. Light (keeps fillers) or Standard. **Use raw** in History | Paragraph breaks at pauses |
+| Cleanup | Prompt copies words and fixes punctuation, case, spelling. A fidelity guard compares output with the transcript and falls back to your own words, only lightly tidied, on word loss. Light (keeps fillers) or Standard. **Use raw** in History | Paragraph breaks at pauses |
 | Text | Spoken lists (first/second, bullet, pehla/doosra), snippets (inserted after cleanup, never sent), spoken commands, dictionary with fuzzy matching, About you, tone per app | Code mode ([table](documentation/15-code-mode.md)): camel/snake/pascal formatters and symbols, verbatim in code apps |
 | Learning | Learn from my corrections (3 min or until sent; changed words only; on by default) | Improve my cleanup (LLM suggests rules; sends nothing until you confirm) |
 | Input | Voice notes, history, Speed card (local timings) | Hotkeys, edit by voice (experimental), mic-ready ring buffer (off), terminal paste, Win+V history, FLAC upload, meeting notes (beta) |
