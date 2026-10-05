@@ -477,7 +477,7 @@ public class DictationService extends Service {
             if (aborted) api.abort();   // the cancel came between the check above and the client being published
             ApiClient.Upload up = AudioUpload.fromPcm(dir, piece, api.m4aAllowed());
             try {
-                return api.transcribe(up, p.sttModel(), p.language(), terms, context);
+                return api.transcribe(up, p.sttModel(), p.language(), terms, context, p.people(), p.recentTerms());
             } finally {
                 up.release();
                 active = null;
@@ -828,7 +828,7 @@ public class DictationService extends Service {
                     for (int attempt = 1; attempt <= SEND_ATTEMPTS && raw == null; attempt++) {
                         if (!isCurrent(job)) return;
                         try {
-                            raw = g.transcribe(up, p.sttModel(), p.language(), p.dictionaryTerms(), "");
+                            raw = g.transcribe(up, p.sttModel(), p.language(), p.dictionaryTerms(), "", p.people(), p.recentTerms());
                         } catch (IOException e) {
                             // A connection that could not be opened was already tried twice (ApiClient): do not wait for a third.
                             if (!ApiClient.isRetryable(e, p.usesRelay()) || Latency.isConnectFailure(e) || attempt == SEND_ATTEMPTS) throw e;
@@ -855,8 +855,9 @@ public class DictationService extends Service {
                 if (tm != null) tm.mark("llm_start");
                 try {
                     String strength = p.cleanupStrength();   // the prompt and the guard use the same value
-                    String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext(), strength, p.myCleanupRules(),
-                            p.structure());
+                    // only the dictionary terms this transcript needs go into the prompt (Terms.select, as vox_core.cleanup)
+                    String c = gl.cleanup(raw, style, p.llmModel(), Terms.select(raw, p.dictionaryTerms(), p.replacements()), label,
+                            p.userContext(), strength, p.myCleanupRules(), p.structure());
                     if (ApiClient.looksValid(raw, c, strength)) { out = c; cleaned = true; }
                     else { cleanupFailed = rejected = true; Log.w("vox", "fidelity guard: the cleanup answer lost the spoken words, used the raw words"); }
                 } catch (IOException e) {

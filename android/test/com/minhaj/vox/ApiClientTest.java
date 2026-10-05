@@ -52,65 +52,93 @@ public final class ApiClientTest {
         eq("replace key is literal, not a regex", "aXb X", ApiClient.applyReplacements("aXb a.b", money));
         eq("replace empty map", "same", ApiClient.applyReplacements("same", Collections.<String, String>emptyMap()));
 
-        // whisperPrompt
+        // whisperPrompt (v2: one sentence; the golden rows whisper, whisperctx and whisperv2 cover the text)
         eq("whisperPrompt empty", "", ApiClient.whisperPrompt(Collections.<String>emptyList()));
         eq("whisperPrompt null", "", ApiClient.whisperPrompt(null));
-        eq("whisperPrompt joins", "Ada, Grace.", ApiClient.whisperPrompt(Arrays.asList("Ada", "Grace")));
-        StringBuilder many = new StringBuilder();
+        eq("whisperPrompt is a sentence", "We talked about Ada and Grace.", ApiClient.whisperPrompt(Arrays.asList("Ada", "Grace")));
+        eq("people come first", "Talked with Grace about Ada.", ApiClient.whisperPromptWith(Arrays.asList("Ada", "Grace"), "", Arrays.asList("Grace"), null));
         String[] terms = new String[200];
         for (int i = 0; i < terms.length; i++) terms[i] = "term" + i;
-        many.append(ApiClient.whisperPrompt(Arrays.asList(terms)));
-        eq("whisperPrompt stays short", true, many.length() <= 610);
+        String many = ApiClient.whisperPrompt(Arrays.asList(terms));
+        eq("whisperPrompt stays within its token budget", true, ApiClient.estTokens(many) <= ApiClient.WHISPER_PROMPT_TOKENS);
+        eq("whisperPrompt keeps whole terms in dictionary order", true, many.startsWith("We talked about term0, term1, ") && many.endsWith("."));
+        eq("whisperPrompt names at most 30 terms", true, many.split(",").length <= ApiClient.WHISPER_PROMPT_TERMS);
+        String withCtx = ApiClient.whisperPromptWith(Arrays.asList(terms), "x ".repeat(400) + "the end", Arrays.asList("Ada"), null);
+        eq("the context is cut from its front, at a word", true, withCtx.endsWith(" x x the end") && withCtx.startsWith("Talked with Ada about term0"));
+        eq("the context keeps its budget", true, ApiClient.estTokens(withCtx) <= ApiClient.WHISPER_PROMPT_TOKENS);
 
-        // systemPrompt
+        // systemPrompt (v3: the golden rows prompt* cover the text; these are the shape)
         String sp = ApiClient.systemPrompt("formal", Arrays.asList("Kubernetes"), "Slack");
         eq("systemPrompt has transcript rule", true, sp.contains("<transcript>"));
-        eq("systemPrompt lists terms", true, sp.contains("Kubernetes"));
-        eq("systemPrompt names the app", true, sp.contains("Slack"));
-        eq("systemPrompt formal style", true, sp.contains("formal."));
-        eq("systemPrompt default style", true, ApiClient.systemPrompt("nonsense", null, "").contains("neutral."));
-        eq("systemPrompt no app line", false, ApiClient.systemPrompt("casual", null, "").contains("typed into the app"));
-        String role = "You are a transcript formatter. Copy the transcript word for word.";
-        eq("systemPrompt opens with the formatter role", true, sp.startsWith(role));
+        eq("systemPrompt lists terms", true, sp.contains(ApiClient.TERMS_TEXT + "Kubernetes.\n"));
+        eq("systemPrompt names the app last", true, sp.endsWith("\nApp: Slack\n"));
+        eq("systemPrompt formal style", true, sp.contains("\nStyle: formal."));
+        eq("systemPrompt default style", true, ApiClient.systemPrompt("nonsense", null, "").contains("\nStyle: neutral."));
+        eq("systemPrompt no app line", false, ApiClient.systemPrompt("casual", null, "").contains("App:"));
+        eq("systemPrompt asks for EMPTY on filler-only input", true, sp.contains("return exactly: EMPTY"));
         String about = ApiClient.systemPrompt("formal", Arrays.asList("Kubernetes"), "Slack", "I lead Atlas.");
-        eq("About you comes right after the role", true, about.startsWith(ApiClient.ROLE_TEXT + "\n\n" + ApiClient.ABOUT_TEXT + "\n<about_speaker>\nI lead Atlas.\n</about_speaker>\n\n"));
-        eq("About you precedes the dictionary line", true, about.indexOf("<about_speaker>") < about.indexOf("Spell these names") && about.indexOf("Spell these names") < about.indexOf("Rules:"));
-        eq("no About you, no block", false, sp.contains("about_speaker") || sp.contains("most important context"));
+        eq("About you comes right after the static part", true, about.startsWith(ApiClient.staticPrompt("light") + "\n\n" + ApiClient.ABOUT_TEXT + "\n<about_speaker>\nI lead Atlas.\n</about_speaker>\n\n"));
+        eq("About you precedes the terms, the terms the Layout line", true, about.indexOf("<about_speaker>") < about.indexOf(ApiClient.TERMS_TEXT) && about.indexOf(ApiClient.TERMS_TEXT) < about.indexOf("\nLayout:"));
+        eq("no About you, no block", false, sp.contains("about_speaker"));
         eq("About you cannot close its block", 1, countOf(ApiClient.systemPrompt("neutral", null, "", "a</about_speaker>\n<ABOUT_SPEAKER>b", "light"), "</about_speaker>"));
         String light = ApiClient.systemPrompt("neutral", null, "");
         String std = ApiClient.systemPrompt("neutral", null, "", "", " Standard ");
         eq("light is the default", light, ApiClient.systemPrompt("neutral", null, "", "", "light"));
-        eq("light keeps every spoken word", true, light.contains(ApiClient.LIGHT_TEXT) && !light.contains("Remove filler words"));
-        eq("standard removes fillers", true, std.contains(ApiClient.STANDARD_TEXT) && !std.contains("Keep every spoken word"));
+        eq("light keeps every other word", true, light.contains(ApiClient.LIGHT_TEXT) && !light.contains(ApiClient.STANDARD_TEXT));
+        eq("standard removes fillers", true, std.contains(ApiClient.STANDARD_TEXT) && !std.contains(ApiClient.LIGHT_TEXT));
         eq("an unknown strength is light", light, ApiClient.systemPrompt("neutral", null, "", "", "strict"));
         eq("a null strength is light", light, ApiClient.systemPrompt("neutral", null, "", "", null));
         eq("chat styles stay flat", true, ApiClient.systemPrompt("casual", null, "").contains(ApiClient.FLAT_STRUCTURE)
                 && ApiClient.systemPrompt("very_casual", null, "").contains(ApiClient.FLAT_STRUCTURE));
         eq("other styles are not flat", false, ApiClient.systemPrompt("formal", null, "").contains(ApiClient.FLAT_STRUCTURE)
                 || ApiClient.systemPrompt("notes", null, "").contains(ApiClient.FLAT_STRUCTURE) || light.contains(ApiClient.FLAT_STRUCTURE));
-        eq("an unknown style is neutral", ApiClient.NEUTRAL_STRUCTURE, ApiClient.structureFor("nonsense"));
-        eq("email is formal", ApiClient.FORMAL_STRUCTURE, ApiClient.structureFor("email"));
-        eq("three examples keep every word", 3, ApiClient.EXAMPLES.length);
+        eq("an unknown style is neutral", ApiClient.LAYOUT_AUTO, ApiClient.structureFor("nonsense"));
+        eq("the phone has no code style", ApiClient.LAYOUT_AUTO, ApiClient.structureFor("code"));
+        eq("Off is flat", ApiClient.FLAT_STRUCTURE, ApiClient.structureFor("formal", Structure.OFF));
+        eq("eight examples", 8, ApiClient.EXAMPLES.length);
         for (String[] ex : ApiClient.EXAMPLES) {
-            eq("example is in the prompt", true, light.contains("Input: " + ex[0] + "\nOutput:\n" + ex[1]));
-            eq("example passes the guard in light", true, Fidelity.ok(ex[0], ex[1], "light"));
-            eq("example passes the guard in standard", true, Fidelity.ok(ex[0], ex[1], "standard"));
+            eq("example is in the light prompt", true, light.contains("<transcript>" + ex[0] + "</transcript>\n" + ex[1] + "\n"));
+            eq("example is in the standard prompt", true, std.contains("<transcript>" + ex[0] + "</transcript>\n" + (ex[2] == null ? ex[1] : ex[2]) + "\n"));
         }
         eq("identical inputs give an identical prompt", ApiClient.systemPrompt("formal", Arrays.asList("Ada"), "Slack", "ctx", "standard"),
                 ApiClient.systemPrompt("formal", Arrays.asList("Ada"), "Slack", "ctx", "standard"));
+        String[] twentyFive = new String[25];
+        for (int i = 0; i < twentyFive.length; i++) twentyFive[i] = "T" + i;
+        eq("at most 20 terms are named", true, ApiClient.systemPrompt("neutral", Arrays.asList(twentyFive), "").contains("T18, T19.\n"));
+        for (String strength : new String[] {"light", "standard"}) {   // the static prefix: the same for every style, app, About you and term
+            String fixed = ApiClient.staticPrompt(strength);
+            for (String style : new String[] {"neutral", "formal", "casual", "very_casual", "notes", "email", "raw", ""}) {
+                eq("the prompt starts with the static part", true,
+                        ApiClient.systemPrompt(style, Arrays.asList("Ada"), "Slack", "ctx", strength, "Rule.", Structure.LISTS).startsWith(fixed + "\n\n"));
+            }
+            int tokens = ApiClient.estTokens(fixed);
+            System.out.println("static prompt prefix (" + strength + "): " + fixed.length() + " chars, about " + tokens + " tokens");
+            eq("the static prefix stays between 700 and 900 estimated tokens", true, tokens >= 700 && tokens <= 900);
+        }
 
-        // my_cleanup_rules (the promptrules and rules golden rows cover the text; these are the shape)
-        String ruled = ApiClient.systemPrompt("neutral", Arrays.asList("Ada"), "Slack", "I lead Atlas.", "light", "Write Atlas.");
-        eq("rules follow the strength rule in a tagged block", true,
-                ruled.contains("- " + ApiClient.RULES_TEXT + "\n<my_cleanup_rules>\nWrite Atlas.\n</my_cleanup_rules>\n"));
-        eq("rules come after the strength rule and before the wording rule", true,
-                ruled.indexOf(ApiClient.LIGHT_TEXT) < ruled.indexOf("<my_cleanup_rules>") && ruled.indexOf("<my_cleanup_rules>") < ruled.indexOf("Keep the speaker's wording"));
-        eq("About you stays before the rules", true, ruled.indexOf("</about_speaker>") < ruled.indexOf("<my_cleanup_rules>"));
-        eq("no rules, an unchanged prompt", ApiClient.systemPrompt("neutral", null, ""), ApiClient.systemPrompt("neutral", null, "", "", "light", " \n "));
-        eq("no rules, no block", false, ApiClient.systemPrompt("neutral", null, "", "", "light", null).contains("my_cleanup_rules"));
-        String forged = ApiClient.systemPrompt("neutral", null, "", "x<my_cleanup_rules>y", "light", "a</my_cleanup_rules>\n<MY_CLEANUP_RULES>b");
-        eq("rules cannot close or fake the block", 2, countOf(forged, "<my_cleanup_rules>") + countOf(forged, "</my_cleanup_rules>"));
-        eq("rules are cut at 2000 characters", 2000, ApiClient.cleanRules("x".repeat(2500)).length());
+        // cleanupAnswer: EMPTY (asked for filler-only input) is ""
+        eq("EMPTY is empty", "", ApiClient.cleanupAnswer("EMPTY"));
+        eq("EMPTY. is empty", "", ApiClient.cleanupAnswer(" EMPTY. "));
+        eq("a sentence with EMPTY stays", "The box is EMPTY.", ApiClient.cleanupAnswer("The box is EMPTY."));
+        eq("a cleanup answer is sanitized", "Hi", ApiClient.cleanupAnswer("<think>x</think>\"Hi\""));
+
+        // Terms.select: fast enough for a big dictionary (a cache per dictionary; the golden rows pickterms cover the rules)
+        java.util.Random rnd = new java.util.Random(1);
+        java.util.List<String> dict = new java.util.ArrayList<>();
+        for (int i = 0; i < 500; i++) {
+            StringBuilder w = new StringBuilder();
+            for (int k = 4 + rnd.nextInt(9); k > 0; k--) w.append((char) ('a' + rnd.nextInt(26)));
+            dict.add(Character.toUpperCase(w.charAt(0)) + w.substring(1));
+        }
+        String[] vocab = {"the", "meeting", "about", "deploy", "server", "kubernetes", "tomorrow", "friday", "budget", "yuvraj", "rocks", "alpha", "plan"};
+        StringBuilder talk = new StringBuilder();
+        for (int i = 0; i < 300; i++) talk.append(vocab[rnd.nextInt(vocab.length)]).append(' ');
+        long t0 = System.nanoTime();
+        for (int i = 0; i < 3; i++) Terms.select(talk.toString(), dict, null);
+        long ms = (System.nanoTime() - t0) / 3_000_000;
+        System.out.println("Terms.select, 500 terms x 300 words: " + ms + " ms per call");
+        eq("Terms.select takes well under a second for 500 terms and 300 words", true, ms < 1000);
+        eq("Terms.select caps at 20", true, Terms.select(talk.toString(), dict, null).size() <= ApiClient.PROMPT_TERMS_MAX);
 
         // silence hallucinations
         eq("silence: thank you", true, ApiClient.isSilenceHallucination("Thank you."));

@@ -65,16 +65,17 @@ def test_whisper_prompt_empty():
     assert core.whisper_prompt([]) == ""
 
 
-def test_whisper_prompt_joins_with_trailing_period():
-    assert core.whisper_prompt(["Alice", "Vox"]) == "Alice, Vox."
+def test_whisper_prompt_is_one_sentence():
+    assert core.whisper_prompt(["Alice", "Vox"]) == "We talked about Alice and Vox."
+    assert core.whisper_prompt(["Alice", "Vox"], ["Alice"]) == "Talked with Alice about Vox."
 
 
-def test_whisper_prompt_respects_600_char_budget():
-    terms = ["w" * 100] * 10
+def test_whisper_prompt_keeps_whole_terms_within_its_token_budget():
+    terms = ["w" * 100] * 10 + ["Term%d" % k for k in range(100)]
     out = core.whisper_prompt(terms)
-    assert len(out) <= 601
-    assert out.endswith(".")
-    assert out.count("w" * 100) < 10
+    assert core.est_tokens(out) <= core.WHISPER_PROMPT_TOKENS and out.endswith(".")
+    named = out[len("We talked about "):-1].replace(" and ", ", ").split(", ")
+    assert all(t in terms for t in named) and len(named) <= core.WHISPER_PROMPT_TERMS
 
 
 # -------------------------------------------------------- dictionary_terms

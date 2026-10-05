@@ -214,6 +214,25 @@ public final class Prefs {
         return Terms.terms(peopleRaw(), dictionaryRaw());
     }
 
+    /** The People list as terms (comments and blanks dropped, no duplicates): the names the speech prompt names first. */
+    public List<String> people() {
+        return Terms.terms(peopleRaw(), "");
+    }
+
+    /** A word learned this recently (learned_log) is named in the speech prompt before the rest of the dictionary. */
+    static final int RECENT_TERM_DAYS = 14;
+
+    /** The words learned in the last RECENT_TERM_DAYS days (the right sides of learned_log). Twin of recent_terms in windows/vox_core.py. */
+    public List<String> recentTerms() {
+        double now = System.currentTimeMillis() / 1000.0;
+        List<String> out = new java.util.ArrayList<>();
+        for (Map<String, Object> e : AutoLearn.learnedLog(learnedLogRaw())) {
+            String right = ApiClient.pyStrip(String.valueOf(e.get("right")));
+            if (now - (Double) e.get("t") <= RECENT_TERM_DAYS * 86400.0 && !right.isEmpty() && !out.contains(right)) out.add(right);
+        }
+        return out;
+    }
+
     /** Forced replacements from lines of the form "wrong => right". */
     public Map<String, String> replacements() {
         return Terms.replacements(dictionaryRaw());
