@@ -131,12 +131,117 @@ public final class ApiClient {
     /** The same with the People list and the recently learned terms, which the prompt names first (see {@link #whisperPromptWith}). */
     public String transcribe(Upload up, String model, String language, List<String> terms, String context, List<String> people,
                              List<String> recent) throws IOException {
-        String answer = transcribeRaw(up, model, language, whisperPromptWith(terms, context, people, recent));
+        String prompt = whisperPromptWith(terms, context, people, recent);
+        return transcriptOf(transcribeRaw(up, model, language, prompt), prompt);
+    }
+
+    /**
+     * The transcript in a speech server's answer (json or verbose_json): the segments Whisper most likely made up are left
+     * out ({@link #keptText}), and an answer that only reads the prompt back is "" ({@link #isPromptEcho}). Twin of the end
+     * of vox_core.transcribe. Pure (PlainJson), so it is unit-tested on a plain JDK.
+     */
+    static String transcriptOf(String answer, String prompt) throws IOException {
+        Object res;
+        try {
+            res = PlainJson.parse(answer);
+        } catch (IllegalArgumentException e) {
+            return lenientText(answer);   // not strict JSON: read the text as before, nothing is dropped
+        }
+        if (!(res instanceof Map)) throw new IOException("Bad JSON from the server");
+        Map<?, ?> m = (Map<?, ?>) res;
+        Object t = m.containsKey("text") ? m.get("text") : "";
+        // a null, a number or a list: the recording is kept for Retry instead of being lost (as vox_core.transcribe)
+        if (!(t instanceof String)) throw new IOException("The speech server sent an answer Vox could not read");
+        String text = (String) t;
+        List<Segment> segs = segmentsOf(m.get("segments"));
+        if (segs != null) text = keptText(text, segs);
+        return isPromptEcho(text, prompt) ? "" : text.trim();
+    }
+
+    /** The text of an answer org.json reads but strict JSON does not (the way every answer was read before). */
+    private static String lenientText(String answer) throws IOException {
         try {
             return new JSONObject(answer).optString("text", "").trim();
         } catch (Exception e) {
             throw new IOException("Bad JSON from the server");
         }
+    }
+
+    /** True when the speech request asks for verbose_json (vox_core.wants_segments): a Whisper model. */
+    static boolean wantsSegments(String model) {
+        return model != null && model.toLowerCase(Locale.ROOT).contains("whisper");
+    }
+
+    /** A segment Whisper most likely made up (vox_core.keep_segment, golden rows "sttseg"): the meeting transcript's numbers. */
+    static final double SEG_NO_SPEECH = 0.5, SEG_LOGPROB = -1.0, SEG_COMPRESSION = 2.4;
+
+    /** False for a segment that is most likely not speech: a loop (compression), or silence filled with words. */
+    static boolean keepSegment(double noSpeech, double logprob, double compression) {
+        return !(compression > SEG_COMPRESSION || (logprob < SEG_LOGPROB && noSpeech > SEG_NO_SPEECH));
+    }
+
+    /** One segment of a verbose_json answer: its text and scores. */
+    static final class Segment {
+        final String text;
+        final double noSpeech, logprob, compression;
+
+        Segment(String text, double noSpeech, double logprob, double compression) {
+            this.text = text; this.noSpeech = noSpeech; this.logprob = logprob; this.compression = compression;
+        }
+    }
+
+    /** The text unchanged when no segment is dropped, else the kept segments' texts joined by a space (vox_core.kept_text). */
+    static String keptText(String text, List<Segment> segs) {
+        StringBuilder b = new StringBuilder();
+        int kept = 0;
+        for (Segment s : segs) {
+            if (!keepSegment(s.noSpeech, s.logprob, s.compression)) continue;
+            kept++;
+            if (s.text.isEmpty()) continue;
+            if (b.length() > 0) b.append(' ');
+            b.append(s.text);
+        }
+        return kept == segs.size() ? text : b.toString();
+    }
+
+    /**
+     * The segments of a verbose_json answer (vox_core._segments_of): a score the server left out counts as fine; null when
+     * there are none or one is unreadable (then nothing is dropped).
+     */
+    static List<Segment> segmentsOf(Object segments) {
+        if (!(segments instanceof List) || ((List<?>) segments).isEmpty()) return null;
+        List<Segment> out = new ArrayList<>();
+        for (Object o : (List<?>) segments) {
+            if (!(o instanceof Map)) return null;
+            Map<?, ?> s = (Map<?, ?>) o;
+            if (!(s.get("start") instanceof Number) || !(s.get("end") instanceof Number)) return null;
+            Object t = s.get("text");
+            Double ns = score(s.get("no_speech_prob"), 0.0), lp = score(s.get("avg_logprob"), 0.0), cr = score(s.get("compression_ratio"), 1.0);
+            if (ns == null || lp == null || cr == null) return null;
+            out.add(new Segment(t == null ? "" : pyStrip(String.valueOf(t)), ns, lp, cr));
+        }
+        return out;
+    }
+
+    private static Double score(Object v, double missing) {
+        if (v == null) return missing;
+        return v instanceof Number ? ((Number) v).doubleValue() : null;
+    }
+
+    /** A transcript shorter than this is never called an echo: a one-word dictation of a dictionary name is real. */
+    static final int ECHO_MIN_WORDS = 3;
+
+    /**
+     * True when the transcript only reads the Whisper prompt back (vox_core.is_prompt_echo, golden rows "echo"): at least
+     * ECHO_MIN_WORDS words, all of them a run of the prompt's words in the same order (case and punctuation ignored).
+     */
+    static boolean isPromptEcho(String text, String prompt) {
+        List<String> t = Fidelity.wordTokens(text), p = Fidelity.wordTokens(prompt);
+        if (t.size() < ECHO_MIN_WORDS || t.size() > p.size()) return false;
+        for (int i = 0; i + t.size() <= p.size(); i++) {
+            if (p.subList(i, i + t.size()).equals(t)) return true;
+        }
+        return false;
     }
 
     /** The upload and the server's answer body, unparsed (the integration test reads it without org.json). Throws ApiException on 4xx/5xx. */
@@ -151,14 +256,14 @@ public final class ApiClient {
      */
     String transcribeRaw(Upload up, String model, String language, String prompt) throws IOException {
         try {
-            return post(up, model, language, prompt);
+            return postAsked(up, model, language, prompt);
         } catch (ApiException e) {
             if (up.wavTwin == null || !UploadFormat.formatRejected(e.code)) throw e;
             // This server may not read m4a (a whisper.cpp server without ffmpeg): once more as WAV, and remember the
             // server only when the WAV got through, so another kind of 400 is not blamed on the format.
             Upload wav = up.wavTwin.make();
             try {
-                String answer = post(wav, model, language, prompt);
+                String answer = postAsked(wav, model, language, prompt);
                 Providers.rememberM4aRejected(base);
                 return answer;
             } finally {
@@ -167,12 +272,26 @@ public final class ApiClient {
         }
     }
 
-    private String post(Upload up, String model, String language, String prompt) throws IOException {
+    /**
+     * The upload with the answer format for this model: verbose_json for a Whisper model (its segment scores drop made-up
+     * text), and a server that refuses it with a 400 asked again for plain json (as vox_core.transcribe).
+     */
+    private String postAsked(Upload up, String model, String language, String prompt) throws IOException {
+        if (!wantsSegments(model)) return post(up, model, language, prompt, "json");
+        try {
+            return post(up, model, language, prompt, "verbose_json");
+        } catch (ApiException e) {
+            if (e.code != 400) throw e;
+            return post(up, model, language, prompt, "json");
+        }
+    }
+
+    private String post(Upload up, String model, String language, String prompt, String format) throws IOException {
         return connectRetry(() -> relayWatch(() -> {
             String boundary = "----vox" + System.nanoTime();
             Multipart body = new Multipart(boundary)
                     .field("model", model)
-                    .field("response_format", "json")
+                    .field("response_format", format)
                     .field("temperature", "0");
             if (language != null && !language.isEmpty()) body.field("language", language);
             if (prompt != null && !prompt.isEmpty()) body.field("prompt", prompt);

@@ -27,4 +27,58 @@ final class Pcm {
         }
         return peak < threshold;
     }
+
+    // Edge-silence trim before upload: the twin of vox_core.trim_edges (golden rows "edgetrim"). Whisper invents text in long
+    // silence, most often at the start or end of a clip; the pauses inside are kept.
+    /** About 200 ms (7 frames of 30 ms) of the quiet before the first and after the last speech is kept. */
+    static final int TRIM_PAD_FRAMES = 7;
+    /** Speech = this many frames in a row (90 ms) at {@link #SILENCE_PEAK} or louder: a lone click is not speech. */
+    static final int TRIM_RUN_FRAMES = 3;
+
+    /** The loudest sample of every 30 ms frame ({@link Segmenter#FRAME} samples); a short last frame counts too. */
+    static int[] framePeaks(byte[] pcm) {
+        int n = pcm == null ? 0 : pcm.length / 2;
+        int[] peaks = new int[(n + Segmenter.FRAME - 1) / Segmenter.FRAME];
+        for (int i = 0; i < n; i++) {
+            int v = (short) ((pcm[2 * i] & 0xff) | (pcm[2 * i + 1] << 8));
+            int a = v < 0 ? -v : v;
+            int f = i / Segmenter.FRAME;
+            if (a > peaks[f]) peaks[f] = a;
+        }
+        return peaks;
+    }
+
+    /**
+     * {first, end}: the frames to send. Speech is the first and the last run of TRIM_RUN_FRAMES frames at SILENCE_PEAK or
+     * louder; TRIM_PAD_FRAMES of the quiet next to it stay. Only the edges asked for are cut. With no such run nothing is
+     * cut: a recording is never trimmed to nothing, and the silence gate decides about it as before.
+     */
+    static int[] edgeTrim(int[] peaks, boolean lead, boolean tail) {
+        int n = peaks.length, first = -1, last = -1, run = 0;
+        for (int i = 0; i < n; i++) {
+            run = peaks[i] >= SILENCE_PEAK ? run + 1 : 0;
+            if (run >= TRIM_RUN_FRAMES) {
+                if (first < 0) first = i - TRIM_RUN_FRAMES + 1;
+                last = i;
+            }
+        }
+        if (first < 0) return new int[]{0, n};
+        return new int[]{lead ? Math.max(0, first - TRIM_PAD_FRAMES) : 0, tail ? Math.min(n, last + 1 + TRIM_PAD_FRAMES) : n};
+    }
+
+    /** {start, end}: the bytes of the recording that are sent (see {@link #edgeTrim}). */
+    static int[] trimRange(byte[] pcm, boolean lead, boolean tail) {
+        int len = pcm == null ? 0 : pcm.length;
+        int[] peaks = framePeaks(pcm);
+        int[] f = edgeTrim(peaks, lead, tail);
+        int size = Segmenter.FRAME * 2;
+        return new int[]{f[0] * size, f[1] >= peaks.length ? len : f[1] * size};
+    }
+
+    /** The recording without its silent start and end (the same array when nothing is cut). */
+    static byte[] trimEdges(byte[] pcm, boolean lead, boolean tail) {
+        int[] r = trimRange(pcm, lead, tail);
+        if (pcm == null || (r[0] == 0 && r[1] == pcm.length)) return pcm;
+        return java.util.Arrays.copyOfRange(pcm, r[0], r[1]);
+    }
 }

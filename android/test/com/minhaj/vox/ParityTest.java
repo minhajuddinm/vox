@@ -74,7 +74,8 @@ public final class ParityTest {
     private static byte[] segAudio(String runs) {
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
         for (String r : items(runs, "|")) {
-            int v = r.charAt(0) == 't' ? 8000 : r.charAt(0) == 'q' ? 899 : r.charAt(0) == 'n' ? 900 : r.charAt(0) == 'm' ? 2000 : 0;
+            char k = r.charAt(0);
+            int v = k == 't' ? 8000 : k == 'q' ? 899 : k == 'n' ? 900 : k == 'm' ? 2000 : k == 'v' ? 655 : k == 'w' ? 654 : 0;
             int n = Integer.parseInt(r.substring(1)) * 16;
             for (int i = 0; i < n; i++) { out.write(v & 0xff); out.write((v >> 8) & 0xff); }
         }
@@ -97,6 +98,25 @@ public final class ParityTest {
         byte[] rest = seg.rest();
         if (total + rest.length != pcm.length) throw new IllegalStateException("audio was lost or repeated");
         return b + "/" + rest.length;
+    }
+
+    /** both|lead|tail, runs => the bytes of that audio that are sent, as start/end (Pcm.trimRange). */
+    private static String edgeTrim(String flags, String runs) {
+        byte[] pcm = segAudio(runs);
+        int[] r = Pcm.trimRange(pcm, flags.equals("both") || flags.equals("lead"), flags.equals("both") || flags.equals("tail"));
+        byte[] out = Pcm.trimEdges(pcm, flags.equals("both") || flags.equals("lead"), flags.equals("both") || flags.equals("tail"));
+        if (out.length != r[1] - r[0]) throw new IllegalStateException("trimEdges and trimRange disagree");
+        return r[0] + "/" + r[1];
+    }
+
+    /** text;no_speech;logprob;compression items, | separated. */
+    private static List<ApiClient.Segment> sttSegments(String field) {
+        List<ApiClient.Segment> out = new ArrayList<>();
+        for (String item : field.split("\\|", -1)) {
+            String[] p = item.split(";", -1);
+            out.add(new ApiClient.Segment(p[0], Double.parseDouble(p[1]), Double.parseDouble(p[2]), Double.parseDouble(p[3])));
+        }
+        return out;
     }
 
     /** A | separated list of whole numbers. */
@@ -508,6 +528,18 @@ public final class ParityTest {
                     break;
                 case "cleananswer":   // the cleanup model's answer => the text used ("" for EMPTY)
                     eq(ln, kind, f[1], ApiClient.cleanupAnswer(f[0]));
+                    break;
+                case "edgetrim":   // both|lead|tail, runs => kept bytes start/end
+                    eq(ln, kind, f[2], edgeTrim(f[0], f[1]));
+                    break;
+                case "sttseg":   // no_speech_prob, avg_logprob, compression_ratio => kept
+                    eq(ln, kind, f[3], ApiClient.keepSegment(Double.parseDouble(f[0]), Double.parseDouble(f[1]), Double.parseDouble(f[2])) ? "true" : "false");
+                    break;
+                case "sttkept":   // text, segments => the transcript kept
+                    eq(ln, kind, f[2], ApiClient.keptText(f[0], sttSegments(f[1])));
+                    break;
+                case "echo":   // transcript, Whisper prompt => only the prompt read back
+                    eq(ln, kind, f[2], ApiClient.isPromptEcho(f[0], f[1]) ? "true" : "false");
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);

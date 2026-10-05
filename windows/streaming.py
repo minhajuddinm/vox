@@ -99,27 +99,34 @@ class StreamingStt:
             if not self._cancelled:
                 rest = self.seg.rest()
                 if self.pieces and len(rest) >= core.SAMPLE_RATE * 2 * MIN_TAIL_SECONDS:
-                    self._send(rest)
+                    self._send(rest, last=True)
         except Exception as e:   # includes ApiError and network errors: the caller falls back to the whole recording
             self.error = str(e) or type(e).__name__
             self._piece_failed = True
         finally:
             self._done.set()
 
-    def _send(self, pcm):
+    def _send(self, pcm, last=False):
+        """Sends one piece. The first piece loses its silent start and the last one its silent end (vox_core.trim_edges);
+        the pauses at the cuts in between stay. The times and byte counts are those of the untrimmed piece."""
+        first = self.pieces == 0
         self.pieces += 1
         if not self._finishing:
             self.early += 1
         start = self._sent_seconds
         self.piece_starts.append(start)
         self._sent_seconds += len(pcm) / (core.SAMPLE_RATE * 2)
+        size = len(pcm)
+        head = 0.0
+        if first or last:
+            pcm, head = core.trim_edges(pcm, lead=first, tail=last)
         core._stt_local.segments = None   # this thread's last answer: a silent piece is not sent at all
         text = piece_text(self.cfg, pcm, " ".join(self.texts), self._transcribe, drop_hallucination=not self.texts)
-        self.done_bytes += len(pcm)
+        self.done_bytes += size
         if text:
             self.texts.append(text)
             segs = core.last_segments()   # transcribe ran on this worker thread
             if segs is None:
                 self._segments_ok = False
             else:
-                self._segments += [dict(s, start=s["start"] + start, end=s["end"] + start) for s in segs]
+                self._segments += core.shift_segments(segs, start + head)

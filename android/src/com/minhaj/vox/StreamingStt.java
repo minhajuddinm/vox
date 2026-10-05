@@ -206,11 +206,11 @@ final class StreamingStt {
             while (true) {
                 byte[] data = queue.take();
                 if (data == END || cancelled) break;
-                for (byte[] piece : seg.feed(data, 0, data.length)) send(piece);
+                for (byte[] piece : seg.feed(data, 0, data.length)) send(piece, false);
             }
             if (!cancelled) {
                 byte[] rest = seg.rest();
-                if (pieces > 0 && rest.length >= Segmenter.SAMPLE_RATE * 2 * MIN_TAIL_SECONDS) send(rest);
+                if (pieces > 0 && rest.length >= Segmenter.SAMPLE_RATE * 2 * MIN_TAIL_SECONDS) send(rest, true);
             }
         } catch (Exception e) {   // includes IOException from the server: the caller falls back to the whole recording
             String m = e.getMessage();
@@ -220,9 +220,15 @@ final class StreamingStt {
         }
     }
 
-    private void send(byte[] pcm) throws IOException {
+    /**
+     * Sends one piece. The first piece loses its silent start and the last one its silent end ({@link Pcm#trimEdges}, as
+     * windows/streaming.py); the pauses at the cuts in between stay.
+     */
+    private void send(byte[] pcm, boolean last) throws IOException {
         if (cancelled) throw new IOException("cancelled");   // a cancel came while earlier pieces were being sent: no new request
+        boolean first = pieces == 0;
         pieces++;
+        if (first || last) pcm = Pcm.trimEdges(pcm, first, last);
         if (Pcm.isSilent(pcm)) return;   // a piece of pure silence has nothing to say
         String text = transcriber.transcribe(pcm, context());
         // a silence hallucination ("Thank you.") is only possible before any real text; after speech it is the speaker's

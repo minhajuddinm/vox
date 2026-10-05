@@ -1841,3 +1841,50 @@ gate	one two three	casual	true		false
 gate	one two three four	casual	true		true
 gate	a b c d	casual	true	banana	true
 gate	one two three	neutral	true	4	false
+# cq-5
+# edgetrim: both|lead|tail, runs => the bytes of the recording that are sent, start/end (vox_core.trim_edges, Pcm.trimEdges). The runs are written as in segcuts (t = 8000, s = silence), plus v = 655 (SILENCE_PEAK: speech) and w = 654 (just under it). Audio is cut in 30 ms frames (960 bytes); speech is the first and the last run of 3 frames in a row at 655 or louder, and 7 frames (210 ms) of the quiet next to it stay. lead/tail: only that edge may be cut (the first and the last streamed piece). No such run (silence, a lone click, two 60 ms blips): nothing is cut, the silence gate decides. Expected values were worked out by hand from the rule, then checked by both suites.
+edgetrim	both	s600|t600|s600	12480/45120
+edgetrim	lead	s600|t600|s600	12480/57600
+edgetrim	tail	s600|t600|s600	0/45120
+edgetrim	both	s900	0/28800
+edgetrim	both	s600|t30|s600	0/39360
+edgetrim	both	s300|t30|s600|t900|s300	23040/65280
+edgetrim	both	s300|v90|s300	2880/19200
+edgetrim	both	s300|w900|s300	0/48000
+edgetrim	both	t300|s1500	0/16320
+edgetrim	both	s600|t300|s2100|t300|s600	12480/112320
+edgetrim	both	s610|t300|s615	12480/36480
+edgetrim	both	t300|s100	0/12800
+edgetrim	both	s300|t60|s300|t60|s300	0/32640
+edgetrim	both	s60|t300|s900	0/18240
+# sttseg: no_speech_prob, avg_logprob, compression_ratio of a Whisper segment => kept (vox_core.keep_segment, ApiClient.keepSegment). Dropped: compression above 2.4 (a loop), or no_speech above 0.5 with avg_logprob below -1.0 (silence filled with words): the meeting transcript's numbers. A low logprob alone keeps the segment (accents, Hinglish).
+sttseg	0.0	0.0	1.0	true
+sttseg	0.6	-1.2	1.0	false
+sttseg	0.5	-1.2	1.0	true
+sttseg	0.9	-1.0	1.0	true
+sttseg	0.9	-0.5	1.0	true
+sttseg	0.1	-2.0	1.0	true
+sttseg	0.0	0.0	2.4	true
+sttseg	0.0	0.0	2.41	false
+sttseg	0.6	-1.01	2.5	false
+# sttkept: the answer's text, its segments (text;no_speech;logprob;compression, | separated) => the transcript used (vox_core.kept_text, ApiClient.keptText): the text unchanged when no segment is dropped, else the kept segments' texts joined by a space.
+sttkept	Hello there.	Hello;0;-0.2;1|there.;0.1;-0.3;1.1	Hello there.
+sttkept	Hello there. Thank you.	Hello there.;0.1;-0.2;1|Thank you.;0.8;-1.3;1	Hello there.
+sttkept	Thank you.	Thank you.;0.9;-1.5;1	
+sttkept	Okay. either the either the either the either the	Okay.;0;-0.1;1|either the either the either the either the;0;-0.2;3.1	Okay.
+sttkept	a b c	a;0;0;1|b;0.7;-1.1;1|c;0;0;1	a c
+sttkept	x	;0;0;1|x;0.7;-2;1	
+# echo: transcript, Whisper prompt => true when the transcript only reads the prompt back (vox_core.is_prompt_echo, ApiClient.isPromptEcho): at least 3 words (word_tokens: case and punctuation ignored), all of them a run of the prompt's words in the same order. Such an answer is dropped ("" = nothing heard).
+echo	Ada, Grace, Kubernetes.	Ada, Grace, Kubernetes, Vox.	true
+echo	Grace Kubernetes Vox	Ada, Grace, Kubernetes, Vox.	true
+echo	Ada Kubernetes Vox	Ada, Grace, Kubernetes, Vox.	false
+echo	Ada Grace	Ada, Grace, Kubernetes, Vox.	false
+echo	Vox	Vox.	false
+echo	Ada, Grace, Kubernetes, Vox, Tailscale	Ada, Grace, Kubernetes, Vox.	false
+echo		Ada.	false
+echo	meet Ada and Grace	Ada, Grace, Kubernetes.	false
+echo	we shipped the build	Ada, Grace. so today we shipped the build to staging	true
+echo	KUBERNETES vox ADA	Kubernetes, Vox, Ada.	true
+echo	नमस्ते दुनिया आज	Ada. नमस्ते दुनिया आज कल	true
+echo	it's Ada's turn	it's Ada's turn now	true
+echo	hello there friend		false
