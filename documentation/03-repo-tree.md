@@ -11,13 +11,13 @@ android/                Android app (Java, no Gradle)
   res/                  icons, strings, accessibility and network config
   src/com/minhaj/vox/   all Java source
   test/com/minhaj/vox/  plain-Java tests (no device, no JUnit)
-docs/                   the public website (GitHub Pages): landing page and privacy policy
+docs/                   the public website (GitHub Pages): landing page, privacy policy and the screenshots
 documentation/          THIS folder: developer and agent documentation
 .claude/skills/         project skills for Claude Code (documentation sync)
 spec/                   golden.txt, expected results shared by Python and Java tests
 relay/                 Optional relay server (Python, runs on Linux, Raspberry Pi, macOS, Windows)
 tests/                  pytest tests for the Windows Python code
-tools/                  repo scripts (generate the shared UI parts into both pages; the cleanup benchmark and its corpus)
+tools/                  repo scripts (generate the shared UI parts into both pages; the cleanup benchmark and its corpus; render the screenshots)
 ui-shared/              palette, component CSS and helper JS shared by both pages (generated into them)
 windows/                Windows app (Python) and its installer scripts
   ui/                   the main window's screens (one HTML file)
@@ -27,7 +27,7 @@ windows/                Windows app (Python) and its installer scripts
 
 | Path | What it is |
 |---|---|
-| `README.md` | The project's front page for outsiders: what Vox is, features, screenshots to take, status and known limits, install (Windows, Android with the sideload warnings), short user guide, privacy summary, build and test, repository map, contributing and the licence (MIT). User-facing; not this documentation. |
+| `README.md` | The project's front page for outsiders: what Vox is, what is new in 2.0, features, screenshots (rendered with sample data) and the ones still to take, status and known limits, install (Windows, Android with the sideload warnings), short user guide, privacy summary, build and test, repository map, contributing and the licence (MIT). User-facing; not this documentation. |
 | `AGENTS.md` | Short entry point for coding agents; points here. |
 | `CHANGELOG.md` | Release-style change history. |
 | `CONTRIBUTING.md` | How to contribute: setup, running the tests, the golden-rows rule, the docs-sync rule, the pull request checklist, and that contributions are accepted under the MIT licence. |
@@ -301,10 +301,20 @@ windows/                Windows app (Python) and its installer scripts
 
 | Path | What it is |
 |---|---|
-| `docs/index.html` | Landing page (GitHub Pages). |
-| `docs/privacy.html` | Privacy policy (it also covers the optional Google Calendar use). |
-| `docs/style.css` | Styles for the two pages. |
+| `docs/index.html` | Landing page (GitHub Pages) for 2.0: download buttons, what is new, features, how it works, the screenshots, a privacy summary, links and credits. Static HTML and CSS only: it loads nothing from other sites. Open Graph and Twitter card tags point at `docs/screenshots/og.png`. |
+| `docs/privacy.html` | Privacy policy (it also covers the optional Google Calendar use); the header links back to the landing page. |
+| `docs/style.css` | Styles for the two pages (system fonts, light and dark through `prefers-color-scheme`, works down to 360 px). |
 | `docs/favicon.svg` | Site icon. |
+| `docs/screenshots/windows-home.png` | Screenshot rendered by `tools/render_screenshots.py` from `windows/ui/index.html` with sample data: Home (Status and Speed cards). |
+| `docs/screenshots/windows-settings.png` | The same, Settings: AI providers and the start of Voice & audio. |
+| `docs/screenshots/windows-dictionary.png` | The same, Dictionary: About you, words, people, replacements, snippets. |
+| `docs/screenshots/windows-voice-notes.png` | The same, Voice notes with three sample notes. |
+| `docs/screenshots/windows-privacy.png` | The same, Settings: the Privacy section. |
+| `docs/screenshots/android-home.png` | Screenshot rendered from `android/assets/index.html` with sample data: Home. |
+| `docs/screenshots/android-settings.png` | The same, Settings: AI providers. |
+| `docs/screenshots/android-notes.png` | The same, the Notes page. |
+| `docs/screenshots/android-install-help.png` | The same, Settings, System, Install help opened. |
+| `docs/screenshots/og.png` | The 1200 x 630 social preview image (title and the Windows Home screenshot), rendered by the same tool. |
 
 ## This documentation (`documentation/`)
 
@@ -402,6 +412,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tools/bench_cleanup.py` | The cleanup benchmark: runs the app's real cleanup call over the corpus for one or several models and prints a table; saves the results under `%APPDATA%\Vox\bench\`. Run by hand, never in CI. |
 | `tools/bench_metrics.py` | The benchmark's pure metrics (`recall`, `added_rate`, `length_ratio`, `term_hits`, `structure_only`, `percentile`, `score`, `summarize`); they read words the way the fidelity guard does. |
 | `tools/bench/corpus.jsonl` | 45 synthetic transcripts (chat, long, filler-heavy, enumerations, Hinglish, numbers, commands, names from a made-up About you) with style, dictionary terms and the terms the answer must spell exactly. No real person's data. |
+| `tools/render_screenshots.py` | Renders `docs/screenshots/*.png` from the apps' own pages: copies each page with a stand-in bridge (`window.pywebview.api`, `window.Vox`) and made-up sample data in front of its scripts and screenshots it with headless Edge or Chrome (fresh profile, every host name blocked). The Windows sample state comes from the app's own modules with `requests` replaced. Standard library only; run by hand, not in CI. |
 | `tools/relay_smoke.py` | Smoke test for a standalone relay binary, run by the `relay-exe` CI job: `--help` exits 0, start on `127.0.0.1` with a temp data folder and `--show-token`, `/health` answers 401 without and 200 with the token, stop. Standard library only. |
 | `tools/sync_ui.py` | Writes the `ui-shared` blocks into `windows/ui/index.html` and `android/assets/index.html` between the `ui-shared:css` and `ui-shared:js` marker comments; `--check` verifies. |
 | `tools/sync_ui.py` | Writes the `ui-shared` blocks into `windows/ui/index.html` and `android/assets/index.html` between the `ui-shared:css`, `ui-shared:js` and `ui-shared:steps` marker comments (the last one is HTML made from `ui-shared/relay-steps.txt`); `--check` verifies. |
