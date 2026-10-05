@@ -1065,12 +1065,12 @@ class Engine:
                 return
             if self.recording or self.busy or self.listening:
                 return
-            self.note_mode = True
+            # hands-free (keeps recording until finished) before the recording starts: a hotkey key-up that sees it
+            # recording also sees it hands-free, so it cannot end the note just started
+            self.note_mode = self.hands_free = True
             self.start()
-        if self.recording:
-            self.hands_free = True   # keeps recording until finished
-        else:
-            self.note_mode = False
+            if not self.recording:
+                self.note_mode = self.hands_free = False
 
     def save_note(self, text, raw, secs):
         """Saves a voice note, asks the sync thread to send it and says so."""

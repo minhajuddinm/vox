@@ -67,6 +67,30 @@ def test_a_note_toggle_never_marks_a_dictation_that_is_already_running(eng):
     assert eng.recording and not eng.note_mode and len(eng.opened) == 1
 
 
+def test_a_key_up_right_after_the_tray_starts_a_note_does_not_end_it(eng, monkeypatch):
+    # review 10: hands_free was set after the lock, so a hotkey key-up in that moment took the note for a short press
+    ended = []
+    eng.press_t, eng.command_mode, eng.combo_other_key, eng.last_tap_t, eng.latched_t = 0.0, False, False, 0.0, 0.0
+    eng._now = time.monotonic
+    monkeypatch.setattr(eng, "stop", lambda: ended.append("stop"))
+    monkeypatch.setattr(eng, "cancel", lambda: ended.append("cancel"))
+    real_start = eng.start
+
+    def start_then_key_up():   # the key-up lands the moment the recording runs
+        real_start()
+        eng.on_combo_up()
+    monkeypatch.setattr(eng, "start", start_then_key_up)
+    eng.toggle_note()
+    assert eng.recording and eng.note_mode and eng.hands_free and ended == []
+
+
+def test_a_note_that_cannot_start_is_neither_a_note_nor_hands_free(eng, monkeypatch):
+    monkeypatch.setattr(core, "key_missing", lambda cfg: True)
+    monkeypatch.setattr(engine_mod, "open_window", lambda: None)
+    eng.toggle_note()
+    assert not (eng.recording or eng.note_mode or eng.hands_free)
+
+
 def test_a_late_time_limit_stop_does_not_end_the_next_recording(eng, monkeypatch):
     stops = []
     monkeypatch.setattr(eng, "_stop", lambda: stops.append(eng._rec_gen) or setattr(eng, "recording", False))
