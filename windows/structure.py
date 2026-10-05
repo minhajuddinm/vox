@@ -7,7 +7,9 @@ and exist on Windows only.
 Lists are made only from cues the speaker says, never from commas: ordinals in sequence ("first ... second ...", also
 "firstly", "first of all"), introduced numbers ("point one", "item one", "step one", "number one" then "two" or "point two"),
 Hindi and Hinglish ordinals (pehla, doosra, teesra; पहला, दूसरा, तीसरा) and bullet cues ("bullet", "bullet point", "new bullet",
-"next bullet", "next point", "next item"). The cue words are removed and every other word is kept, in order.
+"next bullet", "next point", "next item"). The cue words are removed and every other word is kept, in order. Prose that
+only looks like a cue stays prose: "number one priority", "two people", "first impressions" (no punctuation after the cue
+and no item word such as "we" or "the"), "second of all", "one bullet point to make".
 """
 import difflib
 import re
@@ -36,6 +38,13 @@ _INTROS = ("point", "item", "step", "number")
 _BULLETS_ANYWHERE = (("bullet", "point"), ("new", "bullet"), ("next", "bullet"))
 _BULLETS_AT_CLAUSE = (("next", "point"), ("next", "item"))
 _BE = ("are", "is", "were")              # "the steps are step one ...": the first cue may follow these
+# An ordinal or numbered cue with no punctuation after it starts an item only before one of these ("first we eat"); before
+# any other word it is prose ("first impressions", "number one priority", "two people", "second time").
+_ITEM_START = frozenset("i we you he she they it the a an my our your his her their its this that these those there here "
+                        "let's lets let i'll we'll you'll i'm we're you're it's i've we've".split())
+# A bullet cue right after one of these is the noun ("one bullet point to make", "a new bullet").
+_DETERMINERS = frozenset("a an the one this that another each every any some no my our your his her their its".split())
+_ABBREVIATIONS = frozenset("dr mr mrs ms st vs etc jr sr prof".split())   # "Dr. Smith": its dot ends no sentence
 _CLAUSE_PUNCT = ".,;:!?।"           # । = the Devanagari danda
 _SENTENCE_PUNCT = ".!?।"
 _SPACE = " \t\r\n"
@@ -93,29 +102,41 @@ def _after_be(text, words, i):
 ANYWHERE, CLAUSE, SENTENCE = 0, 1, 2
 
 
+def _item_follows(text, words, after):
+    """True when the cue that ends before word `after` is followed by punctuation or a line break, by nothing, or by a
+    word that starts an item (_ITEM_START): "First, milk" and "first we eat", not "first impressions"."""
+    if after >= len(words):
+        return True
+    gap = text[words[after - 1][2]:words[after][1]]
+    return any(c not in " \t" for c in gap) or words[after][0].replace("’", "'") in _ITEM_START
+
+
 def _match(text, words, i):
     """The cue starting at word i as (family, number, index after its last word, where it may stand), or None.
     Families: bul (a bullet), num (point/item/step/number N), bare (a bare number continuing a num list), ord, hi.
-    Where: ANYWHERE, CLAUSE (at a clause start) or SENTENCE (at a sentence start: a bare "two" after a comma is prose)."""
+    Where: ANYWHERE, CLAUSE (at a clause start) or SENTENCE (at a sentence start: a bare "two" after a comma is prose).
+    An ordinal, numbered or bare cue must be followed by an item (_item_follows), "second of all" is prose (only "first
+    of all" is a cue) and a bullet cue after a determiner is the noun."""
     w = words[i][0]
     nxt = words[i + 1][0] if i + 1 < len(words) and _only_space(text[words[i][2]:words[i + 1][1]]) else None
     if (w, nxt) in _BULLETS_ANYWHERE:
-        return "bul", 0, i + 2, ANYWHERE
+        noun = i > 0 and words[i - 1][0] in _DETERMINERS and _only_space(text[words[i - 1][2]:words[i][1]])
+        return None if noun else ("bul", 0, i + 2, ANYWHERE)
     if (w, nxt) in _BULLETS_AT_CLAUSE:
         return "bul", 0, i + 2, CLAUSE
     if w == "bullet":
         return "bul", 0, i + 1, CLAUSE
     if w in _INTROS and nxt in _NUMBERS:
-        return "num", _NUMBERS[nxt], i + 2, CLAUSE
-    if w == "first" and nxt == "of" and i + 2 < len(words) and words[i + 2][0] == "all" \
+        return ("num", _NUMBERS[nxt], i + 2, CLAUSE) if _item_follows(text, words, i + 2) else None
+    if w in _ORD and nxt == "of" and i + 2 < len(words) and words[i + 2][0] == "all" \
             and _only_space(text[words[i + 1][2]:words[i + 2][1]]):
-        return "ord", 1, i + 3, CLAUSE
+        return ("ord", 1, i + 3, CLAUSE) if w == "first" else None
     if w in _ORD:
-        return "ord", _ORD[w], i + 1, CLAUSE
+        return ("ord", _ORD[w], i + 1, CLAUSE) if w.endswith("ly") or _item_follows(text, words, i + 1) else None
     if w in _HINDI:
         return "hi", _HINDI[w], i + 2 if nxt == "point" else i + 1, CLAUSE
     if w in _NUMBERS and _NUMBERS[w] >= 2:
-        return "bare", _NUMBERS[w], i + 1, SENTENCE
+        return ("bare", _NUMBERS[w], i + 1, SENTENCE) if _item_follows(text, words, i + 1) else None
     return None
 
 
@@ -169,9 +190,25 @@ def _clean_item(body, flat_case):
     """One item: line breaks inside made spaces, the punctuation around the cue and at the end dropped (a full stop too
     when the item is one sentence), and a capital first letter unless very casual."""
     s = _NEWLINES.sub(" ", body).lstrip(_SPACE + ",.;:-–—।").rstrip(_SPACE + ",;:")
-    if s[-1:] in (".", "।") and not _SENTENCE_INSIDE.search(s[:-1]):
+    inner = s[:-1]
+    if s[-1:] in (".", "।") and not any(not _abbreviation_dot(inner, m.start()) for m in _SENTENCE_INSIDE.finditer(inner)):
         s = s[:-1].rstrip(_SPACE)
     return s if flat_case else _capitalised(s)
+
+
+def _abbreviation_dot(text, pos):
+    """True when text[pos] is the dot of an abbreviation (_ABBREVIATIONS) or of a single letter ("Dr. Smith", "3 p.m.
+    today", "e.g. tea"): it ends no sentence."""
+    k = pos
+    while k > 0 and _is_word_char(text[k - 1]):
+        k -= 1
+    word = text[k:pos].lower()
+    return text[pos] == "." and (len(word) == 1 and word.isalpha() or word in _ABBREVIATIONS)
+
+
+def _sentence_end(text):
+    """The first sentence end in text (_SENTENCE_END) that is not an abbreviation's dot, or None."""
+    return next((m for m in _SENTENCE_END.finditer(text) if not _abbreviation_dot(text, m.start())), None)
 
 
 def format_structure(text, mode="auto", style="neutral"):
@@ -188,7 +225,7 @@ def format_structure(text, mode="auto", style="neutral"):
     bodies = [text[seq[k][3]:seq[k + 1][2]] for k in range(len(seq) - 1)] + [text[seq[-1][3]:]]
     last = bodies[-1].lstrip(_SPACE + ",.;:-–—।")
     trailer = ""
-    m = _SENTENCE_END.search(last)
+    m = _sentence_end(last)
     if m:
         cut = len(last[:m.end()].rstrip(_SPACE))
         last, trailer = last[:cut], last[m.end():].strip(_SPACE)

@@ -1079,3 +1079,27 @@ fidelity	light	first line new line second line	First line\nsecond line	true
 fidelity	light	is it done question mark	Is it done	false
 fidelity	light	is it done question mark	Is it done?	true
 fidelity	light	add a new line of products	Add a new line of products.	true
+# TXT-5: an ordinal, numbered or bare-number cue with no punctuation after it starts an item only before a word that
+# starts one (we, the, it, let's...), so "number one priority", "two people", "first impressions" stay prose; "second of
+# all" is not a cue; "bullet point" after a determiner (a, one, the...) is the noun.
+# TXT-4: the dot of an abbreviation (Dr. Mr. Mrs. Ms. St. vs. etc. Jr. Sr. Prof.) or of a single letter (p.m., e.g.)
+# ends no sentence: the last item is not cut there.
+structure	auto	neutral	Number one priority is getting the release out. Two customers are waiting on the fix.	Number one priority is getting the release out. Two customers are waiting on the fix.
+structure	auto	neutral	Number one priority is hiring. Two of our engineers left.	Number one priority is hiring. Two of our engineers left.
+structure	auto	neutral	Step one is easy. Two people disagreed with that.	Step one is easy. Two people disagreed with that.
+structure	auto	neutral	First of all, congrats on the promotion. Second of all, you owe us drinks.	First of all, congrats on the promotion. Second of all, you owe us drinks.
+structure	auto	neutral	First I went to the store. Then I went home. Second time I went, it was closed.	First I went to the store. Then I went home. Second time I went, it was closed.
+structure	auto	neutral	First impressions of the new laptop: fast, quiet, but the keyboard is mushy. Second monitor support is flaky.	First impressions of the new laptop: fast, quiet, but the keyboard is mushy. Second monitor support is flaky.
+structure	auto	neutral	I have one bullet point to make. Bullet point it is.	I have one bullet point to make. Bullet point it is.
+structure	auto	neutral	Point one, we ship on Friday. Two people will test it.	Point one, we ship on Friday. Two people will test it.
+structure	auto	neutral	First buy milk. Second call mom.	First buy milk. Second call mom.
+structure	auto	neutral	Point one we ship on Friday. Point two we test on Monday.	1. We ship on Friday\n2. We test on Monday
+structure	auto	neutral	Firstly it is cheap. Secondly it is fast.	1. It is cheap\n2. It is fast
+structure	auto	neutral	First of all thanks for coming. Second, the budget is late.	1. Thanks for coming\n2. The budget is late
+structure	auto	neutral	Bullet point milk, a bullet point eggs, bullet point bread.	- Milk, a bullet point eggs\n- Bread
+structure	auto	neutral	First, book the room. Second, call Dr. Smith tomorrow.	1. Book the room\n2. Call Dr. Smith tomorrow
+structure	auto	neutral	First, book the room. Second, the demo at 3 p.m. today.	1. Book the room\n2. The demo at 3 p.m. today
+structure	auto	neutral	First, call the bank. Second, email Mr. Patel and Mrs. Rao. Thanks.	1. Call the bank\n2. Email Mr. Patel and Mrs. Rao\n\nThanks.
+structure	auto	neutral	First, call Dr. Smith. Second, book the room.	1. Call Dr. Smith\n2. Book the room
+structure	auto	neutral	First, tea. Second, e.g. coffee or juice. That is all.	1. Tea\n2. e.g. coffee or juice\n\nThat is all.
+structure	auto	neutral	First, it is cheap. It is good. Second, fast.	1. It is cheap. It is good.\n2. Fast
