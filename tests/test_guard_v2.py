@@ -3,6 +3,8 @@
 import os
 import time
 
+import pytest
+
 import vox_core as core
 
 GOLDEN = os.path.join(os.path.dirname(__file__), "..", "spec", "golden.txt")
@@ -101,10 +103,19 @@ def test_filler_only_speech_answered_with_empty_types_nothing(monkeypatch):
 
 
 def test_empty_for_real_words_falls_back_to_the_words(monkeypatch):
+    # a rejected EMPTY gets the rules layer's text (cq-4): capitals and the final mark for the style
     r = _run(monkeypatch, "send the report to priya today", "EMPTY")
-    assert not r.cleaned and r.fidelity_fallback and r.text == "Send the report to priya today"
-    r = _run(monkeypatch, "um like you know", "EMPTY")   # Light: like and you know are words
-    assert r.fidelity_fallback and r.text.lower().split() == ["um", "like", "you", "know"]
+    assert not r.cleaned and r.fidelity_fallback and r.text == "Send the report to priya today."
+    r = _run(monkeypatch, "um like you know", "EMPTY")   # Light: like and you know are words; the rules layer drops um
+    assert r.fidelity_fallback and r.text == "Like you know."
+
+
+def test_noise_only_speech_that_skips_the_cleanup_types_nothing(monkeypatch):
+    # under cleanup_min_words the AI is not asked; the rules layer drops the noises and leaves "", which the engine
+    # treats like silence ("no usable words"), the same outcome as an accepted EMPTY
+    monkeypatch.setattr(core, "cleanup", lambda *a: pytest.fail("a short phrase must not reach the AI"))
+    r = core.process_text(dict(core.DEFAULT_CONFIG, api_key="k"), "um uh", "notepad.exe", "Notepad")
+    assert not r.cleaned and not r.fidelity_fallback and r.text == "" and r.raw == "um uh"
 
 
 def test_the_dictionary_reaches_the_guard(monkeypatch):
