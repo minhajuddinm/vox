@@ -41,6 +41,15 @@ public final class InsertGuard {
                 : "Vox heard no usable words in that recording (a lone \"Thank you\" counts as silence). Speak a little longer, or check the microphone.";
     }
 
+    /**
+     * What to say when words came back but only noises or fillers (an accepted EMPTY, or the rules layer left nothing): not
+     * the silence text, whose advice about the microphone would be wrong. The PC app says the same (windows/engine.py).
+     */
+    public static String fillerResult(boolean note) {
+        return note ? "Vox heard only filler sounds (um, uh), so no note was saved"
+                : "Vox heard only filler sounds (um, uh) in that recording, so nothing was typed.";
+    }
+
     /** The start of every message about a failed send: first, so a toast cut to two lines still says what to do. */
     static final String KEPT = "Recording kept: tap Retry in the notification.";
 

@@ -389,6 +389,9 @@ def test_golden(kind, f, tmp_path, monkeypatch):
     elif kind == "pickterms":   # transcript, terms, wrong=>right pairs => the terms the cleanup prompt names
         repl = dict(p.split("=>", 1) for p in items(f[2], ";"))
         assert "|".join(core.select_terms(f[0], items(f[1]), repl)) == f[3]
+    elif kind == "promptterms":   # transcript, terms, wrong=>right pairs => the terms the cleanup prompt names (prompt_terms)
+        repl = dict(p.split("=>", 1) for p in items(f[2], ";"))
+        assert "|".join(core.prompt_terms(f[0], items(f[1]), repl)) == f[3]
     elif kind == "termkey":   # word => its sound key
         assert core.term_key(f[0]) == f[1]
     elif kind == "whisperv2":   # people, terms, recently learned terms, text before this piece => the speech prompt

@@ -521,6 +521,12 @@ public final class ParityTest {
                     eq(ln, kind, f[3], String.join("|", Terms.select(f[0], items(f[1], "|"), repl)));
                     break;
                 }
+                case "promptterms": {   // transcript, terms, wrong=>right pairs => the terms the cleanup prompt names (Terms.forPrompt)
+                    Map<String, String> repl = new LinkedHashMap<>();
+                    for (String p : items(f[2], ";")) repl.put(p.substring(0, p.indexOf("=>")), p.substring(p.indexOf("=>") + 2));
+                    eq(ln, kind, f[3], String.join("|", Terms.forPrompt(f[0], items(f[1], "|"), repl)));
+                    break;
+                }
                 case "termkey":   // word => its sound key
                     eq(ln, kind, f[1], Terms.key(f[0]));
                     break;

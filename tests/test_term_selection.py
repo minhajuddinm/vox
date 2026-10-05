@@ -118,3 +118,16 @@ def test_transcribe_sends_the_v2_prompt_with_people_and_recent_terms(monkeypatch
     core.transcribe(cfg, b"RIFF")
     assert seen["data"]["prompt"] == ("Talked with Minhajuddin and Peyman about Yuvraj, Groq, Tailscale, gpt-oss, Kubernetes "
                                       "and Vox.")
+
+
+def test_the_cleanup_prompt_names_a_small_dictionary_whole_and_a_big_one_selected(monkeypatch):
+    # cqf (final review I4): with 20 terms or fewer every term goes (the model maps "you raj" to Yuvraj, as before
+    # select_terms); above 20 only the terms the transcript needs
+    sent = []
+    monkeypatch.setattr(core, "chat_reply", lambda cfg, body, *a, **kw: sent.append(body["messages"][0]["content"]) or ("ok", "stop"))
+    small = ["Yuvraj", "Minhaj", "Supabase"]
+    core.cleanup(dict(core.DEFAULT_CONFIG, api_key="k", dictionary=small), "ask you raj about it", "neutral", "")
+    assert "Yuvraj, Minhaj, Supabase." in sent[-1]
+    big = small + ["Term%03dalpha" % k for k in range(20)]
+    core.cleanup(dict(core.DEFAULT_CONFIG, api_key="k", dictionary=big), "ask minhaj about it", "neutral", "")
+    assert core.TERMS_TEXT + "Minhaj." in sent[-1] and "Yuvraj" not in sent[-1]

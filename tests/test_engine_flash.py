@@ -410,6 +410,9 @@ def test_key_down_is_marked_at_the_time_of_the_key_event(eng, monkeypatch):
 
 
 def test_a_noise_only_phrase_whose_cleanup_failed_gets_one_notice(eng, monkeypatch):
-    # the rules layer left nothing (noises only): "no usable words" alone, not also "Cleanup did not work" (cqf M1)
+    # the rules layer left nothing (noises only): one notice, not also "Cleanup did not work" (cqf M1)
     dictate(eng, monkeypatch, result=core.Result("Um, uh, um, hmm.", "", False, "timed out", True))
-    assert len(eng.messages) == 1 and eng.messages[0].startswith("Vox heard no usable words")
+    assert len(eng.messages) == 1 and eng.messages[0].startswith("Vox heard only filler sounds")   # not the mic advice (M3)
+    eng.messages.clear()
+    dictate(eng, monkeypatch, result=core.Result("Thank you.", "", False, ""))
+    assert len(eng.messages) == 1 and eng.messages[0].startswith("Vox heard no usable words")   # silence keeps its text

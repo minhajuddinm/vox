@@ -1997,3 +1997,15 @@ sttkept	Thank you. Hello there.	Thank you.;0.8;-1.3;1|Hello there.;0.1;-0.2;1	He
 sttkept	one two three four five	one two;0;-0.2;1|three;0.8;-1.3;1|four five;0;-0.2;1	one two three four five
 sttkept	go go go go go then stop	go go go go go;0;-0.2;2.6|then stop;0;-0.1;1	then stop
 sttkept	either the either the	either the either the;0;-0.2;3.1	either the either the
+# cqf: promptterms: transcript, dictionary terms (|), wrong=>right pairs (;) => the terms the cleanup prompt names
+# (vox_core.prompt_terms, Terms.forPrompt): the whole dictionary while it has 20 terms or fewer, else select_terms.
+# pickterms: a 2-letter sound key also matches with the same first letter and a spelling at most 2 letters off.
+promptterms	ask you raj about the build	Yuvraj|Minhaj|Priya|Supabase|Raventrack|Vox		Yuvraj|Minhaj|Priya|Supabase|Raventrack|Vox
+promptterms	the min hodge build is on super base	Yuvraj|Minhaj|Priya|Supabase|Raventrack|Vox	u v raj=>Yuvraj	Yuvraj|Minhaj|Priya|Supabase|Raventrack|Vox
+promptterms	nothing to see here			
+promptterms	ask preeya about the rave and track build	Yuvraj|Minhaj|Priya|Supabase|Raventrack|Vox|Term000alpha|Term001alpha|Term002alpha|Term003alpha|Term004alpha|Term005alpha|Term006alpha|Term007alpha|Term008alpha|Term009alpha|Term010alpha|Term011alpha|Term012alpha|Term013alpha|Term014alpha|Term015alpha|Term016alpha|Term017alpha|Term018alpha|Term019alpha		Priya
+promptterms	a pure guess	Yuvraj|Minhaj|Priya|Supabase|Raventrack|Vox|Term000alpha|Term001alpha|Term002alpha|Term003alpha|Term004alpha|Term005alpha|Term006alpha|Term007alpha|Term008alpha|Term009alpha|Term010alpha|Term011alpha|Term012alpha|Term013alpha|Term014alpha|Term015alpha|Term016alpha|Term017alpha|Term018alpha|Term019alpha		
+promptterms	u v raj will check vox	Yuvraj|Minhaj|Priya|Supabase|Raventrack|Vox|Term000alpha|Term001alpha|Term002alpha|Term003alpha|Term004alpha|Term005alpha|Term006alpha|Term007alpha|Term008alpha|Term009alpha|Term010alpha|Term011alpha|Term012alpha|Term013alpha|Term014alpha|Term015alpha|Term016alpha|Term017alpha|Term018alpha|Term019alpha	u v raj=>Yuvraj	Yuvraj|Vox
+pickterms	ask preeya about it	Priya|Vox		Priya
+pickterms	a pure guess	Priya|Vox		
+pickterms	pr is ready	PR|Priya		PR

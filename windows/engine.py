@@ -1115,7 +1115,11 @@ class Engine:
             raw, text = res.raw, res.text
             outcome = ""   # what the pill shows once the result is in; set only when something was sent or saved
             keep_pending = False
-            if not text:   # silence phrases ("Thank you.") and empty answers are dropped: never without a word
+            if not text and raw.strip() and not core.is_silence_hallucination(raw):   # words came back, only fillers
+                self.notify(("Vox heard only filler sounds (um, uh), so no note was saved" if note else
+                             "Vox heard only filler sounds (um, uh) in that recording, so nothing was typed."))
+                outcome = "error"
+            elif not text:   # silence phrases ("Thank you.") and empty answers are dropped: never without a word
                 self.notify("Vox heard no usable words in that recording (a lone \"Thank you\" counts as silence). Speak a little longer, or check the microphone.")
                 outcome = "error"
             if res.fidelity_fallback and text:   # nothing left (noises only): the "no usable words" notice says it all

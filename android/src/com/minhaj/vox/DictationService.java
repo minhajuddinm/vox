@@ -862,8 +862,8 @@ public class DictationService extends Service {
                 if (tm != null) tm.mark("llm_start");
                 try {
                     String strength = p.cleanupStrength();   // the prompt and the guard use the same value
-                    // only the dictionary terms this transcript needs go into the prompt (Terms.select, as vox_core.cleanup)
-                    String c = gl.cleanup(raw, style, p.llmModel(), Terms.select(raw, p.dictionaryTerms(), p.replacements()), label,
+                    // a small dictionary goes whole, a big one only with the terms this transcript needs (Terms.forPrompt, as vox_core.cleanup)
+                    String c = gl.cleanup(raw, style, p.llmModel(), Terms.forPrompt(raw, p.dictionaryTerms(), p.replacements()), label,
                             p.userContext(), strength, p.myCleanupRules(), p.structure());
                     Fidelity.Verdict v = Fidelity.check(raw, c, strength, "", p.dictionaryTerms(), p.replacements());
                     if (v.ok) { out = v.empty ? "" : c; cleaned = true; }   // empty: only filler words were said (EMPTY)
@@ -881,7 +881,7 @@ public class DictationService extends Service {
             if (!isCurrent(job)) return;   // cancelled during the cleanup: no toast, and a Retry keeps its file
             if (out.isEmpty()) {   // EMPTY for filler-only speech, or the rules layer left no word: nothing to type, as for silence (Windows: `if not text`)
                 discard(entry.id);
-                postError(InsertGuard.emptyResult(note));
+                postError(InsertGuard.fillerResult(note));   // words came back, only fillers: not the silence advice
                 return;
             }
             // A cancel during the cleanup makes it throw (the request was aborted): that is not a failure to report.

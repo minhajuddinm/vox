@@ -86,6 +86,7 @@ DEFAULT_CONFIG = {
     "input_device": "",
     "cleanup": True,
     "cleanup_min_words": 4,
+    "cleanup_min_words_v": 2,   # a config.json without it held the old default 3: made 4 once on load (as on Android)
     "cleanup_strength": "light",
     "structure": "auto",
     "code_mode": "auto",
@@ -443,6 +444,8 @@ def _load_config(path):
     _config_unread = _tls.unread = False
     merged = dict(DEFAULT_CONFIG)
     merged.update(cfg)
+    if "cleanup_min_words_v" not in cfg and merged.get("cleanup_min_words") == 3:
+        merged["cleanup_min_words"] = 4   # the old default, from before 4: once (the marker is saved with the next save)
     _fix_types(merged)
     stored = {k: merged.get(k) or "" for k in KEY_FIELDS}
     unopened = {}
@@ -912,7 +915,7 @@ def select_terms(transcript, terms, repl=None, cap=PROMPT_TERMS_MAX):
     """The dictionary terms the cleanup prompt needs for this transcript, in the order they come up, at most `cap`: the
     right side of each "wrong => right" whose wrong side is in it, and each term that is in it or sounds like 1-3 of its
     words (up to 5 when they are spelled letters: "g p t oss"). One word matches with the same sound key (3 letters or
-    more), a key one letter off (4 or more, same first letter), a spelling max(1, len/5) letters off (terms of 5 letters
+    more; a 2-letter key also needs the same first letter and a spelling at most 2 letters off), a key one letter off (4 or more, same first letter), a spelling max(1, len/5) letters off (terms of 5 letters
     or more) or a nickname of 5 letters or more that starts the term ("minhaj"); a few words written as one term need a
     spelling max(1, len/6) off or, for 6 letters or more, the same key. Twin: Terms.select."""
     hits = {}
@@ -958,6 +961,7 @@ def select_terms(transcript, terms, repl=None, cap=PROMPT_TERMS_MAX):
                 hit = True
             elif nw == 1:
                 hit = ((len(tk) >= 3 and (wk == tk or (len(tk) >= 4 and joined[0] == tl[0] and _within(wk, tk, 1))))
+                       or (len(tk) == 2 and wk == tk and joined[0] == tl[0] and _within(joined, tl, 2))   # preeya: Priya
                        or (len(tl) >= 5 and _within(joined, tl, max(1, len(tl) // 5)))
                        or (nick and joined not in COMMON_WORDS))
             else:
@@ -966,6 +970,14 @@ def select_terms(transcript, terms, repl=None, cap=PROMPT_TERMS_MAX):
                 hits[term] = at
                 break
     return [t for t, _ in sorted(hits.items(), key=lambda kv: kv[1])][:cap]
+
+
+def prompt_terms(transcript, terms, repl=None):
+    """The dictionary terms the cleanup prompt names: every term while the dictionary has PROMPT_TERMS_MAX or fewer (a
+    small dictionary loses nothing, and the model can still map "you raj" to Yuvraj), else select_terms. The order is the
+    dictionary's or the transcript's, so the static part of the prompt stays cached either way. Twin: Terms.forPrompt."""
+    terms = list(terms or ())
+    return terms if len(terms) <= PROMPT_TERMS_MAX else select_terms(transcript, terms, repl)
 
 
 # Whisper prompt v2: Whisper reads the prompt as the text before the audio, so a natural sentence works better than a bare
@@ -2915,7 +2927,7 @@ def cleanup_read_ms(words):
 def cleanup(cfg, raw, style, app_label):
     """The cleaned text. Raises ApiError (or a requests error) when it failed, an answer cut off at max_tokens included.
     A wait that ran out is not repeated: the caller then uses the spoken words. The prompt carries only the dictionary
-    terms this transcript needs (select_terms); the answer EMPTY (only noises or fillers were said) comes back as ""."""
+    terms this transcript needs (prompt_terms); the answer EMPTY (only noises or fillers were said) comes back as ""."""
     base, _, model = providers.role_settings(cfg, "llm")
     thinks = may_think(model) or bool(providers.reasoning_params(cfg, base, model))
     body = {
@@ -2924,7 +2936,7 @@ def cleanup(cfg, raw, style, app_label):
         "max_tokens": cleanup_max_tokens(raw, thinks),
         "messages": [
             {"role": "system",
-             "content": system_prompt(style, select_terms(raw, dictionary_terms(cfg), replacements(cfg)), app_label,
+             "content": system_prompt(style, prompt_terms(raw, dictionary_terms(cfg), replacements(cfg)), app_label,
                                   cfg.get("user_context", ""), cfg.get("cleanup_strength"), cfg.get("my_cleanup_rules", ""),
                                   cfg.get("structure"))},
             {"role": "user", "content": f"<transcript>\n{raw}\n</transcript>"},

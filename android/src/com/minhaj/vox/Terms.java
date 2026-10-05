@@ -268,6 +268,16 @@ final class Terms {
         return cachedIndex;
     }
 
+    /**
+     * The dictionary terms the cleanup prompt names: every term while the dictionary has ApiClient.PROMPT_TERMS_MAX or fewer
+     * (a small dictionary loses nothing, and the model can still map "you raj" to Yuvraj), else {@link #select}. Twin of
+     * prompt_terms in windows/vox_core.py.
+     */
+    static List<String> forPrompt(String transcript, List<String> terms, Map<String, String> repl) {
+        if (terms == null) return new ArrayList<>();
+        return terms.size() <= ApiClient.PROMPT_TERMS_MAX ? new ArrayList<>(terms) : select(transcript, terms, repl);
+    }
+
     /** Where word first occurs in text as a whole word, ignoring case; -1 when it does not. */
     private static int findWord(String text, String word) {
         Matcher m = Pattern.compile(Pattern.quote(word), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE).matcher(text);
@@ -362,6 +372,7 @@ final class Terms {
                     hit = true;
                 } else if (w.n == 1) {
                     hit = (tk.length() >= 3 && (w.key.equals(tk) || (tk.length() >= 4 && w.joined.charAt(0) == tl.charAt(0) && within(w.key, tk, 1))))
+                            || (tk.length() == 2 && w.key.equals(tk) && w.joined.charAt(0) == tl.charAt(0) && within(w.joined, tl, 2))   // preeya: Priya
                             || (tl.length() >= 5 && within(w.joined, tl, Math.max(1, tl.length() / 5)))
                             || (nick && !COMMON_WORDS.contains(w.joined));
                 } else {
