@@ -8,8 +8,9 @@ Lists are made only from cues the speaker says, never from commas: ordinals in s
 "firstly", "first of all"), introduced numbers ("point one", "item one", "step one", "number one" then "two" or "point two"),
 Hindi and Hinglish ordinals (pehla, doosra, teesra; पहला, दूसरा, तीसरा) and bullet cues ("bullet", "bullet point", "new bullet",
 "next bullet", "next point", "next item"). The cue words are removed and every other word is kept, in order. Prose that
-only looks like a cue stays prose: "number one priority", "two people", "first impressions" (no punctuation after the cue
-and no item word such as "we" or "the"), "second of all", "one bullet point to make".
+only looks like a cue stays prose: "number one priority", "two people", "first impressions" (a weak cue: no punctuation
+after it and no item word such as "we" or "the", in a list with no colon before it, under three cues and not ordinals
+after commas), "number two is" (a verb after the cue), "second of all", "one bullet point to make".
 """
 import difflib
 import re
@@ -42,6 +43,9 @@ _BE = ("are", "is", "were")              # "the steps are step one ...": the fir
 # any other word it is prose ("first impressions", "number one priority", "two people", "second time").
 _ITEM_START = frozenset("i we you he she they it the a an my our your his her their its this that these those there here "
                         "let's lets let i'll we'll you'll i'm we're you're it's i've we've".split())
+# A numbered, ordinal or bare cue right before one of these is the subject of a sentence ("number two is the budget",
+# "second was better"), not a cue.
+_VERBS = frozenset("is are was were has have had will would can could should must may might".split())
 # A bullet cue right after one of these is the noun ("one bullet point to make", "a new bullet").
 _DETERMINERS = frozenset("a an the one this that another each every any some no my our your his her their its".split())
 _ABBREVIATIONS = frozenset("dr mr mrs ms st vs etc jr sr prof".split())   # "Dr. Smith": its dot ends no sentence
@@ -111,55 +115,76 @@ def _item_follows(text, words, after):
     return any(c not in " \t" for c in gap) or words[after][0].replace("’", "'") in _ITEM_START
 
 
+def _verb_follows(text, words, after):
+    return after < len(words) and words[after][0] in _VERBS and _only_space(text[words[after - 1][2]:words[after][1]])
+
+
 def _match(text, words, i):
-    """The cue starting at word i as (family, number, index after its last word, where it may stand), or None.
+    """The cue starting at word i as (family, number, index after its last word, where it may stand, weak), or None.
     Families: bul (a bullet), num (point/item/step/number N), bare (a bare number continuing a num list), ord, hi.
     Where: ANYWHERE, CLAUSE (at a clause start) or SENTENCE (at a sentence start: a bare "two" after a comma is prose).
-    An ordinal, numbered or bare cue must be followed by an item (_item_follows), "second of all" is prose (only "first
-    of all" is a cue) and a bullet cue after a determiner is the noun."""
+    Weak: an ordinal, a "number N" or a bare number not followed by an item (_item_follows: "first impressions", "number
+    one priority", "two people"); a list with a weak cue needs more (_sure). A numbered, ordinal or bare cue before a verb
+    (_VERBS: "number two is the budget") is no cue, "second of all" is prose (only "first of all" is a cue) and a bullet
+    cue after a determiner is the noun."""
     w = words[i][0]
     nxt = words[i + 1][0] if i + 1 < len(words) and _only_space(text[words[i][2]:words[i + 1][1]]) else None
     if (w, nxt) in _BULLETS_ANYWHERE:
         noun = i > 0 and words[i - 1][0] in _DETERMINERS and _only_space(text[words[i - 1][2]:words[i][1]])
-        return None if noun else ("bul", 0, i + 2, ANYWHERE)
+        return None if noun else ("bul", 0, i + 2, ANYWHERE, False)
     if (w, nxt) in _BULLETS_AT_CLAUSE:
-        return "bul", 0, i + 2, CLAUSE
+        return "bul", 0, i + 2, CLAUSE, False
     if w == "bullet":
-        return "bul", 0, i + 1, CLAUSE
+        return "bul", 0, i + 1, CLAUSE, False
     if w in _INTROS and nxt in _NUMBERS:
-        return ("num", _NUMBERS[nxt], i + 2, CLAUSE) if _item_follows(text, words, i + 2) else None
-    if w in _ORD and nxt == "of" and i + 2 < len(words) and words[i + 2][0] == "all" \
-            and _only_space(text[words[i + 1][2]:words[i + 2][1]]):
-        return ("ord", 1, i + 3, CLAUSE) if w == "first" else None
+        if _verb_follows(text, words, i + 2):
+            return None
+        return "num", _NUMBERS[nxt], i + 2, CLAUSE, w == "number" and not _item_follows(text, words, i + 2)
+    if w in _ORD and nxt == "of" and i + 2 < len(words) and words[i + 2][0] == "all"             and _only_space(text[words[i + 1][2]:words[i + 2][1]]):
+        return ("ord", 1, i + 3, CLAUSE, False) if w == "first" else None
     if w in _ORD:
-        return ("ord", _ORD[w], i + 1, CLAUSE) if w.endswith("ly") or _item_follows(text, words, i + 1) else None
+        if not w.endswith("ly") and _verb_follows(text, words, i + 1):
+            return None
+        return "ord", _ORD[w], i + 1, CLAUSE, not (w.endswith("ly") or _item_follows(text, words, i + 1))
     if w in _HINDI:
-        return "hi", _HINDI[w], i + 2 if nxt == "point" else i + 1, CLAUSE
+        return "hi", _HINDI[w], i + 2 if nxt == "point" else i + 1, CLAUSE, False
     if w in _NUMBERS and _NUMBERS[w] >= 2:
-        return ("bare", _NUMBERS[w], i + 1, SENTENCE) if _item_follows(text, words, i + 1) else None
+        if _verb_follows(text, words, i + 1):
+            return None
+        return "bare", _NUMBERS[w], i + 1, SENTENCE, not _item_follows(text, words, i + 1)
     return None
 
 
 def _cues(text, words):
-    """Every cue in a position where it counts, in order: (family, number, start, end) with character offsets."""
+    """Every cue in a position where it counts, in order: (family, number, start, end, weak) with character offsets."""
     out, i = [], 0
     while i < len(words):
         m = _match(text, words, i)
         if m:
-            fam, n, after, where = m
+            fam, n, after, where, weak = m
             ok = where == ANYWHERE or _starts(text, words[i][1], _SENTENCE_PUNCT if where == SENTENCE else _CLAUSE_PUNCT) \
                 or (n == 1 and fam in ("ord", "num") and _after_be(text, words, i))
             if ok:
-                out.append((fam, n, words[i][1], words[after - 1][2]))
+                out.append((fam, n, words[i][1], words[after - 1][2], weak))
                 i = after
                 continue
         i += 1
     return out
 
 
-def _sequence(cues, flat):
-    """The first run of cues that makes a list of two or more items, or None."""
-    for k, (fam, n, _, _) in enumerate(cues):
+def _sure(text, chosen):
+    """True when a list with a weak cue (see _match) is still meant as one: the lead-in ends with a colon ("three things:
+    first eggs, second milk"), there are three cues or more, or the cues are ordinals and each one after the first follows
+    a comma or semicolon ("first check the logs, second restart the server"). After a full stop it stays prose ("First
+    impressions ... Second monitor support is flaky", "First buy milk. Second call mom")."""
+    if not any(c[4] for c in chosen) or len(chosen) >= 3 or text[:chosen[0][2]].rstrip(_SPACE).endswith(":"):
+        return True
+    return chosen[0][0] == "ord" and all(text[:c[2]].rstrip(_SPACE)[-1:] in (",", ";") for c in chosen[1:])
+
+
+def _sequence(text, cues, flat):
+    """The first run of cues that makes a list of two or more items (_sure when a cue is weak), or None."""
+    for k, (fam, n, _, _, _) in enumerate(cues):
         if fam == "bare" or (fam != "bul" and n != 1) or (flat and fam in ("ord", "hi")):
             continue
         chosen, expected = [cues[k]], 2
@@ -170,7 +195,7 @@ def _sequence(cues, flat):
             elif (c[0] == fam or (fam == "num" and c[0] == "bare")) and c[1] == expected:
                 chosen.append(c)
                 expected += 1
-        if len(chosen) >= 2:
+        if len(chosen) >= 2 and _sure(text, chosen):
             return chosen
     return None
 
@@ -219,7 +244,7 @@ def format_structure(text, mode="auto", style="neutral"):
     style = (style or "").strip().lower()
     if not text or structure_mode(mode) == "off" or style == "raw" or _ALREADY_LIST.search(text):
         return text
-    seq = _sequence(_cues(text, _words(text)), style in FLAT_STYLES)
+    seq = _sequence(text, _cues(text, _words(text)), style in FLAT_STYLES)
     if not seq:
         return text
     bodies = [text[seq[k][3]:seq[k + 1][2]] for k in range(len(seq) - 1)] + [text[seq[-1][3]:]]

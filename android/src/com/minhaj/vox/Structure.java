@@ -36,6 +36,9 @@ final class Structure {
     private static final Set<String> ITEM_START = new HashSet<>(Arrays.asList((
             "i we you he she they it the a an my our your his her their its this that these those there here "
             + "let's lets let i'll we'll you'll i'm we're you're it's i've we've").split(" ")));
+    /** A numbered, ordinal or bare cue right before one of these is the subject of a sentence ("number two is the budget"). */
+    private static final Set<String> VERBS = new HashSet<>(Arrays.asList(
+            "is are was were has have had will would can could should must may might".split(" ")));
     /** A bullet cue right after one of these is the noun ("one bullet point to make", "a new bullet"). */
     private static final Set<String> DETERMINERS = new HashSet<>(Arrays.asList(
             "a an the one this that another each every any some no my our your his her their its".split(" ")));
@@ -104,11 +107,14 @@ final class Structure {
         Word(String w, int start, int end) { this.w = w; this.start = start; this.end = end; }
     }
 
-    /** A cue: its family (bul, num, bare, ord, hi), number, and where it starts and ends in the text. */
+    /** A cue: its family (bul, num, bare, ord, hi), number, where it starts and ends in the text, and whether it is weak. */
     private static final class Cue {
         final String fam;
         final int n, start, end;
-        Cue(String fam, int n, int start, int end) { this.fam = fam; this.n = n; this.start = start; this.end = end; }
+        final boolean weak;
+        Cue(String fam, int n, int start, int end, boolean weak) {
+            this.fam = fam; this.n = n; this.start = start; this.end = end; this.weak = weak;
+        }
     }
 
     private static List<Word> words(String text) {
@@ -167,9 +173,14 @@ final class Structure {
         return ITEM_START.contains(ws.get(after).w.replace('’', '\''));
     }
 
+    private static boolean verbFollows(String text, List<Word> ws, int after) {
+        return after < ws.size() && VERBS.contains(ws.get(after).w) && onlySpace(text.substring(ws.get(after - 1).end, ws.get(after).start));
+    }
+
     /**
-     * {family index, number, index after the last word, where}; family index: 0 bul, 1 num, 2 bare, 3 ord, 4 hi. null = no
-     * cue. An ordinal, numbered or bare cue must be followed by an item (itemFollows), "second of all" is prose (only "first
+     * {family index, number, index after the last word, where, weak}; family index: 0 bul, 1 num, 2 bare, 3 ord, 4 hi; weak
+     * 1: an ordinal, a "number N" or a bare number not followed by an item (itemFollows), so the list needs more (sure).
+     * null = no cue. A numbered, ordinal or bare cue before a verb (VERBS) is no cue, "second of all" is prose (only "first
      * of all" is a cue) and a bullet cue after a determiner is the noun.
      */
     private static int[] match(String text, List<Word> ws, int i) {
@@ -177,21 +188,26 @@ final class Structure {
         String nxt = i + 1 < ws.size() && onlySpace(text.substring(ws.get(i).end, ws.get(i + 1).start)) ? ws.get(i + 1).w : null;
         if (nxt != null && pair(BULLETS_ANYWHERE, w, nxt)) {
             boolean noun = i > 0 && DETERMINERS.contains(ws.get(i - 1).w) && onlySpace(text.substring(ws.get(i - 1).end, ws.get(i).start));
-            return noun ? null : new int[]{0, 0, i + 2, ANYWHERE};
+            return noun ? null : new int[]{0, 0, i + 2, ANYWHERE, 0};
         }
-        if (nxt != null && pair(BULLETS_AT_CLAUSE, w, nxt)) return new int[]{0, 0, i + 2, CLAUSE};
-        if (w.equals("bullet")) return new int[]{0, 0, i + 1, CLAUSE};
+        if (nxt != null && pair(BULLETS_AT_CLAUSE, w, nxt)) return new int[]{0, 0, i + 2, CLAUSE, 0};
+        if (w.equals("bullet")) return new int[]{0, 0, i + 1, CLAUSE, 0};
         if (INTROS.contains(w) && nxt != null && NUMBERS.containsKey(nxt)) {
-            return itemFollows(text, ws, i + 2) ? new int[]{1, NUMBERS.get(nxt), i + 2, CLAUSE} : null;
+            if (verbFollows(text, ws, i + 2)) return null;
+            return new int[]{1, NUMBERS.get(nxt), i + 2, CLAUSE, w.equals("number") && !itemFollows(text, ws, i + 2) ? 1 : 0};
         }
         if (ORD.containsKey(w) && "of".equals(nxt) && i + 2 < ws.size() && ws.get(i + 2).w.equals("all")
                 && onlySpace(text.substring(ws.get(i + 1).end, ws.get(i + 2).start))) {
-            return w.equals("first") ? new int[]{3, 1, i + 3, CLAUSE} : null;
+            return w.equals("first") ? new int[]{3, 1, i + 3, CLAUSE, 0} : null;
         }
-        if (ORD.containsKey(w)) return w.endsWith("ly") || itemFollows(text, ws, i + 1) ? new int[]{3, ORD.get(w), i + 1, CLAUSE} : null;
-        if (HINDI.containsKey(w)) return new int[]{4, HINDI.get(w), "point".equals(nxt) ? i + 2 : i + 1, CLAUSE};
+        if (ORD.containsKey(w)) {
+            if (!w.endsWith("ly") && verbFollows(text, ws, i + 1)) return null;
+            return new int[]{3, ORD.get(w), i + 1, CLAUSE, w.endsWith("ly") || itemFollows(text, ws, i + 1) ? 0 : 1};
+        }
+        if (HINDI.containsKey(w)) return new int[]{4, HINDI.get(w), "point".equals(nxt) ? i + 2 : i + 1, CLAUSE, 0};
         if (NUMBERS.containsKey(w) && NUMBERS.get(w) >= 2) {
-            return itemFollows(text, ws, i + 1) ? new int[]{2, NUMBERS.get(w), i + 1, SENTENCE} : null;
+            if (verbFollows(text, ws, i + 1)) return null;
+            return new int[]{2, NUMBERS.get(w), i + 1, SENTENCE, itemFollows(text, ws, i + 1) ? 0 : 1};
         }
         return null;
     }
@@ -225,7 +241,7 @@ final class Structure {
                 boolean ok = m[3] == ANYWHERE || starts(text, ws.get(i).start, m[3] == SENTENCE ? SENTENCE_PUNCT : CLAUSE_PUNCT)
                         || (m[1] == 1 && (fam.equals("ord") || fam.equals("num")) && afterBe(text, ws, i));
                 if (ok) {
-                    out.add(new Cue(fam, m[1], ws.get(i).start, ws.get(m[2] - 1).end));
+                    out.add(new Cue(fam, m[1], ws.get(i).start, ws.get(m[2] - 1).end, m[4] == 1));
                     i = m[2];
                     continue;
                 }
@@ -235,7 +251,24 @@ final class Structure {
         return out;
     }
 
-    private static List<Cue> sequence(List<Cue> cues, boolean flat) {
+    /**
+     * True when a list with a weak cue is still meant as one: the lead-in ends with a colon, there are three cues or more,
+     * or the cues are ordinals and each one after the first follows a comma or semicolon ("first check the logs, second
+     * restart the server"). After a full stop it stays prose ("First buy milk. Second call mom"). Twin of _sure.
+     */
+    private static boolean sure(String text, List<Cue> chosen) {
+        boolean weak = false;
+        for (Cue c : chosen) weak |= c.weak;
+        if (!weak || chosen.size() >= 3 || rstrip(text.substring(0, chosen.get(0).start), SPACE).endsWith(":")) return true;
+        if (!chosen.get(0).fam.equals("ord")) return false;
+        for (Cue c : chosen.subList(1, chosen.size())) {
+            String before = rstrip(text.substring(0, c.start), SPACE);
+            if (!before.endsWith(",") && !before.endsWith(";")) return false;
+        }
+        return true;
+    }
+
+    private static List<Cue> sequence(String text, List<Cue> cues, boolean flat) {
         for (int k = 0; k < cues.size(); k++) {
             Cue c = cues.get(k);
             if (c.fam.equals("bare") || (!c.fam.equals("bul") && c.n != 1) || (flat && (c.fam.equals("ord") || c.fam.equals("hi")))) continue;
@@ -250,7 +283,7 @@ final class Structure {
                     expected++;
                 }
             }
-            if (chosen.size() >= 2) return chosen;
+            if (chosen.size() >= 2 && sure(text, chosen)) return chosen;
         }
         return null;
     }
@@ -309,7 +342,7 @@ final class Structure {
         if (text == null || text.isEmpty() || mode(mode).equals(OFF) || st.equals("raw") || ALREADY_LIST.matcher(text).find()) {
             return text;
         }
-        List<Cue> seq = sequence(cues(text, words(text)), st.equals("casual") || st.equals("very_casual"));
+        List<Cue> seq = sequence(text, cues(text, words(text)), st.equals("casual") || st.equals("very_casual"));
         if (seq == null) return text;
         List<String> bodies = new ArrayList<>();
         for (int k = 0; k + 1 < seq.size(); k++) bodies.add(text.substring(seq.get(k).end, seq.get(k + 1).start));

@@ -250,18 +250,31 @@ final class AutoLearn {
         return out;
     }
 
+    private static boolean common(String w) { return Terms.isCommonWord(w) || SHORT_WORDS.contains(w); }
+
+    private static boolean noCapital(String s) {
+        for (int i = 0; i < s.length(); ) {
+            int c = s.codePointAt(i);
+            if (Character.isUpperCase(c)) return false;
+            i += Character.charCount(c);
+        }
+        return true;
+    }
+
     /**
      * True when wrong -> right only fixes the grammar of its sentence: as many words on both sides, and each word the same,
      * the same word with another ending ("client" -> "clients", "update" -> "updated") or, in a swap of two or more words,
-     * an ordinary word changed ("meeting is" -> "meetings are"; one ordinary word alone is looksLikeFix's own rule). Twin
-     * of grammar_edit in windows/autolearn.py.
+     * an ordinary word changed into another ordinary word written in lowercase ("meeting is" -> "meetings are"; one
+     * ordinary word alone is looksLikeFix's own rule). An ordinary word fixed into a name is no grammar ("cloud code" ->
+     * "Claude Code"). Twin of grammar_edit in windows/autolearn.py.
      */
+
     static boolean grammarEdit(String wrong, String right) {
         List<String> a = tokens(wrong), b = tokens(right);
         if (a.size() != b.size()) return false;
         for (int i = 0; i < a.size(); i++) {
             String x = wordChars(a.get(i)), y = wordChars(b.get(i));
-            if (x.equals(y) || (a.size() > 1 && (Terms.isCommonWord(x) || SHORT_WORDS.contains(x)))) continue;
+            if (x.equals(y) || (a.size() > 1 && common(x) && common(y) && noCapital(b.get(i)))) continue;   // not a word made a name
             Set<String> common = stems(x);
             common.retainAll(stems(y));
             if (common.isEmpty()) return false;

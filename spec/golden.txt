@@ -1178,3 +1178,27 @@ privatehost	0x	false
 privatehost	cafe	true
 privatehost	gpu-pc	true
 privatehost	pi2	true
+# bf-fx: final review fix wave (2026-10-05)
+# TXT-5 follow-up: a weak cue (an ordinal, "number N" or a bare number not followed by an item word) still makes a list
+# when the lead-in ends with a colon, there are three cues, or each next cue follows a comma or semicolon; after a full
+# stop it stays prose (the comma rule is for ordinals only). Step, item and point need no item word. Imperative and noun
+# items are lists again. A cue right before a verb (is, was, will...) is the subject of a sentence, not a cue.
+structure	auto	neutral	First check the logs, second restart the server.	1. Check the logs\n2. Restart the server
+structure	auto	neutral	Step one open the app. Step two tap settings.	1. Open the app\n2. Tap settings
+structure	auto	neutral	Here are the steps. Step 1 install Python. Step 2 run the script.	Here are the steps.\n1. Install Python\n2. Run the script
+structure	auto	neutral	Item one apples, item two pears.	1. Apples\n2. Pears
+structure	auto	neutral	The list: number 1 eggs, number 2 milk.	The list:\n1. Eggs\n2. Milk
+structure	auto	neutral	We need three things: first eggs, second milk, third bread.	We need three things:\n1. Eggs\n2. Milk\n3. Bread
+structure	auto	neutral	First thing I did was coffee. Second thing was email.	First thing I did was coffee. Second thing was email.
+structure	auto	neutral	Number one priority is hiring, number two is the budget.	Number one priority is hiring, number two is the budget.
+structure	auto	neutral	First priority is hiring, second is the budget.	First priority is hiring, second is the budget.
+structure	auto	neutral	Step one is easy. Step two is hard.	Step one is easy. Step two is hard.
+# TXT-1 follow-up: in a swap of two or more words, an ordinary word fixed into a name (a capital) is still learned;
+# ordinary words changed into ordinary lowercase words (grammar) are not. A lowercase stem made longer is not learned,
+# the same word with a capital is (a name).
+autocorrect	I use cloud code daily	I use Claude Code daily	cloud code=>Claude Code
+autocorrect	ask will gate about it	ask Bill Gates about it	will gate=>Bill Gates
+autocorrect	the meeting is at noon	the meetings are at noon	
+autocorrect	the meeting is.	the meetings are.	
+autocorrect	we use dock daily	we use docker daily	
+autocorrect	we use dock daily	we use Docker daily	dock=>Docker

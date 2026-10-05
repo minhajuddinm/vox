@@ -166,11 +166,17 @@ def _stems(w):
 def grammar_edit(wrong, right):
     """True when wrong -> right only fixes the grammar of its sentence: as many words on both sides, and each word the
     same, the same word with another ending (ENDINGS: "client" -> "clients", "update" -> "updated") or, in a swap of two or
-    more words, an ordinary word changed (SHORT_WORDS, COMMON_WORDS, the Hindi function words: "meeting is" -> "meetings
-    are"; one ordinary word alone is looks_like_fix's own rule)."""
-    a, b = [_word_chars(t) for t in tokens(wrong)], [_word_chars(t) for t in tokens(right)]
+    more words, an ordinary word changed into another ordinary word written in lowercase (SHORT_WORDS, COMMON_WORDS, the
+    Hindi function words: "meeting is" -> "meetings are"; one ordinary word alone is looks_like_fix's own rule). An
+    ordinary word fixed into a name is no grammar: "cloud code" -> "Claude Code", "will gate" -> "Bill Gates"."""
+    ta, tb = tokens(wrong), tokens(right)
+    a, b = [_word_chars(t) for t in ta], [_word_chars(t) for t in tb]
+
+    def common(w):
+        return w in core.COMMON_WORDS or w in SHORT_WORDS
     return len(a) == len(b) and all(x == y or _stems(x) & _stems(y)
-                                    or (len(a) > 1 and (x in core.COMMON_WORDS or x in SHORT_WORDS)) for x, y in zip(a, b))
+                                    or (len(a) > 1 and common(x) and common(y) and not any(c.isupper() for c in r))
+                                    for x, y, r in zip(a, b, tb))
 
 
 def looks_like_fix(wrong, right, final=True):
