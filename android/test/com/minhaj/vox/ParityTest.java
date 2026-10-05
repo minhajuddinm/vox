@@ -458,6 +458,9 @@ public final class ParityTest {
                 case "autocorrect":   // text Vox typed, the field's whole text now, the corrections found
                     eq(ln, kind, f[2], pairsText(AutoLearn.detect(f[0], f[1])));
                     break;
+                case "suggest":   // text typed, the user's edit, the swaps Fix a word suggests (at most 3 words a side)
+                    eq(ln, kind, f[2], pairsText(Corrections.suggest(f[0], f[1], 3)));
+                    break;
                 case "autolearn": {   // replacements, words, pairs found => the replacements and words added
                     AutoLearn.Learned l = AutoLearn.learn(pairs(f[0]), items(f[1], "|"), pairs(f[2]));
                     eq(ln, kind, f[3] + " / " + f[4], pairsText(l.replacements) + " / " + String.join("|", l.words));

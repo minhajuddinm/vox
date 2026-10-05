@@ -350,6 +350,8 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert note_bubble_visible(*[v == "true" for v in f[:3]]) == (f[3] == "true")
     elif kind == "autocorrect":   # text Vox typed, the field's whole text now, the corrections found
         assert pairs_text(autolearn.detect(f[0], f[1])) == f[2]
+    elif kind == "suggest":   # text typed, the user's edit, the swaps Fix a word suggests (at most 3 words a side)
+        assert pairs_text(core.suggest_corrections(f[0], f[1], 3)) == f[2]
     elif kind == "autolearn":   # replacements, words, pairs found => the replacements and words added
         out = autolearn.learn(pairs(f[0]), items(f[1]), pairs(f[2]))
         assert (pairs_text(out["replacements"]), "|".join(out["words"])) == (f[3], f[4])
