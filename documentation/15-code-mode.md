@@ -88,7 +88,7 @@ Code apps are also where people write commit messages, chat in a terminal or typ
 - it is `dot` between two names (`user dot name`, `import os dot path`), or `equals`, `greater than` or `less than` between two names in a dictation that starts with if, elif, while, until, assert or return (`if count greater than limit`); or
 - it is a quote that closes one opened before.
 
-Outside code, and inside quotes in code (a commit message), never right after an article or possessive (the, an, this, that, my, your, one, another, each, every, some, any, no...): `add the dot env file` keeps `dot`. In code outside quotes these are words of the code (`git commit dash dash no dash verify`). Comma, colon, semicolon and new line are always typed as symbols but do not by themselves make a dictation code.
+Outside code, and inside quotes in code (a commit message), never right after an article or possessive (the, an, this, that, my, your, one, another, each, every, some, any, no...): `add the dot env file` keeps `dot`. One exception: `this` right before `dot` and a name is the code word (`this dot props` is `this.props`, `if this dot ready` is `if this.ready`; so `make this dot bigger` also becomes `make this.bigger`). In code outside quotes these are words of the code (`git commit dash dash no dash verify`). Comma, colon, semicolon and new line are always typed as symbols but do not by themselves make a dictation code.
 
 | Said in a code app | Typed |
 |---|---|
