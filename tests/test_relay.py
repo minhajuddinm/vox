@@ -399,6 +399,32 @@ def _small_server(tmp_path, monkeypatch, **limits):
     return srv
 
 
+def _status_line(srv, wait=5.0):
+    """Opens a connection, sends nothing and returns the first line the relay sends (the relay answers a refused one at
+    once, so no request of ours is left unread: closing then gives a clean end, not a reset that drops the answer)."""
+    import socket
+    s = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=wait)
+    try:
+        data = b""
+        while b"\r\n" not in data:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        return data.split(b"\r\n", 1)[0].decode("latin-1")
+    finally:
+        s.close()
+
+
+def _wait_for(cond, seconds=5.0):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if cond():
+            return True
+        time.sleep(0.05)
+    return cond()
+
+
 def test_connections_over_the_cap_are_answered_503_without_a_thread(tmp_path, monkeypatch):
     import socket
     srv = _small_server(tmp_path, monkeypatch, MAX_CONNECTIONS=3)
@@ -411,19 +437,64 @@ def test_connections_over_the_cap_are_answered_503_without_a_thread(tmp_path, mo
             s = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=5)
             s.sendall(b"G")      # a request that has begun and stalls
             held.append(s)
-        time.sleep(0.3)
-        assert " 503 " in _raw_request(srv, "GET /health HTTP/1.1\r\nHost: x\r\n\r\n")
+        assert _wait_for(lambda: len(handlers) == 3 and not srv._idle)   # all three past their first byte
+        assert " 503 " in _status_line(srv)
         assert len(handlers) == 3        # the refused connection got no handler (and so no thread)
         for s in held:
             s.close()
         held = []
-        deadline = time.time() + 5
-        while time.time() < deadline:
-            if Client(srv).call("GET", "/health")[0] == 200:
-                break
-            time.sleep(0.1)
-        else:
-            pytest.fail("the relay did not take connections again")
+
+        def served():
+            try:
+                return Client(srv).call("GET", "/health")[0] == 200
+            except OSError:   # a reset while the slots free up: try again
+                return False
+        assert _wait_for(served), "the relay did not take connections again"
+    finally:
+        for s in held:
+            s.close()
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_silent_connections_at_the_cap_do_not_lock_out_a_real_request(tmp_path, monkeypatch):
+    """A local program that opens connections and sends nothing (final review RC-I5): at the cap the one idle longest is
+    closed for the newcomer, so a real request is still served within a few seconds."""
+    import socket
+    srv = _small_server(tmp_path, monkeypatch, MAX_CONNECTIONS=3)
+    held = []
+    try:
+        for _ in range(3):
+            held.append(socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=5))
+        assert _wait_for(lambda: len(srv._idle) == 3)
+        start = time.time()
+        assert Client(srv).call("GET", "/health")[0] == 200
+        assert time.time() - start < 4
+    finally:
+        for s in held:
+            s.close()
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_from_half_the_cap_a_silent_connection_is_closed_after_a_short_wait(tmp_path, monkeypatch):
+    import socket
+    srv = _small_server(tmp_path, monkeypatch, MAX_CONNECTIONS=4, IDLE_WHEN_BUSY=0.5)
+    held = []
+    try:
+        for _ in range(2):
+            held.append(socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=5))
+        assert _wait_for(lambda: len(srv._idle) == 2)
+        # well before Handler.timeout (30 s), silent connections go until fewer than half the places are taken
+        assert _wait_for(lambda: srv._active * 2 < 4, seconds=4)
+        closed = 0
+        for s in held:
+            s.settimeout(0.5)
+            try:
+                closed += s.recv(10) == b""
+            except OSError:
+                pass
+        assert closed >= 1
     finally:
         for s in held:
             s.close()

@@ -57,6 +57,12 @@ MAX_PROXY_BODY = {"stt": 25_000_000, "llm": 1_000_000, "models": 0}   # bytes a 
 MAX_PROXY_REPLY = 8_000_000   # bytes of an upstream answer that are passed on; more is a 502
 MAX_CONNECTIONS = 64        # connections served at once (one thread each); the next one is answered 503 and closed
 HEADER_DEADLINE = 10        # seconds from the first byte of a request to the end of its headers, however slowly they come
+# A connection that has not sent its first byte (a new one, or a kept-alive one between requests) holds a slot for nothing:
+# from half the cap on it gets IDLE_WHEN_BUSY seconds instead of Handler.timeout, and at the cap the one idle longest is
+# closed to let a new connection in (so 64 silent sockets from a local program cannot lock out sync and dictation).
+IDLE_WHEN_BUSY = 2.0
+EVICT_WAIT = 2.0            # seconds the accept loop waits for the slot of a closed idle connection
+IDLE_POLL = 0.25            # seconds between two looks at whether a waiting connection should give up its slot
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 ID_IN_PATH = re.compile(r"[0-9a-f]{32}")
 NONCE_RE = re.compile(r"[A-Za-z0-9_-]{16,128}")
@@ -805,7 +811,7 @@ class Handler(BaseHTTPRequestHandler):
         HEADER_DEADLINE seconds in all: `timeout` alone is per read, so a client that sends a byte now and then could
         hold its thread for ever. An idle kept-alive connection is not on the clock until a request begins."""
         try:
-            if not self.rfile.peek(1):
+            if not self._first_byte():
                 self.close_connection = True
                 return
         except (OSError, ValueError):
@@ -816,6 +822,28 @@ class Handler(BaseHTTPRequestHandler):
             super().handle_one_request()
         finally:
             self.server.watch_headers(self.connection, False)
+
+    def _first_byte(self):
+        """True when a request has begun: its first byte is here, or arrives within `timeout`. While it waits the
+        connection gives up its slot when the server needs it (RelayServer.idle_should_go). It waits with select, not a
+        blocking read: on Windows nothing wakes a blocked read early."""
+        conn, start = self.connection, time.monotonic()
+        conn.settimeout(0)
+        try:
+            if self.rfile.peek(1):   # already here (or kept from a request sent right behind the last one)
+                return True
+        except BlockingIOError:
+            pass
+        finally:
+            conn.settimeout(self.timeout)
+        self.server.watch_idle(conn)
+        try:
+            while not select.select([conn], [], [], IDLE_POLL)[0]:
+                if self.server.idle_should_go(conn, start) or time.monotonic() - start >= self.timeout:
+                    return False
+        finally:
+            self.server.watch_idle(conn, False)
+        return bool(self.rfile.peek(1))   # data, or b"" when the client closed
 
     def parse_request(self):
         try:
@@ -1169,29 +1197,72 @@ class RelayServer(ThreadingHTTPServer):
         self._mlock = threading.Lock()
         self._connections = threading.BoundedSemaphore(MAX_CONNECTIONS)
         self._headers_due = {}          # connection -> time.monotonic() by which its request headers must be in
+        self._idle = {}                 # connection -> time.monotonic() since it waits for the first byte of a request
+        self._evicted = set()           # waiting connections told to close (_evict_idle)
+        self._active = 0                # connections being served (each has a thread)
         self._closing = threading.Event()
         threading.Thread(target=self._cut_slow_headers, daemon=True, name="relay-header-deadline").start()
 
     def process_request(self, request, client_address):
         """One thread per connection, but no more than MAX_CONNECTIONS at once: the next one is answered 503 and closed
         here, without a thread (a local program opening connections without end would otherwise exhaust them)."""
-        if not self._connections.acquire(blocking=False):
+        if not self._connections.acquire(blocking=False) and not (
+                self._evict_idle() and self._connections.acquire(timeout=EVICT_WAIT)):
             with contextlib.suppress(OSError):
                 request.settimeout(0)
                 request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                request.recv(65536)   # a request already sent, read: closing with unread data would reset the 503 away
             self.shutdown_request(request)
             return
+        with self._mlock:
+            self._active += 1
         try:
             super().process_request(request, client_address)
         except BaseException:
-            self._connections.release()
+            self._done()
             raise
 
     def process_request_thread(self, request, client_address):
         try:
             super().process_request_thread(request, client_address)
         finally:
-            self._connections.release()
+            self._done()
+
+    def _done(self):
+        with self._mlock:
+            self._active -= 1
+        self._connections.release()
+
+    def handle_error(self, request, client_address):
+        """A client that hung up, or a connection cut at the header deadline, is no traceback (a slow client on purpose
+        would otherwise fill the journal); anything else is one line."""
+        err = sys.exc_info()[1]
+        if not isinstance(err, (OSError, ValueError)):
+            print("relay: a request failed: %s" % err.__class__.__name__, file=sys.stderr)
+
+    def watch_idle(self, sock, on=True):
+        with self._mlock:
+            if on:
+                self._idle[sock] = time.monotonic()
+            else:
+                self._idle.pop(sock, None)
+                self._evicted.discard(sock)
+
+    def idle_should_go(self, sock, since):
+        """True when a connection that has waited since `since` for a request to begin should close: the accept loop
+        needs its slot (_evict_idle), or half the slots are taken and it waited IDLE_WHEN_BUSY seconds."""
+        with self._mlock:
+            return sock in self._evicted or (
+                self._active * 2 >= MAX_CONNECTIONS and time.monotonic() - since >= IDLE_WHEN_BUSY)
+
+    def _evict_idle(self):
+        """Tells the connection that waited longest for a request to begin to close (it sees it within IDLE_POLL and
+        frees its slot). False when none is waiting."""
+        with self._mlock:
+            waiting = [sk for sk in sorted(self._idle, key=self._idle.get) if sk not in self._evicted]
+            if waiting:
+                self._evicted.add(waiting[0])
+            return bool(waiting)
 
     def watch_headers(self, sock, on=True):
         with self._mlock:
