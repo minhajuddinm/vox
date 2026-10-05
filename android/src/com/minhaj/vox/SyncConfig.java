@@ -20,6 +20,10 @@ interface SyncConfig {
      */
     Map<String, Object> readProfile();
 
-    /** Saves settings received from the relay (only the fields that differ from what this phone has, in relay form). */
-    void writeProfile(Map<String, Object> received);
+    /**
+     * Saves settings received from the relay (only the fields that differ from what this phone has, in relay form).
+     * {@code seen} is what {@link #readProfile} gave this attempt: a field changed here since (a word learned meanwhile)
+     * must be merged with the received value, not overwritten (ProfileMerge.onto, AND-15).
+     */
+    void writeProfile(Map<String, Object> received, Map<String, Object> seen);
 }

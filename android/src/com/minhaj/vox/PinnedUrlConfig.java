@@ -20,5 +20,5 @@ final class PinnedUrlConfig implements SyncConfig {
     @Override public String relayUrl() { return url; }
     @Override public boolean syncKeys() { return inner.syncKeys(); }
     @Override public Map<String, Object> readProfile() { return inner.readProfile(); }
-    @Override public void writeProfile(Map<String, Object> received) { inner.writeProfile(received); }
+    @Override public void writeProfile(Map<String, Object> received, Map<String, Object> seen) { inner.writeProfile(received, seen); }
 }

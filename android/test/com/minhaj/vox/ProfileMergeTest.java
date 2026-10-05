@@ -115,6 +115,17 @@ public final class ProfileMergeTest {
         eq("local untouched", map("a", 2), local);
         eq("remote untouched", map("a", 1), remote);
 
+        // AND-15: what a sync run received is put onto the settings as they are now, not over a change made meanwhile
+        eq("onto: unchanged meanwhile, the received value", map("dictionary", list("a", "pc")),
+                ProfileMerge.onto(map("dictionary", list("a")), map("dictionary", list("a")), map("dictionary", list("a", "pc"))));
+        eq("onto: a word learned meanwhile stays next to the received one", map("dictionary", list("a", "pc", "learned")),
+                ProfileMerge.onto(map("dictionary", list("a")), map("dictionary", list("a", "learned")), map("dictionary", list("a", "pc"))));
+        eq("onto: a text changed meanwhile is a clash: the relay's value, as in every merge (Windows merges again the same)", map("user_context", "from the PC"),
+                ProfileMerge.onto(map("user_context", "old"), map("user_context", "typed now"), map("user_context", "from the PC")));
+        eq("onto: only the received fields", map("people", list("Ada")),
+                ProfileMerge.onto(map(), map("dictionary", list("x")), map("people", list("Ada"))));
+        eq("onto: nothing received", map(), ProfileMerge.onto(map(), map(), null));
+
         // the field lists are exactly those of windows/sync.py (PROFILE_FIELDS, PROFILE_KEY_FIELDS); the profilefields
         // golden rows pin the same thing against the Python side
         eq("shared fields", list("user_context", "dictionary", "people", "default_style", "cleanup", "language", "my_cleanup_rules", "snippets"),

@@ -199,6 +199,17 @@ public final class Prefs {
         return m;
     }
 
+    /**
+     * Saves settings received from the relay (relay form) under the learn lock, merged onto what this phone has now
+     * (ProfileMerge.onto with {@code seen}, what the sync run read): a word Learn from my corrections added while the run
+     * was in flight stays (AND-15).
+     */
+    public void applyReceived(Map<String, Object> received, Map<String, Object> seen) {
+        synchronized (LEARN_LOCK) {
+            applyProfile(ProfileMap.toStored(ProfileMerge.onto(seen, ProfileMap.toProfile(profileStored()), received)));
+        }
+    }
+
     /** Saves settings received from the relay: a value from ProfileMap.toStored is text or, for {@code cleanup}, a boolean. */
     public void applyProfile(Map<String, Object> stored) {
         SharedPreferences.Editor e = sp.edit();

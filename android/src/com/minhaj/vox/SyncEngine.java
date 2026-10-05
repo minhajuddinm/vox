@@ -241,7 +241,7 @@ final class SyncEngine {
                 if (!Objects.equals(local.get(e.getKey()), e.getValue())) received.put(e.getKey(), e.getValue());
             }
             if (!received.isEmpty()) {
-                cfg.writeProfile(received);
+                cfg.writeProfile(received, local);   // merged onto a word learned meanwhile, not over it (AND-15)
                 receivedAny = true;
             }
             // Keys are taken off the relay only on this device's own on-to-off switch (it sent keys, now they are off).
