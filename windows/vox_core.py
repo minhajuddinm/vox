@@ -266,7 +266,7 @@ def load_config():
 # ---------------------------------------------------------------- dictionary
 
 def dictionary_terms(cfg):
-    out = [p.strip() for p in cfg.get("people", []) if p.strip()]
+    out = [p.strip() for p in cfg.get("people", []) if p.strip() and not p.strip().startswith("#")]   # # = a comment
     for line in cfg.get("dictionary", []):
         line = line.strip()
         if not line or line.startswith("#"):

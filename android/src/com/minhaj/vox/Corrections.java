@@ -53,9 +53,16 @@ final class Corrections {
         out.add(new String[] {wrong, right});
     }
 
+    /** Python's str.split(): runs of non-space characters, the no-break and ideographic spaces counting as spaces. */
     private static String[] tokens(String s) {
-        String t = s == null ? "" : s.trim();
-        return t.isEmpty() ? new String[0] : t.split("\\s+");
+        List<String> out = new ArrayList<>();
+        int start = -1, n = s == null ? 0 : s.length();
+        for (int i = 0; i <= n; i++) {
+            boolean space = i == n || ApiClient.isPyWhitespace(s.charAt(i));
+            if (space && start >= 0) { out.add(s.substring(start, i)); start = -1; }
+            else if (!space && start < 0) start = i;
+        }
+        return out.toArray(new String[0]);
     }
 
     private static String[] strip(String[] raw) {

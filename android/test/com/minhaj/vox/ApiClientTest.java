@@ -127,6 +127,8 @@ public final class ApiClientTest {
         eq("needsCleanup odd spacing", true, ApiClient.needsCleanup("  one \t two\nthree  ", "casual", true, "3"));
         eq("needsCleanup odd spacing short", false, ApiClient.needsCleanup("  one \t two\n", "casual", true, "3"));
         eq("needsCleanup null text", false, ApiClient.needsCleanup(null, "casual", true, "1"));
+        eq("needsCleanup counts U+0085 as a space (Python split)", true, ApiClient.needsCleanup("one\u0085two\u0085three", "casual", true, "3"));
+        eq("replacements trim no-break spaces", "{grok=Groq}", Terms.replacements("\u00a0grok => Groq\u00a0\n").toString());
 
         // retry policy
         eq("retry 500", true, ApiClient.isRetryable(new ApiClient.ApiException(500, "x")));

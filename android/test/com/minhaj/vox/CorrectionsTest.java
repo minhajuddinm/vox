@@ -27,6 +27,7 @@ public final class CorrectionsTest {
 
     public static void main(String[] args) {
         eq("single word swap", "Minhaj => Minhajuddin", "send it to Minhaj today", "send it to Minhajuddin today");
+        eq("no-break spaces split words (Python split)", "grok => Groq", "we use\u00a0grok\u3000today", "we use\u00a0Groq\u3000today");
         eq("brand spelling mid sentence", "vox => Vox", "we shipped vox to friends", "we shipped Vox to friends");
         eq("capital at start is grammar", "", "send it today", "Send it today");
         eq("capital after full stop is grammar", "", "done. send it today", "done. Send it today");

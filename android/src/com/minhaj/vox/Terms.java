@@ -22,14 +22,14 @@ final class Terms {
     static List<String> terms(String peopleRaw, String dictionaryRaw) {
         List<String> out = new ArrayList<>();
         for (String line : peopleRaw.split("\n")) {
-            String l = line.trim();
+            String l = ApiClient.pyStrip(line);   // Python's strip(): also no-break spaces
             if (!l.isEmpty() && !l.startsWith("#")) add(out, l);
         }
         for (String line : dictionaryRaw.split("\n")) {
-            String l = line.trim();
+            String l = ApiClient.pyStrip(line);   // Python's strip(): also no-break spaces
             if (l.isEmpty() || l.startsWith("#")) continue;
             if (l.contains("=>")) {
-                String right = l.substring(l.indexOf("=>") + 2).trim();
+                String right = ApiClient.pyStrip(l.substring(l.indexOf("=>") + 2));
                 if (!right.isEmpty()) add(out, right);
             } else {
                 add(out, l);
@@ -42,10 +42,10 @@ final class Terms {
     static Map<String, String> replacements(String dictionaryRaw) {
         Map<String, String> out = new LinkedHashMap<>();
         for (String line : dictionaryRaw.split("\n")) {
-            String l = line.trim();
+            String l = ApiClient.pyStrip(line);   // Python's strip(): also no-break spaces
             if (l.startsWith("#") || !l.contains("=>")) continue;
-            String wrong = l.substring(0, l.indexOf("=>")).trim();
-            String right = l.substring(l.indexOf("=>") + 2).trim();
+            String wrong = ApiClient.pyStrip(l.substring(0, l.indexOf("=>")));
+            String right = ApiClient.pyStrip(l.substring(l.indexOf("=>") + 2));
             if (!wrong.isEmpty()) out.put(wrong, right);
         }
         return out;
@@ -137,7 +137,7 @@ final class Terms {
     static String fuzzy(String text, List<String> terms) {
         Map<String, String> byLower = new LinkedHashMap<>();
         for (String t : terms) {
-            t = t.trim();
+            t = ApiClient.pyStrip(t);
             if (t.length() >= FUZZY_MIN_LEN && isAlpha(t)) byLower.putIfAbsent(t.toLowerCase(Locale.ROOT), t);
         }
         if (byLower.isEmpty() || text.isEmpty()) return text;
