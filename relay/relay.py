@@ -54,6 +54,8 @@ PROXY_TIMEOUT = {"stt": 180, "llm": 240, "models": 15}
 CLIENT_POLL = 0.25          # seconds between looks at the client's connection while an upstream answer is awaited
 MAX_PROXY_BODY = {"stt": 25_000_000, "llm": 1_000_000, "models": 0}   # bytes a client may send, by kind of call
 MAX_PROXY_REPLY = 8_000_000   # bytes of an upstream answer that are passed on; more is a 502
+MAX_CONNECTIONS = 64        # connections served at once (one thread each); the next one is answered 503 and closed
+HEADER_DEADLINE = 10        # seconds from the first byte of a request to the end of its headers, however slowly they come
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 ID_IN_PATH = re.compile(r"[0-9a-f]{32}")
 SECRET_WORDS = ("key", "token", "secret", "password")
@@ -767,6 +769,29 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):   # no access log: paths carry search words and note ids
         pass
 
+    def handle_one_request(self):
+        """Waits (up to `timeout`) for the next request to begin, then gives its request line and headers
+        HEADER_DEADLINE seconds in all: `timeout` alone is per read, so a client that sends a byte now and then could
+        hold its thread for ever. An idle kept-alive connection is not on the clock until a request begins."""
+        try:
+            if not self.rfile.peek(1):
+                self.close_connection = True
+                return
+        except (OSError, ValueError):
+            self.close_connection = True
+            return
+        self.server.watch_headers(self.connection)
+        try:
+            super().handle_one_request()
+        finally:
+            self.server.watch_headers(self.connection, False)
+
+    def parse_request(self):
+        try:
+            return super().parse_request()
+        finally:
+            self.server.watch_headers(self.connection, False)     # the headers are in: the body has its own limits
+
     # ------------------------------------------------------------ plumbing
     def _send(self, status, body, ctype="application/json", headers=None):
         data = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
@@ -1093,6 +1118,54 @@ class RelayServer(ThreadingHTTPServer):
         self._events = collections.deque(maxlen=100)
         self._counts = {"requests": 0, "errors": 0, "auth_failures": 0, "last_auth_failure": None}
         self._mlock = threading.Lock()
+        self._connections = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        self._headers_due = {}          # connection -> time.monotonic() by which its request headers must be in
+        self._closing = threading.Event()
+        threading.Thread(target=self._cut_slow_headers, daemon=True, name="relay-header-deadline").start()
+
+    def process_request(self, request, client_address):
+        """One thread per connection, but no more than MAX_CONNECTIONS at once: the next one is answered 503 and closed
+        here, without a thread (a local program opening connections without end would otherwise exhaust them)."""
+        if not self._connections.acquire(blocking=False):
+            with contextlib.suppress(OSError):
+                request.settimeout(0)
+                request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._connections.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._connections.release()
+
+    def watch_headers(self, sock, on=True):
+        with self._mlock:
+            if on:
+                self._headers_due[sock] = time.monotonic() + HEADER_DEADLINE
+            else:
+                self._headers_due.pop(sock, None)
+
+    def _cut_slow_headers(self):
+        """Shuts down every connection whose request headers are late (see Handler.handle_one_request)."""
+        while not self._closing.wait(min(1.0, HEADER_DEADLINE / 4)):
+            now = time.monotonic()
+            with self._mlock:
+                late = [s for s, due in self._headers_due.items() if due < now]
+                for s in late:
+                    del self._headers_due[s]
+            for s in late:
+                with contextlib.suppress(OSError, ValueError):
+                    s.shutdown(socket.SHUT_RDWR)
+
+    def server_close(self):
+        self._closing.set()
+        super().server_close()
 
     def record(self, method, route, status, device):
         with self._mlock:

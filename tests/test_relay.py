@@ -387,3 +387,86 @@ def test_a_cursor_beyond_64_bits_is_a_400_not_a_500(cl, since):
 def test_the_largest_64_bit_cursor_is_fine(cl):
     st, out = cl.call("GET", "/changes?since=" + str(2 ** 63 - 1))
     assert st == 200 and out["notes"] == []
+
+
+# --------------------------------------------------------------- bf-e: SEC-7 (connection cap, header deadline)
+def _small_server(tmp_path, monkeypatch, **limits):
+    for name, value in limits.items():
+        monkeypatch.setattr(relay, name, value)
+    srv = relay.make_server(str(tmp_path), port=0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_connections_over_the_cap_are_answered_503_without_a_thread(tmp_path, monkeypatch):
+    import socket
+    srv = _small_server(tmp_path, monkeypatch, MAX_CONNECTIONS=3)
+    held = []
+    try:
+        for _ in range(3):
+            s = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=5)
+            s.sendall(b"G")      # a request that has begun and stalls
+            held.append(s)
+        time.sleep(0.3)
+        threads = threading.active_count()
+        assert " 503 " in _raw_request(srv, "GET /health HTTP/1.1\r\nHost: x\r\n\r\n")
+        assert threading.active_count() <= threads
+        for s in held:
+            s.close()
+        held = []
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if Client(srv).call("GET", "/health")[0] == 200:
+                break
+            time.sleep(0.1)
+        else:
+            pytest.fail("the relay did not take connections again")
+    finally:
+        for s in held:
+            s.close()
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_a_request_whose_headers_trickle_in_is_cut_off_at_the_deadline(tmp_path, monkeypatch):
+    import socket
+    srv = _small_server(tmp_path, monkeypatch, HEADER_DEADLINE=1.5)
+    s = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=10)
+    try:
+        start = time.time()
+        closed = False
+        for ch in b"GET /health HTTP/1.1\r\nX-Slow: " + b"a" * 100:
+            try:
+                s.sendall(bytes([ch]))
+                s.settimeout(0.5)
+                if s.recv(1) == b"":
+                    closed = True
+                    break
+            except socket.timeout:
+                continue
+            except OSError:
+                closed = True
+                break
+            if time.time() - start > 8:
+                break
+        assert closed and time.time() - start < 6
+    finally:
+        s.close()
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_an_idle_kept_alive_connection_is_not_cut_by_the_header_deadline(tmp_path, monkeypatch):
+    srv = _small_server(tmp_path, monkeypatch, HEADER_DEADLINE=0.5)
+    c = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+    try:
+        h = {"Authorization": "Bearer " + srv.token}
+        c.request("GET", "/health", headers=h)
+        assert c.getresponse().read() and True
+        time.sleep(1.2)          # idle between two requests on the same connection: longer than the deadline
+        c.request("GET", "/health", headers=h)
+        assert c.getresponse().status == 200
+    finally:
+        c.close()
+        srv.shutdown()
+        srv.server_close()
