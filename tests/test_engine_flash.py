@@ -372,3 +372,38 @@ def test_a_cancelled_recording_drops_its_timing(eng):
     eng.recording = True
     eng.cancel()
     assert eng.timing is None
+
+
+# ---- ENG-3 / ENG-10 -----------------------------------------------------------------------------------------------------
+
+def test_the_engine_pastes_in_the_background(eng, monkeypatch):
+    seen = []
+    monkeypatch.setattr(engine_mod.paste_mod, "paste_text", lambda text, target, keep, **kw: seen.append(kw) or "pasted")
+    monkeypatch.setattr(engine_mod.correction_watch, "arm", lambda *a, **k: None)
+    assert eng.paste("Hello.") and seen[0].get("background") is True
+
+
+def test_a_press_while_busy_says_so(eng):
+    eng.busy, eng.listening = True, None
+    eng.event_t = None
+    eng.on_combo_down()
+    eng.on_combo_down()
+    assert len(eng.messages) == 1 and "still" in eng.messages[0]
+
+
+def test_key_down_is_marked_at_the_time_of_the_key_event(eng, monkeypatch):
+    class Stream:
+        def __init__(self, **kw):
+            pass
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(engine_mod.sd, "InputStream", Stream)
+    monkeypatch.setattr(core, "warm", lambda cfg: None)
+    monkeypatch.setattr(core, "endpoint_error", lambda cfg: "")
+    monkeypatch.setattr(core, "key_missing", lambda cfg: False)
+    monkeypatch.setattr(engine_mod, "foreground_app", lambda: "notepad.exe")
+    eng.event_t = engine_mod.time.time() - 0.5   # the key event waited half a second in the hotkey queue
+    eng.start()
+    assert eng.timing.get("rec_start") - eng.timing.get("key_down") >= 450

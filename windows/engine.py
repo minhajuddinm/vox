@@ -52,6 +52,8 @@ AUDIO_REFRESH_SECONDS = 30   # PortAudio's device list is rebuilt at most this o
 FLASH_SECONDS = {"sent": 0.7, "error": 1.8}
 STUCK_MARGIN = 60       # a recording this long past its longest limit (hands-free) means the audio callback stopped
 MAX_PENDING = 5         # failed recordings kept for Retry, oldest first (as Android's PendingQueue.MAX_KEPT)
+PASTE_RESTORE_QUIT_WAIT = 3.0   # seconds Quit waits for the old clipboard of the last paste to be put back
+BUSY_TOLD_GAP = 5.0     # seconds between two "still sending" balloons for presses ignored while busy
 
 KEY_ALIASES = {
     "ctrl": {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r},
@@ -268,6 +270,7 @@ class Engine:
             deadline = time.time() + 180
             while self.listening and time.time() < deadline:
                 time.sleep(0.5)
+        paste_mod.wait_restored(PASTE_RESTORE_QUIT_WAIT)   # the old clipboard of the last paste is put back first
         if self.warm is not None:
             self.warm.close()   # the microphone is let go, and the audio it held with it
         self.sync.stop()
@@ -565,6 +568,7 @@ class Engine:
     def on_combo_down(self):
         # The tap that keeps the Start menu closed is sent in the hook (_hook_tap), not here.
         if self.busy:
+            self._say_busy()
             return
         now = self._now()
         if self.listening:   # one press could be part of another shortcut (Ctrl+Win+arrows): ending takes a double press
@@ -592,6 +596,15 @@ class Engine:
                 self.start_listening()
             else:
                 self.start()
+
+    _busy_told_t = float("-inf")
+
+    def _say_busy(self):
+        """A press while the last recording is still being sent does nothing: say so (at most every BUSY_TOLD_GAP s)."""
+        now = time.monotonic()
+        if now - self._busy_told_t >= BUSY_TOLD_GAP:
+            self._busy_told_t = now
+            self.notify("Vox is still sending the last recording. Press again when the pill is gone.")
 
     def on_combo_up(self):
         if not self.recording or self.hands_free:
@@ -682,6 +695,7 @@ class Engine:
             return
         try:
             if copy_only:
+                paste_mod.wait_restored()   # a restore still to come would put the old clipboard over it
                 paste_mod.SystemDeps().clip_set(text, self.cfg.get("clipboard_history", True))
                 self.notify("Your last dictation is on the clipboard.")
                 return
@@ -695,7 +709,8 @@ class Engine:
     # ------------------------------------------------------------ recording
     def start(self):
         tm = timing_mod.Timing()
-        tm.mark("key_down")
+        t = self.event_t   # the key event's time.time(): it may have waited in the hotkey queue (ENG-10)
+        tm.mark("key_down", None if t is None else (time.monotonic() - max(0.0, time.time() - t)) * 1000)
         if not self._ready():
             return
         self.target = foreground_app()
@@ -1051,8 +1066,10 @@ class Engine:
         # paste.py checks the window is still the one the dictation started in, sends Ctrl+V, and restores the
         # old clipboard only when keep_clipboard is off and the clipboard still holds our text. Every dictation goes
         # through here (hold-to-talk, the keep-listening Type target, a recovered session), so clipboard_history applies to all.
+        # It returns once the paste keys are sent: the old clipboard comes back on a thread (ENG-3), and the next paste or
+        # copy waits for it (paste.wait_restored).
         result = paste_mod.paste_text(text, self.target, self.cfg.get("keep_clipboard", False),
-                                      clipboard_history=self.cfg.get("clipboard_history", True))
+                                      clipboard_history=self.cfg.get("clipboard_history", True), background=True)
         if result == paste_mod.COPIED:
             self.notify("Copied; the window changed")
             return False

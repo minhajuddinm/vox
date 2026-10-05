@@ -365,20 +365,20 @@ def _engine_with(monkeypatch, result, **cfg):
 def test_the_engine_says_so_when_the_window_changed_and_the_text_was_only_copied(monkeypatch):
     e, calls = _engine_with(monkeypatch, "copied")
     e.paste("Hello.")
-    assert calls == [("Hello.", "notepad.exe", False, {"clipboard_history": True})]   # defaults when the settings are absent
+    assert calls == [("Hello.", "notepad.exe", False, {"clipboard_history": True, "background": True})]   # defaults when the settings are absent
     assert e.messages == ["Copied; the window changed"]
 
 
 def test_the_engine_stays_quiet_when_the_text_was_pasted(monkeypatch):
     e, calls = _engine_with(monkeypatch, "pasted", keep_clipboard=True)
     e.paste("Hello.")
-    assert calls == [("Hello.", "notepad.exe", True, {"clipboard_history": True})] and e.messages == []
+    assert calls == [("Hello.", "notepad.exe", True, {"clipboard_history": True, "background": True})] and e.messages == []
 
 
 def test_the_engine_passes_clipboard_history_off_to_every_paste(monkeypatch):
     e, calls = _engine_with(monkeypatch, "pasted", clipboard_history=False)
     e.paste("Hello.")
-    assert calls == [("Hello.", "notepad.exe", False, {"clipboard_history": False})]
+    assert calls == [("Hello.", "notepad.exe", False, {"clipboard_history": False, "background": True})]
 
 
 # ---- terminals paste with Ctrl+Shift+V (task B2) --------------------------------------------------------------------------
@@ -676,3 +676,69 @@ def test_the_terminal_text_is_what_the_restore_check_compares():
     d = FakeDeps(foreground="cmd.exe", clip="old")
     paste.paste_text("a\nb", "cmd.exe", False, deps=d)
     assert d.clip == "old"   # the clipboard held our (one-line) text, so the old one came back
+
+
+# ---- ENG-3: the 1 s wait only when something is put back, and off the dictation's path --------------------------------------
+
+def test_no_wait_after_the_paste_when_the_clipboard_is_kept():
+    d = FakeDeps(clip="old")
+    d.sleeps = []
+    d.sleep = lambda seconds: d.sleeps.append(seconds)
+    paste.paste_text("Hello.", "notepad.exe", True, deps=d)
+    assert paste.PASTE_WAIT not in d.sleeps
+
+
+class Later:
+    """Stands in for the restore thread: runs it only when told."""
+    made = []
+
+    def __init__(self, target=None, args=(), daemon=None, name=None, **kw):
+        self.target, self.args, self.done = target, args, False
+        Later.made.append(self)
+
+    def start(self):
+        pass
+
+    def run(self):
+        self.target(*self.args)
+        self.done = True
+
+    def is_alive(self):
+        return not self.done
+
+    def join(self, timeout=None):
+        if not self.done:
+            self.run()
+
+
+def test_in_the_background_the_paste_returns_at_once_and_the_restore_comes_later(monkeypatch):
+    Later.made = []
+    monkeypatch.setattr(paste.threading, "Thread", Later)
+    monkeypatch.setattr(paste, "_restoring", None)
+    d = FakeDeps(clip="old")
+    assert paste.paste_text("Hello.", "notepad.exe", False, deps=d, background=True) == "pasted"
+    assert "ctrl_v" in d.calls and d.clip == "Hello." and "sleep" not in d.calls[d.calls.index("ctrl_v"):]
+    Later.made[0].run()
+    assert d.clip == "old"
+
+
+def test_the_next_paste_waits_for_the_restore_so_it_never_saves_the_dictation_as_the_old_clipboard(monkeypatch):
+    Later.made = []
+    monkeypatch.setattr(paste.threading, "Thread", Later)
+    monkeypatch.setattr(paste, "_restoring", None)
+    d = FakeDeps(clip="old")
+    paste.paste_text("First.", "notepad.exe", False, deps=d, background=True)
+    paste.paste_text("Second.", "notepad.exe", False, deps=d, background=True)   # joins the first restore first
+    Later.made[-1].run()
+    assert d.clip == "old"
+
+
+def test_copy_selection_waits_for_a_restore_too(monkeypatch):
+    Later.made = []
+    monkeypatch.setattr(paste.threading, "Thread", Later)
+    monkeypatch.setattr(paste, "_restoring", None)
+    d = FakeDeps(clip="old")
+    paste.paste_text("First.", "notepad.exe", False, deps=d, background=True)
+    d.selection = "picked"
+    paste.copy_selection("notepad.exe", deps=d)
+    assert Later.made[0].done and d.clip == "old"

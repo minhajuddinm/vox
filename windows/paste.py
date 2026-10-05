@@ -17,6 +17,7 @@ import ctypes
 import logging
 import os
 import re
+import threading
 import time
 from ctypes import wintypes
 
@@ -435,13 +436,15 @@ def _window_changed(target_exe, current):
     return bool(target_exe) and bool(current) and current.lower() != target_exe.lower()
 
 
-def paste_text(text, target_exe, keep_clipboard, deps=None, clipboard_history=True):
+def paste_text(text, target_exe, keep_clipboard, deps=None, clipboard_history=True, background=False):
     """Pastes `text` into the focused app. Returns "pasted"; "copied" when the focused window is no longer
     `target_exe` ("" means any window); "blocked" when it runs as administrator and Vox does not. In the last two
     cases the text is left on the clipboard and no paste keys are sent. Into a terminal the text goes as one line
     (terminal_text). `clipboard_history` (the setting) lets
-    Windows clipboard history (Win+V) keep the dictation; the old text put back afterwards is never added to it."""
+    Windows clipboard history (Win+V) keep the dictation; the old text put back afterwards is never added to it.
+    `background`: returns once the paste keys are sent and puts the old clipboard back on a thread (wait_restored)."""
     deps = deps or SystemDeps()
+    wait_restored()   # the clipboard of the paste before this one is back first
     deps.wait_modifiers_released()
     current = _focused(deps)
     if _window_changed(target_exe, current):
@@ -467,21 +470,44 @@ def paste_text(text, target_exe, keep_clipboard, deps=None, clipboard_history=Tr
         deps.send_ctrl_shift_v()
     else:
         deps.send_ctrl_v()
+    if keep_clipboard:
+        return PASTED   # nothing is put back, so nothing to wait for (ENG-3)
+    if background:
+        global _restoring
+        _restoring = threading.Thread(target=_restore, args=(deps, text, old, snapshot), daemon=True, name="vox-restore")
+        _restoring.start()
+    else:
+        _restore(deps, text, old, snapshot)
+    return PASTED
+
+
+def _restore(deps, text, old, snapshot):
+    """After the paste: waits PASTE_WAIT, then puts the old clipboard back. Never raises: Ctrl+V was already sent."""
     deps.sleep(PASTE_WAIT)
     # The text normally stays on the clipboard only when asked (keep_clipboard). Put the old one back unless it
     # is unknown or the user has copied something else in the meantime. With a snapshot every format comes back
     # (cells, rich text, images, files). Without one (unreadable or too big) only old text can be put back: "unknown"
     # includes '' there, because pyperclip returns '' (not None) when the clipboard holds an image or files, and
-    # restoring '' would wipe them. A failed restore never raises: Ctrl+V was already sent.
-    if not keep_clipboard and deps.clip_get() == text:
-        try:
+    # restoring '' would wipe them.
+    try:
+        if deps.clip_get() == text:
             if snapshot:
                 deps.clip_restore(snapshot)
             elif isinstance(old, str) and old != "":
                 deps.clip_set(old)
-        except Exception as e:
-            log.warning("could not put the old clipboard back: %s", e)
-    return PASTED
+    except Exception as e:
+        log.warning("could not put the old clipboard back: %s", e)
+
+
+_restoring = None   # the thread putting the old clipboard back after a background paste (paste_text background=True)
+
+
+def wait_restored(timeout=None):
+    """Waits until the clipboard of the last background paste is put back (at most `timeout` seconds). Everything that
+    reads or writes the clipboard calls it first, so a new paste never takes the last dictation for the old clipboard."""
+    t = _restoring
+    if t is not None and t.is_alive():
+        t.join(timeout)
 
 
 def copy_selection(target_exe, deps=None):
@@ -490,6 +516,7 @@ def copy_selection(target_exe, deps=None):
     (only when the copy happened). Refused in a terminal (there Ctrl+C stops the running program) and when the focused
     window is no longer `target_exe`."""
     deps = deps or SystemDeps()
+    wait_restored()
     deps.wait_modifiers_released()
     current = _focused(deps)
     if _window_changed(target_exe, current):
