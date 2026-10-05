@@ -1054,8 +1054,16 @@ class Engine:
                         tm.mark("stt_done")
                 else:
                     raw_streamed = None
+                partial = streamer.partial() if raw_streamed is None and hasattr(streamer, "partial") else None
                 if raw_streamed is not None:   # with the pieces' segment times, so pauses still make paragraphs
                     res = core.process_text(self.cfg, raw_streamed, label, label, segments=getattr(streamer, "segments", None))
+                elif partial:   # a piece failed: keep the text before it, send only the rest (ENG-7)
+                    said, done = partial
+                    log.info("streaming: a piece failed, sending only the rest (%d of %d bytes)", len(pcm) - done, len(pcm))
+                    raw = (said + " " + core.transcribe_rest(self.cfg, pcm[done:], said)).strip()
+                    if tm:
+                        tm.mark("stt_done")
+                    res = core.process_text(self.cfg, raw, label, label)
                 else:
                     res = core.process_detailed(self.cfg, pcm, label, label)
             raw, text = res.raw, res.text

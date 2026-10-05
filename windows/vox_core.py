@@ -36,6 +36,9 @@ LEVEL_GAIN = 30             # how fast the meter fills as the voice gets louder
 SILENCE_PEAK = 655          # 16-bit peak (about -34 dBFS) below which a recording is treated as silence
 MAX_UPLOAD_BYTES = 20_000_000  # a recording bigger than this is sent in pieces (the speech servers refuse about 25 MB)
 RETRY_STATUS =(500, 502, 503, 504)   # server trouble worth retrying; 429 is left to the callers
+RATE_LIMIT_TRIES = 3        # a recording sent in pieces waits out a rate limit (429) this many times per piece (ENG-7)
+RATE_LIMIT_WAIT = 20        # seconds to wait then when the server does not say how long (Retry-After)
+RATE_LIMIT_MAX_WAIT = 60    # and never longer than this
 
 DEFAULT_CONFIG = {
     "api_key": "",
@@ -1029,11 +1032,13 @@ def upload_audio(cfg, pcm_bytes):
 # ---------------------------------------------------------------------- groq
 
 class ApiError(Exception):
-    """The speech or cleanup server answered with an error status."""
+    """The speech or cleanup server answered with an error status. `retry_after`: the seconds its Retry-After header
+    asked for, or None."""
 
-    def __init__(self, code, msg):
+    def __init__(self, code, msg, retry_after=None):
         super().__init__(msg)
         self.code = code
+        self.retry_after = retry_after
 
 
 _session = requests.Session()   # keeps connections open, so a dictation does not pay the TLS handshake again
@@ -1134,8 +1139,17 @@ def check_response(r, via_relay=False):
         msg = _error_message(r)
         if via_relay and r.status_code in (401, 403):
             msg = f"{msg} ({providers.RELAY_HINT})"
-        raise ApiError(r.status_code, f"API {r.status_code}: {msg}")
+        raise ApiError(r.status_code, f"API {r.status_code}: {msg}", _retry_after(r))
     return r.json()
+
+
+def _retry_after(r):
+    """The seconds of a Retry-After header, or None (absent, an HTTP date, or unreadable)."""
+    try:
+        v = float((getattr(r, "headers", None) or {}).get("Retry-After"))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return v if v >= 0 else None
 
 
 # An explicit list, not ip.is_private: that also holds 6to4 (2002::/16), Teredo (2001::/32) and reserved IPv4 ranges, which
@@ -1398,18 +1412,44 @@ def cleanup(cfg, raw, style, app_label):
 Result = namedtuple("Result", "raw text cleaned cleanup_error fidelity_fallback", defaults=(False,))
 
 
-def _transcribe_in_pieces(cfg, pcm_bytes):
+def _transcribe_in_pieces(cfg, pcm_bytes, context=""):
     """A recording too big for one upload (the server limit is 25 MB, about 13 minutes) is cut at pauses and sent piece by
-    piece, each with the end of the text before it as context (the same as streaming.py, which imports this module)."""
+    piece, each with the end of the text before it as context (the same as streaming.py, which imports this module).
+    `context`: the text of the audio before `pcm_bytes`, when there is some. A rate limit is waited out (ENG-7)."""
     seg = Segmenter()
     texts = []
     for piece in seg.feed(pcm_bytes) + [seg.rest()]:
         if not piece or is_silent(piece):
             continue
-        text = transcribe(cfg, upload_audio(cfg, piece), " ".join(texts)[-150:])
-        if text and not (not texts and is_silence_hallucination(text)):
+        text = _transcribe_waiting(cfg, piece, " ".join([context] + texts).strip()[-150:])
+        if text and not (not texts and not context and is_silence_hallucination(text)):
             texts.append(text)
     return " ".join(texts).strip()
+
+
+def _transcribe_waiting(cfg, pcm_bytes, context):
+    """transcribe, but a rate limit (429: pieces sent back to back hit a per-minute limit) is waited out and the same
+    piece sent again, up to RATE_LIMIT_TRIES times: Retry-After seconds, else RATE_LIMIT_WAIT, at most
+    RATE_LIMIT_MAX_WAIT. Before, the 429 dropped every piece already transcribed."""
+    for attempt in range(RATE_LIMIT_TRIES + 1):
+        try:
+            return transcribe(cfg, upload_audio(cfg, pcm_bytes), context)
+        except ApiError as e:
+            if e.code != 429 or attempt == RATE_LIMIT_TRIES:
+                raise
+            wait = min(RATE_LIMIT_MAX_WAIT, RATE_LIMIT_WAIT if e.retry_after is None else e.retry_after)
+            log.info("rate limited while sending a long recording in pieces, waiting %.0f s", wait)
+            time.sleep(wait)
+
+
+def transcribe_rest(cfg, pcm_bytes, context):
+    """The text of the end of a recording whose start already is text (`context`): what is left after a streamed piece
+    failed (ENG-7). One upload, or pieces when it is too big; "" for a blip or silence."""
+    if len(pcm_bytes) < SAMPLE_RATE * 2 * 0.3 or is_silent(pcm_bytes):
+        return ""
+    if len(pcm_bytes) > MAX_UPLOAD_BYTES:
+        return _transcribe_in_pieces(cfg, pcm_bytes, context)
+    return transcribe(cfg, upload_audio(cfg, pcm_bytes), context[-150:])
 
 
 def process_detailed(cfg, pcm_bytes, exe, app_label):

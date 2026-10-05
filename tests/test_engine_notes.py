@@ -178,3 +178,23 @@ def test_a_401_through_the_relay_tells_the_user_to_check_the_relay_token(eng, mo
     eng.chunks = speech()
     eng.stop()
     assert eng.messages[-1].startswith("The server rejected the API key. Check Vox > Settings.")
+
+
+def test_a_failed_piece_sends_only_the_audio_after_the_text_that_came_back(eng, monkeypatch):
+    """ENG-7: the pieces already transcribed are kept; only the rest is sent, with their text as context."""
+    def whole(*a, **k):
+        raise AssertionError("the whole recording should not be sent again")
+
+    monkeypatch.setattr(core, "process_detailed", whole)
+    sent = []
+    monkeypatch.setattr(core, "transcribe", lambda cfg, wav, context="": sent.append((len(wav), context)) or "and the rest")
+    monkeypatch.setattr(core, "process_text", lambda cfg, raw, exe, label, segments=None: core.Result(raw, raw, False, ""))
+    eng.start()
+    streamer = eng.streaming = FakeStreamer(None)
+    pcm = b"".join(speech(3))
+    streamer.partial = lambda: ("the first part", len(pcm) - core.SAMPLE_RATE * 2)   # all but the last second came back
+    eng.chunks = [pcm]
+    eng.stop()
+    assert eng.pasted == ["the first part and the rest"]
+    (size, context), = sent
+    assert context == "the first part" and size < len(pcm)
