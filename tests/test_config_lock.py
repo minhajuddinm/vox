@@ -165,3 +165,22 @@ def test_history_rewrites_and_appends_from_threads_lose_no_entry(appdata):
     kept = [e["t"] for e in core.read_history()]
     assert [t for t in kept if t >= 1000] == list(range(1000, 1000 + added[0]))
     assert [t for t in kept if t < 1000] == list(range(40, 200))
+
+
+# ---- the window reads the history every 4 s: an unchanged file is not parsed again (DAT-10) --------------------------
+
+def test_an_unchanged_history_is_not_parsed_again_and_a_change_is_seen(appdata, monkeypatch):
+    for t in range(3):
+        core.add_history({"t": t, "text": "x"})
+    first = core.read_history()
+    parsed = []
+    real = core.json.loads
+    monkeypatch.setattr(core.json, "loads", lambda s, *a, **kw: parsed.append(1) or real(s, *a, **kw))
+    again = core.read_history()
+    assert again == first and parsed == []
+    again[0]["text"] = "changed by a caller"           # a caller's change does not reach the next reader
+    assert core.read_history()[0]["text"] == "x"
+    core.add_history({"t": 3})
+    assert [e["t"] for e in core.read_history()] == [0, 1, 2, 3]
+    core.update_history(lambda entries: [e for e in entries if e["t"] != 1])
+    assert [e["t"] for e in core.read_history()] == [0, 2, 3]

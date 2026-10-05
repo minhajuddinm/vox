@@ -268,10 +268,30 @@ def add_history(entry):
         f.write((json.dumps(entry, ensure_ascii=False) + "\n").encode("utf-8"))
 
 
+_history_cache = (None, [])   # (path, file id, size, mtime) of the last parse and its entries
+
+
 def read_history():
+    """The saved dictations, oldest first. The window asks every few seconds: an unchanged file is not parsed again
+    (a long history takes most of a second), and each caller gets its own copies of the entries."""
+    global _history_cache
+    path = history_path()
+    try:
+        st = os.stat(path)
+        key = (path, st.st_ino, st.st_size, st.st_mtime_ns)
+    except OSError:
+        key = None
+    if key is not None and _history_cache[0] == key:
+        return [dict(e) for e in _history_cache[1]]
+    out = _parse_history(path)
+    _history_cache = (key, out)
+    return [dict(e) for e in out]
+
+
+def _parse_history(path):
     out = []
     try:
-        with open(history_path(), encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             for line in f:
                 try:
                     entry = json.loads(line)
