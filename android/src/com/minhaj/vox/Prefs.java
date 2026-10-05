@@ -206,7 +206,7 @@ public final class Prefs {
      */
     public void applyReceived(Map<String, Object> received, Map<String, Object> seen) {
         synchronized (LEARN_LOCK) {
-            applyProfile(ProfileMap.toStored(ProfileMerge.onto(seen, ProfileMap.toProfile(profileStored()), received)));
+            applyProfile(ProfileMap.receivedOnto(profileStored(), received, seen));
         }
     }
 
