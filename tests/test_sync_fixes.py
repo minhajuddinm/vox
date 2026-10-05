@@ -208,3 +208,24 @@ def test_a_wrong_type_from_the_relay_is_not_written_here_and_is_repaired_on_the_
     assert (cfg["default_style"], cfg["user_context"], cfg["cleanup"]) == ("formal", "me", True)
     data = srv.store.get_profile()["data"]
     assert (data["default_style"], data["user_context"], data["cleanup"]) == ("formal", "me", True)
+
+
+# ------------------------------------------------------- DAT-6 (Windows part): "Recently learned" follows the dictionary
+def test_a_learned_word_that_a_received_dictionary_no_longer_has_leaves_recently_learned(dev, srv):
+    import autolearn
+    a = dev("A")
+    set_cfg(dictionary=["Vox"])
+    assert sync.sync_once(a)["profile"] == "sent"
+    b = dev("B")
+    sync.sync_once(b)
+    dev("A")
+    core.update_config(lambda c: c.update(autolearn.apply_learned(c, [("fubar", "Foobar")], now=100.0)[0]))
+    assert [e["right"] for e in autolearn.learned_log(core.load_config())] == ["Foobar"]
+    dev("B")
+    set_cfg(dictionary=["Vox", "Bar"])
+    assert sync.sync_once(b)["profile"] == "sent"
+    dev("A")
+    sync.sync_once(a)          # both changed the dictionary: the relay's list wins (the merge rule itself is not changed here)
+    cfg = core.load_config()
+    assert cfg["dictionary"] == ["Vox", "Bar"]
+    assert autolearn.learned_log(cfg) == []   # no row for a word that is not in the dictionary any more
