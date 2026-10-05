@@ -281,7 +281,7 @@ def test_transcribe_adds_the_context_to_the_end_of_the_prompt(monkeypatch):
 
     monkeypatch.setattr(core.requests, "post", lambda url, **kw: seen.update(kw) or R())
     assert core.transcribe({"api_key": "k", "dictionary": ["Atlas"]}, b"RIFF", "the end of the last piece") == "hi"
-    assert seen["data"]["prompt"].startswith("Atlas") and seen["data"]["prompt"].endswith("the end of the last piece")
+    assert seen["data"]["prompt"] == "We talked about Atlas. the end of the last piece"
     core.transcribe({"api_key": "k"}, b"RIFF")
     assert "prompt" not in seen["data"]
     core.transcribe({"api_key": "k", "dictionary": ["A" * 800]}, b"RIFF", "tail")

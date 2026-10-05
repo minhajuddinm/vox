@@ -193,8 +193,9 @@ def test_a_raw_style_app_gets_no_list():
 
 def test_the_prompt_asks_for_no_list_when_structure_is_off():
     off = core.system_prompt("formal", [], "", "", "light", "", "off")
-    assert '"- "' not in off and "- First, the pricing page" not in off
-    assert core.STRUCTURE_BY_STYLE["casual"] in off
+    # the examples are part of the static (cached) prompt; the late Layout line says flat, and the list rule defers to it
+    assert "\n" + core.LAYOUT_TEXT["flat"] + "\n" in off and "Lists, unless the Layout line below says flat" in off
+    assert core.LAYOUT_TEXT["auto"] not in off and core.STRUCTURE_BY_STYLE["casual"] in off
 
 
 def test_auto_is_the_prompt_as_before():
@@ -204,8 +205,8 @@ def test_auto_is_the_prompt_as_before():
 
 def test_lists_only_asks_for_lists_and_no_paragraph_breaks():
     p = core.system_prompt("neutral", [], "", "", "light", "", "lists")
-    assert "Start a new paragraph" not in p and "No blank lines unless the speaker says new paragraph." in p
-    assert "- First, the pricing page" in p and "\n\nThen I looked" not in p
+    assert "\nLayout: lists as described above; no blank lines unless the speaker says new paragraph.\n" in p
+    assert core.LAYOUT_TEXT["auto"] not in p and "- First, the pricing page" in p
     assert core.system_prompt("casual", [], "", "", "light", "", "lists").count(core.STRUCTURE_BY_STYLE["casual"]) == 1
 
 

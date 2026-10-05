@@ -366,5 +366,14 @@ def test_golden(kind, f, tmp_path, monkeypatch):
     elif kind == "autolearn":   # replacements, words, pairs found => the replacements and words added
         out = autolearn.learn(pairs(f[0]), items(f[1]), pairs(f[2]))
         assert (pairs_text(out["replacements"]), "|".join(out["words"])) == (f[3], f[4])
+    elif kind == "pickterms":   # transcript, terms, wrong=>right pairs => the terms the cleanup prompt names
+        repl = dict(p.split("=>", 1) for p in items(f[2], ";"))
+        assert "|".join(core.select_terms(f[0], items(f[1]), repl)) == f[3]
+    elif kind == "termkey":   # word => its sound key
+        assert core.term_key(f[0]) == f[1]
+    elif kind == "whisperv2":   # people, terms, recently learned terms, text before this piece => the speech prompt
+        assert core.whisper_prompt_with_context(items(f[1]), f[3], items(f[0]), items(f[2])) == f[4]
+    elif kind == "cleananswer":   # the cleanup model's answer => the text used ("" for EMPTY)
+        assert core.cleanup_answer(f[0]) == f[1]
     else:
         pytest.fail(f"unknown case kind {kind}")

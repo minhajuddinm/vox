@@ -491,6 +491,21 @@ public final class ParityTest {
                     eq(ln, kind, f[3] + " / " + f[4], pairsText(l.replacements) + " / " + String.join("|", l.words));
                     break;
                 }
+                case "pickterms": {   // transcript, terms, wrong=>right pairs => the terms the cleanup prompt names
+                    Map<String, String> repl = new LinkedHashMap<>();
+                    for (String p : items(f[2], ";")) repl.put(p.substring(0, p.indexOf("=>")), p.substring(p.indexOf("=>") + 2));
+                    eq(ln, kind, f[3], String.join("|", Terms.select(f[0], items(f[1], "|"), repl)));
+                    break;
+                }
+                case "termkey":   // word => its sound key
+                    eq(ln, kind, f[1], Terms.key(f[0]));
+                    break;
+                case "whisperv2":   // people, terms, recently learned terms, text before this piece => the speech prompt
+                    eq(ln, kind, f[4], ApiClient.whisperPromptWith(items(f[1], "|"), f[3], items(f[0], "|"), items(f[2], "|")));
+                    break;
+                case "cleananswer":   // the cleanup model's answer => the text used ("" for EMPTY)
+                    eq(ln, kind, f[1], ApiClient.cleanupAnswer(f[0]));
+                    break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);
                     System.exit(1);

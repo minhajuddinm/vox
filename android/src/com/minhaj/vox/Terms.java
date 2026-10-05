@@ -181,4 +181,205 @@ final class Terms {
     private static void add(List<String> out, String term) {
         if (!out.contains(term)) out.add(term);
     }
+
+    // ------------------------------------------------- dictionary terms for the cleanup prompt
+    // Twin of select_terms in windows/vox_core.py (golden rows pickterms, termkey): the cleanup prompt carries only the
+    // dictionary terms that occur in the transcript or sound like 1-3 of its words, at most ApiClient.PROMPT_TERMS_MAX.
+
+    private static final Set<String> STOP = new HashSet<>(Arrays.asList(("the and for you are was with that this have from they "
+            + "will what when your there their about would could should which where ok okay").split(" ")));
+    private static final String[][] KEY_PAIRS = {{"sch", "sk"}, {"ph", "f"}, {"gh", "g"}, {"ck", "k"}, {"th", "t"}, {"dh", "d"},
+        {"bh", "b"}, {"kh", "k"}, {"sh", "s"}, {"ch", "c"}, {"q", "k"}, {"x", "ks"}, {"z", "s"}, {"w", "v"}};
+    private static final Pattern SOFT_C = Pattern.compile("c(?=[eiy])");
+
+    /**
+     * A small Metaphone-like sound key, tuned for Indian English (v/w and the aspirates th, dh, bh, kh merged): only the
+     * letters a-z count, a vowel first letter is A, later vowels and h are dropped, doubles collapse, at most 8 letters.
+     * Twin of term_key in windows/vox_core.py.
+     */
+    static String key(String word) {
+        String w = word.toLowerCase(Locale.ROOT).replaceAll("[^a-z]", "");
+        if (w.isEmpty()) return "";
+        for (String[] p : KEY_PAIRS) w = w.replace(p[0], p[1]);
+        w = SOFT_C.matcher(w).replaceAll("s").replace("c", "k");
+        StringBuilder rest = new StringBuilder();
+        for (int i = 1; i < w.length(); i++) {
+            char c = w.charAt(i);
+            if ("aeiouyh".indexOf(c) >= 0) continue;
+            if (rest.length() > 0 && rest.charAt(rest.length() - 1) == c) continue;
+            rest.append(c);
+        }
+        String k = ("aeiouy".indexOf(w.charAt(0)) >= 0 ? "A" : String.valueOf(w.charAt(0)).toUpperCase(Locale.ROOT))
+                + rest.toString().toUpperCase(Locale.ROOT);
+        return k.length() > 8 ? k.substring(0, 8) : k;
+    }
+
+    /** True when the Levenshtein distance of a and b is k or less (stops as soon as it cannot be). */
+    static boolean within(String a, String b, int k) {
+        if (Math.abs(a.length() - b.length()) > k) return false;
+        int[] prev = new int[b.length() + 1], cur = new int[b.length() + 1];
+        for (int j = 0; j <= b.length(); j++) prev[j] = j;
+        for (int i = 1; i <= a.length(); i++) {
+            cur[0] = i;
+            int min = i;
+            for (int j = 1; j <= b.length(); j++) {
+                cur[j] = Math.min(Math.min(prev[j] + 1, cur[j - 1] + 1), prev[j - 1] + (a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1));
+                min = Math.min(min, cur[j]);
+            }
+            if (min > k) return false;
+            int[] t = prev; prev = cur; cur = t;
+        }
+        return prev[b.length()] <= k;
+    }
+
+    /** Only the letters a-z and digits of a text, lowercase. */
+    static String plain(String text) {
+        return text.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+    }
+
+    private static boolean letterMarkOrNumber(int cp) {
+        return cp != '_' && wordOrMark(cp);
+    }
+
+    /** One window of 1 to 5 transcript words: where it starts, how many words, the words joined, its key, all single letters. */
+    private static final class Win {
+        final int at, n;
+        final String joined, key;
+        final boolean letters;
+
+        Win(int at, int n, String joined, String key, boolean letters) {
+            this.at = at; this.n = n; this.joined = joined; this.key = key; this.letters = letters;
+        }
+    }
+
+    private static List<String> cachedTerms;
+    private static List<String[]> cachedIndex;   // {term, letters, key} of cachedTerms: worked out once per dictionary
+
+    private static synchronized List<String[]> index(List<String> terms) {
+        if (!terms.equals(cachedTerms)) {
+            List<String[]> idx = new ArrayList<>();
+            for (String t : terms) {
+                String p = plain(t);
+                if (!p.isEmpty()) idx.add(new String[] {t, p, key(p)});
+            }
+            cachedTerms = new ArrayList<>(terms);
+            cachedIndex = idx;
+        }
+        return cachedIndex;
+    }
+
+    /** Where word first occurs in text as a whole word, ignoring case; -1 when it does not. */
+    private static int findWord(String text, String word) {
+        Matcher m = Pattern.compile(Pattern.quote(word), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE).matcher(text);
+        int from = 0;
+        while (from <= text.length() && m.find(from)) {
+            int s = m.start(), e = m.end();
+            boolean glued = (s > 0 && wordOrMark(text.codePointBefore(s))) || (e < text.length() && wordOrMark(text.codePointAt(e)));
+            if (!glued) return s;
+            from = s + 1;
+        }
+        return -1;
+    }
+
+    /**
+     * The dictionary terms the cleanup prompt needs for this transcript, in the order they come up, at most
+     * ApiClient.PROMPT_TERMS_MAX: the right side of each "wrong => right" whose wrong side is in it (repl may be null), and
+     * each term that is in it or sounds like 1-3 of its words (up to 5 when they are spelled letters). Same rules as
+     * select_terms in windows/vox_core.py.
+     */
+    static List<String> select(String transcript, List<String> terms, Map<String, String> repl) {
+        String text = transcript == null ? "" : transcript;
+        Map<String, Integer> hits = new LinkedHashMap<>();
+        if (repl != null) {
+            for (Map.Entry<String, String> e : repl.entrySet()) {
+                String wrong = e.getKey(), right = e.getValue();
+                if (wrong == null || wrong.isEmpty() || right == null || right.isEmpty() || hits.containsKey(right)) continue;
+                int at = findWord(text, wrong);
+                if (at >= 0) hits.put(right, at);
+            }
+        }
+        List<String> words = new ArrayList<>();
+        List<Integer> starts = new ArrayList<>();
+        int i = 0;
+        while (i < text.length()) {
+            int cp = text.codePointAt(i);
+            if (!letterMarkOrNumber(cp)) { i += Character.charCount(cp); continue; }
+            int j = i;
+            while (j < text.length()) {
+                int c = text.codePointAt(j);
+                int next = j + Character.charCount(c);
+                if (letterMarkOrNumber(c) || ((c == '\'' || c == '’') && next < text.length() && letterMarkOrNumber(text.codePointAt(next)))) j = next;
+                else break;
+            }
+            int end = j;   // a final 's after an apostrophe is dropped too (Minhaj's is minhaj)
+            char ap = j - i > 2 ? text.charAt(j - 2) : ' ';
+            if ((ap == '\'' || ap == '’') && (text.charAt(j - 1) == 's' || text.charAt(j - 1) == 'S')) end = j - 2;
+            String w = plain(text.substring(i, end));
+            if (!w.isEmpty()) { words.add(w); starts.add(i); }
+            i = j;
+        }
+        Map<String, List<Win>> byFirst = new java.util.HashMap<>();
+        for (int s = 0; s < words.size(); s++) {
+            for (int n = 1; n <= 5 && s + n <= words.size(); n++) {
+                int singles = 0;
+                StringBuilder sb = new StringBuilder();
+                for (int q = s; q < s + n; q++) {
+                    sb.append(words.get(q));
+                    if (words.get(q).length() == 1) singles++;
+                }
+                if (n > 3 && singles < n - 1) continue;
+                String joined = sb.toString();
+                if (STOP.contains(joined) || joined.length() < 3) continue;
+                Win win = new Win(starts.get(s), n, joined, key(joined), singles == n);
+                String a = joined.substring(0, 1), b = win.key.isEmpty() ? "" : win.key.substring(0, 1).toLowerCase(Locale.ROOT);
+                byFirst.computeIfAbsent(a, x -> new ArrayList<>()).add(win);
+                if (!b.equals(a)) byFirst.computeIfAbsent(b, x -> new ArrayList<>()).add(win);
+            }
+        }
+        List<Win> none = new ArrayList<>();
+        for (String[] t : index(terms == null ? new ArrayList<String>() : terms)) {
+            String term = t[0], tl = t[1], tk = t[2];
+            if (hits.containsKey(term)) continue;
+            if (tl.length() < 3) {   // a short term (AI, Q3) only as a whole word of its own
+                int at = words.indexOf(tl);
+                if (at >= 0) hits.put(term, starts.get(at));
+                continue;
+            }
+            String a = tl.substring(0, 1), b = tk.isEmpty() ? "" : tk.substring(0, 1).toLowerCase(Locale.ROOT);
+            List<Win> cands = byFirst.containsKey(a) ? byFirst.get(a) : none;
+            if (!b.equals(a)) {
+                java.util.LinkedHashSet<Win> both = new java.util.LinkedHashSet<>(cands);
+                if (byFirst.containsKey(b)) both.addAll(byFirst.get(b));
+                cands = new ArrayList<>(both);
+                java.util.Collections.sort(cands, (x, y) -> x.at != y.at ? Integer.compare(x.at, y.at) : Integer.compare(x.n, y.n));
+            }
+            for (Win w : cands) {
+                boolean nick = w.n == 1 && w.joined.length() >= 5 && tl.startsWith(w.joined);
+                if (Math.abs(w.joined.length() - tl.length()) > Math.max(2, tl.length() / 5) && !nick) continue;
+                if (w.n > 1 && w.n <= 3 && tl.length() < 6 && !w.letters) continue;
+                boolean hit;
+                if (w.joined.equals(tl)) {
+                    hit = true;
+                } else if (w.n == 1) {
+                    hit = (tk.length() >= 3 && (w.key.equals(tk) || (tk.length() >= 4 && w.joined.charAt(0) == tl.charAt(0) && within(w.key, tk, 1))))
+                            || (tl.length() >= 5 && within(w.joined, tl, Math.max(1, tl.length() / 5)))
+                            || (nick && !COMMON_WORDS.contains(w.joined));
+                } else {
+                    hit = (tl.length() >= 6 && w.key.equals(tk)) || within(w.joined, tl, Math.max(1, tl.length() / 6));
+                }
+                if (hit) {
+                    hits.put(term, w.at);
+                    break;
+                }
+            }
+        }
+        List<Map.Entry<String, Integer>> sorted = new ArrayList<>(hits.entrySet());
+        java.util.Collections.sort(sorted, (x, y) -> Integer.compare(x.getValue(), y.getValue()));   // stable: ties keep their order
+        List<String> out = new ArrayList<>();
+        for (Map.Entry<String, Integer> e : sorted) {
+            if (out.size() >= ApiClient.PROMPT_TERMS_MAX) break;
+            out.add(e.getKey());
+        }
+        return out;
+    }
 }
