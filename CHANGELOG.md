@@ -4,6 +4,14 @@ All notable changes to Vox. Format follows [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Changed
+Cleanup-quality round (2026-10-05; tested with golden rows, a labelled set and fakes; not yet on real speech or a real model; defaults get tuned on the user's own recordings):
+- **Cleanup check (guard v2, both apps):** self-corrections ("thursday no wait friday") are accepted in Standard; an appended answer, padding words, a dropped "not" or number, or an echoed prompt are rejected. Labelled-set accuracy rose from about 66%/58% to about 99%/98% (Light/Standard). [ADR 0043]
+- **Cleanup prompt v3 (both apps):** fixed rules and examples first (cache-friendly), the speaker is never talking to the model, Hinglish stays in its script, filler-only dictations give nothing. Only the dictionary terms that sound like the transcript are sent (at most 20). Whisper gets a short sentence of names and recently learned terms.
+- **No-AI fallback (both apps):** when the cleanup is skipped, fails, times out or is rejected, noises and spoken punctuation are cleaned by rules, so the text still reads typed. Dictations under 4 words (was 3) skip the AI; existing PCs move from 3 to 4 once. [ADR 0042]
+- **Speech-to-text (both apps):** silence at the start and end is trimmed before upload; Whisper's low-confidence segments and prompt echoes are dropped (never a whole dictation, never ordinary Hindi); Settings suggests English when you only speak English.
+- **Benchmark tools:** `tools/bench_record.py`, `bench_stt.py`, `bench_cleanup.py` and `bench_metrics.py` record your own clips (kept in `%APPDATA%\Vox\bench`, never uploaded except to your own provider when you run them) and compare the old and new prompt and guard (WER, punctuation, over-editing, latency, bootstrap intervals).
+
 ### Fixed
 From the full v2 review of 2026-10-05 (summary in documentation/12-known-issues-and-roadmap.md). Tested by unit, golden and integration tests only; nothing below has run on a real device.
 - **Both apps:** a dictation with no usable text (a lone "Thank you.") is announced, not dropped. Learn from my corrections no longer learns grammar edits (complete → completed, है → हैं) but still learns misheard names, including two-word ones. Replacements, snippets and spellings no longer match inside Hindi words or inside emails, URLs, paths and code. The cleanup check accepts dates with a year, money with cents and a spoken "oh". Everyday sentences no longer become lists; real spoken lists still do. Profile sync merges dictionary, people and snippets item by item.
