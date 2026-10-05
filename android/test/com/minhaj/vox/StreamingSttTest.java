@@ -216,6 +216,27 @@ public final class StreamingSttTest {
         si.cancel();
         check("a cancelled idle stream gives null", si.finish(1000) == null);
 
+        // inPieces: a recording too big for one upload is cut at pauses and sent piece by piece (vox_core._transcribe_in_pieces)
+        Fake pf = new Fake(0, null);
+        eq("in pieces: the texts joined", "piece1 piece2 piece3", StreamingStt.inPieces(three, pf));
+        eq("in pieces: the context is the text before", "[, piece1, piece1 piece2]", pf.contexts.toString());
+        eq("in pieces: every byte is sent once", three.length, pf.sizes.get(0) + pf.sizes.get(1) + pf.sizes.get(2));
+        Fake quiet = new Fake(0, null);
+        eq("in pieces: a silent piece is not sent", "piece1 piece2", StreamingStt.inPieces(cat(tone(13), silence(1), silence(13), silence(1), tone(4)), quiet));
+        eq("in pieces: two calls", 2, quiet.contexts.size());
+        Fake thanks = new Fake(0, null, "Thank you.", "real words");
+        eq("in pieces: a silence phrase before any text is dropped", "real words", StreamingStt.inPieces(cat(tone(13), silence(1), tone(4)), thanks));
+        Fake broken = new Fake(2, null);
+        try {
+            StreamingStt.inPieces(three, broken);
+            check("in pieces: a failed piece fails the whole send", false);
+        } catch (IOException expected) {
+            eq("in pieces: stops at the failure", 2, broken.contexts.size());
+        }
+        check("in pieces: only a recording over the upload limit is cut", StreamingStt.needsPieces(StreamingStt.MAX_UPLOAD_BYTES + 1)
+                && !StreamingStt.needsPieces(StreamingStt.MAX_UPLOAD_BYTES));
+        eq("the upload limit is the PC app's (vox_core.MAX_UPLOAD_BYTES)", 20000000L, StreamingStt.MAX_UPLOAD_BYTES);
+
         System.out.println("OK: " + checks + " checks passed");
     }
 }

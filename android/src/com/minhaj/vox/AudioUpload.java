@@ -86,7 +86,8 @@ final class AudioUpload {
         return null;
     }
 
-    private static byte[] readPcm(File wav) throws IOException {
+    /** The PCM of a WAV file written by DictationService.writeWav (its 44-byte header skipped). */
+    static byte[] readPcm(File wav) throws IOException {
         long n = wav.length() - 44;
         if (n <= 0 || n > Integer.MAX_VALUE - 16) throw new IOException("not a recording");
         byte[] pcm = new byte[(int) n];
