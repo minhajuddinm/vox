@@ -111,3 +111,60 @@ def test_consistent_states_are_never_touched(eng):
             setattr(eng, k, v)
         run(eng, [100.0, 200.0])
         assert eng.state == state and eng.stopped == []
+
+
+# ---------------------------------------------------------------- the keyboard hook (ENG-2)
+class FakeListener:
+    made = []
+
+    def __init__(self, **kw):
+        self.kw, self.alive, self.stopped = kw, False, False
+        FakeListener.made.append(self)
+
+    def start(self):
+        self.alive = True
+
+    def stop(self):
+        self.stopped, self.alive = True, False
+
+    def is_alive(self):
+        return self.alive
+
+
+@pytest.fixture
+def hooked(eng, monkeypatch):
+    FakeListener.made = []
+    monkeypatch.setattr(engine_mod.keyboard, "Listener", FakeListener)
+    eng.install_hook()
+    return eng
+
+
+def test_install_hook_starts_a_listener_with_both_callbacks(hooked):
+    (lis,) = FakeListener.made
+    assert lis.alive and lis.kw["on_press"] == hooked.on_press and lis.kw["on_release"] == hooked.on_release
+
+
+def test_a_steady_watchdog_leaves_the_hook_alone(hooked):
+    for t in (100.0, 101.0, 102.05, 103.1):
+        hooked.check_hook(t)
+    assert len(FakeListener.made) == 1
+
+
+def test_after_a_freeze_longer_than_the_hook_timeout_the_hook_is_installed_again(hooked, caplog):
+    hooked.check_hook(100.0)
+    hooked.check_hook(103.5)   # the once-a-second watchdog ran 2.5 s late: Python was frozen, Windows may have dropped the hook
+    old, new = FakeListener.made
+    assert old.stopped and new.alive and hooked._listener is new
+    assert any("keyboard hook" in m for m in warnings(caplog))
+
+
+def test_a_listener_that_stopped_is_started_again(hooked):
+    hooked.check_hook(100.0)
+    FakeListener.made[0].alive = False   # pynput ended it (an error in the hook thread)
+    hooked.check_hook(101.0)
+    assert len(FakeListener.made) == 2 and FakeListener.made[1].alive
+
+
+def test_no_hook_yet_means_nothing_to_check(eng):
+    eng.check_hook(100.0)
+    eng.check_hook(110.0)

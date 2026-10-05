@@ -54,6 +54,9 @@ STUCK_MARGIN = 60       # a recording this long past its longest limit (hands-fr
 MAX_PENDING = 5         # failed recordings kept for Retry, oldest first (as Android's PendingQueue.MAX_KEPT)
 PASTE_RESTORE_QUIT_WAIT = 3.0   # seconds Quit waits for the old clipboard of the last paste to be put back
 BUSY_TOLD_GAP = 5.0     # seconds between two "still sending" balloons for presses ignored while busy
+# The once-a-second watchdog ran this late: Python was frozen for longer than Windows' keyboard hook timeout (at most 1 s
+# since Windows 10 1709), and Windows removes a hook that times out without telling anyone, so it is installed again (ENG-2).
+HOOK_STALL_SECONDS = 2.0
 
 KEY_ALIASES = {
     "ctrl": {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r},
@@ -343,6 +346,42 @@ class Engine:
                 dumped = self.check_overlay(time.monotonic(), stuck, dumped)
             except Exception:
                 log.exception("overlay watchdog failed")
+            try:
+                self.check_hook(time.monotonic())
+            except Exception:
+                log.exception("keyboard hook check failed")
+
+    _listener = None      # the pynput keyboard.Listener (the low-level keyboard hook); None before run()
+    _hook_check_t = None  # time.monotonic() of the last check_hook
+
+    def install_hook(self):
+        """Installs the keyboard hook (a new pynput listener), stopping the old one first."""
+        old, self._listener = self._listener, None
+        if old is not None:
+            try:
+                old.stop()
+            except Exception:
+                log.exception("could not stop the old keyboard hook")
+        lis = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
+        lis.daemon = True
+        lis.start()
+        self._listener = lis
+
+    def check_hook(self, now):
+        """Every second (the watchdog thread): installs the keyboard hook again when its listener stopped, or when this
+        check itself ran HOOK_STALL_SECONDS late. Python was frozen then (a .NET property read, a long GIL hold), and
+        Windows silently removes a hook that did not answer within its timeout; the shortcut would be dead until a
+        restart. Installing it again when it was not removed costs nothing (ENG-2)."""
+        last, self._hook_check_t = self._hook_check_t, now
+        lis = self._listener
+        if lis is None:
+            return
+        stalled = last is not None and now - last > HOOK_STALL_SECONDS
+        if lis.is_alive() and not stalled:
+            return
+        log.warning("keyboard hook %s: installing it again", "may have been removed after %.1f s without Python" %
+                    (now - last) if stalled else "stopped")
+        self.install_hook()
 
     def check_overlay(self, now, stuck, dumped):
         """Once a second (daemon thread): logs every thread's stack once when the pill's Tk tick has not run for
@@ -1076,7 +1115,8 @@ class Engine:
         if result == paste_mod.BLOCKED:
             self._say_elevated()
             return False
-        correction_watch.arm(text, self.cfg, self.notify)   # Learn from my corrections: watch this field for the user's fixes
+        correction_watch.arm(text, self.cfg, self.notify,   # Learn from my corrections: watch this field for the user's fixes
+                             quiet=lambda: self.recording or self.listening is not None)   # no reads while recording (ENG-2)
         return True
 
     def _say_elevated(self):
@@ -1370,9 +1410,7 @@ class Engine:
             log.exception("could not recover unfinished meetings")
         self._hotkey_q = queue.Queue()   # from here on the hook only queues the keys (R2-M1)
         threading.Thread(target=self._hotkey_loop, daemon=True, name="vox-hotkey").start()
-        listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
-        listener.daemon = True
-        listener.start()
+        self.install_hook()
         threading.Thread(target=self._watch_config, daemon=True).start()
         threading.Thread(target=self._serve, daemon=True, name="control").start()
         threading.Thread(target=self._watch_calendar, daemon=True, name="calendar").start()

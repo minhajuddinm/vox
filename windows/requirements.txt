@@ -12,3 +12,4 @@ soundcard==0.4.6
 icalendar==7.3.0
 recurring-ical-events==3.8.2
 tzdata==2026.4
+pythonnet==3.2.0
