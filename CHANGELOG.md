@@ -11,6 +11,7 @@ Cleanup-quality round (2026-10-05; tested with golden rows, a labelled set and f
 - **No-AI fallback (both apps):** when the cleanup is skipped, fails, times out or is rejected, noises and spoken punctuation are cleaned by rules, so the text still reads typed. Dictations under 4 words (was 3) skip the AI; existing PCs move from 3 to 4 once. [ADR 0042]
 - **Speech-to-text (both apps):** silence at the start and end is trimmed before upload; Whisper's low-confidence segments and prompt echoes are dropped (never a whole dictation, never ordinary Hindi); Settings suggests English when you only speak English.
 - **Benchmark tools:** `tools/bench_record.py`, `bench_stt.py`, `bench_cleanup.py` and `bench_metrics.py` record your own clips (kept in `%APPDATA%\Vox\bench`, never uploaded except to your own provider when you run them) and compare the old and new prompt and guard (WER, punctuation, over-editing, latency, bootstrap intervals).
+- **Public benchmark samples:** `tools/bench_public.py` downloads about 50 clips each of open Indian English, Hinglish, disfluent and read speech sets with their transcripts and licences (no login) into `%APPDATA%\Vox\bench\public\`, for `bench_stt.py --folder` and `bench_cleanup.py --folder`; only when you run it.
 
 ### Fixed
 From the full v2 review of 2026-10-05 (summary in documentation/12-known-issues-and-roadmap.md). Tested by unit, golden and integration tests only; nothing below has run on a real device.
