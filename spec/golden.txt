@@ -2018,3 +2018,10 @@ layout	off	neutral	First, my address. Second, my phone.	First, 12 Main St\nSprin
 layout	auto	raw	my address please	12 Main St\nSpringfield please	my address	12 Main St\nSpringfield
 layout	auto	neutral	No list here, my email.	No list here, me@example.com.	my email	me@example.com
 layout	lists	casual	Step one, my email. Step two, wait.	1. me@example.com\n2. Wait	my email	me@example.com
+# lo: sttkept: an answer that is only a loop gives nothing (the keep-everything rule for a short real phrase that
+# scores like silence no longer brings the loops back); silence-scored segments are still kept then.
+sttkept	हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग	हम लोग हम लोग हम लोग हम लोग हम लोग हम लोग;0;-0.2;2.6	
+sttkept	either the either the either the either the	either the either the either the either the;0;-0.2;3.1	
+sttkept	Thank you. Bye.	Thank you.;0.8;-1.3;1|Bye.;0.9;-1.4;1	Thank you. Bye.
+sttkept	either the either the either the either the Thank you.	either the either the either the either the;0;-0.2;3.1|Thank you.;0.8;-1.3;1	Thank you.
+sttkept	go go go go go go go	go go go go go go go;0.7;-1.2;2.6	

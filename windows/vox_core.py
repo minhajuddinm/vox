@@ -2717,14 +2717,15 @@ def _repeats(text):
 def segments_kept(segments):
     """Which segments of a dictation to keep (twin: ApiClient.segmentsKept): a loop (compression above SEG_COMPRESSION and
     its text repeats, _repeats) goes anywhere; silence filled with words (no_speech and logprob, see SEG_NO_SPEECH) only as
-    the first or the last segment, where Whisper invents it. When no kept segment would have text, all are kept: a short
-    real phrase can score like silence, and the edge trim and the silence gate deal with real silence."""
+    the first or the last segment, where Whisper invents it. When no kept segment would have text, all but the loops are
+    kept: a short real phrase can score like silence, and the edge trim and the silence gate deal with real silence; a
+    loop has no real words to keep, so an answer that is only a loop gives nothing."""
     n = len(segments)
-    keep = [not ((s["compression"] > SEG_COMPRESSION and _repeats(s["text"]))
-                 or ((i == 0 or i == n - 1) and s["logprob"] < SEG_LOGPROB and s["no_speech"] > SEG_NO_SPEECH))
+    loop = [s["compression"] > SEG_COMPRESSION and _repeats(s["text"]) for s in segments]
+    keep = [not (loop[i] or ((i == 0 or i == n - 1) and s["logprob"] < SEG_LOGPROB and s["no_speech"] > SEG_NO_SPEECH))
             for i, s in enumerate(segments)]
     if not any(k and s["text"] for k, s in zip(keep, segments)):
-        return [True] * n
+        return [not x for x in loop]
     return keep
 
 

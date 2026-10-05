@@ -208,20 +208,21 @@ public final class ApiClient {
     /**
      * Which segments of a dictation to keep (vox_core.segments_kept): a loop (compression above SEG_COMPRESSION and its text
      * repeats) goes anywhere; silence filled with words only as the first or the last segment. When no kept segment would
-     * have text, all are kept: a short real phrase can score like silence; the edge trim and silence gate handle silence.
+     * have text, all but the loops are kept: a short real phrase can score like silence; the edge trim and silence gate
+     * handle silence. A loop has no real words to keep, so an answer that is only a loop gives nothing.
      */
     static boolean[] segmentsKept(List<Segment> segs) {
         int n = segs.size();
-        boolean[] keep = new boolean[n];
+        boolean[] keep = new boolean[n], loop = new boolean[n];
         boolean anyText = false;
         for (int i = 0; i < n; i++) {
             Segment s = segs.get(i);
-            boolean loop = s.compression > SEG_COMPRESSION && repeats(s.text);
+            loop[i] = s.compression > SEG_COMPRESSION && repeats(s.text);
             boolean silence = (i == 0 || i == n - 1) && s.logprob < SEG_LOGPROB && s.noSpeech > SEG_NO_SPEECH;
-            keep[i] = !(loop || silence);
+            keep[i] = !(loop[i] || silence);
             if (keep[i] && !s.text.isEmpty()) anyText = true;
         }
-        if (!anyText) java.util.Arrays.fill(keep, true);
+        if (!anyText) for (int i = 0; i < n; i++) keep[i] = !loop[i];
         return keep;
     }
 

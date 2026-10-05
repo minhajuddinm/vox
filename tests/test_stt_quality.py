@@ -217,6 +217,16 @@ def test_an_answer_the_filter_would_empty_is_kept_and_the_silence_phrase_check_s
     assert core.process_text(_cfg(cleanup=False), "Thanks for watching!", "x.exe", "x").text == ""
 
 
+def test_an_answer_that_is_only_a_loop_gives_nothing(monkeypatch):
+    # leftovers: the keep-everything rule above brought a confirmed loop back and it was pasted; a loop has no real words
+    loop = " ".join(["हम लोग"] * 6)
+    body = {"text": loop, "segments": [{"start": 0, "end": 3, "text": loop, "avg_logprob": -0.2, "no_speech_prob": 0.0,
+                                        "compression_ratio": 2.6}]}
+    monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer(body))
+    assert core.transcribe(_cfg(), b"RIFF") == "" and core.last_segments() is None
+    assert core.process_text(_cfg(cleanup=False), "", "x.exe", "x").text == ""   # nothing is typed
+
+
 def test_hindi_in_devanagari_is_not_a_loop_and_a_quiet_middle_segment_stays(monkeypatch):
     hindi = "कल सुबह हम लोग दफ़्तर जाएंगे और फिर दोपहर में मीटिंग होगी जिसके बाद रिपोर्ट भेजनी है"
     body = {"text": "Okay. " + hindi + " Done.", "segments": [
