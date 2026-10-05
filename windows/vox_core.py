@@ -2325,11 +2325,33 @@ class ApiError(Exception):
 
 
 _session = requests.Session()   # keeps connections open, so a dictation does not pay the TLS handshake again
+MAX_ANSWER_BYTES = 8_000_000   # the most of an AI server's answer read (SEC-9; the relay and the phone use 8 MB too)
+TOO_BIG = "The server's answer was over 8 MB, so Vox stopped reading it"
 
 
 def _post(url, **kw):
     kw.setdefault("allow_redirects", False)   # a redirect would send the audio or the text to an address no rule checked (SEC-6)
-    return _session.post(url, **kw)
+    return read_capped(_session.post(url, stream=True, **kw))
+
+
+def read_capped(r, cap=MAX_ANSWER_BYTES):
+    """`r` with its body read, at most `cap` bytes: a broken or hostile server that sends gigabytes would otherwise fill
+    the memory (SEC-9). Raises ApiError (not retried) and drops the connection when the answer is bigger."""
+    if not isinstance(r, requests.Response):   # a stand-in answer of a test: its body is there already
+        return r
+    body, size = [], 0
+    try:
+        for chunk in r.iter_content(65536):
+            size += len(chunk)
+            if size > cap:
+                raise ApiError(0, TOO_BIG)
+            body.append(chunk)
+    except ApiError:
+        r.close()   # not all read: the connection is dropped
+        raise
+    r._content = b"".join(body)   # what r.content, r.text and r.json() read from now on
+    r.close()   # all read: the connection goes back to the session's pool for the next request
+    return r
 
 
 def warm(cfg):
@@ -2347,7 +2369,7 @@ def warm(cfg):
             return      # the relay did not prove it holds the token: nothing goes there
         for base, headers in targets.items():
             try:
-                _session.get(f"{base}/models", headers=headers, timeout=3, allow_redirects=False)
+                read_capped(_session.get(f"{base}/models", headers=headers, timeout=3, allow_redirects=False, stream=True))
             except Exception:
                 pass
 
