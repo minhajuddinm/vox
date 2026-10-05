@@ -137,12 +137,21 @@ public final class RelayIntegrationTest {
             f.delete();   // best effort: a leftover temp folder is not a failure
         }
 
+        /** The admin token in relay.json (bf-e SEC-4: changing the AI server needs it). */
+        String adminToken() {
+            return valueIn(new File(root, "data"), "admin_token");
+        }
+
         /** The token in relay.json, or null while the relay has not made the file yet. */
         private static String tokenIn(File data) {
+            return valueIn(data, "token");
+        }
+
+        private static String valueIn(File data, String key) {
             try {
                 String json = new String(Files.readAllBytes(new File(data, "relay.json").toPath()), StandardCharsets.UTF_8);
                 Object cfg = PlainJson.parse(json);
-                Object token = cfg instanceof Map ? ((Map<?, ?>) cfg).get("token") : null;
+                Object token = cfg instanceof Map ? ((Map<?, ?>) cfg).get(key) : null;
                 return token instanceof String && !((String) token).isEmpty() ? (String) token : null;
             } catch (IOException | IllegalArgumentException notThereYet) {
                 return null;
@@ -370,7 +379,7 @@ public final class RelayIntegrationTest {
         eq("check: says what the relay holds", "Connected. The relay holds 0 notes.", good.message);
         RelayClient.Check bad = RelayClient.check(relay.url, "not-the-token", "phone-a");
         eq("check: a wrong token is refused", false, bad.ok);
-        eq("check: in plain words", "The relay refused the token.", bad.message);
+        eq("check: in plain words (bf-e SEC-2: the relay first proves it holds the token, so a wrong one is never sent)", RelayProof.NOT_PROVEN, bad.message);
         eq("check: the relay's version is reported (the relay sends a short string such as 0.2)", true, good.relayVersion.matches("[0-9]+([.][0-9]+)*"));
         eq("check: reachable and the token took", "true/true/phone-a", good.reachable + "/" + good.tokenOk + "/" + good.deviceName);
         eq("check: a wrong token is reachable but not accepted", "true/false/", bad.reachable + "/" + bad.tokenOk + "/" + bad.relayVersion);
@@ -390,7 +399,7 @@ public final class RelayIntegrationTest {
         eq("devices: both phones are listed (the harness's own start-up probe is a device too)", "[it-probe, phone-a, phone-b]", names.toString());
         eq("devices: the asking phone is marked, only it", "phone-b", mine);
         RelayClient.DeviceList bad = RelayClient.listDevices(relay.url, "not-the-token", "phone-b", System.currentTimeMillis() / 1000.0);
-        eq("devices: a wrong token is refused in plain words", "false/The relay refused the token./0", bad.ok + "/" + bad.error + "/" + bad.rows.size());
+        eq("devices: a wrong token is refused in plain words (and never sent)", "false/" + RelayProof.NOT_PROVEN + "/0", bad.ok + "/" + bad.error + "/" + bad.rows.size());
     }
 
     /** A adds a note and syncs; B syncs and has the same note, field for field. Returns the note's time. */
@@ -563,7 +572,7 @@ public final class RelayIntegrationTest {
     private static void wrongToken(RealRelay relay, Phone a, double t) throws Exception {
         Phone x = new Phone("phone-x", relay.url, "not-the-token");
         x.store.add(id(3), "never sent", t + 1);
-        eq("401: a plain message", "0/0/The relay refused the token./", outcome(x.sync()));
+        eq("401: a plain message (bf-e SEC-2: the token is not even sent)", "0/0/" + RelayProof.NOT_PROVEN + "/", outcome(x.sync()));
         eq("401: the note is still waiting", true, x.note(id(3)).dirty);
         eq("401: the cursor did not move", "0", x.store.getMeta("relay_cursor", "0"));
         eq("401: nothing reached the relay", null, onRelay(a, id(3)));

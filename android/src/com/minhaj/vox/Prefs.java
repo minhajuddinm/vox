@@ -36,6 +36,19 @@ public final class Prefs {
 
     public Prefs(Context c) {
         sp = c.getApplicationContext().getSharedPreferences("vox", Context.MODE_PRIVATE);
+        RelayProof.pins = new RelayProof.Pins() {   // the relay addresses that proved they hold the token (SEC-2), kept
+            @Override
+            public boolean has(String origin) {
+                return sp.getStringSet("relay_proven", java.util.Collections.<String>emptySet()).contains(origin);
+            }
+
+            @Override
+            public void add(String origin) {
+                java.util.Set<String> s = new java.util.HashSet<>(sp.getStringSet("relay_proven", java.util.Collections.<String>emptySet()));
+                s.add(origin);
+                sp.edit().putStringSet("relay_proven", s).apply();
+            }
+        };
     }
 
     public String apiKey() { return sp.getString("api_key", "").trim(); }

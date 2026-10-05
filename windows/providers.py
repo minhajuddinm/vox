@@ -204,6 +204,9 @@ def list_models(cfg, role):
     if problem:
         return {"models": [], "error": problem}
     headers = {"Authorization": f"Bearer {key}"} if key else {}
+    problem = core.relay_proof_problem(base, headers) if uses_relay(cfg) else ""
+    if problem:
+        return {"models": [], "error": problem}
     try:
         r = core.requests.get(f"{base}/models", headers=headers, timeout=5)
         if r.status_code == 404 and base.endswith("/v1"):   # Ollama also answers on its own path
@@ -240,6 +243,9 @@ def test(cfg, role):
     if key_missing({"base_url": base, "api_key": key}):
         return {"ok": False, "status": 0, "ms": 0, "message": "Add an API key for this server first."}
     headers = {"Authorization": f"Bearer {key}"} if key else {}
+    problem = core.relay_proof_problem(base, headers) if uses_relay(cfg) else ""
+    if problem:
+        return {"ok": False, "status": 0, "ms": 0, "message": problem}
     started = time.time()
     try:
         if role == "stt":

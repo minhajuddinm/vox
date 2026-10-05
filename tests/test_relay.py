@@ -1,6 +1,7 @@
 """The relay: auth, note sync (sequence cursor, last writer wins, delete markers), search, profile versions, limits."""
 import http.client
 import json
+import sys
 import threading
 import time
 import uuid
@@ -472,3 +473,41 @@ def test_an_idle_kept_alive_connection_is_not_cut_by_the_header_deadline(tmp_pat
         c.close()
         srv.shutdown()
         srv.server_close()
+
+
+# --------------------------------------------------------------- bf-e: SEC-2 (the relay proves it holds the token)
+def _proof(token, nonce):
+    import hashlib
+    import hmac
+    return hmac.new(token.encode(), ("vox-relay-proof:" + nonce).encode(), hashlib.sha256).hexdigest()
+
+
+def test_the_relay_proves_it_holds_the_token_without_being_sent_it(server):
+    anon = Client(server, token=None)
+    nonce = "a" * 32
+    st, out = anon.call("GET", "/proof?nonce=" + nonce)
+    assert st == 200 and out["proof"] == _proof(server.token, nonce) and server.token not in json.dumps(out)
+    st2, out2 = anon.call("GET", "/proof?nonce=" + "b" * 32)
+    assert out2["proof"] != out["proof"]
+
+
+@pytest.mark.parametrize("query", ["", "?nonce=", "?nonce=short", "?nonce=" + "x" * 200, "?nonce=has%20space" + "a" * 20])
+def test_a_proof_needs_a_sensible_nonce(server, query):
+    assert Client(server, token=None).call("GET", "/proof" + query)[0] == 400
+
+
+def test_a_proof_request_is_not_a_logged_in_request(server):
+    Client(server, token=None).call("GET", "/proof?nonce=" + "c" * 32)
+    assert server.recent() == [] and server.status()["requests"]["auth_failures"] == 0
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="SO_EXCLUSIVEADDRUSE is Windows only")
+def test_on_windows_no_other_program_can_bind_the_relays_port_while_it_runs(server):
+    import socket
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        with pytest.raises(OSError):
+            s.bind(("127.0.0.1", server.server_address[1]))
+    finally:
+        s.close()

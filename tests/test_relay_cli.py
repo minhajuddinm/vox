@@ -183,11 +183,12 @@ def test_a_launcher_error_is_reported_not_raised(tmp_path):
 
 
 def test_start_does_not_launch_a_second_relay_on_a_port_that_is_already_serving(tmp_path):
-    """On Windows the relay's own bind would succeed on a taken port (SO_REUSEADDR), so the host checks first."""
+    """The host checks first, so the user hears why (the relay's exclusive bind would just stop it at once)."""
     h = Host(tmp_path, port=8770, busy=True)
     assert h.host.start() is False
     assert h.cmds == [] and not h.host.running()
     assert len(h.messages) == 1 and "8770" in h.messages[0] and "already" in h.messages[0]
+    assert "token" in h.messages[0] and "netstat" in h.messages[0]     # bf-e SEC-2: said as the possible attack it is
 
 
 def test_port_busy_sees_a_real_listener():

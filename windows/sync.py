@@ -4,11 +4,14 @@ Offline-first: the notes always work locally; syncing is best effort and every f
 Protocol: documentation/14-relay.md. Rules: the newer `updated_at` wins, deletes travel as markers, the relay's
 sequence number is the cursor for "what is new".
 """
+import hashlib
+import hmac
 import json
 import logging
 import math
 import platform
 import re
+import secrets
 import threading
 import time
 
@@ -106,13 +109,92 @@ def problem(url, token):
     return ""
 
 
+# ------------------------------------------------------------------ the relay's proof (SEC-2)
+# The token is sent only to a relay that has shown it holds it: GET /proof?nonce=N (no token) must answer
+# HMAC-SHA256(token, "vox-relay-proof:" + N). Whatever squats on the relay's port while the relay is down gets nothing.
+# A relay from before /proof answers 401: it is still used (with a warning) until its address has once proved itself;
+# from then on a missing proof is refused. Android twin: RelayProof.java.
+PROOF_TTL = 120           # seconds a proof (or "an old relay") is trusted before the relay is asked again
+NOT_PROVEN = ("The relay did not prove it holds this token, so the token was not sent. Either the token is wrong, or "
+              "another program is answering at the relay's address.")
+NO_LONGER = ("This relay proved it holds the token before and now does not, so the token was not sent: another program may "
+             "be answering at its address. If you went back to an older relay, update it.")
+OLD_RELAY = "This relay is too old to prove it holds the token before Vox sends it: update it."
+_proofs = {}              # (origin, token) -> (time.monotonic() of the answer, "proven" or "old relay")
+_proof_lock = threading.Lock()
+
+
+def proof_of(token, nonce):
+    return hmac.new(token.encode("utf-8"), ("vox-relay-proof:" + nonce).encode("ascii"), hashlib.sha256).hexdigest()
+
+
+def _proven_origins():
+    try:
+        out = json.loads(notes.get_meta("relay_proven", "[]") or "[]")
+    except ValueError:
+        return []
+    return out if isinstance(out, list) else []
+
+
+def forget_proof(url):
+    """The relay at `url` is asked to prove itself again before the next request (a connection to it failed: it may
+    have stopped, and something else may take its port)."""
+    origin = origin_of(url)
+    with _proof_lock:
+        for key in [k for k in _proofs if k[0] == origin]:
+            del _proofs[key]
+
+
+def prove_relay(url, token):
+    """Makes sure the relay at `url` holds `token` before the token is sent there. Returns "proven", or "old relay" (a
+    relay without /proof whose address never proved itself: used, with OLD_RELAY as the warning). Raises SyncError.
+    A good answer is kept for PROOF_TTL seconds."""
+    url, token = (url or "").strip().rstrip("/"), (token or "").strip()
+    key = (origin_of(url), token)
+    with _proof_lock:
+        hit = _proofs.get(key)
+        if hit and time.monotonic() - hit[0] < PROOF_TTL:
+            return hit[1]
+    nonce = secrets.token_hex(16)
+    try:
+        r = _session.get(url + "/proof?nonce=" + nonce, timeout=TIMEOUT, allow_redirects=False)
+    except requests.RequestException as e:
+        if core.refused_plain_http(e):
+            raise SyncError(core.PLAIN_HTTP_ELSEWHERE)
+        raise SyncError("Cannot reach the relay (is Tailscale running?): " + type(e).__name__)
+    pinned = key[0] in _proven_origins()
+    if r.status_code == 200:
+        try:
+            proof = r.json().get("proof")
+        except (ValueError, AttributeError):
+            proof = None
+        if not isinstance(proof, str) or not hmac.compare_digest(proof.encode("utf-8", "replace"), proof_of(token, nonce).encode()):
+            raise SyncError(NOT_PROVEN, 401)
+        if not pinned:
+            notes.set_meta("relay_proven", json.dumps(_proven_origins() + [key[0]]))
+        result = "proven"
+    elif r.status_code in (401, 404):     # a relay from before /proof checks the token first: 401
+        if pinned:
+            raise SyncError(NO_LONGER, 401)
+        log.warning("the relay has no /proof: it is too old to prove it holds the token")
+        result = "old relay"
+    else:
+        raise SyncError(f"The relay answered HTTP {r.status_code}.", r.status_code)
+    with _proof_lock:
+        _proofs[key] = (time.monotonic(), result)
+    return result
+
+
 def _call(method, url, path, token, device, headers=None, allow=(), **kw):
-    """(status, JSON body). Statuses in `allow` are returned; other failures raise SyncError."""
+    """(status, JSON body). Statuses in `allow` are returned; other failures raise SyncError. The relay proves it holds
+    the token first (prove_relay)."""
+    prove_relay(url, token)
     h = {"Authorization": "Bearer " + token, "X-Vox-Device": _ascii_name(device)}   # a header is latin-1: spelled as Android does
     h.update(headers or {})
     try:
         r = _session.request(method, url + path, headers=h, timeout=TIMEOUT, **kw)
     except requests.RequestException as e:
+        forget_proof(url)
         if core.refused_plain_http(e):
             raise SyncError(core.PLAIN_HTTP_ELSEWHERE)
         raise SyncError("Cannot reach the relay (is Tailscale running?): " + type(e).__name__)
@@ -168,7 +250,10 @@ def test_relay(url, token, device="Vox"):
         h = _request("GET", url.strip().rstrip("/"), "/health", token.strip(), device)
     except SyncError as e:
         return relay_check(e.status, None, device, str(e))
-    return relay_check(200, h, device)
+    out = relay_check(200, h, device)
+    if out["ok"] and prove_relay(url, token) == "old relay":     # (kept from the call above: no new request)
+        out["message"] += " " + OLD_RELAY
+    return out
 
 
 # ------------------------------------------------------------------ the devices list

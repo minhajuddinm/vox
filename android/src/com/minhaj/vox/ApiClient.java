@@ -44,6 +44,7 @@ public final class ApiClient {
         String problem = Endpoint.error(base);
         if (problem == null) problem = Endpoint.resolvedError(base);
         if (problem != null) throw new IOException(problem);   // the same address rule as every other call: never send the key to a refused address
+        relayProof();
         HttpURLConnection c = (HttpURLConnection) new URL(base + "/models").openConnection();
         c.setConnectTimeout(15000);
         c.setReadTimeout(15000);
@@ -673,6 +674,7 @@ public final class ApiClient {
         if (aborted) throw new IOException("cancelled");
         String problem = Endpoint.resolvedError(base);
         if (problem != null) throw new IOException(problem);
+        relayProof();
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         active = c;
         if (aborted) throw new IOException("cancelled");
@@ -688,6 +690,7 @@ public final class ApiClient {
         String problem = Endpoint.error(base);
         if (problem == null) problem = Endpoint.resolvedError(base);
         if (problem != null) throw new IOException(problem);
+        relayProof();
         if (aborted) throw new IOException("cancelled");
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         active = c;
@@ -697,6 +700,19 @@ public final class ApiClient {
         c.setReadTimeout(readMs);
         if (!apiKey.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + apiKey);
         return c;
+    }
+
+    /**
+     * With the relay as the AI server (the address is {relay}/proxy/stt or /proxy/llm, Providers.proxyUrl) the key is the
+     * relay token: the relay proves it holds it first (RelayProof, SEC-2), or nothing is sent.
+     */
+    private void relayProof() throws IOException {
+        if (!base.endsWith("/proxy/stt") && !base.endsWith("/proxy/llm")) return;
+        try {
+            RelayProof.check(base.substring(0, base.length() - "/proxy/stt".length()), apiKey);
+        } catch (RelayApi.RelayError e) {
+            throw new IOException(e.message);
+        }
     }
 
     private static JSONObject readJson(HttpURLConnection c) throws IOException {

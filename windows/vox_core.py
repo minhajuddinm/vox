@@ -1056,6 +1056,8 @@ def warm(cfg):
         targets.setdefault(api_base(cfg, role), auth_headers(cfg, role))
 
     def run():
+        if providers.uses_relay(cfg) and relay_proof_problem(cfg.get("relay_url") or "", auth_headers(cfg, "stt")):
+            return      # the relay did not prove it holds the token: nothing goes there
         for base, headers in targets.items():
             try:
                 _session.get(f"{base}/models", headers=headers, timeout=3)
@@ -1078,10 +1080,26 @@ def retryable(status, timeout, via_relay):
     return status == 0 or status in RETRY_STATUS
 
 
+def relay_proof_problem(url, headers):
+    """'' when the relay behind `url` (its address, or one of its /proxy/ addresses) has proved it holds the token in
+    `headers` (sync.prove_relay, SEC-2), else why the token must not go there."""
+    import sync
+    token = ((headers or {}).get("Authorization") or "")[len("Bearer "):]
+    try:
+        sync.prove_relay(url.split("/proxy/", 1)[0], token)
+    except sync.SyncError as e:
+        return str(e)
+    return ""
+
+
 def post_with_retry(url, retries=2, via_relay=False, **kw):
     """POST with a quick retry on dropped connections (flaky Wi-Fi, VPNs, antivirus TLS inspection)
     and on temporary server errors (see `retryable`; `via_relay` says the relay is the server). The last response is
-    returned as it is."""
+    returned as it is. Through the relay, the relay first proves it holds the token (ApiError when it does not)."""
+    if via_relay:
+        problem = relay_proof_problem(url, kw.get("headers"))
+        if problem:
+            raise ApiError(0, problem)
     for attempt in range(retries + 1):
         try:
             if "files" in kw:   # file objects must be re-sent from the start

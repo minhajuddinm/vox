@@ -13,6 +13,7 @@ Protocol and decisions: documentation/14-relay.md and documentation/decisions/00
 import argparse
 import collections
 import contextlib
+import hashlib
 import hmac
 import http.client
 import ipaddress
@@ -58,6 +59,7 @@ MAX_CONNECTIONS = 64        # connections served at once (one thread each); the 
 HEADER_DEADLINE = 10        # seconds from the first byte of a request to the end of its headers, however slowly they come
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 ID_IN_PATH = re.compile(r"[0-9a-f]{32}")
+NONCE_RE = re.compile(r"[A-Za-z0-9_-]{16,128}")
 SECRET_WORDS = ("key", "token", "secret", "password")
 NOTE_FIELDS = ("id", "source", "title", "text", "raw", "created_at", "updated_at", "secs", "device", "tags", "deleted")
 
@@ -174,6 +176,13 @@ def clean_note(raw, note_id=None):
         "tags": [] if deleted else tags,
         "deleted": deleted,
     }
+
+
+def token_proof(token, nonce):
+    """What GET /proof answers: HMAC-SHA256 of the client's nonce, keyed with the token. A client checks it before it
+    sends the token, so a program squatting on the relay's port (the relay not running) never receives it. The token
+    cannot be worked out from proofs (windows/sync.py prove_relay, android RelayProof)."""
+    return hmac.new(token.encode("utf-8"), ("vox-relay-proof:" + nonce).encode("ascii"), hashlib.sha256).hexdigest()
 
 
 def mask_secrets(value, key=""):
@@ -451,6 +460,8 @@ def load_config(data_dir, port=None, owner=None):
     changed = not os.path.exists(path)
     if not cfg.get("token"):
         cfg["token"], changed = secrets.token_urlsafe(32), True
+    if not cfg.get("admin_token"):     # rotate the token, change the AI servers: never given to devices (SEC-4)
+        cfg["admin_token"], changed = secrets.token_urlsafe(32), True
     if port is not None and cfg.get("port") != port:
         cfg["port"], changed = port, True
     if owner is not None and cfg.get("owner") != owner:
@@ -827,9 +838,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _authorised(self):
-        given = self.headers.get("Authorization", "")
-        want = "Bearer " + self.server.token
-        if not hmac.compare_digest(given.encode("utf-8"), want.encode("utf-8")):
+        """The device token or the admin token (which also signs in to the page). Sets self._is_admin."""
+        given = self.headers.get("Authorization", "").encode("utf-8")
+        self._is_admin = bool(self.server.admin_token) and hmac.compare_digest(given, ("Bearer " + self.server.admin_token).encode("utf-8"))
+        if not self._is_admin and not hmac.compare_digest(given, ("Bearer " + self.server.token).encode("utf-8")):
             self.server.auth_failed()
             self._send(401, {"error": "missing or wrong token"})
             return False
@@ -892,6 +904,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._page()   # only the page shell: no data, the token is asked for in the browser
         if method == "GET" and parts == ["favicon.ico"]:
             return self._send(204, b"", "image/x-icon")
+        if method == "GET" and parts == ["proof"]:   # before the token check: the client has not sent it yet
+            nonce = parse_qs(u.query).get("nonce", [""])[0]
+            if not NONCE_RE.fullmatch(nonce):
+                return self._send(400, {"error": "send ?nonce= with 16 to 128 letters, digits, - or _"})
+            return self._send(200, {"proof": token_proof(self.server.token, nonce), "version": RELAY_VERSION})
         if not self._authorised():
             # the path of a refused request is the sender's own text: it is not shown on the management page
             self.server.record(method, "(refused)", self._status, "")
@@ -1066,7 +1083,10 @@ class Handler(BaseHTTPRequestHandler):
         srv, store = self.server, self.server.store
         what = parts[1] if len(parts) == 2 else ""
         if method == "GET" and what == "status":
-            return self._send(200, srv.status())
+            return self._send(200, dict(srv.status(), admin=self._is_admin))
+        if what in ("rotate-token", "upstream") and method != "GET" and not self._is_admin:
+            # The device token must not lock the owner out or choose where the dictations go (SEC-4): devices do not hold this one.
+            return self._send(403, {"error": "this needs the admin token (admin_token in relay.json, or run the relay with --show-token)"})
         if method == "GET" and what == "activity":
             return self._send(200, {"events": srv.recent(), "devices": store.devices()})
         if method == "GET" and what == "profile":
@@ -1126,10 +1146,19 @@ class Handler(BaseHTTPRequestHandler):
 
 class RelayServer(ThreadingHTTPServer):
     daemon_threads = True
+    # Windows: SO_REUSEADDR would let another program (another user's too) bind the same port while the relay runs and
+    # take its connections when it stops; SO_EXCLUSIVEADDRUSE (server_bind) refuses them.
+    allow_reuse_address = sys.platform != "win32"
 
-    def __init__(self, addr, store, token, owner="", data_dir=None, upstream=None):
+    def server_bind(self):
+        if sys.platform == "win32" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+    def __init__(self, addr, store, token, owner="", data_dir=None, upstream=None, admin_token=""):
         super().__init__(addr, Handler)
         self.store, self.token, self.owner, self.data_dir = store, token, owner, data_dir
+        self.admin_token = admin_token or ""     # "" (a server made without one, tests): no admin calls at all
         self.upstream = upstream_settings(upstream)   # replaced as a whole, never changed in place
         self.config_lock = threading.Lock()           # one writer at a time for relay.json
         self.proxy_running = threading.BoundedSemaphore(2 * PROXY_SLOTS)   # exchanges alive at all, abandoned ones included
@@ -1257,7 +1286,8 @@ def make_server(data_dir, port=None, owner=None, use_fts=True):
     cfg = load_config(data_dir, port=port if port else None, owner=owner)
     listen = cfg["port"] if port is None else port
     store = RelayStore(os.path.join(data_dir, "relay.db"), use_fts=use_fts)
-    return RelayServer(("127.0.0.1", listen), store, cfg["token"], cfg.get("owner", ""), data_dir=data_dir, upstream=cfg.get("upstream"))
+    return RelayServer(("127.0.0.1", listen), store, cfg["token"], cfg.get("owner", ""), data_dir=data_dir, upstream=cfg.get("upstream"),
+                       admin_token=cfg["admin_token"])
 
 
 def main(argv=None):
@@ -1277,8 +1307,9 @@ def main(argv=None):
     print(f"Management page: open that address in a browser. Data folder: {args.data_dir}", flush=True)
     if args.show_token:
         print("Token:", server.token, flush=True)
+        print("Admin token:", server.admin_token, "(the management page's AI server and token changes; never put it on a device)", flush=True)
     else:
-        print(f"The token is in {os.path.join(args.data_dir, 'relay.json')} (run with --show-token to print it).", flush=True)
+        print(f"The token and the admin token are in {os.path.join(args.data_dir, 'relay.json')} (run with --show-token to print them).", flush=True)
 
     def stop(*_):   # systemd sends SIGTERM
         threading.Thread(target=server.shutdown, daemon=True).start()
@@ -1365,6 +1396,7 @@ const TABS = [["overview", "Overview"], ["notes", "Notes"], ["activity", "Device
 async function api(path, opts) {
   const o = opts || {};
   const r = await fetch(path, { method: o.method || "GET", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: o.body });
+  if (r.status === 403 && o.admin) throw new Error("This needs the admin token (admin_token in relay.json). Sign out and sign in with it.");
   if (r.status === 401 || r.status === 403) { signOut(); throw new Error("Not allowed"); }
   return r;
 }
@@ -1452,7 +1484,7 @@ async function upstream() {
     };
     const send = async (body, done) => {
       try {
-        const r = await api("/admin/upstream", { method: "PUT", body: JSON.stringify(Object.assign({ role: id }, body)) });
+        const r = await api("/admin/upstream", { method: "PUT", admin: true, body: JSON.stringify(Object.assign({ role: id }, body)) });
         const out = await r.json();
         if (!r.ok) { msg.className = "bad"; msg.textContent = out.error || "Could not save."; return; }
         paint(out[id]); msg.className = "ok"; msg.textContent = done;
@@ -1469,7 +1501,7 @@ async function upstream() {
   };
   $("#view").replaceChildren(
     h("div", { class: "box" }, h("h2", {}, "AI server (proxy)"),
-      h("p", { class: "muted" }, "The server the relay sends each kind of request to, and the key it uses there. A key is write-only: it is stored on this machine and used by the relay, and it is never shown again, not even here. Changing the address removes the saved key unless you type a new one. Plain http is only accepted for this machine, your local network and Tailscale.")),
+      h("p", { class: "muted" }, "Changes here need the admin token (admin_token in relay.json), not the token your devices use. The server the relay sends each kind of request to, and the key it uses there. A key is write-only: it is stored on this machine and used by the relay, and it is never shown again, not even here. Changing the address removes the saved key unless you type a new one. Plain http is only accepted for this machine, your local network and Tailscale.")),
     role("stt", "Speech to text", "Turns a recording into text."),
     role("llm", "Text cleanup", "Tidies the text after it has been transcribed."));
 }
@@ -1490,8 +1522,8 @@ async function tools() {
       h("div", { class: "row" }, h("button", { class: "b g", onclick: act(async () => { const r = await (await api("/admin/vacuum", { method: "POST", body: "{}" })).json(); say("Compacted. Database is now " + bytes(r.db_bytes) + "."); }) }, "Compact database")),
       h("div", { class: "row" }, "Forget delete markers older than ", days, " days ", h("button", { class: "b g", onclick: act(async () => { const r = await (await api("/admin/purge", { method: "POST", body: JSON.stringify({ days: +days.value }) })).json(); say(r.removed + " markers removed."); }) }, "Purge")),
       h("p", { class: "muted" }, "A phone that was offline for longer than that could bring a deleted note back.")),
-    h("div", { class: "box" }, h("h2", {}, "Token"), h("p", { class: "muted" }, "Makes a new token and stops the old one working at once. Every device then needs the new token."),
-      h("button", { class: "b d", onclick: act(async () => { if (!confirm("Make a new token? All devices will be signed out until you enter it.")) return; const r = await (await api("/admin/rotate-token", { method: "POST", body: "{}" })).json(); token = r.token; (localStorage.getItem("vrt") ? localStorage : sessionStorage).setItem("vrt", token); out.textContent = token; out.hidden = false; say("New token (copy it now, it is not shown again):"); }) }, "Make a new token"),
+    h("div", { class: "box" }, h("h2", {}, "Token"), h("p", { class: "muted" }, "Makes a new token and stops the old one working at once. Every device then needs the new token. Needs the admin token (admin_token in relay.json), which devices never hold."),
+      h("button", { class: "b d", onclick: act(async () => { if (!confirm("Make a new token? All devices will be signed out until you enter it.")) return; const r = await (await api("/admin/rotate-token", { method: "POST", admin: true, body: "{}" })).json(); out.textContent = r.token; out.hidden = false; say("New token for your devices (copy it now, it is not shown again). You stay signed in with the admin token."); }) }, "Make a new token"),
       h("pre", { id: "newtok", hidden: "" })), msg);
   var out = $("#newtok");
 }
