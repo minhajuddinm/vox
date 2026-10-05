@@ -424,3 +424,13 @@ def test_android_bridge_has_getmics_and_setmic_and_the_recorder_prefers_the_choi
     assert "mic_device" in read(os.path.join(d, "Prefs.java"))
     # per phone: the key is not one of the profile fields that travel through the relay
     assert "mic_device" not in read(os.path.join(d, "ProfileMap.java"))
+
+
+def test_windows_deletes_that_cannot_be_undone_take_two_clicks():
+    # DAT-8 of the v2 review: one misclick deleted a whole meeting, all history or a note on every device
+    assert "function confirmed(b" in WINDOWS_PAGE
+    clear = WINDOWS_PAGE.split('$("clear-hist").onclick', 1)[1].split("\n};", 1)[0]
+    meeting = WINDOWS_PAGE.split('$("md-del").onclick', 1)[1].split("};", 1)[0]
+    note = WINDOWS_PAGE.split('b.dataset.act === "del"', 1)[1].split("\n", 1)[0]
+    for handler, call in ((clear, "clear_history"), (meeting, "meeting_delete"), (note, "note_delete")):
+        assert "confirmed(" in handler and handler.index("confirmed(") < handler.index(call)

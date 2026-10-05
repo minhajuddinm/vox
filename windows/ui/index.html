@@ -110,6 +110,7 @@ kbd { font: 600 12px "Segoe UI", sans-serif; background: var(--panel); border: 1
 .icon-btn { all: unset; cursor: pointer; width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; color: var(--muted); }
 .icon-btn:hover { background: var(--bg); color: var(--text); }
 .icon-btn svg { width: 15px; height: 15px; }
+.icon-btn.confirm { width: auto; padding: 0 8px; color: var(--danger); font-size: 12px; font-weight: 650; }
 .fix { margin-top: 8px; }
 .fix-text { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); resize: vertical; }
 .fix-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
@@ -606,6 +607,13 @@ let S = null;
 let modelsLoaded = false;   // not part of S: refresh() replaces S every few seconds, and the lists should be fetched once
 const api = () => window.pywebview.api;
 
+// Deleting cannot be undone, so it takes two clicks (as on Android): the first turns the button into a question for 3 s.
+function confirmed(b, ask = "Delete?") {
+  if (b.classList.contains("confirm")) { clearTimeout(b._arm); return true; }
+  const was = b.innerHTML; b.classList.add("confirm"); b.textContent = ask;
+  b._arm = setTimeout(() => { b.classList.remove("confirm"); b.innerHTML = was; }, 3000);
+  return false;
+}
 // True when saved. A save that fails says so and redraws the page from the file, so no control shows a value that is not saved.
 async function save(part, msg = "Saved") {
   Object.assign(S.config, part);
@@ -655,7 +663,7 @@ $("vn-list").onclick = async (e) => {
   const b = e.target.closest("button"); if (!b) return;
   const card = b.closest("[data-id]"), id = card.dataset.id;
   if (b.dataset.act === "copy") { await api().copy(card.querySelector(".vn-text").textContent); toast("Copied"); }
-  else if (b.dataset.act === "del") { await api().note_delete(id); renderVoiceNotes(); }
+  else if (b.dataset.act === "del") { if (!confirmed(b)) return; await api().note_delete(id); renderVoiceNotes(); }
   else if (b.dataset.act === "edit") {
     const t = card.querySelector(".vn-text");
     t.outerHTML = `<textarea class="mynotes vn-edit" style="min-height:110px">${esc(t.textContent)}</textarea>`;
@@ -1190,7 +1198,12 @@ $("improve-remind").onchange = (e) => save({ improve_remind: e.target.checked, i
 $("auto-notes").onchange = (e) => save({ auto_notes: e.target.checked });
 $("open-about").onclick = () => document.querySelector('nav button[data-page="dictionary"]').click();
 $("open-data").onclick = () => api().open_data_folder();
-$("clear-hist").onclick = async () => { await api().clear_history(); await refresh(); toast("History cleared"); };
+$("clear-hist").onclick = async () => {
+  const b = $("clear-hist"); if (!confirmed(b, "Delete every dictation?")) return;
+  b.classList.remove("confirm"); b.textContent = "Clear history";
+  try { await api().clear_history(); } catch (e) { toast("Not cleared: the history file is busy. Try again."); return; }
+  await refresh(); toast("History cleared");
+};
 
 
 // ---------- notes (two-pane, like a notes app: list on the left, meeting on the right)
@@ -1429,7 +1442,8 @@ function renderMeeting(r) {
   $("mh-title").onblur = async (e) => { const t = e.target.textContent.trim(); if (t && t !== m.title) { m.title = await api().meeting_rename(SEL, t); ML = await api().meetings(); renderList(); toast("Renamed"); } };
   $("md-copy").onclick = async () => { await api().copy(`# ${m.title}\n\n${d.summary}`); toast("Summary copied"); };
   $("md-open").onclick = () => api().meeting_open(SEL);
-  $("md-del").onclick = async () => { if (pendingNotes && pendingNotes.mid === SEL) { clearTimeout(pendingNotes.tmr); pendingNotes = null; }   // no save into a deleted meeting
+  $("md-del").onclick = async () => { if (!confirmed($("md-del"))) return;
+    if (pendingNotes && pendingNotes.mid === SEL) { clearTimeout(pendingNotes.tmr); pendingNotes = null; }   // no save into a deleted meeting
     await api().meeting_delete(SEL); SEL = null; DET = null; RIGHT = "empty"; ML = await api().meetings(); renderList(); renderRight(); toast("Deleted"); };
 }
 
