@@ -112,7 +112,7 @@ gate	one two three	casual	false	3	false
 gate	one	casual	true	1	true
 gate	   	casual	true	1	false
 gate	a b c d e f	casual	true	7	false
-gate	a b c	casual	true	banana	true
+gate	a b c	casual	true	banana	false
 gate	a b	casual	true	0	true
 gate	a b c	casual	true	99	false
 # Voice notes: title = first 7 words (notes.auto_title / NoteLogic.autoTitle), ftsq = FTS5 match string
@@ -639,18 +639,18 @@ cleanstrength	STANDARD	standard
 cleanstrength	strict	light
 cleanstrength	banana	light
 # fallback: raw words used when the fidelity guard rejects the AI cleanup: spoken commands applied, sentence starts capitalised
-fallback	hello there	Hello there
-fallback	one new line two three	One\nTwo three
-fallback	hello new paragraph world again	Hello\n\nWorld again
-fallback	it works. then we left? yes! ok	It works. Then we left? Yes! Ok
-fallback	hello?  two spaces	Hello?  Two spaces
-fallback	wait.\nthen go	Wait.\nThen go
-fallback	  leading spaces	Leading spaces
-fallback	Already Fine. but not here	Already Fine. But not here
-fallback	version 2.5 is out	Version 2.5 is out
-fallback	3 apples. then pears	3 apples. Then pears
-fallback	mera naam yuvraj hai. main pune se hoon	Mera naam yuvraj hai. Main pune se hoon
-fallback	नमस्ते दोस्त. ok	नमस्ते दोस्त. Ok
+fallback	hello there	Hello there.
+fallback	one new line two three	One\nTwo three.
+fallback	hello new paragraph world again	Hello\n\nWorld again.
+fallback	it works. then we left? yes! ok	It works. Then we left? Yes! Ok.
+fallback	hello?  two spaces	Hello? Two spaces.
+fallback	wait.\nthen go	Wait.\nThen go.
+fallback	  leading spaces	Leading spaces.
+fallback	Already Fine. but not here	Already Fine. But not here.
+fallback	version 2.5 is out	Version 2.5 is out.
+fallback	3 apples. then pears	3 apples. Then pears.
+fallback	mera naam yuvraj hai. main pune se hoon	Mera naam yuvraj hai. Main pune se hoon.
+fallback	नमस्ते दोस्त. ok	नमस्ते दोस्त. Ok.
 fallback		
 # fuzzydict: dictionary terms (| between terms) applied to the final text (vox_core.fuzzy_dictionary / Terms.fuzzy). A term that is one word of five or more letters fixes the same word in any case. Only a term of seven or more letters also fixes a spelling one letter off (same first letter, not the word with a letter added at the end, not a common English word, not when two terms are equally close): shorter names are too close to ordinary words (Alice and alike, Raven and raved). Other words and multi-word spellings are untouched.
 fuzzydict	Kubernetes|Ada	we deploy on Kubernetis today	we deploy on Kubernetes today
@@ -1204,3 +1204,82 @@ autocorrect	we use dock daily	we use docker daily
 autocorrect	we use dock daily	we use Docker daily	dock=>Docker
 autocorrect	the child is here	the children are here	
 autocorrect	the knife is sharp	the knives are sharp	
+# cq-4: the rules layer (windows/rules_layer.py, RulesLayer.java), used when the AI cleanup was wanted but gave no text
+# (a phrase under cleanup_min_words, an error or timeout, or a rejected answer). rulelayer = style, strength, raw,
+# expected (fallback_text / ApiClient.fallbackText with that style). Only pure noises and spoken punctuation commands
+# go; Standard also takes a typed-value self-correction (same kind on both sides, different values). Hinglish untouched.
+rulelayer	neutral	light	uh hmm um	
+rulelayer	neutral	light	Um.	
+rulelayer	casual	light	Uh, hmm...	
+rulelayer	neutral	light	...	
+rulelayer	neutral	light	um so i was uh thinking we should go tomorrow	So I was thinking we should go tomorrow.
+rulelayer	neutral	light	So, um, I was thinking we should go.	So, I was thinking we should go.
+rulelayer	neutral	light	I was, um, thinking about it	I was, thinking about it.
+rulelayer	neutral	light	I think, um.	I think.
+rulelayer	neutral	light	Is it ready, uh?	Is it ready?
+rulelayer	neutral	light	Okay. Um, so we go	Okay. So we go.
+rulelayer	neutral	light	Umm, uhh, hmmm, ahh, erm, er, uhm it works	It works.
+rulelayer	neutral	light	uh-huh sounds good	Uh-huh sounds good.
+rulelayer	neutral	light	mm-hmm that works	Mm-hmm that works.
+rulelayer	neutral	light	take him to the ER now	Take him to the ER now.
+rulelayer	neutral	light	the screw is 5 mm long	The screw is 5 mm long.
+rulelayer	neutral	light	an umbrella and a hummingbird	An umbrella and a hummingbird.
+rulelayer	neutral	light	hello um new line world	Hello\nWorld.
+rulelayer	neutral	light	kal ka meeting postpone kar do yaar	Kal ka meeting postpone kar do yaar.
+rulelayer	neutral	light	haan accha toh hum kal milte hai na	Haan accha toh hum kal milte hai na.
+rulelayer	neutral	light	arre um matlab bas ho gaya	Arre matlab bas ho gaya.
+rulelayer	neutral	standard	main kal aaunga actually parso	Main kal aaunga actually parso.
+rulelayer	neutral	light	नमस्ते दोस्त um ok	नमस्ते दोस्त ok.
+rulelayer	neutral	standard	send it by thursday no wait friday	Send it by Friday.
+rulelayer	neutral	light	send it by thursday no wait friday	Send it by Thursday no wait Friday.
+rulelayer	neutral	standard	Send it by Thursday. No wait, Friday.	Send it by Friday.
+rulelayer	neutral	standard	I have two actually three kids	I have three kids.
+rulelayer	neutral	standard	we meet at 5 pm sorry 6 pm today	We meet at 6 pm today.
+rulelayer	neutral	standard	the launch is in march I mean april	The launch is in April.
+rulelayer	neutral	standard	five nahi nahi six log aayenge	Six log aayenge.
+rulelayer	neutral	standard	it was actually five people	It was actually five people.
+rulelayer	neutral	standard	on monday actually i will come	On Monday actually I will come.
+rulelayer	neutral	standard	we said five actually five is right	We said five actually five is right.
+rulelayer	neutral	standard	friday sorry five people	Friday sorry five people.
+rulelayer	neutral	standard	tell me one no one knows	Tell me one no one knows.
+rulelayer	neutral	standard	call him at five no six	Call him at five no six.
+rulelayer	neutral	light	please review the doc comma then send it to priya period	Please review the doc, then send it to priya.
+rulelayer	neutral	light	please review the doc, comma, then send it to Priya, period.	Please review the doc, then send it to Priya.
+rulelayer	neutral	light	is the build green question mark	Is the build green?
+rulelayer	neutral	light	we shipped it exclamation mark	We shipped it!
+rulelayer	neutral	light	we are done full stop no more changes	We are done. No more changes.
+rulelayer	neutral	light	the trial period ends on friday	The trial period ends on Friday.
+rulelayer	neutral	light	the notice period is two months	The notice period is two months.
+rulelayer	neutral	light	we need a period of calm	We need a period of calm.
+rulelayer	neutral	light	add a comma here	Add a comma here.
+rulelayer	neutral	light	the values are comma separated	The values are comma separated.
+rulelayer	neutral	light	we came to a full stop	We came to a full stop.
+rulelayer	neutral	light	there is a question mark over it	There is a question mark over it.
+rulelayer	neutral	light	comma hello there friend	Comma hello there friend.
+rulelayer	neutral	light	period	Period.
+rulelayer	neutral	light	hello period new paragraph thanks	Hello.\n\nThanks.
+rulelayer	neutral	light	i think i'm right and i'll go on monday	I think I'm right and I'll go on Monday.
+rulelayer	neutral	light	we may march in may and in august	We may march in may and in August.
+rulelayer	neutral	light	what time is the demo	What time is the demo?
+rulelayer	neutral	light	do it now	Do it now.
+rulelayer	neutral	light	it works. then we left? yes! ok	It works. Then we left? Yes! Ok.
+rulelayer	formal	light	please find the report attached	Please find the report attached.
+rulelayer	casual	light	sure see you at the standup	Sure see you at the standup
+rulelayer	casual	light	is it ready	Is it ready?
+rulelayer	casual	light	so we went there and then we came back and nobody was home at all	So we went there and then we came back and nobody was home at all.
+rulelayer	very_casual	light	Sure, see you at the standup.	sure, see you at the standup
+rulelayer	very_casual	light	Priya is here. It's fine and I'm OK. See you at the API review.	priya is here. it's fine and I'm OK. see you at the API review
+rulelayer	very_casual	light	um lol okay...	lol okay...
+rulelayer	raw	light	um hello comma world	Um hello comma world
+rulelayer	code	light	um hello comma world	Um hello comma world
+rulelayer	nonsense	light	hello there	Hello there.
+# cq-4: fallback rows in the default style (neutral, Light)
+fallback	um so i was uh thinking comma we should go tomorrow period	So I was thinking, we should go tomorrow.
+fallback	Uh, okay.	Okay.
+fallback	hmm	
+fallback	is it ready	Is it ready?
+# cq-4: cleanup_min_words default 4 (an unusable value counts as 4)
+gate	one two three	casual	true		false
+gate	one two three four	casual	true		true
+gate	a b c d	casual	true	banana	true
+gate	one two three	neutral	true	4	false

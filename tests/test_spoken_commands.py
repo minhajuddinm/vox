@@ -56,19 +56,39 @@ def test_cleanup_result_is_used_as_is_and_not_touched_again(monkeypatch):
 def test_failed_cleanup_falls_back_to_raw_with_commands_and_reports_why(monkeypatch):
     script(monkeypatch, "one new line two three", FakeResp({"error": {"message": "boom"}}, status=401))
     r = core.process_detailed(CFG, AUDIO, "notepad.exe", "Notepad")
-    assert r.text == "one\ntwo three" and not r.cleaned and "boom" in r.cleanup_error
+    assert r.text == "One\nTwo three." and not r.cleaned and "boom" in r.cleanup_error   # tidied by the rules layer
 
 
 def test_network_failure_in_cleanup_is_reported_too(monkeypatch):
     script(monkeypatch, "one two three four", requests.ConnectionError("down"))
     r = core.process_detailed(CFG, AUDIO, "notepad.exe", "Notepad")
-    assert r.text == "one two three four" and "down" in r.cleanup_error
+    assert r.text == "One two three four." and "down" in r.cleanup_error
 
 
 def test_runaway_cleanup_answer_is_rejected_and_reported(monkeypatch):
-    script(monkeypatch, "one two three", ok("x" * 500))
+    script(monkeypatch, "one two three four", ok("x" * 500))   # 4 words: the default cleanup_min_words
     r = core.process_detailed(CFG, AUDIO, "notepad.exe", "Notepad")
-    assert r.text == "One two three" and r.cleanup_error and r.fidelity_fallback   # the guard's fallback starts with a capital
+    assert r.text == "One two three four." and r.cleanup_error and r.fidelity_fallback   # the rules layer's text
+
+
+def test_a_short_phrase_skips_the_cleanup_and_gets_the_rules_layer(monkeypatch):
+    script(monkeypatch, "yes comma sure", ok("SHOULD NOT BE USED"))   # 3 words: under the default 4
+    r = core.process_detailed(CFG, AUDIO, "notepad.exe", "Notepad")
+    assert r.text == "Yes, sure." and not r.cleaned and r.cleanup_error == "" and not r.fidelity_fallback
+
+
+def test_cleanup_off_and_the_raw_style_do_not_get_the_rules_layer(monkeypatch):
+    script(monkeypatch, "um yes comma sure", ok("x"))
+    assert core.process_detailed(dict(CFG, cleanup=False), AUDIO, "notepad.exe", "Notepad").text == "um yes comma sure"
+    raw_style = dict(CFG, app_styles={"notes.exe": "raw"})
+    assert core.process_detailed(raw_style, AUDIO, "notes.exe", "Notes").text == "um yes comma sure"
+
+
+def test_the_rules_layer_follows_the_style_and_strength(monkeypatch):
+    script(monkeypatch, "Sure, see you on thursday no wait friday.", requests.ConnectionError("down"))
+    cfg = dict(CFG, app_styles={"discord.exe": "very_casual"}, cleanup_strength="standard")
+    assert core.process_detailed(cfg, AUDIO, "discord.exe", "Discord").text == "sure, see you on friday"
+    assert core.process_detailed(CFG, AUDIO, "notepad.exe", "Notepad").text == "Sure, see you on Thursday no wait Friday."
 
 
 def test_nothing_said_gives_an_empty_result(monkeypatch):

@@ -27,6 +27,7 @@ import urllib3.util.connection
 
 import codemode
 import providers
+import rules_layer
 import secret
 import snippets as snippets_mod
 import structure as structure_mod
@@ -82,7 +83,7 @@ DEFAULT_CONFIG = {
     "language": "",
     "input_device": "",
     "cleanup": True,
-    "cleanup_min_words": 3,
+    "cleanup_min_words": 4,
     "cleanup_strength": "light",
     "structure": "auto",
     "code_mode": "auto",
@@ -827,13 +828,15 @@ def apply_spoken_commands(text):
     return text.strip(" ")
 
 
-_SENTENCE_START = re.compile(r"(^|[.!?][ \t]+|\n[ \t]*)([^\W\d_])")
-
-
-def fallback_text(raw):
-    """The spoken words used when the fidelity guard rejects the AI cleanup: spoken commands applied, and a capital letter
-    at the start and after each sentence end or line break (the rest stays as spoken). Twin: ApiClient.fallbackText."""
-    return _SENTENCE_START.sub(lambda m: m.group(1) + m.group(2).upper(), apply_spoken_commands(raw))
+def fallback_text(raw, style="neutral", strength="light"):
+    """The text used when the AI cleanup was wanted but gave none (a phrase under cleanup_min_words, an error or timeout,
+    or an answer the fidelity guard rejected): spoken commands applied, then the rules layer (rules_layer.py: noises and
+    spoken punctuation out, capitals and the final mark for the style). Style "raw" or "code" keeps only the capitals at
+    sentence starts. Twin: ApiClient.fallbackText."""
+    text = apply_spoken_commands(raw)
+    if style in ("raw", "code"):
+        return rules_layer.capitals(text)
+    return rules_layer.rules_cleanup(text, style, strength)
 
 
 # ------------------------------------------------------------ fidelity guard
@@ -1879,7 +1882,7 @@ def process_detailed(cfg, pcm_bytes, exe, app_label):
     """Full pipeline. Result.raw and Result.text are '' when nothing was said.
 
     Result.cleaned says whether the AI cleanup produced the text; Result.cleanup_error holds the reason when
-    cleanup was wanted but failed (the raw transcript is used then, so the dictation is never lost);
+    cleanup was wanted but failed (the spoken words tidied by the rules layer are used then, so the dictation is never lost);
     Result.fidelity_fallback says the fidelity guard rejected the cleanup answer (see fallback_text).
     """
     _mark("stt_start")
@@ -1897,11 +1900,11 @@ def process_detailed(cfg, pcm_bytes, exe, app_label):
 
 
 def clean_min_words(value):
-    """The "skip AI cleanup below this many words" setting as a whole number from 1 to 20; 3 when it is unusable."""
+    """The "skip AI cleanup below this many words" setting as a whole number from 1 to 20; 4 when it is unusable."""
     try:
         return max(1, min(20, int(str(value).strip())))
     except (TypeError, ValueError):
-        return 3
+        return 4
 
 
 def needs_cleanup(raw, style, enabled, min_words):
@@ -1920,7 +1923,7 @@ def process_text(cfg, raw, exe, app_label, segments=None):
     style = style_for(cfg, exe)
     code = codemode.is_code_app(cfg, exe, style)   # an editor or terminal: spoken formatters and symbols, no lists
     out, cleaned, error, rejected = raw, False, "", False
-    wanted = needs_cleanup(raw, style, cfg.get("cleanup", True), cfg.get("cleanup_min_words", 3))
+    wanted = needs_cleanup(raw, style, cfg.get("cleanup", True), cfg.get("cleanup_min_words", 4))
     if wanted and not (code and codemode.code_cleanup(cfg.get("code_cleanup")) == "rules"):
         _mark("llm_start")
         try:
@@ -1938,7 +1941,12 @@ def process_text(cfg, raw, exe, app_label, segments=None):
             _mark("llm_done")
     if not cleaned:
         # in code "new line" is a symbol of format_code; "new paragraph" is not, so it is applied here
-        out = fallback_text(out) if rejected else _NEW_PARAGRAPH.sub("\n\n", out) if code else apply_spoken_commands(out)
+        if code:
+            out = fallback_text(out, "code") if rejected else _NEW_PARAGRAPH.sub("\n\n", out)
+        elif cfg.get("cleanup", True) and style != "raw":   # wanted, but skipped as short, failed or rejected: rules layer
+            out = fallback_text(out, style, cfg.get("cleanup_strength"))
+        else:
+            out = apply_spoken_commands(out)
     if code:
         out = codemode.format_code(out)   # "new line" is one of its symbols
     out = fuzzy_dictionary(apply_replacements(out, replacements(cfg)), dictionary_terms(cfg))

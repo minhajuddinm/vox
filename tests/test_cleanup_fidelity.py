@@ -370,7 +370,7 @@ def test_a_summarising_cleanup_is_rejected_and_the_raw_words_are_used(monkeypatc
     raw = long_text(60)
     r = run_pipeline(monkeypatch, raw, "I went to the market and cooked dinner.")
     assert not r.cleaned and r.cleanup_error
-    assert r.text == "S" + raw[1:] and r.raw == raw   # the spoken words, with a capital to start
+    assert r.text == "S" + raw[1:] + "." and r.raw == raw   # the spoken words, with a capital to start and a final mark
 
 
 def test_a_faithful_cleanup_is_used(monkeypatch):
@@ -430,7 +430,7 @@ def test_a_rejected_cleanup_falls_back_to_the_spoken_words_with_capitals(monkeyp
     r = run_pipeline(monkeypatch, raw, "Short summary.")
     assert r.fidelity_fallback and not r.cleaned and r.raw == raw
     assert r.text.startswith("Hello there\n\nSo yesterday")   # new paragraph applied, the sentence starts are capitals
-    assert r.text.replace("\n", " ").lower().split() == raw.replace(" new paragraph", "").lower().split()
+    assert r.text.rstrip(".").replace("\n", " ").lower().split() == raw.replace(" new paragraph", "").lower().split()
 
 
 def test_a_network_error_is_not_a_fidelity_fallback(monkeypatch):
@@ -440,7 +440,7 @@ def test_a_network_error_is_not_a_fidelity_fallback(monkeypatch):
     monkeypatch.setattr(core.requests, "post", boom)
     monkeypatch.setattr(core.time, "sleep", lambda s: None)
     r = core.process_text(dict(core.DEFAULT_CONFIG, api_key="k"), long_text(30), "notepad.exe", "Notepad")
-    assert not r.fidelity_fallback and r.text == long_text(30)
+    assert not r.fidelity_fallback and r.text == "S" + long_text(30)[1:] + "."   # the rules layer's text
 
 
 def test_an_accepted_or_skipped_cleanup_is_not_a_fallback(monkeypatch):

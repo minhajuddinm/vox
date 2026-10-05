@@ -866,7 +866,9 @@ public class DictationService extends Service {
                     if (tm != null) tm.mark("llm_done");
                 }
             }
-            if (!cleaned) out = rejected ? ApiClient.fallbackText(out) : ApiClient.applySpokenCommands(out);
+            // wanted but skipped as short, failed or rejected: the rules layer; cleanup off or the raw style: as spoken
+            if (!cleaned) out = p.cleanupEnabled() && !"raw".equals(style)
+                    ? ApiClient.fallbackText(out, style, p.cleanupStrength()) : ApiClient.applySpokenCommands(out);
             // A cancel during the cleanup makes it throw (the request was aborted): that is not a failure to report.
             String notice = InsertGuard.cleanupNotice(isCurrent(job), cleanupFailed, note);
             if (notice != null) postError(notice);

@@ -340,8 +340,10 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert "%.3f" % core.word_recall(f[0], f[1]) == f[2]
     elif kind == "cleanstrength":   # the stored setting, the strength it means
         assert core.clean_strength(f[0]) == f[1]
-    elif kind == "fallback":   # raw words, the text used when the fidelity guard rejects the cleanup
+    elif kind == "fallback":   # raw words, the text used when the AI cleanup gave none (neutral style, Light)
         assert core.fallback_text(f[0]) == f[1]
+    elif kind == "rulelayer":   # style, strength, raw words, the rules layer's text (fallback_text with that style)
+        assert core.fallback_text(f[2], f[0], f[1]) == f[3]
     elif kind == "fuzzydict":   # terms, text, the text with the dictionary's spellings applied
         assert core.fuzzy_dictionary(f[1], items(f[0])) == f[2]
     elif kind == "structure":   # mode, style, text, the text with a spoken list written as one

@@ -11,6 +11,7 @@ android/src/com/minhaj/vox/AutoLearn.java
 android/src/com/minhaj/vox/AutoLearnWatch.java
 android/src/com/minhaj/vox/Terms.java
 android/src/com/minhaj/vox/Fidelity.java
+android/src/com/minhaj/vox/RulesLayer.java
 android/src/com/minhaj/vox/Providers.java
 android/src/com/minhaj/vox/NoteLogic.java
 android/src/com/minhaj/vox/Note.java

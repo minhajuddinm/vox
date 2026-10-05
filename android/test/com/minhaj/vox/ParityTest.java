@@ -440,8 +440,11 @@ public final class ParityTest {
                 case "cleanstrength":   // the stored setting, the strength it means
                     eq(ln, kind, f[1], Fidelity.cleanStrength(f[0]));
                     break;
-                case "fallback":   // raw words, the text used when the fidelity guard rejects the cleanup
+                case "fallback":   // raw words, the text used when the AI cleanup gave none (neutral style, Light)
                     eq(ln, kind, f[1], ApiClient.fallbackText(f[0]));
+                    break;
+                case "rulelayer":   // style, strength, raw words, the rules layer's text (fallbackText with that style)
+                    eq(ln, kind, f[3], ApiClient.fallbackText(f[2], f[0], f[1]));
                     break;
                 case "fuzzydict":   // terms, text, the text with the dictionary's spellings applied
                     eq(ln, kind, f[2], Terms.fuzzy(f[1], items(f[0], "|")));
