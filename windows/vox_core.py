@@ -1253,6 +1253,67 @@ def is_silent(pcm_bytes, threshold=SILENCE_PEAK):
     return peak_level(pcm_bytes) < threshold
 
 
+# Edge-silence trim before upload (twin: Pcm.edgeTrim / Pcm.trimEdges, golden rows "edgetrim"). Whisper invents text in
+# long silence ("Thank you."), most often at the start or end of a clip; the pauses inside are kept (paragraph breaks).
+TRIM_PAD_FRAMES = 7    # about 200 ms (7 frames of 30 ms) of the quiet before the first and after the last speech is kept
+TRIM_RUN_FRAMES = 3    # speech = this many frames in a row (90 ms) at SILENCE_PEAK or louder: a lone click is not speech
+
+
+def frame_peaks(pcm_bytes):
+    """The loudest sample of every 30 ms frame (Segmenter.FRAME samples) of a 16-bit mono recording; a short last frame
+    counts too. With numpy when it is there (a 6-minute recording in milliseconds)."""
+    n, size = len(pcm_bytes) // 2, Segmenter.FRAME
+    if n == 0:
+        return []
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
+    if np is not None:
+        a = np.abs(np.frombuffer(pcm_bytes, dtype="<i2", count=n).astype(np.int32))
+        full = n // size
+        peaks = a[:full * size].reshape(full, size).max(axis=1).tolist() if full else []
+        if n % size:
+            peaks.append(int(a[full * size:].max()))
+        return [int(p) for p in peaks]
+    samples = array.array("h")
+    samples.frombytes(pcm_bytes[: n * 2])
+    if sys.byteorder == "big":
+        samples.byteswap()
+    return [max(max(c), -min(c)) for c in (samples[i:i + size] for i in range(0, n, size))]
+
+
+def edge_trim(peaks, lead=True, tail=True):
+    """(first, end): the frames of a recording to send, from the frame peaks. Speech is the first and the last run of
+    TRIM_RUN_FRAMES frames at SILENCE_PEAK or louder; TRIM_PAD_FRAMES of the quiet next to it stay. `lead` / `tail` say which
+    edge may be cut (a streamed first piece only loses its start, the last one only its end). With no such run nothing is
+    cut, (0, len(peaks)): a recording is never trimmed to nothing, and the silence gate decides about it as before."""
+    n = len(peaks)
+    first = last = None
+    run = 0
+    for i, p in enumerate(peaks):
+        run = run + 1 if p >= SILENCE_PEAK else 0
+        if run >= TRIM_RUN_FRAMES:
+            if first is None:
+                first = i - TRIM_RUN_FRAMES + 1
+            last = i
+    if first is None:
+        return 0, n
+    return (max(0, first - TRIM_PAD_FRAMES) if lead else 0), (min(n, last + 1 + TRIM_PAD_FRAMES) if tail else n)
+
+
+def trim_edges(pcm_bytes, lead=True, tail=True):
+    """(audio, head_seconds): the recording without its silent start and end (see edge_trim), and how many seconds were cut
+    from the start (segment times of the trimmed audio + head_seconds = times in the recording)."""
+    peaks = frame_peaks(pcm_bytes)
+    first, end = edge_trim(peaks, lead, tail)
+    size = Segmenter.FRAME * 2
+    start, stop = first * size, (len(pcm_bytes) if end >= len(peaks) else end * size)
+    if start == 0 and stop == len(pcm_bytes):
+        return pcm_bytes, 0.0
+    return pcm_bytes[start:stop], start / (SAMPLE_RATE * 2)
+
+
 def pcm_to_wav(pcm_bytes):
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
@@ -1668,25 +1729,80 @@ def last_segments():
 
 
 def wants_segments(cfg, model):
-    """True when the speech request asks for segment times (verbose_json): "Lists and paragraphs" is Auto (pause-based
-    paragraphs) and the model is a Whisper model (other models, such as gpt-4o-transcribe, only answer json)."""
-    return structure_mod.structure_mode(cfg.get("structure")) == "auto" and "whisper" in (model or "").lower()
+    """True when the speech request asks for segments (verbose_json): the model is a Whisper model (other models, such as
+    gpt-4o-transcribe, only answer json). Their scores drop Whisper's made-up text (keep_segment) and their times make the
+    paragraph breaks at long pauses (only used with "Lists and paragraphs" on Auto, see apply_structure)."""
+    return "whisper" in (model or "").lower()
+
+
+# A segment Whisper most likely made up (twin: ApiClient.keepSegment, golden rows "sttseg"/"sttkept"). The same numbers
+# as the meeting transcript (meeting._good): silence it filled with words, or a repeating loop.
+SEG_NO_SPEECH = 0.5     # no_speech_prob above this ...
+SEG_LOGPROB = -1.0      # ... with avg_logprob below this: silence
+SEG_COMPRESSION = 2.4   # compression_ratio above this: "either the either the either the"
+
+
+def keep_segment(no_speech, logprob, compression):
+    """False for a segment that is most likely not speech (see SEG_NO_SPEECH)."""
+    return not (compression > SEG_COMPRESSION or (logprob < SEG_LOGPROB and no_speech > SEG_NO_SPEECH))
+
+
+def kept_text(text, segments):
+    """The transcript without the segments keep_segment drops: `text` unchanged when none is dropped, else the texts of
+    the kept segments joined by a space ("" when none is left). `segments`: dicts with text, no_speech, logprob, compression."""
+    kept = [s for s in segments if keep_segment(s["no_speech"], s["logprob"], s["compression"])]
+    if len(kept) == len(segments):
+        return text
+    return " ".join(t for t in (s["text"] for s in kept) if t)
+
+
+def _num(v, default):
+    if v is None:
+        return default
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise ValueError("not a number")
+    return float(v)
 
 
 def _segments_of(res):
+    """The segments of a verbose_json answer with their times and scores (a score the server left out counts as fine),
+    or None when there are none or one is unreadable (then nothing is dropped and no paragraph breaks are made)."""
     segs = res.get("segments") if isinstance(res, dict) else None
     if not isinstance(segs, list) or not segs:
         return None
     try:
-        return [{"start": float(s["start"]), "end": float(s["end"]), "text": str(s.get("text") or "").strip()} for s in segs]
+        return [{"start": float(s["start"]), "end": float(s["end"]), "text": str(s.get("text") or "").strip(),
+                 "no_speech": _num(s.get("no_speech_prob"), 0.0), "logprob": _num(s.get("avg_logprob"), 0.0),
+                 "compression": _num(s.get("compression_ratio"), 1.0)} for s in segs]
     except (TypeError, ValueError, KeyError, AttributeError):
         return None
+
+
+ECHO_MIN_WORDS = 3   # a shorter transcript is never called an echo: a one-word dictation of a dictionary name is real
+
+
+def is_prompt_echo(text, prompt):
+    """True when the transcript is only a piece of the Whisper prompt read back (twin: ApiClient.isPromptEcho, golden rows
+    "echo"): Whisper, given silence or a very short clip, can answer with its prompt (the dictionary terms or the text
+    before). It must be at least ECHO_MIN_WORDS words, all of them a run of the prompt's words in the same order."""
+    t, p = word_tokens(text), word_tokens(prompt)
+    if len(t) < ECHO_MIN_WORDS or len(t) > len(p):
+        return False
+    return any(p[i:i + len(t)] == t for i in range(len(p) - len(t) + 1))
+
+
+def shift_segments(segments, seconds):
+    """Segment times moved by `seconds` (the start trimmed off the audio, see trim_edges); None stays None."""
+    if not segments or not seconds:
+        return segments
+    return [dict(s, start=s["start"] + seconds, end=s["end"] + seconds) for s in segments]
 
 
 def transcribe(cfg, wav_bytes, context=""):
     """Speech to text. `wav_bytes` is a WAV or FLAC file (upload_audio). `context` is the end of the text before this
     piece (long recordings sent in pieces). The segment times of the answer are kept for last_segments (see wants_segments); a server that refuses verbose_json with a 400 is
-    asked again for plain json."""
+    asked again for plain json. Segments Whisper most likely made up are dropped (kept_text), and an answer that only
+    reads back the prompt is "" (is_prompt_echo)."""
     _stt_local.segments = None
     model = providers.role_settings(cfg, "stt")[2]
     data = {"model": model, "response_format": "verbose_json" if wants_segments(cfg, model) else "json", "temperature": "0"}
@@ -1713,8 +1829,17 @@ def transcribe(cfg, wav_bytes, context=""):
     text = res.get("text", "") if isinstance(res, dict) else None
     if not isinstance(text, str):   # a null, a number or a list: keep the recording for Retry instead of losing it
         raise ApiError(0, "The speech server sent an answer Vox could not read")
-    if data["response_format"] == "verbose_json":
-        _stt_local.segments = _segments_of(res)
+    segs = _segments_of(res) if data["response_format"] == "verbose_json" else None
+    if segs is not None:
+        kept = [s for s in segs if keep_segment(s["no_speech"], s["logprob"], s["compression"])]
+        if len(kept) < len(segs):
+            log.info("speech: dropped %d of %d segments as made up (silence or a loop)", len(segs) - len(kept), len(segs))
+        text = kept_text(text, segs)
+        _stt_local.segments = [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in kept] or None
+    if is_prompt_echo(text, prompt):
+        log.info("speech: the answer only repeated the prompt, dropped")
+        _stt_local.segments = None
+        return ""
     # whisper.cpp's server ends every segment with a line break. Speech never holds one (a spoken "new line" is a
     # command, applied later), and a break pasted into a terminal would run a command (SEC-1).
     return re.sub(r"\s*[\r\n]+\s*", " ", text.strip())
@@ -1870,6 +1995,7 @@ def transcribe_rest(cfg, pcm_bytes, context):
     piece that failed most likely got a 429, and the rest right after it would get one too."""
     if len(pcm_bytes) < SAMPLE_RATE * 2 * 0.3 or is_silent(pcm_bytes):
         return ""
+    pcm_bytes = trim_edges(pcm_bytes, lead=False)[0]   # the end of the recording: its silent end is not sent
     if len(pcm_bytes) > MAX_UPLOAD_BYTES:
         return _transcribe_in_pieces(cfg, pcm_bytes, context)
     return _transcribe_waiting(cfg, pcm_bytes, context[-150:])
@@ -1885,12 +2011,13 @@ def process_detailed(cfg, pcm_bytes, exe, app_label):
     _mark("stt_start")
     segments = None
     try:
+        pcm_bytes, head = trim_edges(pcm_bytes)   # the silent start and end are not sent (Whisper fills silence with words)
         if len(pcm_bytes) > MAX_UPLOAD_BYTES:
             raw = _transcribe_in_pieces(cfg, pcm_bytes)   # pieces: their times do not line up, so no paragraph breaks
         else:
             _stt_local.segments = None
             raw = transcribe(cfg, upload_audio(cfg, pcm_bytes))
-            segments = last_segments()
+            segments = shift_segments(last_segments(), head)   # times in the whole recording, as streaming gives them
     finally:
         _mark("stt_done")
     return process_text(cfg, raw, exe, app_label, segments)

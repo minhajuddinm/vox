@@ -294,9 +294,11 @@ def test_transcribe_asks_whisper_for_segments_and_passes_them_on(monkeypatch):
 
 
 @pytest.mark.parametrize("cfg", [
-    dict(structure="lists"), dict(structure="off"), dict(stt_model="gpt-4o-transcribe"),
+    dict(stt_model="gpt-4o-transcribe"), dict(stt_model="gpt-4o-transcribe", structure="lists"),
 ])
-def test_plain_json_when_no_paragraphs_are_wanted_or_the_model_has_no_segments(monkeypatch, cfg):
+def test_plain_json_when_the_model_has_no_segments(monkeypatch, cfg):
+    # Whisper models get verbose_json whatever "Lists and paragraphs" says (its scores drop made-up text, cq-5):
+    # see test_stt_quality.py.
     sent = []
     monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: sent.append(kw["data"]) or _Answer({"text": "hi"}))
     assert core.transcribe(_cfg(**cfg), b"RIFF") == "hi"
