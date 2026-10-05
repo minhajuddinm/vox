@@ -5,6 +5,7 @@ import array
 import builtins
 import io
 import math
+import os
 import wave
 
 import pytest
@@ -236,3 +237,40 @@ def test_the_meeting_transcript_uses_the_same_thresholds():
     assert not meeting._good(seg)
     assert meeting._good(dict(seg, no_speech=0.5))
     assert not meeting._good(dict(seg, no_speech=0.0, compression=2.5))
+
+
+# ---------------------------------------------------------------- Settings > Language: the hint and the one-time suggestion
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+PAGES = ["windows/ui/index.html", "android/assets/index.html"]
+
+
+def test_the_language_default_stays_auto_and_the_suggestion_starts_unanswered():
+    assert core.DEFAULT_CONFIG["language"] == "" and core.DEFAULT_CONFIG["language_tip_done"] is False
+
+
+@pytest.mark.parametrize("page", PAGES)
+def test_both_pages_show_the_shared_hint_and_offer_english_once(page):
+    with open(f"{ROOT}/{page}", encoding="utf-8") as f:
+        html = f.read()
+    assert 'id="language-hint"' in html and '$("language-hint").textContent = LANGUAGE_HINT' in html
+    assert 'id="lang-tip-en"' in html and "languageTipDue(" in html
+    assert 'save({ language: "en", language_tip_done: true }' in html and "save({ language_tip_done: true }" in html
+
+
+def test_the_suggestion_is_due_only_on_auto_and_until_answered(tmp_path):
+    import json
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not installed")
+    script = tmp_path / "t.js"
+    js = open(f"{ROOT}/ui-shared/common.js", encoding="utf-8").read()
+    script.write_text(js + """
+console.log(JSON.stringify([languageTipDue({language: ""}), languageTipDue({}), languageTipDue(null), languageTipDue({language: "en"}),
+  languageTipDue({language: "", language_tip_done: true}), languageTipDue({language: "  "}), LANGUAGE_HINT]));
+""", encoding="utf-8")
+    r = subprocess.run([node, str(script)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout.strip().splitlines()[-1]) == [True, True, True, False, False, True,
+                                                            "English only? Choose English for fewer mistakes."]

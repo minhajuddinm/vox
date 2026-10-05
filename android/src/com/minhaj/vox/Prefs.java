@@ -85,6 +85,8 @@ public final class Prefs {
     /** The cleanup rules learned on the PC (Improve my cleanup), received through profile sync; the phone only reads them. */
     public String myCleanupRules() { return sp.getString("my_cleanup_rules", ""); }
     public String language() { return sp.getString("language", "").trim(); }
+    /** The one-time "English only?" suggestion on Home was answered (either button). Kept on this phone only. */
+    public boolean languageTipDone() { return sp.getBoolean("language_tip_done", false); }
     /** The microphone chosen in Settings as a {@link MicChoice#key}; empty means the phone's default. Kept on this phone only (not in the synced profile). */
     public String micDevice() { return sp.getString("mic_device", ""); }
     public void setMicDevice(String key) { sp.edit().putString("mic_device", key == null ? "" : key).apply(); }

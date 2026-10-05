@@ -80,6 +80,7 @@ DEFAULT_CONFIG = {
     "stt_model": DEFAULT_STT,
     "llm_model": DEFAULT_LLM,
     "language": "",
+    "language_tip_done": False,   # the one-time "English only?" suggestion on Home was answered (either button)
     "input_device": "",
     "cleanup": True,
     "cleanup_min_words": 3,
