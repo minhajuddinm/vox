@@ -209,8 +209,8 @@ final class SyncWorker {
         }
 
         @Override
-        public void writeProfile(Map<String, Object> received) {
-            prefs.applyProfile(ProfileMap.toStored(received));
+        public void writeProfile(Map<String, Object> received, Map<String, Object> seen) {
+            prefs.applyReceived(received, seen);
         }
     }
 

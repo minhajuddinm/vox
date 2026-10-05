@@ -888,8 +888,9 @@ public class DictationService extends Service {
             String notice = InsertGuard.cleanupNotice(isCurrent(job), cleanupFailed, note);
             if (notice != null) postError(notice);
             out = Terms.fuzzy(ApiClient.applyReplacements(out, p.replacements()), p.dictionaryTerms());   // as Windows: replacements, then the dictionary's spellings
-            out = Snippets.apply(out, p.snippets());   // after the cleanup: a saved text never goes to the AI
-            out = Structure.format(out, p.structure(), style);   // then lists from spoken cues, on whatever text came out (after the guard)
+            // lists from spoken cues on whatever text came out (after the guard), then the snippets: a saved text never
+            // goes to the AI and is never re-formatted by the list pass (Snippets.layout, as vox_core.apply_layout)
+            out = Snippets.layout(out, p.snippets(), p.structure(), style);
             if (!isCurrent(job)) return;
             if (note) {
                 saveNote(job, entry, raw, out, seconds, p);   // a note is not typed and is not added to the dictation history

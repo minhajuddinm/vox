@@ -24,6 +24,20 @@ From the full v2 review of 2026-10-05 (summary in documentation/12-known-issues-
 - **Builds:** only tag builds use the release signing key (a missing `ANDROID_KEYSTORE_PASS` warns); dependencies are locked; checksums cover every release file; only tags on main publish.
 - Windows: a dictation that yields no usable text now shows the error mark and a balloon instead of vanishing silently (PR 62).
 
+Leftovers of the review rounds (2026-10-05, branch `fix/leftovers`; unit and golden tests only, nothing run on a device):
+- **Both apps:** a snippet's saved text is put in after the lists, so its line breaks and list markers stay as saved and no longer switch lists off.
+- **Both apps:** a speech answer that is only a repetition loop types nothing; a streamed piece that repeats a few words said just before is no longer dropped as a prompt echo.
+- **Both apps:** the cleanup check no longer accepts "to err is human" -> "To is human." (Light), nor a cleanup that drops the words before "actually the ..." (Standard).
+- **Both apps:** Learn from my corrections no longer learns "the grok => Groq" when a repeated word was fixed ("the grok grok grok api"); it learns "grok => Groq".
+- **Both apps:** changing the relay address or token in Settings lifts the relay's pin, so an older relay put back at the same address works again (with the update warning).
+- **Both apps:** History says "cleanup rejected, basic tidying only" for a rejected cleanup (it said "your words as spoken").
+- **Windows:** Improve my cleanup never sends a snippet's saved text, also after the snippet was changed or deleted (the history entry records where it was put in).
+- **Windows:** answers from the AI servers are read up to 8 MB, as on the phone; a bigger one is an error, not a full memory.
+- **Windows:** start, stop and the note toggle from the tray, the control server, the time limit and the hotkey run one at a time, so two microphone streams never open together and a late time-limit stop never ends the next recording.
+- **Windows:** code mode turns "this dot props" into `this.props` again.
+- **Android:** a word learned while a sync run is in flight is no longer overwritten by the received dictionary.
+- **Builds:** `Vox.exe --selfcheck` imports every module, the relay, libsndfile and pythonnet; the Windows CI job runs it on the built exe before the installer.
+
 ### Changed
 - README, project site, release notes and GitHub issues condensed. The detailed 2.0 entries previously in this file are in git history (`aeb9be3`).
 

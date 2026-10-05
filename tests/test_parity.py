@@ -187,11 +187,13 @@ def edgetrim(flags, runs):
 
 
 def stt_segments(field):
-    """text;no_speech;logprob;compression items, | separated, as _segments_of gives them."""
+    """text;no_speech;logprob;compression[;start;end] items, | separated, as _segments_of gives them (no times: 0, 0)."""
     out = []
     for item in field.split("|"):
-        t, ns, lp, cr = item.split(";")
-        out.append({"text": t, "no_speech": float(ns), "logprob": float(lp), "compression": float(cr)})
+        t, ns, lp, cr, *times = item.split(";")
+        start, end = (float(times[0]), float(times[1])) if times else (0.0, 0.0)
+        out.append({"text": t, "no_speech": float(ns), "logprob": float(lp), "compression": float(cr),
+                    "start": start, "end": end})
     return out
 
 
@@ -375,6 +377,9 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert structure.format_structure(f[2], f[0], f[1]) == f[3]
     elif kind == "snippets":   # text, expected, then trigger, saved text pairs
         assert snippets.apply_snippets(f[0], dict(zip(f[2::2], f[3::2]))) == f[1]
+    elif kind == "layout":   # mode, style, text, expected, then trigger, saved text pairs: lists first, then snippets
+        cfg = {"structure": f[0], "snippets": dict(zip(f[4::2], f[5::2]))}
+        assert core.apply_layout(cfg, f[2], f[1]) == f[3]
     elif kind == "promptstructure":   # structure, style, terms, app, About you, strength, rules => the cleanup prompt
         assert core.system_prompt(f[1], items(f[2]), f[3], f[4], f[5], f[6], f[0]) == f[7]
     elif kind == "notebubble":   # persistent switch, note recording, note being saved, expected
@@ -406,5 +411,7 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert core.kept_text(f[0], stt_segments(f[1])) == f[2]
     elif kind == "echo":   # transcript, Whisper prompt => whether it only reads the prompt back
         assert core.is_prompt_echo(f[0], f[1]) == (f[2] == "true")
+    elif kind == "echoctx":   # transcript, Whisper prompt, the earlier text it ends with => whether it reads the prompt back
+        assert core.is_prompt_echo(f[0], f[1], f[2]) == (f[3] == "true")
     else:
         pytest.fail(f"unknown case kind {kind}")

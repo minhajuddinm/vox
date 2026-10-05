@@ -203,4 +203,13 @@ final class ProfileMap {
         }
         return out;
     }
+
+    /**
+     * What Prefs.applyReceived writes (AND-15): the settings received from the relay merged onto those stored now
+     * ({@code stored}, read under the learn lock) with ProfileMerge.onto and {@code seen} (what the sync run read), in
+     * the stored form. A word learned while the run was in flight stays.
+     */
+    static Map<String, Object> receivedOnto(Map<String, ?> stored, Map<String, ?> received, Map<String, ?> seen) {
+        return toStored(ProfileMerge.onto(seen, toProfile(stored), received));
+    }
 }

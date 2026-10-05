@@ -217,6 +217,28 @@ def test_an_answer_the_filter_would_empty_is_kept_and_the_silence_phrase_check_s
     assert core.process_text(_cfg(cleanup=False), "Thanks for watching!", "x.exe", "x").text == ""
 
 
+def test_an_answer_that_is_only_a_loop_gives_nothing(monkeypatch):
+    # leftovers: the keep-everything rule above brought a confirmed loop back and it was pasted; a loop has no real words
+    # fix wave: only a sure loop (here: compression 10.94, what zlib gives for 20 copies) gives nothing
+    loop = " ".join(["हम लोग"] * 20)
+    body = {"text": loop, "segments": [{"start": 0, "end": 10, "text": loop, "avg_logprob": -0.2, "no_speech_prob": 0.0,
+                                        "compression_ratio": 10.94}]}
+    monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer(body))
+    assert core.transcribe(_cfg(), b"RIFF") == "" and core.last_segments() is None
+    assert core.process_text(_cfg(cleanup=False), "", "x.exe", "x").text == ""   # nothing is typed
+
+
+def test_a_dictation_of_real_repeats_is_typed_and_a_loop_faster_than_speech_is_not(monkeypatch):
+    # fix wave (review 2): "no" said 15 times, confident, compression 3.14 (zlib) is speech; the same words in 1 second
+    # (15 words a second) or with a poor avg_logprob are Whisper's loop
+    said = " ".join(["no"] * 15)
+    for end, logprob, want in ((4, -0.3, said), (1, -0.3, ""), (4, -1.3, "")):
+        body = {"text": said, "segments": [{"start": 0, "end": end, "text": said, "avg_logprob": logprob,
+                                            "no_speech_prob": 0.01, "compression_ratio": 3.14}]}
+        monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer(body))
+        assert core.transcribe(_cfg(), b"RIFF") == want
+
+
 def test_hindi_in_devanagari_is_not_a_loop_and_a_quiet_middle_segment_stays(monkeypatch):
     hindi = "कल सुबह हम लोग दफ़्तर जाएंगे और फिर दोपहर में मीटिंग होगी जिसके बाद रिपोर्ट भेजनी है"
     body = {"text": "Okay. " + hindi + " Done.", "segments": [
@@ -244,6 +266,15 @@ def test_an_answer_that_reads_the_prompt_back_is_dropped(monkeypatch):
     assert "Kubernetes" in sent[0]
     monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer({"text": "Groq"}))
     assert core.transcribe(cfg, b"RIFF") == "Groq"                          # one real word is never an echo
+
+
+def test_a_piece_that_repeats_words_of_the_text_before_is_kept(monkeypatch):
+    # leftovers (core review minor 1): the prompt ends with the earlier text; a run inside it is an echo only at its end
+    context = "we meet in the morning and then we have lunch with the client"
+    monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer({"text": "In the morning."}))
+    assert core.transcribe(_cfg(), b"RIFF", context) == "In the morning."
+    monkeypatch.setattr(core, "post_with_retry", lambda url, **kw: _Answer({"text": "Lunch with the client."}))
+    assert core.transcribe(_cfg(), b"RIFF", context) == ""                  # the end of the prompt read back
 
 
 def test_the_echo_check_ignores_the_words_of_the_whisper_v2_sentence(monkeypatch):

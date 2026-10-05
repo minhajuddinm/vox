@@ -116,6 +116,24 @@ final class ProfileMerge {
         return out;
     }
 
+    /**
+     * The settings to write after a sync merge (AND-15): each field of {@code received} (merged from {@code seen}, this
+     * phone's settings when the run read them) put onto {@code current} (the settings now, read under the learn lock).
+     * A field that changed here meanwhile (a word learned while the run was in flight) is merged again with the
+     * received value, item by item ({@code merge3(seen, current, received)}: both words stay), instead of being
+     * overwritten. Windows reaches the same end by merging again when the file changed (sync_profile's take).
+     */
+    static Map<String, Object> onto(Map<String, ?> seen, Map<String, ?> current, Map<String, ?> received) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (received == null) return out;
+        for (Map.Entry<String, ?> e : received.entrySet()) {
+            Object was = get(seen, e.getKey()), now = get(current, e.getKey());
+            Object v = Objects.equals(now, was) ? e.getValue() : mergeOne(was, now, e.getValue());
+            if (v != null) out.put(e.getKey(), v);
+        }
+        return out;
+    }
+
     private static Object get(Map<String, ?> m, String key) {
         return m == null ? null : m.get(key);
     }

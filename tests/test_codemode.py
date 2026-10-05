@@ -262,6 +262,10 @@ def test_ordinary_sentences_keep_their_words(text):
     ("if count greater than limit", "if count > limit"),
     ("count equals count plus one", "count = count + one"),
     ("git commit dash dash no dash verify", "git commit --no -verify"),
+    # leftovers (re-review minor 3): "this" before "dot" and a name is the code word, not an article
+    ("this dot props", "this.props"),
+    ("if this dot ready", "if this.ready"),
+    ("return this dot value", "return this.value"),
 ])
 def test_code_words_still_become_symbols(spoken, typed):
     assert codemode.format_code(spoken) == typed

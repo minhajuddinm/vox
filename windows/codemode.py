@@ -205,11 +205,12 @@ def _code_here(chunks, i, n, out, code, quoted=False):
     (`quoted`: a commit message), the word before it must not be an article or possessive (_ARTICLES: "add the dot env
     file" keeps "dot")."""
     before = _split(chunks[i - 1]) if i > 0 and chunks[i - 1] != "\n" else None
-    if before and before[1].lower() in _ARTICLES and not before[2] and (quoted or not code):
+    spoken = _match(chunks, i, _BY_WORDS)[0][3]
+    this_dot = before and before[1].lower() == "this" and spoken == "dot" and _name(chunks, i + n, last=True)   # this.props
+    if before and before[1].lower() in _ARTICLES and not before[2] and (quoted or not code) and not this_dot:
         return False
     if code:
         return True
-    spoken = _match(chunks, i, _BY_WORDS)[0][3]
     if _clean_symbol(chunks, i, n) and _name(chunks, i - 1) and _name(chunks, i + n, last=True) and (
             spoken == "dot" or (spoken in _COMPARISONS and _split(chunks[0])[1].lower() in _STATEMENTS)):
         return True

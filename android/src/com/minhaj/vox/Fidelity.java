@@ -26,8 +26,11 @@ final class Fidelity {
 
     /** Pure noises: may be missing from the cleaned text even in Light strength. */
     static final Set<String> NOISES = new HashSet<>(Arrays.asList("um", "uh", "er", "erm", "ah", "hmm", "hm", "uhm"));
-    /** The guard reads drawn-out noises the way the rules layer drops them (umm, uhh, hmmm, ahh, err): letters only. */
-    private static final Pattern NOISE_WORD = Pattern.compile("(?:u+m+|u+h+m*|e+r+m*|a+h+|h+m+)");
+    /**
+     * The guard reads drawn-out noises the way the rules layer drops them (umm, uhh, hmmm, ahh, errm): letters only. Not
+     * "err" ("to err is human"): the rules layer keeps it too.
+     */
+    private static final Pattern NOISE_WORD = Pattern.compile("(?:u+m+|u+h+m*|e+r(?:r*m+)?|a+h+|h+m+)");
 
     /** True for a pure noise word (lowercase): um, umm, uh, uhh, uhm, er, erm, ah, ahh, hm, hmm, hmmm. Twin: is_noise. */
     static boolean isNoise(String word) {
@@ -453,6 +456,11 @@ final class Fidelity {
             "if");
     private static final Set<String> FREE_INS = set("a", "an", "the", "to", "of", "is", "are", "and", "it", "that", "in",
             "for", "on", "at", "i");
+    /** Words so common that one of them after a weak cue says nothing about a restart (vox_core._RESTART_COMMON). */
+    private static final Set<String> RESTART_COMMON = new HashSet<>(FREE_INS);
+    static {
+        RESTART_COMMON.addAll(Arrays.asList("we", "you", "he", "she", "they", "my", "your", "this", "so", "but", "was", "be", "will"));
+    }
     private static final Map<String, Integer> SCALE_ZEROS = new HashMap<>();
     /** Spoken commands: the symbols one of them may become in the cleaned text, between its neighbouring words. */
     private static final Map<String, String[]> COMMANDS = new HashMap<>();
@@ -840,7 +848,9 @@ final class Fidelity {
      * to 6 tokens before it (15 for "scratch that", 3 for a bare "no") may be missing; checked later. A weak cue (actually,
      * sorry, rather, matlab, "sorry i": also everyday words) opens the window only when the words around it look like a
      * repair: a typed value before it and in the 6 tokens after it, the first word after it repeating a word of the window
-     * (a restart), a tail ("make it"), or another cue up to the first word after it.
+     * (a restart; not a common word, RESTART_COMMON), a tail ("make it"), or another cue up to the first word after it.
+     * The first two words after it repeating two words in a row of the window are a restart from there: the window then
+     * starts at that run.
      */
     private static void corrections(List<Tok> toks) {
         int n = toks.size();
@@ -892,11 +902,23 @@ final class Fidelity {
                 boolean chain = false;
                 for (int k = start; k < i; k++) {
                     if (typedValue(toks.get(k))) before = true;
-                    if (toks.get(k).t.equals(toks.get(nxt).t)) restart = true;
+                    if (toks.get(k).t.equals(toks.get(nxt).t) && !RESTART_COMMON.contains(toks.get(nxt).t)) restart = true;
                 }
                 for (int k = after; k < Math.min(n, after + 6); k++) if (typedValue(toks.get(k))) later = true;
                 for (int k = i + 1; k < Math.min(n, nxt + 1); k++) if (isCue(toks, k)) chain = true;
-                if (!((before && later) || restart || chain)) continue;   // an everyday "actually" / "sorry": ordinary words
+                if (!((before && later) || restart || chain)) {
+                    // the first two words after the cue begin a run of the window ("we should take the bus actually we
+                    // should walk"): a restart from that run on, so only the run may be missing ("please send" stays)
+                    int run = -1;
+                    for (int s = start; s < i - 1 && nxt + 1 < n; s++) {
+                        if (toks.get(s).t.equals(toks.get(nxt).t) && toks.get(s + 1).t.equals(toks.get(nxt + 1).t)) {
+                            run = s;
+                            break;
+                        }
+                    }
+                    if (run < 0) continue;   // an everyday "actually" / "sorry": ordinary words
+                    start = run;
+                }
             }
             for (int k = start; k < i + cueLen; k++) toks.get(k).opt = true;
             toks.get(i).cue = new int[]{start, i, i + cueLen};

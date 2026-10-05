@@ -188,6 +188,16 @@ public final class ProfileMapTest {
         eq("an address that is not http(s) is refused", map(), ProfileMap.accept(map("stt_base_url", "ftp://example.com", "llm_base_url", "example.com"), everything()));
         eq("toStored normalises an address too", map("base_url", "https://x.example.com/v1"), ProfileMap.toStored(map("base_url", "https://x.example.com/v1/")));
 
+        // receivedOnto (what Prefs.applyReceived writes, review 9): a word learned while the sync run was in flight stays
+        Map<String, Object> seenNow = ProfileMap.toProfile(map("dictionary", "Atlas\n", "language", "en"));
+        Map<String, Object> learnedMeanwhile = map("dictionary", "Atlas\nkubectl\n", "language", "en");
+        Map<String, Object> fromRelay = map("dictionary", list("Atlas", "Grafana"), "language", "de");
+        Map<String, Object> written = ProfileMap.receivedOnto(learnedMeanwhile, fromRelay, seenNow);
+        eq("the learned word and the received word both stay", "Atlas\nGrafana\nkubectl\n", written.get("dictionary"));
+        eq("a field not changed here takes the relay's value", "de", written.get("language"));
+        eq("without a change here it is the received value", map("dictionary", "Atlas\nGrafana\n", "language", "de"),
+                ProfileMap.receivedOnto(map("dictionary", "Atlas\n", "language", "en"), fromRelay, seenNow));
+
         System.out.println("OK: " + checks + " checks passed");
     }
 

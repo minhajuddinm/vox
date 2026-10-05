@@ -132,15 +132,20 @@ public final class ApiClient {
     public String transcribe(Upload up, String model, String language, List<String> terms, String context, List<String> people,
                              List<String> recent) throws IOException {
         String prompt = whisperPromptWith(terms, context, people, recent);
-        return transcriptOf(transcribeRaw(up, model, language, prompt), prompt);
+        return transcriptOf(transcribeRaw(up, model, language, prompt), prompt, context);
+    }
+
+    static String transcriptOf(String answer, String prompt) throws IOException {
+        return transcriptOf(answer, prompt, "");
     }
 
     /**
      * The transcript in a speech server's answer (json or verbose_json): the segments Whisper most likely made up are left
      * out ({@link #keptText}), and an answer that only reads the prompt back is "" ({@link #isPromptEcho}). Twin of the end
-     * of vox_core.transcribe. Pure (PlainJson), so it is unit-tested on a plain JDK.
+     * of vox_core.transcribe. Pure (PlainJson), so it is unit-tested on a plain JDK. {@code context}: the text before this
+     * piece that the prompt ends with (see the three-argument isPromptEcho).
      */
-    static String transcriptOf(String answer, String prompt) throws IOException {
+    static String transcriptOf(String answer, String prompt, String context) throws IOException {
         Object res;
         try {
             res = PlainJson.parse(answer);
@@ -155,7 +160,7 @@ public final class ApiClient {
         String text = (String) t;
         List<Segment> segs = segmentsOf(m.get("segments"));
         if (segs != null) text = keptText(text, segs);
-        return isPromptEcho(text, prompt) ? "" : text.trim();
+        return isPromptEcho(text, prompt, context) ? "" : text.trim();
     }
 
     /** The text of an answer org.json reads but strict JSON does not (the way every answer was read before). */
@@ -176,20 +181,40 @@ public final class ApiClient {
     static final double SEG_NO_SPEECH = 0.5, SEG_LOGPROB = -1.0, SEG_COMPRESSION = 2.4;
     /** A dictation's loop also repeats the same 3 words this often (Devanagari compresses to 2.5 without repeating). */
     static final int SEG_LOOP_REPEATS = 3;
+    /**
+     * A confident loop that is the whole answer is Whisper's only above this compression_ratio ("no" said 15 times: 3.1,
+     * "testing" 15 times: 6.4; Whisper's loops run to its token limit: 10+) or this many words a second (vox_core.SEG_LOOP_SURE).
+     */
+    static final double SEG_LOOP_SURE = 8.0, SEG_LOOP_RATE = 8.0;
 
     /** False for a segment that is most likely not speech by its scores alone: a loop (compression), or silence filled with words. */
     static boolean keepSegment(double noSpeech, double logprob, double compression) {
         return !(compression > SEG_COMPRESSION || (logprob < SEG_LOGPROB && noSpeech > SEG_NO_SPEECH));
     }
 
-    /** One segment of a verbose_json answer: its text and scores. */
+    /** One segment of a verbose_json answer: its text, scores and times (seconds; both 0 when unknown). */
     static final class Segment {
         final String text;
-        final double noSpeech, logprob, compression;
+        final double noSpeech, logprob, compression, start, end;
 
         Segment(String text, double noSpeech, double logprob, double compression) {
-            this.text = text; this.noSpeech = noSpeech; this.logprob = logprob; this.compression = compression;
+            this(text, noSpeech, logprob, compression, 0, 0);
         }
+
+        Segment(String text, double noSpeech, double logprob, double compression, double start, double end) {
+            this.text = text; this.noSpeech = noSpeech; this.logprob = logprob; this.compression = compression;
+            this.start = start; this.end = end;
+        }
+    }
+
+    /**
+     * True for a loop segment that cannot be someone repeating a word on purpose ("no no no", "testing testing"): Whisper
+     * is unsure of it, it compresses above SEG_LOOP_SURE, or it has more than SEG_LOOP_RATE words a second (vox_core._sure_loop).
+     */
+    static boolean sureLoop(Segment s) {
+        if (s.logprob < SEG_LOGPROB || s.noSpeech > SEG_NO_SPEECH || s.compression > SEG_LOOP_SURE) return true;
+        double dur = s.end - s.start;
+        return dur > 0 && Fidelity.wordTokens(s.text).size() > SEG_LOOP_RATE * dur;
     }
 
     /** True when the same 3 words in a row come SEG_LOOP_REPEATS times or more (Fidelity.wordTokens; overlaps count). */
@@ -208,20 +233,21 @@ public final class ApiClient {
     /**
      * Which segments of a dictation to keep (vox_core.segments_kept): a loop (compression above SEG_COMPRESSION and its text
      * repeats) goes anywhere; silence filled with words only as the first or the last segment. When no kept segment would
-     * have text, all are kept: a short real phrase can score like silence; the edge trim and silence gate handle silence.
+     * have text, all but the sure loops (sureLoop) are kept: a short real phrase can score like silence; the edge trim and
+     * silence gate handle silence; repeated speech that is the whole dictation is typed, Whisper's own loop gives nothing.
      */
     static boolean[] segmentsKept(List<Segment> segs) {
         int n = segs.size();
-        boolean[] keep = new boolean[n];
+        boolean[] keep = new boolean[n], loop = new boolean[n];
         boolean anyText = false;
         for (int i = 0; i < n; i++) {
             Segment s = segs.get(i);
-            boolean loop = s.compression > SEG_COMPRESSION && repeats(s.text);
+            loop[i] = s.compression > SEG_COMPRESSION && repeats(s.text);
             boolean silence = (i == 0 || i == n - 1) && s.logprob < SEG_LOGPROB && s.noSpeech > SEG_NO_SPEECH;
-            keep[i] = !(loop || silence);
+            keep[i] = !(loop[i] || silence);
             if (keep[i] && !s.text.isEmpty()) anyText = true;
         }
-        if (!anyText) java.util.Arrays.fill(keep, true);
+        if (!anyText) for (int i = 0; i < n; i++) keep[i] = !(loop[i] && sureLoop(segs.get(i)));
         return keep;
     }
 
@@ -255,7 +281,8 @@ public final class ApiClient {
             Object t = s.get("text");
             Double ns = score(s.get("no_speech_prob"), 0.0), lp = score(s.get("avg_logprob"), 0.0), cr = score(s.get("compression_ratio"), 1.0);
             if (ns == null || lp == null || cr == null) return null;
-            out.add(new Segment(t == null ? "" : pyStrip(String.valueOf(t)), ns, lp, cr));
+            out.add(new Segment(t == null ? "" : pyStrip(String.valueOf(t)), ns, lp, cr,
+                    ((Number) s.get("start")).doubleValue(), ((Number) s.get("end")).doubleValue()));
         }
         return out;
     }
@@ -280,12 +307,27 @@ public final class ApiClient {
      * (also without them) in the same order (case and punctuation ignored).
      */
     static boolean isPromptEcho(String text, String prompt) {
+        return isPromptEcho(text, prompt, "");
+    }
+
+    /**
+     * The same, with the text before this piece that the prompt ends with (golden rows "echoctx"): a run that lies only
+     * inside it counts only when it reaches the prompt's end (what Whisper reads back), so a real piece that repeats a few
+     * words said earlier is kept.
+     */
+    static boolean isPromptEcho(String text, String prompt, String context) {
         List<String> t = new ArrayList<>(Fidelity.wordTokens(text)), p = new ArrayList<>(Fidelity.wordTokens(prompt));
         t.removeAll(ECHO_FRAME_WORDS);
         p.removeAll(ECHO_FRAME_WORDS);
-        if (t.size() < ECHO_MIN_WORDS || t.size() > p.size()) return false;
-        for (int i = 0; i + t.size() <= p.size(); i++) {
-            if (p.subList(i, i + t.size()).equals(t)) return true;
+        int n = t.size();
+        if (n < ECHO_MIN_WORDS || n > p.size()) return false;
+        List<String> c = new ArrayList<>(Fidelity.wordTokens(context == null ? "" : context));
+        c.removeAll(ECHO_FRAME_WORDS);
+        int tail = 0;   // the prompt's last words that are the earlier text
+        while (tail < Math.min(p.size(), c.size()) && p.get(p.size() - 1 - tail).equals(c.get(c.size() - 1 - tail))) tail++;
+        int head = p.size() - tail;
+        for (int i = 0; i + n <= p.size(); i++) {
+            if (p.subList(i, i + n).equals(t) && (i < head || i + n == p.size())) return true;
         }
         return false;
     }

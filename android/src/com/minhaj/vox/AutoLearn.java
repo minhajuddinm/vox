@@ -349,18 +349,28 @@ final class AutoLearn {
         int n = ins.size(), m = cur.size();
         if (n == 0 || m == 0 || n > MAX_TOKENS) return null;
         List<int[]> starts = new ArrayList<>(), ends = new ArrayList<>();
+        // an anchor of a repeated word stands at more than one shift of the typed text: each is a possible place, and the
+        // length decides (else the place is one word off and the swap takes a neighbour along; autolearn.locate)
         for (int[] ik : anchorOrder(n)) {
             int i = ik[0], k = ik[1];
             List<Integer> h = hits(cur, ins.subList(i, i + k));
             if (h.isEmpty()) continue;
-            for (int p : h) starts.add(new int[] {Math.max(0, p - i), p});
+            for (int p : h) {
+                for (int s = 0; s < Math.min(MAX_SHIFT, n); s++) {
+                    if (s + k <= n && ins.subList(s, s + k).equals(ins.subList(i, i + k))) starts.add(new int[] {Math.max(0, p - s), p});
+                }
+            }
             break;
         }
         for (int[] jk : anchorOrder(n)) {
             int j = jk[0], k = jk[1];
             List<Integer> h = hits(cur, ins.subList(n - j - k, n - j));
             if (h.isEmpty()) continue;
-            for (int q : h) ends.add(new int[] {Math.min(m, q + k + j), q + k});
+            for (int q : h) {
+                for (int s = 0; s < Math.min(MAX_SHIFT, n); s++) {
+                    if (s + k <= n && ins.subList(n - s - k, n - s).equals(ins.subList(n - j - k, n - j))) ends.add(new int[] {Math.min(m, q + k + s), q + k});
+                }
+            }
             break;
         }
         int[] best = null;   // {diff, -s, e, s}

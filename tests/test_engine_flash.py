@@ -276,7 +276,15 @@ def test_history_keeps_the_raw_words_and_flags_a_guard_fallback(eng, monkeypatch
     dictate(eng, monkeypatch, result=ok_result("Hello."))
     flagged, plain = core.read_history()
     assert flagged["raw"] == "so i went" and flagged["text"] == "So i went" and flagged["fidelity_fallback"] is True
-    assert plain["raw"] == "hello" and "fidelity_fallback" not in plain
+    # fix wave: `snippets` is in every entry ([] for none): Improve my cleanup leaves out an entry without it (PRV-3)
+    assert plain["raw"] == "hello" and "fidelity_fallback" not in plain and plain["snippets"] == []
+
+
+def test_history_records_where_a_snippet_put_its_saved_text(eng, monkeypatch):
+    eng.cfg["keep_history"] = True
+    dictate(eng, monkeypatch, result=core.Result("mail me at my email", "Mail me at me@example.com", True, "", False,
+                                                 [[11, 25, "my email"]]))
+    assert core.read_history()[0]["snippets"] == [[11, 25, "my email"]]   # Improve my cleanup puts the phrase back (PRV-3)
 
 
 def test_paste_itself_does_not_flash(eng, monkeypatch):

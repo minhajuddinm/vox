@@ -144,11 +144,12 @@ def problem(url, token):
 # there (it covers one sync run; a dictation proves on key-down, in core.warm). A connection failure or a 502, 503 or
 # 504 (tailscale serve with the relay stopped) forgets it at once (forget_proof).
 PROOF_TTL = 10
+PROOF_MAX_BYTES = 65536   # the most of a /proof answer read (a real one is about 80 bytes)
 GATEWAY_DOWN = (502, 503, 504)
 NOT_PROVEN = ("The relay did not prove it holds this token, so the token was not sent. Either the token is wrong, or "
               "another program is answering at the relay's address.")
 NO_LONGER = ("This relay proved it holds the token before and now does not, so the token was not sent: another program may "
-             "be answering at its address. If you went back to an older relay, update it.")
+             "be answering at its address. If you went back to an older relay, update it.")   # never how to lift the pin
 OLD_RELAY = "This relay is too old to prove it holds the token before Vox sends it: update it."
 _proofs = {}              # (origin, token) -> (time.monotonic() of the answer, "proven" or "old relay")
 _proof_lock = threading.Lock()
@@ -175,6 +176,19 @@ def forget_proof(url):
             del _proofs[key]
 
 
+def unpin(url):
+    """The user changed the relay's address or token in Settings: its address is no longer pinned and is asked for a new
+    proof, so a relay put back at an older version (no /proof) works again, with OLD_RELAY as the warning. Android twin:
+    RelayProof.unpin."""
+    origin = origin_of(url)
+    if not origin:
+        return
+    pinned = _proven_origins()
+    if origin in pinned:
+        notes.set_meta("relay_proven", json.dumps([o for o in pinned if o != origin]))
+    forget_proof(url)
+
+
 def prove_relay(url, token):
     """Makes sure the relay at `url` holds `token` before the token is sent there. Returns "proven", or "old relay" (a
     relay without /proof whose address never proved itself: used, with OLD_RELAY as the warning). Raises SyncError.
@@ -187,7 +201,10 @@ def prove_relay(url, token):
             return hit[1]
     nonce = secrets.token_hex(16)
     try:
-        r = _session.get(url + "/proof?nonce=" + nonce, timeout=TIMEOUT, allow_redirects=False)
+        r = core.read_capped(_session.get(url + "/proof?nonce=" + nonce, timeout=TIMEOUT, allow_redirects=False,
+                                          stream=True), PROOF_MAX_BYTES)
+    except core.ApiError:   # a proof is about 80 bytes: a huge answer is not the relay
+        raise SyncError(NOT_PROVEN, 401)
     except requests.RequestException as e:
         if core.refused_plain_http(e):
             raise SyncError(core.PLAIN_HTTP_ELSEWHERE)

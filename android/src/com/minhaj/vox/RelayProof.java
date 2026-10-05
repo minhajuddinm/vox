@@ -44,7 +44,7 @@ final class RelayProof {
     static final String NOT_PROVEN = "The relay did not prove it holds this token, so the token was not sent. Either the token is wrong, or "
             + "another program is answering at the relay's address.";
     static final String NO_LONGER = "This relay proved it holds the token before and now does not, so the token was not sent: another program may "
-            + "be answering at its address. If you went back to an older relay, update it.";
+            + "be answering at its address. If you went back to an older relay, update it.";   // never how to lift the pin
     static final String OLD_RELAY = "This relay is too old to prove it holds the token before Vox sends it: update it.";
 
     /** The relay addresses (SyncEngine.originOf) that have proved themselves once. */
@@ -52,6 +52,8 @@ final class RelayProof {
         boolean has(String origin);
 
         void add(String origin);
+
+        void remove(String origin);
     }
 
     /** In memory until Prefs puts its SharedPreferences-backed store here. */
@@ -63,7 +65,26 @@ final class RelayProof {
 
         @Override
         public synchronized void add(String origin) { set.add(origin); }
+
+        @Override
+        public synchronized void remove(String origin) { set.remove(origin); }
     };
+
+    /** True when a settings save changed the relay's address or token ("address\ntoken" before and after). */
+    static boolean relayChanged(String before, String after) {
+        return !before.equals(after);
+    }
+
+    /**
+     * The user changed the relay's address or token (Settings): its address is no longer pinned and is asked for a new
+     * proof, so a relay put back at an older version (no /proof) works again, with OLD_RELAY as the warning. Saving the
+     * same values again (the Test button saves them) changes nothing. Twin of windows/sync.py unpin.
+     */
+    static void unpin(String base) {
+        if (base == null || base.trim().isEmpty()) return;
+        pins.remove(SyncEngine.originOf(base));
+        forget(base);
+    }
 
     private static final Map<String, Object[]> CACHE = new HashMap<>();   // origin + "\n" + token -> {time ms, result}
     private static final SecureRandom RANDOM = new SecureRandom();

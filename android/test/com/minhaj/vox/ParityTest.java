@@ -110,12 +110,13 @@ public final class ParityTest {
         return r[0] + "/" + r[1];
     }
 
-    /** text;no_speech;logprob;compression items, | separated. */
+    /** text;no_speech;logprob;compression[;start;end] items, | separated (no times: 0, 0). */
     private static List<ApiClient.Segment> sttSegments(String field) {
         List<ApiClient.Segment> out = new ArrayList<>();
         for (String item : field.split("\\|", -1)) {
             String[] p = item.split(";", -1);
-            out.add(new ApiClient.Segment(p[0], Double.parseDouble(p[1]), Double.parseDouble(p[2]), Double.parseDouble(p[3])));
+            double start = p.length > 4 ? Double.parseDouble(p[4]) : 0, end = p.length > 4 ? Double.parseDouble(p[5]) : 0;
+            out.add(new ApiClient.Segment(p[0], Double.parseDouble(p[1]), Double.parseDouble(p[2]), Double.parseDouble(p[3]), start, end));
         }
         return out;
     }
@@ -498,6 +499,12 @@ public final class ParityTest {
                     eq(ln, kind, f[1], Snippets.apply(f[0], snips));
                     break;
                 }
+                case "layout": {   // mode, style, text, expected, then trigger, saved text pairs: lists first, then snippets
+                    Map<String, String> snips = new LinkedHashMap<>();
+                    for (int i = 4; i + 1 < f.length; i += 2) snips.put(f[i], f[i + 1]);
+                    eq(ln, kind, f[3], Snippets.layout(f[2], snips, f[0], f[1]));
+                    break;
+                }
                 case "promptstructure":   // structure, style, terms, app, About you, strength, rules => the cleanup prompt
                     eq(ln, kind, f[7], ApiClient.systemPrompt(f[1], items(f[2], "|"), f[3], f[4], f[5], f[6], f[0]));
                     break;
@@ -547,6 +554,9 @@ public final class ParityTest {
                     break;
                 case "echo":   // transcript, Whisper prompt => only the prompt read back
                     eq(ln, kind, f[2], ApiClient.isPromptEcho(f[0], f[1]) ? "true" : "false");
+                    break;
+                case "echoctx":   // transcript, Whisper prompt, the earlier text it ends with => only the prompt read back
+                    eq(ln, kind, f[3], ApiClient.isPromptEcho(f[0], f[1], f[2]) ? "true" : "false");
                     break;
                 default:
                     System.err.println("FAIL line " + ln + ": unknown case kind " + kind);

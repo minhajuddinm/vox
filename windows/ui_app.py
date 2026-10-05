@@ -86,7 +86,16 @@ class Api:
         return True
 
     def _save(self, part):
-        core.update_config(lambda c: c.update(part))
+        def change(c):
+            before = (c.get("relay_url") or "", c.get("relay_token") or "")
+            c.update(part)
+            return before != (c.get("relay_url") or "", c.get("relay_token") or ""), c.get("relay_url") or ""
+        changed, url = core.update_config(change)
+        if changed:   # a new relay address or token: its pin goes, so an older relay put back works again
+            try:
+                sync.unpin(url)
+            except Exception as e:   # the settings are saved already: the page must not say otherwise
+                log.warning("relay pin not cleared: %s", type(e).__name__)
 
     def _edit_list(self, key, change):
         """Changes one item of a list setting in the file as it is now (the sync thread may have added words from
@@ -300,7 +309,7 @@ class Api:
         problem = core.endpoint_error(cfg) or ("Add an API key for this server first." if core.key_missing(cfg) else "")
         if problem:
             return fail(problem)
-        days, pairs = improve.selection(improve.usable_history(cfg, core.read_history()), days, now, cfg.get("snippets"))
+        days, pairs = improve.selection(improve.usable_history(cfg, core.read_history()), days, now)
         if (len(pairs), improve.estimate_cost(pairs, "")["chars"]) != (count, chars):
             return fail("Your history changed since the numbers were shown. They are updated: check them and run again.", True)
         model = (model or "").strip() if isinstance(model, str) else ""

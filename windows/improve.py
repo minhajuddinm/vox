@@ -50,10 +50,13 @@ NOT_JSON = "The answer was not usable JSON, so nothing was proposed."
 
 # ------------------------------------------------------------------ what is sent
 
-def select_transcripts(history, since_ts, max_chars, snippets=None):
+def select_transcripts(history, since_ts, max_chars):
     """Raw/cleaned pairs of the history entries made since `since_ts`, oldest first: the newest ones that fit `max_chars`
     (raw plus cleaned characters). Entries marked `private` or `no_history`, and entries without both texts, are left out.
-    The text a snippet put in (the `snippets` setting) goes back to its trigger phrase: saved texts are never sent."""
+    The text a snippet put in goes back to its trigger phrase: saved texts are never sent. An entry knows where its
+    snippets landed (`snippets`, see snippets.expand; [] for none), so a snippet changed or deleted since changes nothing
+    (PRV-3). An entry whose spans do not fit is left out, and so is an entry without `snippets`: it was saved before
+    entries had them, and a snippet changed or deleted since could not be found in it."""
     out, used = [], 0
     for e in reversed(history):
         if not isinstance(e, dict) or e.get("private") or e.get("no_history"):
@@ -62,7 +65,9 @@ def select_transcripts(history, since_ts, max_chars, snippets=None):
         if not (isinstance(t, (int, float)) and t >= since_ts and isinstance(raw, str) and isinstance(text, str)
                 and raw.strip() and text.strip()):
             continue
-        text = snippets_mod.unexpand(text, snippets)
+        text = snippets_mod.put_back(text, e.get("snippets"))   # None without the key: left out
+        if text is None:
+            continue
         used += len(raw) + len(text)
         if used > max_chars:
             break
@@ -260,11 +265,11 @@ def usable_history(cfg, history):
     return [] if cfg.get("keep_history") is False else history
 
 
-def selection(history, days, now, snippets=None):
+def selection(history, days, now):
     """(days, transcripts): `days` as one of the offered ranges (7 when it is not one) and what a run over it would send
     (snippets' saved texts put back as their trigger phrases)."""
     days = days if type(days) is int and days in DAYS else DAYS[0]
-    return days, select_transcripts(history, now - days * 86400 if days else 0, MAX_SEND_CHARS, snippets)
+    return days, select_transcripts(history, now - days * 86400 if days else 0, MAX_SEND_CHARS)
 
 
 def model_for(cfg):
@@ -280,7 +285,7 @@ def preview(cfg, history, days, now):
     """What the card shows before anything is sent, from local data only: how many transcripts and characters a run over
     the last `days` days (0 = all) would send, the model and server, a token estimate, the sentence to confirm and the
     versions already applied. `extra` is the characters of About you, the dictionary and the rules that go along."""
-    days, pairs = selection(usable_history(cfg, history), days, now, cfg.get("snippets"))
+    days, pairs = selection(usable_history(cfg, history), days, now)
     model = model_for(cfg)
     provider = provider_label(cfg)
     extra = (len(core.clean_context(cfg.get("user_context") or "")) + sum(len(t) for t in core.dictionary_terms(cfg))

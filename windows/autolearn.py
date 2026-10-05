@@ -234,15 +234,20 @@ def locate(inserted, current):
     if not n or not m or n > MAX_TOKENS:
         return None
     starts = ends = []
+    # an anchor of a repeated word ("grok grok" in "the grok grok grok api") stands at more than one shift of the typed
+    # text: each is a possible place, and the length decides (else the place is one word off and the swap takes a
+    # neighbour along: "the grok => Groq")
     for i, k in _anchor_order(n):
         hits = _hits(cur, ins[i:i + k])
         if hits:
-            starts = [(max(0, p - i), p) for p in hits]
+            shifts = [s for s in range(min(MAX_SHIFT, n)) if s + k <= n and ins[s:s + k] == ins[i:i + k]]
+            starts = [(max(0, p - s), p) for p in hits for s in shifts]
             break
     for j, k in _anchor_order(n):
         hits = _hits(cur, ins[n - j - k:n - j])
         if hits:
-            ends = [(min(m, q + k + j), q + k) for q in hits]
+            shifts = [s for s in range(min(MAX_SHIFT, n)) if s + k <= n and ins[n - s - k:n - s] == ins[n - j - k:n - j]]
+            ends = [(min(m, q + k + s), q + k) for q in hits for s in shifts]
             break
     best = None
     for s, p in starts:

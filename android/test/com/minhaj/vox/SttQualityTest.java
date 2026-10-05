@@ -142,6 +142,20 @@ public final class SttQualityTest {
                 ApiClient.transcriptOf("{\"text\":\"a b\",\"segments\":[{\"start\":0,\"end\":1,\"text\":\"a\",\"no_speech_prob\":\"high\",\"avg_logprob\":-3}]}", ""));
         eq("the prompt read back is nothing", "", ApiClient.transcriptOf("{\"text\":\"Kubernetes, Tailscale, Groq.\"}", "Kubernetes, Tailscale, Groq."));
         eq("one real word is never an echo", "Groq", ApiClient.transcriptOf("{\"text\":\"Groq\"}", "Kubernetes, Tailscale, Groq."));
+        String ctx = "we meet in the morning and then we have lunch with the client";
+        String withCtx = ApiClient.whisperPromptWith(java.util.Arrays.asList("Ada"), ctx, null, null);
+        eq("a piece that repeats earlier words is kept", "In the morning.",
+                ApiClient.transcriptOf("{\"text\":\"In the morning.\"}", withCtx, ctx));
+        eq("the end of the prompt read back is nothing", "",
+                ApiClient.transcriptOf("{\"text\":\"Lunch with the client.\"}", withCtx, ctx));
+        String loop = "{\"text\":\"go go go go go go\",\"segments\":[{\"start\":0,\"end\":2,\"text\":\"go go go go go go\","
+                + "\"avg_logprob\":-0.2,\"no_speech_prob\":0,\"compression_ratio\":10.5}]}";
+        eq("an answer that is only a sure loop is nothing", "", ApiClient.transcriptOf(loop, ""));
+        String said = "no no no no no no no no no no no no no no no";
+        String repeats = "{\"text\":\"" + said + "\",\"segments\":[{\"start\":0,\"end\":%s,\"text\":\"" + said + "\","
+                + "\"avg_logprob\":-0.3,\"no_speech_prob\":0.01,\"compression_ratio\":3.14}]}";
+        eq("real repeated speech is typed", said, ApiClient.transcriptOf(String.format(repeats, "4"), ""));
+        eq("15 words in one second is a loop", "", ApiClient.transcriptOf(String.format(repeats, "1"), ""));
         for (String bad : new String[]{"{\"text\":null}", "{\"text\":5}", "[1]"}) {
             try {
                 ApiClient.transcriptOf(bad, "");

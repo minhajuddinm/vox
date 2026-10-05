@@ -263,13 +263,15 @@ public final class SyncEngineTest {
                 "provider", "groq", "base_url", "https://api.groq.com/openai/v1", "stt_base_url", "", "llm_base_url", "", "stt_model", "whisper-large-v3-turbo",
                 "llm_model", "openai/gpt-oss-20b", "api_key", "gsk_phone", "stt_api_key", "", "llm_api_key", "");
         final List<Map<String, Object>> writes = new ArrayList<>();
+        Runnable meanwhile;   // runs between the read and the write (a word learned while the run is in flight)
 
         @Override public boolean syncKeys() { return keys; }
         @Override public String relayUrl() { return url; }
         @Override public Map<String, Object> readProfile() { return new LinkedHashMap<>(profile); }
-        @Override public void writeProfile(Map<String, Object> received) {
+        @Override public void writeProfile(Map<String, Object> received, Map<String, Object> seen) {
+            if (meanwhile != null) { meanwhile.run(); meanwhile = null; }
             writes.add(new LinkedHashMap<>(received));
-            profile.putAll(received);
+            profile.putAll(ProfileMerge.onto(seen, profile, received));   // what Prefs.applyReceived does, under its lock
         }
     }
 
@@ -657,6 +659,21 @@ public final class SyncEngineTest {
         eq("both changed: and the other's", list("Ada"), e.relay.profile.get("people"));
         eq("both changed: this phone took the relay's values (and only those that differ)", map("user_context", "B wrote this", "people", list("Ada")), e.cfg.writes.get(e.cfg.writes.size() - 1));
         eq("both changed: version 3", 3L, e.relay.profileVersion);
+
+        // AND-15: a word learned while the run is in flight (between the read and the write) is not overwritten
+        final Env fl = new Env();
+        fl.cfg.profile.put("dictionary", list("one"));
+        fl.sync();
+        fl.relay.profile.put("dictionary", list("one", "from the PC"));
+        fl.relay.profileVersion++;
+        fl.cfg.meanwhile = new Runnable() {
+            public void run() { fl.cfg.profile.put("dictionary", list("one", "learned => Learned")); }
+        };
+        r = fl.sync();
+        eq("in flight: the run took the PC's word", "received", r.profile);
+        eq("in flight: the learned word stays, next to the PC's", list("one", "from the PC", "learned => Learned"), fl.cfg.profile.get("dictionary"));
+        fl.sync();
+        eq("in flight: the next run sends the learned word", list("one", "from the PC", "learned => Learned"), fl.relay.profile.get("dictionary"));
 
         // one side removed a field: a removal is a change too
         e = new Env();

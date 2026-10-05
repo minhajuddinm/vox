@@ -8,7 +8,8 @@ import vox_core as core
 
 
 def entry(t, raw="so we shipped the thing on friday", text="So we shipped the thing on Friday.", **extra):
-    return {"t": t, "app": "chrome.exe", "raw": raw, "text": text, "words": len(text.split()), "secs": 3.0, **extra}
+    return {"t": t, "app": "chrome.exe", "raw": raw, "text": text, "words": len(text.split()), "secs": 3.0, "snippets": [],
+            **extra}
 
 
 def answer(**fields):

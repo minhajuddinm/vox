@@ -130,6 +130,21 @@ jobs:
             --hidden-import soundfile --collect-binaries _soundfile_data --collect-data _soundfile_data `
             --exclude-module PIL._avif --exclude-module PIL.AvifImagePlugin --exclude-module PIL._webp --exclude-module PIL.WebPImagePlugin `
             vox_app.py
+      - name: Start the built Vox.exe once (--selfcheck)
+        working-directory: windows
+        shell: pwsh
+        # A windowed exe that dies before the check shows a modal error box and never exits: the wait is capped.
+        timeout-minutes: 5
+        # CI3: every module, the libraries the app loads later (window backend, meetings, calendar, time zones), the relay,
+        # libsndfile (FLAC) and pythonnet (Learn from my corrections) must load in the exe itself; a build that leaves one
+        # out fails here instead of degrading silently on users' PCs. Nothing is started.
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP "selfcheck.txt"
+          $p = Start-Process -FilePath dist\Vox\Vox.exe -ArgumentList "--selfcheck", "`"$report`"" -PassThru
+          $null = $p.Handle   # keeps the handle, so ExitCode is readable after the wait
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); "::error::Vox.exe --selfcheck did not finish in 3 minutes"; exit 1 }
+          if (Test-Path $report) { Get-Content $report } else { "no report written" }
+          if ($p.ExitCode -ne 0) { "::error::Vox.exe --selfcheck failed (exit $($p.ExitCode))"; exit 1 }
       - name: Build installer
         working-directory: windows
         shell: pwsh

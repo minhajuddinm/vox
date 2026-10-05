@@ -24,6 +24,8 @@ def cache_path():
 
 
 MAX_REDIRECTS = 3
+MAX_CALENDAR_BYTES = 32_000_000   # the most of an iCal answer read (years of events fit; a broken server's gigabytes do not)
+CALENDAR_TOO_BIG = "The calendar was over 32 MB, so Vox stopped reading it"
 NOT_HTTPS = "Use the https:// address of your calendar (plain http only for this PC, your local network or Tailscale)."
 
 
@@ -131,15 +133,16 @@ def _get(url):
     """GET of the iCal address. A redirect is followed only to an address url_problem accepts: requests would follow one
     to plain http and send the secret path and the events in clear text."""
     for _ in range(MAX_REDIRECTS + 1):
-        r = requests.get(url, timeout=20, allow_redirects=False)
+        r = requests.get(url, timeout=20, allow_redirects=False, stream=True)
         loc = (getattr(r, "headers", None) or {}).get("Location")
         if getattr(r, "status_code", 200) in (301, 302, 303, 307, 308) and loc:
+            getattr(r, "close", lambda: None)()   # its body is never read
             url = urllib.parse.urljoin(url, loc)
             if url_problem(url):
                 raise ValueError("The calendar server sent Vox to an address that is not https.")
             continue
         r.raise_for_status()
-        return r
+        return core.read_capped(r, MAX_CALENDAR_BYTES, CALENDAR_TOO_BIG)   # a broken server must not fill the memory
     raise ValueError("The calendar server sent Vox elsewhere too many times.")
 
 

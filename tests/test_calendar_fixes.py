@@ -111,6 +111,27 @@ def test_a_redirect_to_https_is_followed(appdata, monkeypatch):
     assert data["error"] == ""
 
 
+@pytest.mark.parametrize("size, error", [(5000, vcalendar.CALENDAR_TOO_BIG), (500, "")])
+def test_an_ical_answer_over_the_cap_is_not_read_whole(appdata, monkeypatch, size, error):
+    # review 11: the background iCal fetch read whatever the server sent; now at most MAX_CALENDAR_BYTES
+    import io
+    import requests
+    pytest.importorskip("icalendar")
+    pytest.importorskip("recurring_ical_events")
+    asked = []
+
+    def get(url, **kw):
+        asked.append(kw.get("stream"))
+        r = requests.Response()
+        r.status_code, r.raw = 200, io.BytesIO(ICS.encode() + b" " * size)
+        return r
+
+    monkeypatch.setattr(vcalendar, "MAX_CALENDAR_BYTES", 2000)
+    monkeypatch.setattr(vcalendar.requests, "get", get)
+    data = vcalendar.fetch({"calendar_url": "https://calendar.example.com/private-SECRET/basic.ics"}, force=True)
+    assert asked == [True] and data["error"] == error
+
+
 def test_connecting_a_plain_http_address_is_refused_and_not_saved(appdata, monkeypatch):
     import sys
     from unittest.mock import MagicMock

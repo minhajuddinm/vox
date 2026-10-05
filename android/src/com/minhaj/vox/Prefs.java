@@ -50,6 +50,12 @@ public final class Prefs {
                 s.add(origin);
                 sp.edit().putStringSet("relay_proven", s).apply();
             }
+
+            @Override
+            public void remove(String origin) {
+                java.util.Set<String> s = new java.util.HashSet<>(sp.getStringSet("relay_proven", java.util.Collections.<String>emptySet()));
+                if (s.remove(origin)) sp.edit().putStringSet("relay_proven", s).apply();
+            }
         };
     }
 
@@ -191,6 +197,17 @@ public final class Prefs {
         m.put("stt_api_key", raw("stt_api_key"));
         m.put("llm_api_key", raw("llm_api_key"));
         return m;
+    }
+
+    /**
+     * Saves settings received from the relay (relay form) under the learn lock, merged onto what this phone has now
+     * (ProfileMerge.onto with {@code seen}, what the sync run read): a word Learn from my corrections added while the run
+     * was in flight stays (AND-15).
+     */
+    public void applyReceived(Map<String, Object> received, Map<String, Object> seen) {
+        synchronized (LEARN_LOCK) {
+            applyProfile(ProfileMap.receivedOnto(profileStored(), received, seen));
+        }
     }
 
     /** Saves settings received from the relay: a value from ProfileMap.toStored is text or, for {@code cleanup}, a boolean. */

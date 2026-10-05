@@ -1,7 +1,7 @@
 """Snippets: a trigger phrase you say ("my email") becomes the text you saved for it, in every app. Pure: no I/O.
 
-The setting `snippets` is {trigger: text}. Applied after the AI cleanup (so the saved text never goes to the cleanup
-server) and before lists. Whole phrase, case ignored, any run of spaces between its words; the longest trigger wins and the
+The setting `snippets` is {trigger: text}. Applied last: after the AI cleanup (so the saved text never goes to the cleanup
+server) and after lists (so the list pass never re-formats it; vox_core.apply_layout). Whole phrase, case ignored, any run of spaces between its words; the longest trigger wins and the
 text put in is not looked at again. The same rules run on the phone (Snippets.java, golden rows `snippets`); the setting
 travels with the synced profile.
 """
@@ -60,13 +60,20 @@ def clean_snippets(value):
 
 def apply_snippets(text, value):
     """Text with every trigger phrase replaced by its saved text. Twin: Snippets.apply."""
+    return expand(text, value)[0]
+
+
+def expand(text, value):
+    """apply_snippets, plus where each saved text landed: (text, [[start, end, the phrase as said], ...]), offsets in
+    the new text. The history keeps them, so Improve my cleanup puts the phrase back from the entry itself and never
+    sends a saved text, even after the snippet was changed or deleted (PRV-3; see put_back)."""
     snips = clean_snippets(value)
     if not text or not snips:
-        return text
+        return text, []
     items = sorted(snips.items(), key=lambda kv: -len(kv[0]))   # longest first; equal lengths keep their order
     parts = [re.compile(r"[ \t\r\n]+".join(re.escape(w) for w in t.split(" ")), re.I) for t, _ in items]
     anywhere = re.compile("|".join(p.pattern for p in parts), re.I)
-    out, pos, last = [], 0, 0
+    out, pos, last, size, spans = [], 0, 0, 0, []
     while True:   # the first trigger, longest first, that stands as whole words where one starts (a word's marks are
         m = anywhere.search(text, pos)   # part of it: कर never matches in करें); checked here, not with lookarounds
         if not m:
@@ -79,17 +86,27 @@ def apply_snippets(text, value):
                     hit = (k, h.end())
                     break
         if hit:
-            out += [text[last:m.start()], items[hit[0]][1]]
+            saved = items[hit[0]][1]
+            size += m.start() - last
+            spans.append([size, size + len(saved), text[m.start():hit[1]]])
+            size += len(saved)
+            out += [text[last:m.start()], saved]
             last = pos = hit[1]
         else:
             pos = m.start() + 1
+    return "".join(out) + text[last:], spans
+
+
+def put_back(text, spans):
+    """`text` with each span [start, end, phrase] that expand recorded replaced by its phrase, or None when the spans do
+    not fit the text (not a list of in-order, non-overlapping ranges inside it): then the entry is not sent at all."""
+    if not isinstance(text, str) or not isinstance(spans, list):
+        return None
+    out, last = [], 0
+    for s in spans:
+        if not (isinstance(s, list) and len(s) == 3 and all(isinstance(v, int) and not isinstance(v, bool) for v in s[:2])
+                and isinstance(s[2], str) and last <= s[0] <= s[1] <= len(text)):
+            return None
+        out += [text[last:s[0]], s[2]]
+        last = s[1]
     return "".join(out) + text[last:]
-
-
-def unexpand(text, value):
-    """Text with each saved text put back as its trigger phrase: what Improve my cleanup sends instead of the saved texts."""
-    if not isinstance(text, str):
-        return text
-    for t, x in sorted(clean_snippets(value).items(), key=lambda kv: -len(kv[1])):
-        text = text.replace(x, t)
-    return text

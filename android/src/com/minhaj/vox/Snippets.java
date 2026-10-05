@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 
 /**
  * Snippets: a trigger phrase the user says ("my email") becomes the text saved for it. Twin of windows/snippets.py (golden
- * rows "snippets"). Applied after the AI cleanup, so the saved text never goes to the cleanup server, and before the lists.
+ * rows "snippets"). Applied after the AI cleanup, so the saved text never goes to the cleanup server, and after the lists ({@link #layout}), so the list pass never re-formats it.
  * Whole phrase, case ignored, any run of spaces between its words; the longest trigger wins and the text put in is not
  * looked at again. The setting travels with the synced profile (ProfileMap). Pure Java (no android.*).
  */
@@ -108,6 +108,14 @@ final class Snippets {
             total += size;
         }
         return out;
+    }
+
+    /**
+     * Lists from spoken cues (Structure.format), then the snippets: last, so a saved text is never re-formatted by the list
+     * pass (TXT-12: its line breaks and list markers stay as saved). Twin of vox_core.apply_layout (golden rows "layout").
+     */
+    static String layout(String text, Object snippets, String mode, String style) {
+        return apply(Structure.format(text, mode, style), snippets);
     }
 
     /** Text with every trigger phrase replaced by its saved text (twin of apply_snippets). */

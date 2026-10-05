@@ -1115,8 +1115,8 @@ def fallback_text(raw, style="neutral", strength="light"):
 FILLERS = frozenset({"um", "uh", "er", "erm", "ah", "hmm", "like", "basically", "you know", "i mean", "sort of",
                      "kind of"})
 NOISES = frozenset({"um", "uh", "er", "erm", "ah", "hmm", "hm", "uhm"})   # pure noises: may go even in Light ("mm": 5 mm)
-# the guard reads drawn-out noises the way the rules layer drops them (umm, uhh, hmmm, ahh, err): letters only
-_NOISE_WORD = re.compile("(?:u+m+|u+h+m*|e+r+m*|a+h+|h+m+)")
+# the guard reads drawn-out noises the way the rules layer drops them (umm, uhh, hmmm, ahh, errm): letters only
+_NOISE_WORD = re.compile("(?:u+m+|u+h+m*|e+r(?:r*m+)?|a+h+|h+m+)")   # not "err" ("to err is human"): the rules layer keeps it too
 
 
 def is_noise(word):
@@ -1404,6 +1404,8 @@ _PROTECTED = _NEG | _MONTHS | _WEEKDAYS | {"yes", "he", "she", "they", "we", "yo
                                            "before", "after", "more", "less", "first", "last", "left", "right"}
 _CONNECTORS = frozenset({"and", "but", "because", "so", "or", "then", "although", "while", "if"})
 _FREE_INS = frozenset({"a", "an", "the", "to", "of", "is", "are", "and", "it", "that", "in", "for", "on", "at", "i"})
+# words so common that one of them after a weak cue says nothing about a restart ("the price is too high")
+_RESTART_COMMON = _FREE_INS | {"we", "you", "he", "she", "they", "my", "your", "this", "so", "but", "was", "be", "will"}
 _SCALE_ZEROS = {"thousand": 3, "lakh": 5, "lakhs": 5, "million": 6, "crore": 7, "crores": 7, "billion": 9}
 # spoken commands: the symbols one of them may become in the cleaned text, between its neighbouring words
 _G_COMMANDS = {"new paragraph": ("\n",), "new line": ("\n",), "question mark": ("?",), "exclamation mark": ("!",),
@@ -1653,7 +1655,9 @@ def _g_corrections(toks):
     and up to 6 tokens before it (15 for "scratch that", 3 for a bare "no") may be missing; checked later. A weak cue
     (actually, sorry, rather, matlab, "sorry i": also everyday words) opens the window only when the words around it
     look like a repair: a typed value before it and in the 6 tokens after it, the first word after it repeating a
-    word of the window (a restart), a tail ("make it"), or another cue up to the first word after it."""
+    word of the window (a restart; not a common word, _RESTART_COMMON), a tail ("make it"), or another cue up to the
+    first word after it. The first two words after it repeating two words in a row of the window are a restart from
+    there: the window then starts at that run."""
     n, w = len(toks), [t.t for t in toks]
     for i in range(n):
         two = w[i] + " " + w[i + 1] if i + 1 < n else None
@@ -1682,10 +1686,16 @@ def _g_corrections(toks):
             nxt = next((k for k in range(after, n) if toks[k].kind not in ("noise", "filler")), after)
             repair = (any(_typed_value(toks[k]) for k in range(start, i))
                       and any(_typed_value(toks[k]) for k in range(after, min(n, after + 6))))
-            restart = w[nxt] in w[start:i]
+            restart = w[nxt] in w[start:i] and w[nxt] not in _RESTART_COMMON   # "the", "i", "we" repeat anyway
             chain = any(_is_cue(w, k) for k in range(i + 1, min(n, nxt + 1)))
             if not (repair or restart or chain):
-                continue   # an everyday "actually" / "sorry": its words are ordinary words
+                # the first two words after the cue begin a run of the window ("we should take the bus actually we
+                # should walk"): a restart from that run on, so only the run may be missing ("please send" stays)
+                s = next((s for s in range(start, i - 1) if nxt + 1 < n and w[s] == w[nxt] and w[s + 1] == w[nxt + 1]),
+                         None)
+                if s is None:
+                    continue   # an everyday "actually" / "sorry": its words are ordinary words
+                start = s
         for k in range(start, i + cue_len):
             toks[k].opt = True
         toks[i].cue = (start, i, i + cue_len)
@@ -2325,11 +2335,34 @@ class ApiError(Exception):
 
 
 _session = requests.Session()   # keeps connections open, so a dictation does not pay the TLS handshake again
+MAX_ANSWER_BYTES = 8_000_000   # the most of an AI server's answer read (SEC-9; the relay and the phone use 8 MB too)
+TOO_BIG = "The server's answer was over 8 MB, so Vox stopped reading it"
 
 
 def _post(url, **kw):
     kw.setdefault("allow_redirects", False)   # a redirect would send the audio or the text to an address no rule checked (SEC-6)
-    return _session.post(url, **kw)
+    return read_capped(_session.post(url, stream=True, **kw))
+
+
+def read_capped(r, cap=MAX_ANSWER_BYTES, too_big=TOO_BIG):
+    """`r` (asked for with stream=True) with its body read, at most `cap` bytes: a broken or hostile server that sends
+    gigabytes would otherwise fill the memory (SEC-9; also the calendar and the relay's proof). Raises ApiError(0,
+    `too_big`) (not retried) and drops the connection when the answer is bigger."""
+    if not isinstance(r, requests.Response):   # a stand-in answer of a test: its body is there already
+        return r
+    body, size = [], 0
+    try:
+        for chunk in r.iter_content(65536):
+            size += len(chunk)
+            if size > cap:
+                raise ApiError(0, too_big)
+            body.append(chunk)
+    except Exception:   # over the cap, or the body broke off (ChunkedEncodingError, a read timeout)
+        r.close()   # not all read: the connection is dropped
+        raise
+    r._content = b"".join(body)   # what r.content, r.text and r.json() read from now on
+    r.close()   # all read: the connection goes back to the session's pool for the next request
+    return r
 
 
 def warm(cfg):
@@ -2347,7 +2380,7 @@ def warm(cfg):
             return      # the relay did not prove it holds the token: nothing goes there
         for base, headers in targets.items():
             try:
-                _session.get(f"{base}/models", headers=headers, timeout=3, allow_redirects=False)
+                read_capped(_session.get(f"{base}/models", headers=headers, timeout=3, allow_redirects=False, stream=True))
             except Exception:
                 pass
 
@@ -2674,6 +2707,9 @@ SEG_LOGPROB = -1.0      # ... with avg_logprob below this: silence
 SEG_COMPRESSION = 2.4   # compression_ratio above this: "either the either the either the"
 SEG_LOOP_REPEATS = 3    # a dictation's loop also repeats the same 3 words this often (Hindi in Devanagari compresses
                         # to 2.5 without repeating anything: compression alone is not a loop there)
+SEG_LOOP_SURE = 8.0     # a confident loop that is the whole answer is Whisper's only above this compression_ratio (zlib:
+                        # "no" said 15 times 3.1, "testing" 15 times 6.4; Whisper's loops run to its token limit: 10+)
+SEG_LOOP_RATE = 8.0     # ... or above this many words a second of its segment: faster than anyone speaks
 
 
 def keep_segment(no_speech, logprob, compression):
@@ -2692,17 +2728,28 @@ def _repeats(text):
     return False
 
 
+def _sure_loop(s):
+    """True for a loop segment that cannot be someone repeating a word on purpose ("no no no", "testing testing"):
+    Whisper is unsure of it (avg_logprob below SEG_LOGPROB or no_speech_prob above SEG_NO_SPEECH), it compresses above
+    SEG_LOOP_SURE, or it has more than SEG_LOOP_RATE words a second (only when the segment has times)."""
+    if s["logprob"] < SEG_LOGPROB or s["no_speech"] > SEG_NO_SPEECH or s["compression"] > SEG_LOOP_SURE:
+        return True
+    dur = s.get("end", 0.0) - s.get("start", 0.0)
+    return dur > 0 and len(word_tokens(s["text"])) > SEG_LOOP_RATE * dur
+
+
 def segments_kept(segments):
     """Which segments of a dictation to keep (twin: ApiClient.segmentsKept): a loop (compression above SEG_COMPRESSION and
     its text repeats, _repeats) goes anywhere; silence filled with words (no_speech and logprob, see SEG_NO_SPEECH) only as
-    the first or the last segment, where Whisper invents it. When no kept segment would have text, all are kept: a short
-    real phrase can score like silence, and the edge trim and the silence gate deal with real silence."""
+    the first or the last segment, where Whisper invents it. When no kept segment would have text, all but the sure loops
+    (_sure_loop) are kept: a short real phrase can score like silence, and the edge trim and the silence gate deal with
+    real silence; repeated speech that is the whole dictation ("no no no ...") is typed, Whisper's own loop gives nothing."""
     n = len(segments)
-    keep = [not ((s["compression"] > SEG_COMPRESSION and _repeats(s["text"]))
-                 or ((i == 0 or i == n - 1) and s["logprob"] < SEG_LOGPROB and s["no_speech"] > SEG_NO_SPEECH))
+    loop = [s["compression"] > SEG_COMPRESSION and _repeats(s["text"]) for s in segments]
+    keep = [not (loop[i] or ((i == 0 or i == n - 1) and s["logprob"] < SEG_LOGPROB and s["no_speech"] > SEG_NO_SPEECH))
             for i, s in enumerate(segments)]
     if not any(k and s["text"] for k, s in zip(keep, segments)):
-        return [True] * n
+        return [not (x and _sure_loop(s)) for x, s in zip(loop, segments)]
     return keep
 
 
@@ -2743,16 +2790,24 @@ ECHO_MIN_WORDS = 3   # a shorter transcript is never called an echo: a one-word 
 ECHO_FRAME_WORDS = frozenset({"we", "talked", "with", "about", "and"})
 
 
-def is_prompt_echo(text, prompt):
+def is_prompt_echo(text, prompt, context=""):
     """True when the transcript is only a piece of the Whisper prompt read back (twin: ApiClient.isPromptEcho, golden rows
-    "echo"): Whisper, given silence or a very short clip, can answer with its prompt (the dictionary terms or the text
-    before). Without the sentence's own words (ECHO_FRAME_WORDS) it must be at least ECHO_MIN_WORDS words, all of them a
-    run of the prompt's words (also without them) in the same order."""
+    "echo" and "echoctx"): Whisper, given silence or a very short clip, can answer with its prompt (the dictionary terms
+    or the text before). Without the sentence's own words (ECHO_FRAME_WORDS) it must be at least ECHO_MIN_WORDS words,
+    all of them a run of the prompt's words (also without them) in the same order. `context` is the text before this
+    piece that the prompt ends with: a run that lies only inside it counts only when it reaches the prompt's end (what
+    Whisper reads back), so a real piece that repeats a few words said earlier ("to the client") is kept."""
     t = [w for w in word_tokens(text) if w not in ECHO_FRAME_WORDS]
     p = [w for w in word_tokens(prompt) if w not in ECHO_FRAME_WORDS]
-    if len(t) < ECHO_MIN_WORDS or len(t) > len(p):
+    n = len(t)
+    if n < ECHO_MIN_WORDS or n > len(p):
         return False
-    return any(p[i:i + len(t)] == t for i in range(len(p) - len(t) + 1))
+    c = [w for w in word_tokens(context) if w not in ECHO_FRAME_WORDS]
+    tail = 0   # the prompt's last words that are the earlier text
+    while tail < min(len(p), len(c)) and p[-1 - tail] == c[-1 - tail]:
+        tail += 1
+    head = len(p) - tail
+    return any(p[i:i + n] == t and (i < head or i + n == len(p)) for i in range(len(p) - n + 1))
 
 
 def shift_segments(segments, seconds):
@@ -2800,7 +2855,7 @@ def transcribe(cfg, wav_bytes, context=""):
             log.info("speech: dropped %d of %d segments as made up (silence or a loop)", len(segs) - len(kept), len(segs))
         text = kept_text(text, segs)
         _stt_local.segments = [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in kept] or None
-    if is_prompt_echo(text, prompt):
+    if is_prompt_echo(text, prompt, context):
         log.info("speech: the answer only repeated the prompt, dropped")
         _stt_local.segments = None
         return ""
@@ -2948,7 +3003,7 @@ def cleanup(cfg, raw, style, app_label):
     return cleanup_answer(text)
 
 
-Result = namedtuple("Result", "raw text cleaned cleanup_error fidelity_fallback", defaults=(False,))
+Result = namedtuple("Result", "raw text cleaned cleanup_error fidelity_fallback snippets", defaults=(False, ()))
 
 
 def _transcribe_in_pieces(cfg, pcm_bytes, context=""):
@@ -2998,7 +3053,8 @@ def process_detailed(cfg, pcm_bytes, exe, app_label):
 
     Result.cleaned says whether the AI cleanup produced the text; Result.cleanup_error holds the reason when
     cleanup was wanted but failed (the spoken words tidied by the rules layer are used then, so the dictation is never lost);
-    Result.fidelity_fallback says the fidelity guard rejected the cleanup answer (see fallback_text).
+    Result.fidelity_fallback says the fidelity guard rejected the cleanup answer (see fallback_text); Result.snippets
+    says where saved texts were put in ([start, end, phrase said], snippets.expand; kept in the history entry).
     """
     _mark("stt_start")
     segments = None
@@ -3033,7 +3089,8 @@ def needs_cleanup(raw, style, enabled, min_words):
 def process_text(cfg, raw, exe, app_label, segments=None):
     """Everything after speech to text: silence phrases, style, cleanup and its fidelity guard, spoken commands,
     replacements, the dictionary's spellings, then lists and paragraphs (structure.py) on whatever text came out (cleaned,
-    fallback or raw). `segments` are the speech server's segment times (paragraph breaks at long pauses), or None."""
+    fallback or raw), then the snippets (apply_layout). `segments` are the speech server's segment times (paragraph breaks
+    at long pauses), or None."""
     if not raw or is_silence_hallucination(raw):
         return Result("", "", False, "")
     style = style_for(cfg, exe)
@@ -3068,10 +3125,21 @@ def process_text(cfg, raw, exe, app_label, segments=None):
     if code:
         out = codemode.format_code(out)   # "new line" is one of its symbols
     out = fuzzy_dictionary(apply_replacements(out, replacements(cfg)), dictionary_terms(cfg))
-    out = snippets_mod.apply_snippets(out, cfg.get("snippets"))   # after the cleanup: a saved text never goes to the AI
+    out, spans = _layout(cfg, out, style, segments, code)
+    return Result(raw, out, cleaned, error, rejected, spans)
+
+
+def apply_layout(cfg, text, style, segments=None, code=False):
+    """Lists and paragraphs (apply_structure; not in code), then the snippets: last, so a saved text never goes to the AI
+    and is never re-formatted by the list pass (TXT-12: its line breaks and list markers stay as saved). Twin: the end of
+    DictationService's pipeline, Snippets.layout (golden rows "layout")."""
+    return _layout(cfg, text, style, segments, code)[0]
+
+
+def _layout(cfg, text, style, segments, code):
     if not code:
-        out = apply_structure(cfg, out, style, segments)
-    return Result(raw, out, cleaned, error, rejected)
+        text = apply_structure(cfg, text, style, segments)
+    return snippets_mod.expand(text, cfg.get("snippets"))
 
 
 def apply_structure(cfg, text, style, segments=None):
