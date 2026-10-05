@@ -686,9 +686,9 @@ public class VoxAccessibilityService extends AccessibilityService
         CharSequence hint = Build.VERSION.SDK_INT >= 26 ? node.getHintText() : null;
         boolean flagged = Build.VERSION.SDK_INT >= 26 && node.isShowingHintText();
         // Empty fields often report their placeholder ("Message" in WhatsApp and Telegram) as their text: start from nothing.
-        boolean placeholder = HintGuard.isPlaceholder(cur, hint, flagged, node.getContentDescription());
         int s = node.getTextSelectionStart();
         int e = node.getTextSelectionEnd();
+        boolean placeholder = HintGuard.isPlaceholder(cur, hint, flagged, node.getContentDescription(), s);   // a caret after the text: the user typed it
         if (placeholder || (!cur.isEmpty() && cur.length() <= HintGuard.MAX_LEN && s <= 0)) {
             // Logged without the text itself: lets the Settings diagnostics show what a field reported if it still goes wrong.
             // No package or class name and no exact length: the log must not list the apps the user dictates into.
