@@ -73,7 +73,10 @@ def test_two_clips_are_saved_with_their_texts_and_a_progress_count(tmp_path):
     rows = {r["id"]: r for r in clips.load_manifest(folder)}
     assert rows["clip-001"]["ref_verbatim"] == "um send it to priya" and rows["clip-001"]["ref_intended"] == "Send it to Priya."
     assert rows["clip-001"]["terms"] == ["Priya"] and rows["clip-001"]["seconds"] == 2.0 and rows["clip-001"]["kind"]
-    assert rows["clip-002"]["ref_intended"] == "thursday no wait friday"     # Enter alone = the same as verbatim
+    assert rows["clip-002"]["ref_intended"] == rec.core.fallback_text("thursday no wait friday") == "Thursday no wait Friday."
+    assert rows["clip-002"]["intended_typed"] is False and rows["clip-001"]["intended_typed"] is True   # Enter = the suggestion
+    assert any("(Enter = Thursday no wait Friday.)" in p for p in s._ask.prompts)
+    assert rows["clip-001"]["mic"] == "default"
     assert rows["clip-002"]["terms"] == ["Friday", "Ledgerly"]
     text = "\n".join(said)
     assert "Clip 1 of 50" in text and "Clip 2 of 50" in text and "Saved clip-002 (2 of 50 done)" in text
@@ -163,6 +166,27 @@ def test_main_uses_the_given_recorder_and_folder(tmp_path):
     assert rec.main(["--folder", folder, "--target", "1"], recorder=FakeRecorder(voice(1)),
                     ask=Typist(*one_clip(), "q"), say=lambda t: None) == 0
     assert clips.clips_on_disk(folder) == ["clip-001"]
+
+
+def test_ctrl_c_during_playback_only_stops_the_playback(tmp_path):
+    class Interrupted(FakeRecorder):
+        def play(self, pcm):
+            raise KeyboardInterrupt
+    s, said = session(tmp_path, Interrupted(voice(1)), Typist("", "", "p", "", "said it", "", ""))
+    assert s.run() == 1   # the take was still kept after the stopped playback
+    assert any("Playback stopped" in x for x in said)
+
+
+def test_a_missing_microphone_falls_back_to_the_default_one(monkeypatch):
+    import audio_devices
+    monkeypatch.setitem(sys.modules, "sounddevice", object())
+    monkeypatch.setattr(audio_devices, "input_index", lambda name, sd=None: None)
+    said = []
+    r = rec.MicRecorder("Gone USB mic", said.append)
+    assert r.device is None and r.name == "" and "Microphone not found: Gone USB mic" in said[0] and "default" in said[0]
+    monkeypatch.setattr(audio_devices, "input_index", lambda name, sd=None: 3)
+    r = rec.MicRecorder("USB mic", said.append)
+    assert r.device == 3 and r.name == "USB mic"
 
 
 def test_the_suggestions_cover_the_kinds_the_plan_asks_for():

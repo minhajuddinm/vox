@@ -4,14 +4,18 @@ said and what you want pasted.
     python tools/bench_record.py                 about 50 clips (30-45 minutes); run it again to continue
     python tools/bench_record.py --target 60     another goal
     python tools/bench_record.py --device "Microphone (USB)"   another microphone than the one chosen in Vox
+(run them with the repository's venv Python, .venv\\Scripts\\python: it has sounddevice and the app's packages)
 
 Clips are saved in %APPDATA%\\Vox\\bench\\clips\\ (16 kHz mono WAV, the format Vox records), outside the repository, and
 never committed. Nothing is sent anywhere by this tool; bench_stt.py sends the clips to the speech server you choose.
 After each clip you type three short lines:
     1. verbatim:  every word as you said it (um, repeats, "no wait" and all). Punctuation does not matter here.
-    2. intended:  the text you want pasted, with capitals and punctuation (Enter alone = the same as line 1).
+    2. intended:  the text you want pasted, with capitals and punctuation. Enter alone takes the suggestion shown: line
+                  1 through Vox's rules layer (capitals, final mark, noises out); check it, it is the reference every
+                  formatted score is measured against.
     3. terms:     names and special words in the clip, comma separated (Enter alone = none).
-A clip is never overwritten. If the tool is closed before the texts are typed, the next start asks for them first.
+A clip is never overwritten. If the tool is closed before the texts are typed, the next start asks for them first. The
+manifest line of a clip records its suggested kind and the microphone; edit "kind" there if you said something else.
 """
 import argparse
 import os
@@ -91,13 +95,15 @@ class Stop(Exception):
 class MicRecorder:
     """Records from a microphone with sounddevice (16 kHz mono 16-bit, as Vox does) and plays a clip back."""
 
-    def __init__(self, device_name=""):
+    def __init__(self, device_name="", say=print):
         import sounddevice as sd   # imported here: tests never open a real microphone
         import audio_devices
         self.sd = sd
         self.device = audio_devices.input_index(device_name, sd) if device_name else None
-        if device_name and self.device is None:
-            raise SystemExit(f"Microphone not found: {device_name}")
+        self.name = device_name if self.device is not None else ""
+        if device_name and self.device is None:   # as the app: a missing microphone falls back to the default one
+            say(f"Microphone not found: {device_name}. Using the Windows default microphone "
+                '(--device "NAME" picks another).')
         self.chunks, self.stream = [], None
 
     def start(self):
@@ -125,6 +131,13 @@ class Session:
     def __init__(self, folder, recorder, target, ask=input, say=print):
         self.folder, self.recorder, self.target, self._ask, self.say = folder, recorder, target, ask, say
 
+    def play(self, pcm):
+        """Plays a take back; Ctrl+C only stops the playback (the take is kept for the next answer)."""
+        try:
+            self.recorder.play(pcm)
+        except KeyboardInterrupt:
+            self.say("  Playback stopped.")
+
     def ask(self, prompt):
         try:
             return self._ask(prompt)
@@ -148,7 +161,7 @@ class Session:
             while True:
                 n = len(self.done())
                 if n >= self.target:
-                    self.say(f"\nGoal reached: {n} clips. Next: python tools/bench_stt.py --provider groq")
+                    self.say(f"\nGoal reached: {n} clips. Next: .venv\\Scripts\\python tools\\bench_stt.py --provider groq")
                     if self.ask("Record more? Enter = yes, q = stop: ").strip().lower() == "q":
                         break
                     self.target = n + 10
@@ -173,7 +186,7 @@ class Session:
             while True:
                 c = self.ask("Enter = type them now, p = play it first, s = skip it for now: ").strip().lower()
                 if c == "p":
-                    self.recorder.play(clips.read_pcm(clips.wav_path(self.folder, cid)))
+                    self.play(clips.read_pcm(clips.wav_path(self.folder, cid)))
                 elif c == "s":
                     break
                 else:
@@ -209,7 +222,8 @@ class Session:
         cid = clips.next_clip_id(self.folder)
         clips.write_new_wav(clips.wav_path(self.folder, cid), pcm)
         row = {"id": cid, "audio": cid + ".wav", "seconds": round(secs, 2), "kind": kind, "suggestion": idea,
-               "recorded": datetime.now().isoformat(timespec="seconds")}
+               "recorded": datetime.now().isoformat(timespec="seconds"),
+               "mic": getattr(self.recorder, "name", "") or "default"}
         clips.append_row(self.folder, row)   # the audio's line first: a close now is resumed by finish_untyped
         self.type_texts(row)
 
@@ -217,7 +231,7 @@ class Session:
         while True:
             c = self.ask("  Enter = keep, p = play it back, r = record again, q = discard and stop: ").strip().lower()
             if c == "p":
-                self.recorder.play(pcm)
+                self.play(pcm)
             elif c == "r":
                 return "redo"
             elif c == "q":
@@ -230,15 +244,18 @@ class Session:
         verbatim = ""
         while not verbatim:
             verbatim = self.ask("  1/3 Verbatim, every word as you said it (um, repeats, 'no wait'...): ").strip()
-        intended = self.ask("  2/3 Intended text to paste, with capitals and punctuation (Enter = same as 1): ").strip()
+        suggested = core.fallback_text(verbatim) or verbatim   # the rules layer: capitals, final mark, noises out
+        intended = self.ask("  2/3 Intended text to paste, with capitals and punctuation\n"
+                            f"      (Enter = {suggested}): ").strip()
         terms = self.ask("  3/3 Names and special terms in it, comma separated (Enter = none): ")
-        row = dict(row, ref_verbatim=verbatim, ref_intended=intended or verbatim,
+        row = dict(row, ref_verbatim=verbatim, ref_intended=intended or suggested, intended_typed=bool(intended),
                    terms=[t.strip() for t in terms.split(",") if t.strip()])
         clips.append_row(self.folder, row)
         self.say(f"  Saved {row['id']} ({len(self.done())} of {self.target} done).")
 
 
 def main(argv=None, recorder=None, ask=input, say=print):
+    clips.safe_console()
     ap = argparse.ArgumentParser(description="Record your own clips for the Vox speech and cleanup benchmark.")
     ap.add_argument("--target", type=int, default=50, help="how many clips to aim for (default 50)")
     ap.add_argument("--device", help="microphone name (default: the one chosen in Vox, else the Windows default)")
@@ -246,7 +263,7 @@ def main(argv=None, recorder=None, ask=input, say=print):
     args = ap.parse_args(argv)
     if recorder is None:
         device = args.device if args.device is not None else core.load_config().get("input_device", "")
-        recorder = MicRecorder(device)
+        recorder = MicRecorder(device, say)
     Session(args.folder or clips.clips_dir(), recorder, max(1, args.target), ask, say).run()
     return 0
 
