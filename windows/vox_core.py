@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import socket
 import sys
 import tempfile
 import threading
@@ -21,6 +22,8 @@ from urllib.parse import urlparse
 import requests
 import urllib3.connection
 import urllib3.connectionpool
+import urllib3.exceptions
+import urllib3.util.connection
 
 import codemode
 import providers
@@ -1511,7 +1514,7 @@ class PlainHttpRefused(OSError):
 
 
 PLAIN_HTTP_ELSEWHERE = ("Plain http only goes to this PC, your local network or Tailscale, and this name led somewhere else. "
-                        "Use https:// or the address in numbers.")   # Android twin: Endpoint.resolvedError
+                        "Use https:// or the address in numbers (for example 192.168.1.20).")   # Android twin: Endpoint.resolvedError
 
 
 def refused_plain_http(exc):
@@ -1526,7 +1529,30 @@ def refused_plain_http(exc):
 class PrivatePeerConnection(urllib3.connection.HTTPConnection):
     """Every plain http connection the app makes (requests, through urllib3): the address it really connected to must be
     private, whatever the name resolved to. The address rule (endpoint_error) only sees the name, and a foreign network
-    (hotel DNS, LLMNR or mDNS) can answer for `gpu-pc` or `pi.lan`: nothing is sent before this check."""
+    (hotel DNS, LLMNR or mDNS) can answer for `gpu-pc` or `pi.lan`: nothing is sent before this check. Of the addresses
+    the name resolves to, only the private ones are tried (_new_conn): a LAN machine on an IPv6 network also has a global
+    IPv6 address, which Windows would try first."""
+
+    def _new_conn(self):
+        host = self._dns_host
+        try:
+            found = socket.getaddrinfo(host.strip("[]"), self.port, urllib3.util.connection.allowed_gai_family(),
+                                       socket.SOCK_STREAM)
+        except (OSError, UnicodeError):
+            return super()._new_conn()   # the lookup fails: urllib3 says so its own way
+        private = list(dict.fromkeys(sa[0] for *_, sa in found if private_peer(sa[0])))
+        if not private:
+            raise PlainHttpRefused("plain http is only sent to this PC, the local network or Tailscale; this name led elsewhere")
+        last = None
+        for address in private:
+            self._dns_host = address
+            try:
+                return super()._new_conn()
+            except (urllib3.exceptions.NewConnectionError, urllib3.exceptions.ConnectTimeoutError) as e:
+                last = e
+            finally:
+                self._dns_host = host
+        raise last
 
     def connect(self):
         super().connect()

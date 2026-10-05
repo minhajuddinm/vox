@@ -138,6 +138,52 @@ def test_plain_http_that_reaches_a_public_address_sends_nothing(monkeypatch):
         srv.server_close()
 
 
+def _resolve(monkeypatch, name, answers):
+    import socket
+    real = socket.getaddrinfo
+
+    def lookup(host, port, *a, **kw):
+        if host == name:
+            return [(socket.AF_INET6 if ":" in ip else socket.AF_INET, socket.SOCK_STREAM, 6, "",
+                     (ip, port, 0, 0) if ":" in ip else (ip, port)) for ip in answers]
+        return real(host, port, *a, **kw)
+    monkeypatch.setattr(socket, "getaddrinfo", lookup)
+
+
+def test_a_lan_name_with_a_global_ipv6_address_too_is_reached_on_its_private_one(monkeypatch):
+    """Final review RC-I4: Windows prefers a global IPv6 address, and `gpu-pc` on a dual-stack home network has one; only
+    the private addresses are tried, so the LAN server is reached and the global one never sees the key."""
+    import socket
+    srv, seen = _local_server()
+    _resolve(monkeypatch, "gpu-pc", ["2001:db8::5", "127.0.0.1"])
+    tried, real_socket = [], socket.socket
+
+    class Recording(real_socket):
+        def connect(self, address):
+            tried.append(address[0])
+            return super().connect(address)
+    monkeypatch.setattr(socket, "socket", Recording)
+    try:
+        r = core.requests.get(f"http://gpu-pc:{srv.server_address[1]}/x", headers={"Authorization": "Bearer k"}, timeout=5)
+        assert r.status_code == 200 and seen == ["Bearer k"]
+        assert tried == ["127.0.0.1"]   # the global address is never tried (it would be the same machine, and refused)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_a_name_with_only_public_addresses_is_refused_before_connecting(monkeypatch):
+    srv, seen = _local_server()
+    _resolve(monkeypatch, "gpu-pc", ["2001:db8::5", "8.8.8.8"])
+    try:
+        with pytest.raises(core.requests.ConnectionError) as e:
+            core.requests.get(f"http://gpu-pc:{srv.server_address[1]}/x", headers={"Authorization": "Bearer k"}, timeout=5)
+        assert core.refused_plain_http(e.value) and seen == []
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
 def test_the_relay_test_says_why_when_its_name_led_elsewhere(monkeypatch):
     import sync
     srv, seen = _local_server()

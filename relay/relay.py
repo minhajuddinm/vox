@@ -639,8 +639,9 @@ def _open_socket(host, port, deadline, private_only=False):
     """A connected TCP socket to host:port, like socket.create_connection, except that the name lookup and all the
     connection attempts share one deadline (a time.monotonic() value) instead of each getting a whole timeout. The
     socket comes back with what is left as its timeout, which also bounds an https handshake. Raises OSError.
-    `private_only` (plain http): every address the name resolves to must be private (`private_address`), or nothing is
-    connected and UpstreamError is raised; upstream_problem only saw the name."""
+    `private_only` (plain http): only the private addresses the name resolves to (`private_address`) are tried, and
+    UpstreamError is raised when there is none; upstream_problem only saw the name. A LAN name on an IPv6 network
+    (`gpu-pc`, `pi.local`) also resolves to the machine's global IPv6 address: that one is skipped, not a reason to refuse."""
     found = []
 
     def look_up():
@@ -656,10 +657,13 @@ def _open_socket(host, port, deadline, private_only=False):
         raise OSError("name lookup timed out")
     if isinstance(found[0], Exception):
         raise found[0]
-    if private_only and not all(private_address(a[4][0]) for a in found[0]):
-        raise UpstreamError("the plain http upstream's name led outside this machine, the local network and Tailscale")
+    addresses = found[0]
+    if private_only:
+        addresses = [a for a in addresses if private_address(a[4][0])]
+        if not addresses:
+            raise UpstreamError("the plain http upstream's name led outside this machine, the local network and Tailscale")
     err = OSError("no address to connect to")
-    for family, kind, proto, _name, address in found[0]:
+    for family, kind, proto, _name, address in addresses:
         left = deadline - time.monotonic()
         if left <= 0:
             break

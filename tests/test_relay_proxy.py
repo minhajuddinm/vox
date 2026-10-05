@@ -1472,20 +1472,43 @@ def test_a_plain_http_upstream_name_that_resolves_to_loopback_is_used(server, ll
     assert send_route(server, ROUTES[2]).status == 200 and len(llm_stub.seen) == 1
 
 
-def test_a_plain_http_upstream_name_that_resolves_to_a_public_address_gets_nothing(server, llm_stub, monkeypatch):
+def _lookup_for(name, answers):
     real = socket.getaddrinfo
-    port = llm_stub.server_address[1]
 
-    def lookup(host, *a, **kw):    # a hostile network answers for the name: one private and one public address
-        if host == "gpu-pc":
-            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port)),
-                    (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", port))]
+    def lookup(host, *a, **kw):
+        if host == name:
+            return [(socket.AF_INET6 if ":" in ip else socket.AF_INET, socket.SOCK_STREAM, 6, "",
+                     (ip, port, 0, 0) if ":" in ip else (ip, port)) for ip, port in answers]
         return real(host, *a, **kw)
-    monkeypatch.setattr(relay.socket, "getaddrinfo", lookup)
+    return lookup
+
+
+def test_a_plain_http_upstream_name_that_resolves_to_a_public_address_gets_nothing(server, llm_stub, monkeypatch):
+    port = llm_stub.server_address[1]
+    monkeypatch.setattr(relay.socket, "getaddrinfo", _lookup_for("gpu-pc", [("8.8.8.8", port), ("2001:db8::5", port)]))
     server.set_upstream("llm", "http://gpu-pc:%d/v1" % port, LLM_KEY)
     resp = send_route(server, ROUTES[2])
     assert resp.status == 502 and "outside this machine" in resp.json()["error"]["message"]
     assert llm_stub.seen == [] and LLM_KEY.encode() not in resp.raw and free_slots(server)
+
+
+def test_a_lan_name_with_a_global_ipv6_address_too_goes_to_its_private_one(server, llm_stub, monkeypatch):
+    """Final review RC-I4: on a dual-stack home network `gpu-pc` resolves to its global IPv6 address and its LAN address;
+    the global one is skipped (never connected), the LAN one is used."""
+    port = llm_stub.server_address[1]
+    monkeypatch.setattr(relay.socket, "getaddrinfo",
+                        _lookup_for("gpu-pc", [("2001:db8::5", port), ("8.8.8.8", port), ("127.0.0.1", port)]))
+    tried = []
+    real_socket = relay.socket.socket
+
+    class Recording(real_socket):
+        def connect(self, address):
+            tried.append(address[0])
+            return super().connect(address)
+    monkeypatch.setattr(relay.socket, "socket", Recording)
+    server.set_upstream("llm", "http://gpu-pc:%d/v1" % port, LLM_KEY)
+    assert send_route(server, ROUTES[2]).status == 200 and len(llm_stub.seen) == 1
+    assert "2001:db8::5" not in tried and "8.8.8.8" not in tried
 
 
 @pytest.mark.parametrize("address, ok", [("127.0.0.1", True), ("::1", True), ("fe80::1%3", True), ("100.100.1.1", True),

@@ -110,7 +110,7 @@ final class Endpoint {
         for (InetAddress a : found) {
             if (!privateAddress(a)) {
                 // the words of vox_core.PLAIN_HTTP_ELSEWHERE, with "this phone"
-                return "Plain http only goes to this phone, your local network or Tailscale, and this name led somewhere else. Use https:// or the address in numbers.";
+                return "Plain http only goes to this phone, your local network or Tailscale, and this name led somewhere else. Use https:// or the address in numbers (for example 192.168.1.20).";
             }
         }
         return null;
