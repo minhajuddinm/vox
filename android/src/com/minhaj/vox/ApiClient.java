@@ -572,6 +572,7 @@ public final class ApiClient {
     static String applyReplacements(String text, Map<String, String> repl) {
         String out = text;
         for (Map.Entry<String, String> e : repl.entrySet()) {
+            if (e.getKey().isEmpty()) continue;
             Pattern p = Pattern.compile("(?iu)(?<!" + WORD_CHAR + ")(?<!" + WORD_CHAR + "[.@/\\\\])" + Pattern.quote(e.getKey())
                     + "(?!" + WORD_CHAR + ")(?![.@/\\\\]" + WORD_CHAR + ")");
             out = p.matcher(out).replaceAll(Matcher.quoteReplacement(e.getValue()));
