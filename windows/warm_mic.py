@@ -78,6 +78,11 @@ class WarmMic:
     def is_open(self):
         return self._stream is not None
 
+    @property
+    def busy(self):
+        """True while the stream is being opened, closed or attached (PortAudio must not be restarted then)."""
+        return self._op.locked()
+
     def _alive(self):
         return self._stream is not None and getattr(self._stream, "active", True)
 

@@ -899,16 +899,23 @@ class Engine:
             self.notify("Your chosen microphone is not connected. Using the Windows default one.")
 
     def _start_stream(self, device, callback):
-        self.stream = sd.InputStream(samplerate=core.SAMPLE_RATE, channels=1, dtype="int16",
-                                     device=device, callback=callback)
-        self.stream.start()
+        stream = sd.InputStream(samplerate=core.SAMPLE_RATE, channels=1, dtype="int16", device=device, callback=callback)
+        try:
+            stream.start()
+        except Exception:   # sounddevice has no __del__: a stream that did not start stays open unless closed (ENG-12)
+            try:
+                stream.close()
+            except Exception:
+                pass
+            raise
+        self.stream = stream
 
     def _refresh_audio(self):
         """PortAudio lists the devices once, when it starts. Starts it again so a microphone plugged in later shows up.
         Only while none of our streams is open, and at most once every AUDIO_REFRESH_SECONDS (restarting PortAudio takes
         time, and a missing microphone would otherwise restart it for every dictation); True when it was done."""
         now = time.monotonic()
-        if self.recording or self.listening or now - self._audio_refresh_t < AUDIO_REFRESH_SECONDS                 or (self.warm is not None and self.warm.is_open):   # restarting PortAudio would kill the warm stream
+        if self.recording or self.listening or now - self._audio_refresh_t < AUDIO_REFRESH_SECONDS                 or (self.warm is not None and (self.warm.is_open or self.warm.busy)):   # restarting PortAudio would kill the warm stream, or pull it from under its open (ENG-13)
             return False
         self._audio_refresh_t = now
         try:
@@ -978,6 +985,7 @@ class Engine:
             streamer.cancel()
             streamer = None
         pcm = b"".join(self.chunks)
+        self.chunks = []   # up to 35 MB after a long recording: not kept until the next one (ENG-12)
         if len(pcm) - self._preroll < core.SAMPLE_RATE * 2 * MIN_SECONDS:   # the 400 ms before the key do not count
             if streamer:
                 streamer.cancel()

@@ -947,10 +947,18 @@ class Segmenter:
 
 
 def peak_level(pcm_bytes):
-    """Loudest sample (0 to 32768) of a 16-bit mono recording."""
+    """Loudest sample (0 to 32768) of a 16-bit mono recording. With numpy (the Windows app has it) in milliseconds; the
+    plain loop took 0.2 s for 6 minutes and held the GIL meanwhile (ENG-11)."""
     n = len(pcm_bytes) // 2
     if n == 0:
         return 0
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
+    if np is not None:
+        s = np.frombuffer(pcm_bytes, dtype="<i2", count=n)
+        return max(int(s.max()), -int(s.min()))
     samples = array.array("h")
     samples.frombytes(pcm_bytes[: n * 2])
     if sys.byteorder == "big":
