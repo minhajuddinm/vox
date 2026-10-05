@@ -360,7 +360,7 @@ public class DictationService extends Service {
                 }
                 preferMic(rec, micKey);
                 rec.startRecording();
-                while (recording) {
+                while (recording && job == jobId) {   // a cancel and a quick new start must not leave this capture running
                     int n = rec.read(buf, 0, buf.length);
                     if (n < 0) {
                         failRecording(job, "Recording failed (audio error " + n + ")");
