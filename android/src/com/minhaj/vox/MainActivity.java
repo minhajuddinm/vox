@@ -172,7 +172,7 @@ public class MainActivity extends Activity {
                 cfg.put("snippets", new JSONObject(prefs.snippets()));
                 cfg.put("keep_history", prefs.keepHistory());
                 cfg.put("auto_learn", prefs.autoLearn());
-                cfg.put("learned_log", new JSONArray(PlainJson.stringify(AutoLearn.learnedLog(prefs.learnedLogRaw()))));
+                cfg.put("learned_log", new JSONArray(PlainJson.stringify(AutoLearn.learnedLog(prefs.learnedLogRaw(), prefs.dictionaryRaw()))));
                 cfg.put("only_typing", prefs.onlyWhenTyping());
                 cfg.put("always_show_bubble", prefs.alwaysShowBubble());
                 cfg.put("note_bubble", prefs.noteBubble());
@@ -484,7 +484,7 @@ public class MainActivity extends Activity {
             } catch (RuntimeException ignored) { }
             try {
                 return new JSONObject().put("dictionary", lines(prefs.dictionaryRaw()))
-                        .put("learned_log", new JSONArray(PlainJson.stringify(AutoLearn.learnedLog(prefs.learnedLogRaw())))).toString();
+                        .put("learned_log", new JSONArray(PlainJson.stringify(AutoLearn.learnedLog(prefs.learnedLogRaw(), prefs.dictionaryRaw())))).toString();
             } catch (Exception e) {
                 return "{\"dictionary\":[],\"learned_log\":[]}";
             }

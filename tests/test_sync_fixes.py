@@ -211,7 +211,7 @@ def test_a_wrong_type_from_the_relay_is_not_written_here_and_is_repaired_on_the_
 
 
 # ------------------------------------------------------- DAT-6 (Windows part): "Recently learned" follows the dictionary
-def test_a_learned_word_that_a_received_dictionary_no_longer_has_leaves_recently_learned(dev, srv):
+def test_a_learned_word_survives_an_unrelated_change_on_another_device(dev, srv):
     import autolearn
     a = dev("A")
     set_cfg(dictionary=["Vox"])
@@ -225,7 +225,26 @@ def test_a_learned_word_that_a_received_dictionary_no_longer_has_leaves_recently
     set_cfg(dictionary=["Vox", "Bar"])
     assert sync.sync_once(b)["profile"] == "sent"
     dev("A")
-    sync.sync_once(a)          # both changed the dictionary: the relay's list wins (the merge rule itself is not changed here)
+    sync.sync_once(a)          # both changed the dictionary: item by item, the relay's order then this device's additions
     cfg = core.load_config()
-    assert cfg["dictionary"] == ["Vox", "Bar"]
-    assert autolearn.learned_log(cfg) == []   # no row for a word that is not in the dictionary any more
+    assert cfg["dictionary"] == ["Vox", "Bar", "fubar => Foobar", "Foobar"]
+    assert [e["right"] for e in autolearn.learned_log(cfg)] == ["Foobar"]
+
+
+def test_a_learned_word_removed_on_another_device_leaves_recently_learned_for_good(dev, srv):
+    import autolearn
+    a = dev("A")
+    set_cfg(dictionary=["Vox"])
+    core.update_config(lambda c: c.update(autolearn.apply_learned(c, [("fubar", "Foobar")], now=100.0)[0]))
+    assert sync.sync_once(a)["profile"] == "sent"
+    b = dev("B")
+    sync.sync_once(b)
+    assert core.load_config()["dictionary"] == ["Vox", "fubar => Foobar", "Foobar"]
+    set_cfg(dictionary=["Vox"])                  # B removes the learned lines
+    assert sync.sync_once(b)["profile"] == "sent"
+    dev("A")
+    sync.sync_once(a)          # A did not change them since the base: the removal is honoured
+    cfg = core.load_config()
+    assert cfg["dictionary"] == ["Vox"]
+    assert autolearn.learned_log(cfg) == []
+    assert cfg.get("learned_log") == []          # pruned from the file, so adding the line again later brings no old row

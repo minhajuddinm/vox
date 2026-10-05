@@ -497,11 +497,9 @@ def sync_profile(url, token, device):
                 if any(live.get(k) != cfg.get(k) for k in received):
                     return False   # a field we would write was changed here meanwhile: merge again with the new value
                 live.update(received)
-                if "dictionary" in received:   # "Recently learned" lists only words still in the received dictionary
-                    lines = {" => ".join(p.strip() for p in x.split("=>", 1)) for x in live["dictionary"]
-                             if isinstance(x, str) and "=>" in x}
-                    log_ = [e for e in autolearn.learned_log(live) if f"{e['wrong']} => {e['right']}" in lines]
-                    if log_ != autolearn.learned_log(live):
+                if "dictionary" in received:   # "Recently learned" keeps only words still in the received dictionary
+                    log_ = autolearn.learned_log(live)   # (that read leaves the others out; pruned in the file too, so a
+                    if live.get("learned_log") != log_:  # line added again later does not bring its old row back)
                         live["learned_log"] = log_
                 return True
             try:
