@@ -203,7 +203,7 @@ def prove_relay(url, token):
         if not pinned:
             notes.set_meta("relay_proven", json.dumps(_proven_origins() + [key[0]]))
         result = "proven"
-    elif r.status_code in (401, 404):     # a relay from before /proof checks the token first: 401
+    elif r.status_code == 401:     # a relay from before /proof checks the token first; a 404 is not a relay (a wrong path)
         if pinned:
             raise SyncError(NO_LONGER, 401)
         log.warning("the relay has no /proof: it is too old to prove it holds the token")

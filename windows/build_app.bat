@@ -58,5 +58,7 @@ exit /b 0
 :fail
 echo.
 echo Build failed. Take a screenshot of this window and send it to Claude.
+echo The packages are locked for Python 3.13 (as the release build): with another Python version the install can fail.
+echo Then install Python 3.13 from python.org and run this again.
 pause
 exit /b 1

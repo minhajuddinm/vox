@@ -17,7 +17,7 @@ final class WebNav {
     static int decide(String url) {
         if (url == null) return BLOCK;
         String u = url.toLowerCase(Locale.ROOT);
-        if (u.startsWith(ASSETS) && !u.contains("..")) return STAY;
+        if (u.startsWith(ASSETS) && !u.contains("..") && !u.contains("%2e")) return STAY;   // (a dot written %2e too)
         if (u.startsWith("https://")) return BROWSER;
         return BLOCK;
     }

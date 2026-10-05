@@ -140,7 +140,7 @@ final class RelayProof {
             }
             if (!pins.has(origin)) pins.add(origin);
             result = PROVEN;
-        } else if (status == 401 || status == 404) {   // a relay from before /proof checks the token first: 401
+        } else if (status == 401) {   // a relay from before /proof checks the token first; a 404 is not a relay (a wrong path)
             if (pins.has(origin)) throw new RelayApi.RelayError(401, NO_LONGER);
             result = OLD;
         } else {

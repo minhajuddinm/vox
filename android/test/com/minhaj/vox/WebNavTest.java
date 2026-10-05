@@ -19,6 +19,7 @@ public final class WebNavTest {
         eq("an http link is refused", WebNav.BLOCK, WebNav.decide("http://example.com/"));
         eq("another file is refused", WebNav.BLOCK, WebNav.decide("file:///data/data/com.minhaj.vox/shared_prefs/vox.xml"));
         eq("a path that climbs out of the assets is refused", WebNav.BLOCK, WebNav.decide("file:///android_asset/../shared_prefs/vox.xml"));
+        eq("also with its dots percent-encoded", WebNav.BLOCK, WebNav.decide("file:///android_asset/%2E%2e/shared_prefs/vox.xml"));
         eq("javascript: is refused", WebNav.BLOCK, WebNav.decide("javascript:alert(1)"));
         eq("intent: is refused", WebNav.BLOCK, WebNav.decide("intent://x#Intent;end"));
         eq("data: is refused", WebNav.BLOCK, WebNav.decide("data:text/html,<b>x</b>"));

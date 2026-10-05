@@ -52,6 +52,7 @@ public final class RelayProofTest {
                 proofs.add(x.getRequestURI().getRawQuery());
                 String q = x.getRequestURI().getRawQuery();
                 if (mode.equals("old")) reply(x, 401, "{\"error\": \"missing or wrong token\"}");
+                else if (mode.equals("silent")) reply(x, 404, "{\"error\": \"unknown request\"}");
                 else reply(x, 200, "{\"proof\": \"" + (mode.equals("good") || mode.equals("gateway") ? RelayProof.proofOf(TOKEN, q.substring(q.indexOf('=') + 1)) : "00") + "\"}");
                 return;
             }
@@ -111,6 +112,15 @@ public final class RelayProofTest {
             RelayProof.forget(base);
             new RelayClient(base, TOKEN, "Pixel").getProfile();
             eq("forget: asked again", 2, proofs.size());
+
+            // final review RC-M3: an old relay answers 401 (it checks the token first); a 404 is a wrong address or path
+            mode = "silent";
+            RelayProof.reset();
+            auth.clear();
+            c = RelayClient.check(base, TOKEN, "Pixel");
+            eq("a 404 on /proof is not taken for an old relay", false, c.ok);
+            eq("a 404 on /proof: no token", 0, auth.size());
+            mode = "good";
 
             // final review RC-I1: the proof is kept for seconds, and a 502, 503 or 504 forgets it
             eq("the proof is trusted for 10 s at most", true, RelayProof.TTL_MS <= 10_000);

@@ -246,6 +246,13 @@ def test_an_old_relay_is_still_used_with_a_warning_until_its_address_has_proved_
     assert not out["ok"] and out["message"] == sync.NO_LONGER and tokens(squatter) == []
 
 
+@pytest.mark.parametrize("squatter", ["silent"], indirect=True)
+def test_a_404_on_proof_is_not_taken_for_an_old_relay(squatter):
+    """Final review RC-M3: an old relay checks the token first (401); a 404 is a wrong address or path, and gets nothing."""
+    out = sync.test_relay(squatter.url, "REAL-TOKEN-A")
+    assert not out["ok"] and "404" in out["message"] and tokens(squatter) == []
+
+
 def test_proving_an_address_pins_it(real):
     import notes
     url = "http://127.0.0.1:%d" % real.server_address[1]
