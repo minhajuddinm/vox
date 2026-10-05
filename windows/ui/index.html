@@ -397,7 +397,7 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
       <div class="setting"><div><div class="t">Send recordings while I speak</div><div class="d">For dictations longer than about 7 seconds, the finished parts are sent to your voice server in pieces at your pauses while you are still talking, so less is left to wait for when you stop. Short recordings are not affected. Uses a few more requests.</div></div><label class="switch"><input type="checkbox" id="stream-stt"><span></span></label></div>
       <div class="setting"><div><div class="t">Audio format</div><div class="d">Automatic sends FLAC (lossless, about half the size of WAV, so it uploads faster) to Groq and OpenAI, and WAV to every other server, your relay included. WAV always sends WAV.</div></div><select id="upload-format"><option value="auto">Automatic</option><option value="wav">WAV</option></select></div>
       <div class="setting"><div><div class="t">AI cleanup</div><div class="d">Removes fillers, applies self-corrections, fixes punctuation and formats lists.</div></div><label class="switch"><input type="checkbox" id="cleanup"><span></span></label></div>
-      <div class="setting"><div><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases are pasted as spoken, which is faster. Enter 1 to clean up everything (1 to 20).</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" style="width:76px"></div>
+      <div class="setting"><div><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases skip the AI, which is faster: Vox only drops um and uh, writes spoken punctuation and fixes capitals. Enter 1 to clean up everything (1 to 20).</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" style="width:76px"></div>
       <div class="setting"><div><div class="t">Cleanup strength</div><div class="d">Light keeps every word you said and only fixes punctuation, capitals, spelling and paragraphs. Standard also removes fillers (um, you know) and false starts. If the cleanup lost words, Vox types your words as spoken instead.</div></div><select id="cleanup-strength"><option value="light">Light</option><option value="standard">Standard</option></select></div>
       <div class="setting"><div><div class="t">Lists and paragraphs</div><div class="d">Auto turns a list you say (first, second; point one, point two; bullet point; pehla, doosra) into a list and starts a new paragraph where you paused for a while in a long dictation. Lists only skips the paragraphs. Off keeps the text flat. Saying commas never makes a list.</div></div><select id="structure"><option value="off">Off</option><option value="auto">Auto</option><option value="lists">Lists only</option></select></div>
     </div>
@@ -906,7 +906,7 @@ function renderSettings() {
   $("mic").value = cur;
   $("language").value = c.language || "";
   $("cleanup").checked = c.cleanup !== false;
-  $("cleanup-min").value = c.cleanup_min_words || 3;
+  $("cleanup-min").value = c.cleanup_min_words || 4;
   $("cleanup-strength").value = c.cleanup_strength === "standard" ? "standard" : "light";
   $("structure").value = structureMode(c.structure);
   $("code-mode").value = c.code_mode === "off" ? "off" : "auto";
@@ -1066,7 +1066,7 @@ $("upload-format").onchange = (e) => save({ upload_format: e.target.value });
 $("language").onchange = (e) => save({ language: e.target.value });
 $("mic").onchange = (e) => save({ input_device: e.target.value }, e.target.value ? "Microphone changed" : "Using the Windows default microphone");
 $("cleanup").onchange = (e) => save({ cleanup: e.target.checked });
-$("cleanup-min").onchange = (e) => { const v = parseInt(e.target.value, 10), n = isNaN(v) ? 3 : Math.max(1, Math.min(20, v)); e.target.value = n; save({ cleanup_min_words: n }); };
+$("cleanup-min").onchange = (e) => { const v = parseInt(e.target.value, 10), n = isNaN(v) ? 4 : Math.max(1, Math.min(20, v)); e.target.value = n; save({ cleanup_min_words: n }); };
 $("cleanup-strength").onchange = (e) => save({ cleanup_strength: e.target.value });
 $("structure").onchange = (e) => save({ structure: structureMode(e.target.value) });
 $("code-mode").onchange = (e) => save({ code_mode: e.target.value === "off" ? "off" : "auto" });

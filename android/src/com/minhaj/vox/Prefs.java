@@ -116,7 +116,7 @@ public final class Prefs {
     public boolean keepHistory() { return sp.getBoolean("keep_history", true); }
     public boolean cleanupEnabled() { return sp.getBoolean("cleanup", true); }
     /** The setting "skip AI cleanup for phrases shorter than N words" as stored; read it with ApiClient.cleanMinWords. */
-    public String cleanupMinWords() { return sp.getString("cleanup_min_words", "3"); }
+    public String cleanupMinWords() { return sp.getString("cleanup_min_words", "4"); }
     /** The setting "Cleanup strength": "light" (the default: keep every spoken word) or "standard" (fillers and false starts may go). */
     public String cleanupStrength() { return Fidelity.cleanStrength(sp.getString("cleanup_strength", "")); }
     /** The setting "Lists and paragraphs": off, auto (the default) or lists (Structure.mode). Per device, not synced. */

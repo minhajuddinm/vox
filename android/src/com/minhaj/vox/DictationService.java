@@ -868,12 +868,14 @@ public class DictationService extends Service {
                     if (tm != null) tm.mark("llm_done");
                 }
             }
-            if (cleaned && out.isEmpty()) {   // the cleanup said EMPTY for filler-only speech: nothing to type, as for silence
+            // wanted but skipped as short, failed or rejected: the rules layer; cleanup off or the raw style: as spoken
+            if (!cleaned) out = p.cleanupEnabled() && !"raw".equals(style)
+                    ? ApiClient.fallbackText(out, style, p.cleanupStrength()) : ApiClient.applySpokenCommands(out);
+            if (out.isEmpty()) {   // EMPTY for filler-only speech, or the rules layer left no word: nothing to type, as for silence (Windows: `if not text`)
                 discard(entry.id);
                 postError(InsertGuard.emptyResult(note));
                 return;
             }
-            if (!cleaned) out = rejected ? ApiClient.fallbackText(out) : ApiClient.applySpokenCommands(out);
             // A cancel during the cleanup makes it throw (the request was aborted): that is not a failure to report.
             String notice = InsertGuard.cleanupNotice(isCurrent(job), cleanupFailed, note);
             if (notice != null) postError(notice);

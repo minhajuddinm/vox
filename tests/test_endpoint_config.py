@@ -113,7 +113,7 @@ def test_cleanup_http_error_falls_back_to_raw_transcript(monkeypatch):
     capture_posts(monkeypatch, responder)
     cfg = dict(core.DEFAULT_CONFIG, api_key="k", base_url="http://laptop:8000/v1")
     raw, out = core.process(cfg, b"\x00\x00" * 100, "notepad.exe", "Notepad")
-    assert raw == out == "send it tomorrow please"
+    assert raw == "send it tomorrow please" and out == "Send it tomorrow please."   # the rules layer's text
 
 
 def test_cleanup_connection_error_falls_back_to_raw_transcript(monkeypatch):
@@ -126,7 +126,7 @@ def test_cleanup_connection_error_falls_back_to_raw_transcript(monkeypatch):
     monkeypatch.setattr(core.time, "sleep", lambda s: None)
     cfg = dict(core.DEFAULT_CONFIG, api_key="k", base_url="http://laptop:8000/v1")
     raw, out = core.process(cfg, b"\x00\x00" * 100, "notepad.exe", "Notepad")
-    assert raw == out == "send it tomorrow please"
+    assert raw == "send it tomorrow please" and out == "Send it tomorrow please."   # the rules layer's text
 
 
 # ---------------------------------------------------------------- check_key

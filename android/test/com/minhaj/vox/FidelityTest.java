@@ -208,7 +208,9 @@ public final class FidelityTest {
         eq("cleanStrength null is light", "light", Fidelity.cleanStrength(null));
         eq("cleanStrength standard", "standard", Fidelity.cleanStrength("standard"));
         eq("fallbackText null", "", ApiClient.fallbackText(null));
-        eq("fallbackText capitalises after a spoken line break", "One\nTwo", ApiClient.fallbackText("one new line two"));
+        eq("fallbackText capitalises after a spoken line break", "One\nTwo.", ApiClient.fallbackText("one new line two"));
+        eq("fallbackText null style counts as neutral", "Hello there.", ApiClient.fallbackText("um hello there", null, null));
+        eq("fallbackText raw style keeps the words", "Um hello there", ApiClient.fallbackText("um hello there", "raw", "light"));
 
         System.out.println("OK: " + checks + " fidelity checks passed");
     }

@@ -149,9 +149,9 @@ public final class ApiClientTest {
         eq("cleanMinWords clamps low", 1, ApiClient.cleanMinWords("-4"));
         eq("cleanMinWords clamps high", 20, ApiClient.cleanMinWords("99999999999999999999"));
         eq("cleanMinWords trims", 7, ApiClient.cleanMinWords(" 7 "));
-        eq("cleanMinWords null", 3, ApiClient.cleanMinWords(null));
-        eq("cleanMinWords empty", 3, ApiClient.cleanMinWords(""));
-        eq("cleanMinWords decimal", 3, ApiClient.cleanMinWords("2.5"));
+        eq("cleanMinWords null", 4, ApiClient.cleanMinWords(null));
+        eq("cleanMinWords empty", 4, ApiClient.cleanMinWords(""));
+        eq("cleanMinWords decimal", 4, ApiClient.cleanMinWords("2.5"));
         eq("needsCleanup odd spacing", true, ApiClient.needsCleanup("  one \t two\nthree  ", "casual", true, "3"));
         eq("needsCleanup odd spacing short", false, ApiClient.needsCleanup("  one \t two\n", "casual", true, "3"));
         eq("needsCleanup null text", false, ApiClient.needsCleanup(null, "casual", true, "1"));

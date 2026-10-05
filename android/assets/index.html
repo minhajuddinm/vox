@@ -256,7 +256,7 @@ nav button.on .pill { background:var(--accent-soft); }
       <select class="inline" id="language"><option value="">Auto</option><option value="en">English</option><option value="ur">Urdu</option><option value="hi">Hindi</option><option value="ar">Arabic</option><option value="fr">French</option><option value="es">Spanish</option></select></div>
     <div class="item"><div class="grow"><div class="t">Microphone</div><div class="d">Which microphone Vox listens to. The phone's own microphone unless you pick one. If dictation says it heard nothing, try another.</div></div><select class="inline" id="mic-device"></select></div>
     <div class="item"><div class="grow"><div class="t">AI cleanup</div><div class="d">Removes fillers, fixes punctuation, applies corrections</div></div><label class="switch"><input type="checkbox" id="cleanup"><span></span></label></div>
-    <div class="item"><div class="grow"><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases are typed as spoken, which is faster. 1 cleans up everything (1 to 20)</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" inputmode="numeric" style="width:76px"></div>
+    <div class="item"><div class="grow"><div class="t">Skip AI cleanup for phrases shorter than N words</div><div class="d">Short phrases skip the AI, which is faster: Vox only drops um and uh, writes spoken punctuation and fixes capitals. 1 cleans up everything (1 to 20)</div></div><input type="number" id="cleanup-min" min="1" max="20" step="1" inputmode="numeric" style="width:76px"></div>
     <div class="item"><div class="grow"><div class="t">Cleanup strength</div><div class="d">Light keeps every word you said and only fixes punctuation, capitals, spelling and paragraphs. Standard also removes fillers and false starts. If the cleanup lost words, Vox types them as spoken</div></div><select class="inline" id="cleanup-strength"><option value="light">Light</option><option value="standard">Standard</option></select></div>
     <div class="item"><div class="grow"><div class="t">Lists and paragraphs</div><div class="d">Auto and Lists only turn a list you say (first, second; point one, point two; bullet point; pehla, doosra) into a list. Off keeps the text flat. Saying commas never makes a list</div></div><select class="inline" id="structure"><option value="off">Off</option><option value="auto">Auto</option><option value="lists">Lists only</option></select></div>
   </div>
@@ -524,7 +524,7 @@ function previewNotes() {
   };
 }
 const V = window.Vox || {   // browser preview fallback
-  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 3, only_typing: true, always_show_bubble: false, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, relay_proxy: false, device_name: "", note_bubble: false, note_notification: false }, status: { notes: 0, unsent: false }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
+  state: () => JSON.stringify({ config: { api_key: "", dictionary: [], people: [], app_styles: {}, cleanup: true, cleanup_min_words: 4, only_typing: true, always_show_bubble: false, default_style: "neutral", stt_model: "whisper-large-v3-turbo", llm_model: "openai/gpt-oss-20b", language: "", relay_sync: false, relay_url: "", relay_token: "", relay_sync_keys: false, relay_proxy: false, device_name: "", note_bubble: false, note_notification: false }, status: { notes: 0, unsent: false }, device_default: "Preview phone", mic: false, a11y: false, service: false, history: [], dark: false, version: "dev" }),
   ...previewNotes(),
   getMics: () => JSON.stringify({ current: "", options: [{ key: "15|Preview phone", label: "Preview phone (built-in)" }, { key: "11|Preview dock", label: "Preview dock (USB)" }] }), setMic(){},
   save(){}, requestMic(){}, openAccessibility(){}, openAppInfo(){}, openBattery(){}, setService(){}, testKey(k, u, cb){ setTimeout(() => window[cb]("ok"), 300); }, listModels(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ models: [], error: "Preview only" })), 200); }, testRole(r, f, cb){ setTimeout(() => window[cb](JSON.stringify({ ok: true, message: "Preview only" })), 200); }, endpointProblem: () => "", suggestCorrections: (a, b) => JSON.stringify(a !== b ? [["vox", "Vox"]] : []), learnedRemove: () => JSON.stringify({ dictionary: S.config.dictionary || [], learned_log: [] }), copy(){}, deleteHistory(){}, clearHistory(){}, openUrl(){}, toast(){}, apps: () => "[]", appLabel: (p) => p, getSpeed: () => JSON.stringify({ count: 0, biggest: "", stages: {}, models: [], last: [] })
@@ -851,7 +851,7 @@ function renderSettings() {
   renderProvider();
   $("cleanup").checked = c.cleanup !== false; $("only-typing").checked = c.only_typing !== false;
   $("always-show").checked = !!c.always_show_bubble;
-  $("cleanup-min").value = c.cleanup_min_words || 3;
+  $("cleanup-min").value = c.cleanup_min_words || 4;
   $("cleanup-strength").value = c.cleanup_strength === "standard" ? "standard" : "light";
   $("structure").value = structureMode(c.structure);
   $("keep-history").checked = c.keep_history !== false;
@@ -999,7 +999,7 @@ for (const [id, field] of [["stt-url", "stt_base_url"], ["llm-url", "llm_base_ur
 };
 for (const [id, field] of [["stt-key", "stt_api_key"], ["llm-key", "llm_api_key"]]) $(id).onchange = () => { save({ [field]: $(id).value.trim() }); refreshModels(); };
 $("cleanup").onchange = (e) => save({ cleanup: e.target.checked }, "Saved");
-$("cleanup-min").onchange = (e) => { const v = parseInt(e.target.value, 10), n = isNaN(v) ? 3 : Math.max(1, Math.min(20, v)); e.target.value = n; save({ cleanup_min_words: n }, "Saved"); };
+$("cleanup-min").onchange = (e) => { const v = parseInt(e.target.value, 10), n = isNaN(v) ? 4 : Math.max(1, Math.min(20, v)); e.target.value = n; save({ cleanup_min_words: n }, "Saved"); };
 $("only-typing").onchange = (e) => save({ only_typing: e.target.checked }, "Saved");
 $("always-show").onchange = (e) => save({ always_show_bubble: e.target.checked }, "Saved");
 $("note-bubble").onchange = (e) => save({ note_bubble: e.target.checked }, "Saved");

@@ -47,6 +47,7 @@ Records 0001 to 0004 describe choices made by the original author; their reasons
 | [0039](0039-auto-learn-reads-the-field-through-ui-automation-with-pythonnet.md) | Learn from my corrections: a short watch of the typed field, UI Automation through pythonnet, a final check before the text goes | Accepted (not run on a real desktop or phone) |
 | [0040](0040-the-relay-stores-the-sent-note-time-and-orders-by-a-bounded-copy.md) | The relay stores the sent note time and orders writes by a bounded copy of it | Accepted (tested against the real relay with in-memory devices, not on a real relay or phone) |
 | [0041](0041-optional-warm-microphone-with-a-400-ms-ring.md) | An optional warm microphone with a 400 ms ring buffer (`warm_mic`, off by default) | Accepted (Windows; not run with a real microphone) |
+| [0042](0042-a-rules-layer-when-the-ai-gives-no-text.md) | A rules layer when the AI gives no text; short phrases (under 4 words) skip the AI | Accepted (tested with golden rows and fakes, not on real speech) |
 
 ## Template
 

@@ -127,7 +127,7 @@ def test_a_failed_cleanup_still_saves_the_spoken_words(monkeypatch):
     monkeypatch.setattr(core, "cleanup", boom)
     host = Host()
     run(host, utterances(1), cfg={"cleanup": True})
-    assert host.notes == [("hello there my friend.", "hello there my friend.")] and host.flashes == ["sent"]
+    assert host.notes == [("Hello there my friend.", "hello there my friend.")] and host.flashes == ["sent"]   # rules layer
 
 
 def test_a_long_pause_becomes_a_paragraph_break_in_the_note(monkeypatch):
@@ -196,7 +196,7 @@ def test_short_pieces_skip_the_cleanup_as_in_a_dictation(monkeypatch):
     monkeypatch.setattr(core, "cleanup", lambda *a: (_ for _ in ()).throw(AssertionError("cleanup must not run")))
     host = Host()
     run(host, utterances(1), target="type", cfg={"cleanup": True, "cleanup_min_words": 3})
-    assert host.pasted == ["yes ok."]
+    assert host.pasted == ["Yes ok."]   # skipped as short: the rules layer's text
 
 
 def test_the_type_target_never_types_into_another_window_and_keeps_the_text_for_a_note(monkeypatch):

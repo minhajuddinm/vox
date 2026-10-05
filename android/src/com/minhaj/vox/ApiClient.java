@@ -619,17 +619,21 @@ public final class ApiClient {
         return t.substring(s, e);
     }
 
-    private static final Pattern SENTENCE_START = Pattern.compile("(^|[.!?][ \\t]+|\\n[ \\t]*)(\\p{L})");
+    /** fallbackText for the neutral style in Light strength. */
+    static String fallbackText(String raw) {
+        return fallbackText(raw, "neutral", "light");
+    }
 
     /**
-     * The spoken words used when the fidelity guard rejects the AI cleanup: spoken commands applied, and a capital letter at
-     * the start and after each sentence end or line break (the rest stays as spoken). Twin: fallback_text in windows/vox_core.py.
+     * The text used when the AI cleanup was wanted but gave none (a phrase under cleanup_min_words, an error or timeout, or
+     * an answer the fidelity guard rejected): spoken commands applied, then the rules layer ({@link RulesLayer}: noises and
+     * spoken punctuation out, capitals and the final mark for the style). Style "raw" or "code" keeps only the capitals at
+     * sentence starts. Twin: fallback_text in windows/vox_core.py.
      */
-    static String fallbackText(String raw) {
-        Matcher m = SENTENCE_START.matcher(applySpokenCommands(raw));
-        StringBuffer sb = new StringBuffer();
-        while (m.find()) m.appendReplacement(sb, Matcher.quoteReplacement(m.group(1) + m.group(2).toUpperCase(Locale.ROOT)));
-        return m.appendTail(sb).toString();
+    static String fallbackText(String raw, String style, String strength) {
+        String text = applySpokenCommands(raw);
+        if ("raw".equals(style) || "code".equals(style)) return RulesLayer.capitals(text);
+        return RulesLayer.clean(text, style, strength);
     }
 
     /** Whisper tends to invent these phrases on silence. */
@@ -682,7 +686,7 @@ public final class ApiClient {
         return Fidelity.ok(raw, cleaned, strength);
     }
 
-    /** The "skip AI cleanup below this many words" setting as a whole number from 1 to 20; 3 when it is unusable. */
+    /** The "skip AI cleanup below this many words" setting as a whole number from 1 to 20; 4 when it is unusable. */
     static int cleanMinWords(String value) {
         try {
             java.math.BigInteger n = new java.math.BigInteger(value == null ? "" : value.trim());   // no overflow, like Python's int()
@@ -690,7 +694,7 @@ public final class ApiClient {
             if (n.compareTo(java.math.BigInteger.valueOf(20)) > 0) return 20;
             return n.intValue();
         } catch (NumberFormatException e) {
-            return 3;
+            return 4;
         }
     }
 

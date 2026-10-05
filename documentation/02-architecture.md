@@ -82,7 +82,8 @@ Engine states (`Engine.state`, read by the overlay): `idle` -> `rec` (recording)
  _process: streamer.finish() gave text (long recording cut into pieces)?  -> core.process_text(text)
            otherwise                                                        -> core.process_detailed(whole pcm)
               transcribe (Whisper)  -> silence-hallucination filter
-              cleanup (chat model)  -> looks_valid guard  (fallback: raw text + spoken commands, with sentence-start capitals when the guard rejected it)
+              cleanup (chat model)  -> fidelity guard (fidelity_check; EMPTY for filler-only speech types nothing)
+                                       (skipped as short, failed or rejected: the rules layer, fallback_text)
               (code app: spoken formatters and symbols, codemode.py)
               apply_replacements (dictionary "wrong => right"), fuzzy_dictionary, snippets
               lists from spoken cues and pause paragraphs (structure.py; not in a code app)
@@ -123,7 +124,7 @@ The same functions exist in both languages:
 | Whisper spelling hint (one sentence: people, recent terms, dictionary; token budget) | `whisper_prompt`, `whisper_prompt_with_context`, `est_tokens` | `ApiClient.whisperPrompt`, `whisperPromptWith`, `estTokens` |
 | Strip model tags/quotes | `sanitize` | `ApiClient.sanitize` |
 | Reject runaway or word-losing cleanup answers | `looks_valid`, `fidelity_ok`, `word_recall` | `ApiClient.looksValid`, `Fidelity.ok`, `Fidelity.wordRecall` |
-| The text used when the guard rejects an answer; the strength setting as light or standard | `fallback_text`, `clean_strength` | `ApiClient.fallbackText`, `Fidelity.cleanStrength` |
+| The text used when the AI cleanup gives none (skipped as short, failed, rejected): the rules layer; the strength setting as light or standard | `fallback_text`, `rules_layer.rules_cleanup`, `clean_strength` | `ApiClient.fallbackText`, `RulesLayer.clean`, `Fidelity.cleanStrength` |
 | Dictionary replacements | `apply_replacements` | `ApiClient.applyReplacements` |
 | Dictionary terms | `dictionary_terms` | `Terms.terms` |
 | The terms the cleanup prompt names (those that occur in the transcript or sound like it, at most 20) | `select_terms`, `term_key` | `Terms.select`, `Terms.key` |
