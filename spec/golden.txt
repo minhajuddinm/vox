@@ -1007,3 +1007,28 @@ autolearn			recieve=>receive;teh=>the	recieve=>receive;teh=>the
 autolearn			user underscore id=>user_id;recieve=>receive;recieve=>receipt	user underscore id=>user_id;recieve=>receive	user_id
 autolearn	vox=>Vox	LoomXR	jason=>JSON;grok cloud=>Groq Cloud	jason=>JSON;grok cloud=>Groq Cloud	JSON
 autolearn					
+# bf-c
+# TXT-1: a grammar edit is not learned: a word given or losing an ending (s, es, ies, d, ed, ied, ing, er, ers, est, ly;
+# with a dropped e, a doubled last letter or y/ies), an ordinary word or a Hindi function word (है हैं में मैं की के को...)
+# changed into another, in pairs of the same number of words. A plain word made into a name (postgre => Postgres) still is.
+autocorrect	we need to complete the report	we need to completed the report	
+autocorrect	the client wants changes	the clients wants changes	
+autocorrect	Client wants changes today	Clients wants changes today	
+autocorrect	please update the doc	please updated the doc	
+autocorrect	it will happen soon	it will happened soon	
+autocorrect	the deployment failed again	the deployments failed again	
+autocorrect	we create the file now	we creating the file now	
+autocorrect	i commit the code daily	i committed the code daily	
+autocorrect	the company grew fast	the companies grew fast	
+autocorrect	send the invoice today	send the invoices today	
+autocorrect	the meeting is at five	the meetings are at five	
+autocorrect	the users report bugs often	the user reports bugs often	
+autocorrect	यह में ठीक हूं	यह मैं ठीक हूं	
+autocorrect	राम की किताब यहाँ	राम के किताब यहाँ	
+autocorrect	वे यहाँ है अभी	वे यहाँ हैं अभी	
+autocorrect	मैं ठीक हूं दोस्त	मैं ठीक हूँ दोस्त	
+autocorrect	use the postgre server now	use the Postgres server now	postgre=>Postgres
+autocorrect	call jone now please	call Jones now please	jone=>Jones
+autocorrect	run wisper on it	run Whisper on it	wisper=>Whisper
+autocorrect	i definately agree here	i definitely agree here	definately=>definitely
+autocorrect	keep them seperate please	keep them separate please	seperate=>separate

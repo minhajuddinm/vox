@@ -44,7 +44,11 @@ than that them then they this thus till time told took tool town tree trip true 
 view wait walk want warm wear week well went were what when whom wide wife will wish with word wore work year your
 hai hain ho hoon hu kya ki ka ke ko se mai mein na nahi nhi toh bhi aur ye yeh wo woh hum tum aap kal aaj abhi bas
 haan han ji tha thi
+है हैं में मैं की के को का से ने हूँ हूं हो था थी थे
 """.split())
+# Word endings of English grammar (tense, plural, comparison): a word that only gains or loses one of them was corrected
+# for the sentence ("complete" -> "completed"), not misheard (AutoLearn.java ENDINGS keeps the same list).
+ENDINGS = ("ies", "ied", "ing", "ers", "est", "es", "ed", "er", "ly", "s", "d")
 EDGE = core._EDGE_PUNCT
 _SOUNDEX = {**dict.fromkeys("bfpv", "1"), **dict.fromkeys("cgjkqsxz", "2"), **dict.fromkeys("dt", "3"),
             "l": "4", "m": "5", "n": "5", "r": "6"}
@@ -142,6 +146,32 @@ def ordinary(s):
     return len(t) == 1 and (_word_chars(s) in core.COMMON_WORDS or _word_chars(s) in SHORT_WORDS)
 
 
+def _stems(w):
+    """w and what it is without one of ENDINGS (a stem of three letters or more), with a dropped e put back
+    ("creating" -> "create"), a doubled last letter made single ("committed" -> "commit") and ies/ied as y."""
+    out = {w}
+    for e in ENDINGS:
+        if w.endswith(e) and len(w) - len(e) >= 3:
+            s = w[:-len(e)]
+            out.add(s)
+            if e in ("ies", "ied"):
+                out.add(s + "y")
+            if e[0] in "ie":
+                out.add(s + "e")
+            if len(s) >= 4 and s[-1] == s[-2] and s[-1] not in "aeiou":
+                out.add(s[:-1])
+    return out
+
+
+def grammar_edit(wrong, right):
+    """True when wrong -> right only fixes the grammar of its sentence: as many words on both sides, and each word the
+    same, the same word with another ending (ENDINGS: "client" -> "clients", "update" -> "updated") or an ordinary word
+    changed (SHORT_WORDS, COMMON_WORDS, the Hindi function words: "is" -> "are", "है" -> "हैं")."""
+    a, b = [_word_chars(t) for t in tokens(wrong)], [_word_chars(t) for t in tokens(right)]
+    return len(a) == len(b) and all(x == y or _stems(x) & _stems(y) or x in core.COMMON_WORDS or x in SHORT_WORDS
+                                    for x, y in zip(a, b))
+
+
 def looks_like_fix(wrong, right, final=True):
     """True when wrong -> right looks like a correction of a misheard or misspelled word, not a rewrite.
     `final` False is a look while the user may still be typing: a word made longer ("Minhaj" -> "Minhaju") waits for the
@@ -158,6 +188,8 @@ def looks_like_fix(wrong, right, final=True):
         return False   # "to => too" would change every "to" from now on
     if ordinary(wrong) and not name_like(right):
         return False   # "their => there" is right in one sentence and wrong in the next (History, Fix a word, still can)
+    if grammar_edit(wrong, right) and not (len(tokens(wrong)) == 1 and plain(wrong) and name_like(right)):
+        return False   # a tense, a plural, "is" -> "are": learned, it would change every later "complete" (a name still counts)
     dist, longest = osa(a, b), max(len(a), len(b))
     if 2 * dist <= longest:
         return True   # at least half the letters stay

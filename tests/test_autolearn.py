@@ -325,3 +325,27 @@ def test_end_drops_the_snapshot():
 def test_unarmed_watch_does_nothing():
     w = al.Watch(clock=Clock())
     assert w.observe("app", "x") == [] and not w.is_armed() and w.arm("app", "  ") == [] and not w.armed
+
+
+# ------------------------------------------------------------------ TXT-1: grammar edits are not learned
+
+@pytest.mark.parametrize("wrong,right", [
+    ("complete", "completed"), ("client", "clients"), ("update", "updated"), ("deployment", "deployments"),
+    ("invoice", "invoices"), ("happen", "happened"), ("create", "creating"), ("commit", "committed"),
+    ("company", "companies"), ("schedule", "scheduled"), ("process", "processes"), ("manager", "managers"),
+    ("Client", "Clients"), ("meeting is", "meetings are"), ("users report", "user reports"),
+    ("में", "मैं"), ("की", "के"), ("को", "के"), ("है", "हैं"), ("हूं", "हूँ"),
+])
+def test_a_grammar_edit_is_not_learned(wrong, right):
+    assert al.grammar_edit(wrong, right) and not al.looks_like_fix(wrong, right)
+
+
+@pytest.mark.parametrize("wrong,right", [
+    ("Minhaj", "Minhajuddin"), ("grok", "Groq"), ("jason", "JSON"), ("shital", "Sheetal"), ("you vrag", "Yuvraj"),
+    ("ec two", "EC2"), ("get user name", "getUserName"), ("postgre", "Postgres"), ("jone", "Jones"),
+    ("wisper", "Whisper"), ("lama", "Llama"), ("cloud flare", "Cloudflare"), ("teh", "the"), ("recieve", "receive"),
+    ("nite", "night"), ("seperate", "separate"), ("definately", "definitely"), ("accomodate", "accommodate"),
+    ("acha", "accha"), ("यार", "यारा"),
+])
+def test_names_and_misheard_words_are_still_learned(wrong, right):
+    assert al.looks_like_fix(wrong, right)
