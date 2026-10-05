@@ -1032,3 +1032,23 @@ autocorrect	call jone now please	call Jones now please	jone=>Jones
 autocorrect	run wisper on it	run Whisper on it	wisper=>Whisper
 autocorrect	i definately agree here	i definitely agree here	definately=>definitely
 autocorrect	keep them seperate please	keep them separate please	seperate=>separate
+# TXT-2: a word's combining marks (Devanagari vowel signs and virama, the accent of a decomposed letter) are part of the
+# word: a replacement, a snippet trigger or a fuzzy term never matches inside a longer word through them.
+replace	आप करें, हम कर देंगे	कर=>करो	आप करें, हम करो देंगे
+replace	यह सही हैं और वह है	है=>हैं	यह सही हैं और वह हैं
+replace	बाकी की बात	की=>के	बाकी के बात
+replace	नमस्ते नमस	नमस=>X	नमस्ते X
+replace	café cafe	cafe=>CAFE	café CAFE
+snippets	आप करें, हम कर देंगे	आप करें, हम X देंगे	कर	X
+snippets	बाकी की बात	बाकी Y बात	की	Y
+fuzzydict	Christina	ask christiné now	ask christiné now
+fuzzydict	Christina	ask christine now	ask Christina now
+# TXT-9: a replacement or a fuzzy term is not applied to a word joined by . @ / or a backslash to another word (an email, a web or
+# file address, code such as ai.predict).
+replace	visit groq.com/ai now	groq=>Groq;ai=>AI	visit groq.com/ai now
+replace	mail ai@x.com or ai	ai=>AI	mail ai@x.com or AI
+replace	call ai.predict() then ai.	ai=>AI	call ai.predict() then AI.
+replace	open c:\\ai\\vox and vox	vox=>Vox	open c:\\ai\\vox and Vox
+replace	pay $5.00 or $5	$5=>five dollars	pay $5.00 or five dollars
+fuzzydict	Kubernetes	see kubernetes.io/docs on kubernetes	see kubernetes.io/docs on Kubernetes
+fuzzydict	Kubernetes	mail kubernetes@x.org or kubernetis	mail kubernetes@x.org or Kubernetes

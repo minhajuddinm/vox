@@ -561,11 +561,19 @@ public final class ApiClient {
         return words >= cleanMinWords(minWords);
     }
 
-    /** Applies "wrong => right" pairs as whole-word, case-insensitive replacements. */
+    /** A character of a word: letters, combining marks (Devanagari vowel signs, an accent), numbers and _ (Python's \w plus the marks). */
+    static final String WORD_CHAR = "[\\p{L}\\p{M}\\p{N}_]";
+
+    /**
+     * Applies "wrong => right" pairs as whole-word, case-insensitive replacements. A word's combining marks count as part of
+     * it, and a word joined to another by . @ / or a backslash (an address or code, see Terms.inAddress) is left alone.
+     * Twin of apply_replacements in windows/vox_core.py.
+     */
     static String applyReplacements(String text, Map<String, String> repl) {
         String out = text;
         for (Map.Entry<String, String> e : repl.entrySet()) {
-            Pattern p = Pattern.compile("(?iu)(?<![\\p{L}\\p{N}_])" + Pattern.quote(e.getKey()) + "(?![\\p{L}\\p{N}_])");
+            Pattern p = Pattern.compile("(?iu)(?<!" + WORD_CHAR + ")(?<!" + WORD_CHAR + "[.@/\\\\])" + Pattern.quote(e.getKey())
+                    + "(?!" + WORD_CHAR + ")(?![.@/\\\\]" + WORD_CHAR + ")");
             out = p.matcher(out).replaceAll(Matcher.quoteReplacement(e.getValue()));
         }
         return out;

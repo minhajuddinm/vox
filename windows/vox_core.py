@@ -317,9 +317,46 @@ def replacements(cfg):
     return out
 
 
+_WORD_CLASS = []
+
+
+def word_class():
+    """The inside of a regex character class for a character of a word: \\w plus the combining marks (Unicode Mn, Mc, Me:
+    Devanagari vowel signs and virama, the accent of a decomposed letter), which Python's \\w leaves out. The Java twins
+    write [\\p{L}\\p{M}\\p{N}_]. Worked out once (about 0.2 s), on first use."""
+    if not _WORD_CLASS:
+        ranges, start = [], None
+        for cp in range(sys.maxunicode + 2):
+            mark = cp <= sys.maxunicode and unicodedata.category(chr(cp))[0] == "M"
+            if mark and start is None:
+                start = cp
+            elif not mark and start is not None:
+                ranges.append("\\U%08x-\\U%08x" % (start, cp - 1))
+                start = None
+        _WORD_CLASS.append("\\w" + "".join(ranges))
+    return _WORD_CLASS[0]
+
+
+ADDRESS_GLUE = ".@/\\"   # a word joined to another by one of these is part of an address or code (groq.com/ai, ai@x.com)
+
+
+def _word_or_mark(ch):
+    return ch == "_" or _is_word_char(ch)
+
+
+def in_address(text, start, end):
+    """True when text[start:end] is joined to another word by ADDRESS_GLUE on either side (an email, a web or file
+    address, code such as ai.predict): a replacement or a dictionary spelling never changes it. Twin: Terms.inAddress."""
+    return (start >= 2 and text[start - 1] in ADDRESS_GLUE and _word_or_mark(text[start - 2])) \
+        or (end + 1 < len(text) and text[end] in ADDRESS_GLUE and _word_or_mark(text[end + 1]))
+
+
 def apply_replacements(text, repl):
+    """Whole-word, case-insensitive "wrong => right" replacements. A word's combining marks count as part of it (हैं is
+    not है plus a sign), and a word inside an address or code (in_address) is left alone. Twin: ApiClient.applyReplacements."""
+    w = word_class()
     for wrong, right in repl.items():
-        pattern = r"(?i)(?<![\w])" + re.escape(wrong) + r"(?![\w])"
+        pattern = r"(?i)(?<![%s])(?<![%s][.@/\\])%s(?![%s])(?![.@/\\][%s])" % (w, w, re.escape(wrong), w, w)
         text = re.sub(pattern, lambda _m, r=right: r, text)
     return text
 
@@ -399,14 +436,14 @@ def fuzzy_dictionary(text, terms):
     def fix(m):
         w = m.group(0)
         lw = w.lower()
-        if len(w) < FUZZY_MIN_LEN or not w.isalpha() or lw in COMMON_WORDS:
+        if len(w) < FUZZY_MIN_LEN or not w.isalpha() or lw in COMMON_WORDS or in_address(text, m.start(), m.end()):
             return w
         if lw in by_lower:
             return by_lower[lw]
         near = {t for k, t in by_lower.items() if len(k) >= FUZZY_NEAR_MIN_LEN and k[0] == lw[0] and _one_edit(lw, k)}
         return near.pop() if len(near) == 1 else w
 
-    return re.sub(r"\w+", fix, text)
+    return re.sub("[%s]+" % word_class(), fix, text)
 
 
 def style_for(cfg, exe):

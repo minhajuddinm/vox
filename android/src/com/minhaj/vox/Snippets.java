@@ -127,7 +127,8 @@ final class Snippets {
             }
             alts.append(')');
         }
-        Matcher m = Pattern.compile("(?iu)(?<![\\p{L}\\p{N}_])(?:" + alts + ")(?![\\p{L}\\p{N}_])").matcher(text);
+        // a word's combining marks are part of it: a trigger never ends inside a Hindi word (करें is not कर)
+        Matcher m = Pattern.compile("(?iu)(?<!" + ApiClient.WORD_CHAR + ")(?:" + alts + ")(?!" + ApiClient.WORD_CHAR + ")").matcher(text);
         StringBuffer sb = new StringBuffer();
         while (m.find()) {
             int g = 1;

@@ -58,9 +58,11 @@ def apply_snippets(text, value):
     snips = clean_snippets(value)
     if not text or not snips:
         return text
+    import vox_core   # here, not at the top: vox_core imports this module
+    wc = vox_core.word_class()   # \w and the combining marks: a trigger never ends inside a Hindi word (करें is not कर)
     items = sorted(snips.items(), key=lambda kv: -len(kv[0]))   # longest first; equal lengths keep their order
     alts = "|".join("(" + r"[ \t\r\n]+".join(re.escape(w) for w in t.split(" ")) + ")" for t, _ in items)
-    pattern = re.compile(r"(?<!\w)(?:" + alts + r")(?!\w)", re.I)
+    pattern = re.compile(r"(?<![%s])(?:" % wc + alts + r")(?![%s])" % wc, re.I)
     return pattern.sub(lambda m: items[m.lastindex - 1][1], text)
 
 
