@@ -857,14 +857,20 @@ public class DictationService extends Service {
                     String strength = p.cleanupStrength();   // the prompt and the guard use the same value
                     String c = gl.cleanup(raw, style, p.llmModel(), p.dictionaryTerms(), label, p.userContext(), strength, p.myCleanupRules(),
                             p.structure());
-                    if (ApiClient.looksValid(raw, c, strength)) { out = c; cleaned = true; }
-                    else { cleanupFailed = rejected = true; Log.w("vox", "fidelity guard: the cleanup answer lost the spoken words, used the raw words"); }
+                    Fidelity.Verdict v = Fidelity.check(raw, c, strength, "", p.dictionaryTerms(), p.replacements());
+                    if (v.ok) { out = v.empty ? "" : c; cleaned = true; }   // empty: only filler words were said (EMPTY)
+                    else { cleanupFailed = rejected = true; Log.w("vox", "fidelity guard: " + v.reason + ", used the raw words"); }   // the reason holds no dictated word
                 } catch (IOException e) {
                     // Cleanup failure should never lose the dictation. Fall back to the raw transcript.
                     cleanupFailed = true;
                 } finally {
                     if (tm != null) tm.mark("llm_done");
                 }
+            }
+            if (cleaned && out.isEmpty()) {   // the cleanup said EMPTY for filler-only speech: nothing to type, as for silence
+                discard(entry.id);
+                postError(InsertGuard.emptyResult(note));
+                return;
             }
             if (!cleaned) out = rejected ? ApiClient.fallbackText(out) : ApiClient.applySpokenCommands(out);
             // A cancel during the cleanup makes it throw (the request was aborted): that is not a failure to report.

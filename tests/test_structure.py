@@ -156,8 +156,8 @@ def test_lists_are_made_after_the_cleanup_and_its_guard(monkeypatch):
 
 def test_the_guard_sees_the_cleanup_answer_not_the_list(monkeypatch):
     seen = []
-    real = core.looks_valid
-    monkeypatch.setattr(core, "looks_valid", lambda raw, c, s=None: seen.append(c) or real(raw, c, s))
+    real = core.fidelity_check
+    monkeypatch.setattr(core, "fidelity_check", lambda raw, c, *a: seen.append(c) or real(raw, c, *a))
     monkeypatch.setattr(core, "cleanup", lambda cfg, r, style, label: "First, milk. Second, eggs.")
     core.process_text(_cfg(cleanup_min_words=1), "first milk second eggs", "notepad.exe", "Notepad")
     assert seen == ["First, milk. Second, eggs."]

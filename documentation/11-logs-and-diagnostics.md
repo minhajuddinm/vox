@@ -34,6 +34,7 @@ Messages worth knowing:
 | `recording cancelled (Esc)` / `keep listening: cancelled after N s[, audio kept]` | Esc ended a recording or a session without sending anything more |
 | `hotkey: N key(s) were not really held after a pause, forgotten` | After more than 2 s without key events some keys the engine thought were held were up (a lost key-up, for example after Win+L); they were dropped |
 | `modifier keys still held after 2.0 s, going on` | The paste waited for Shift/Ctrl/Alt/Win to come up and gave up; the paste was sent anyway |
+| `fidelity guard: <reason>` (info) and `fidelity guard: the cleanup answer lost the spoken words, used the raw words (N words)` (warning) | The guard rejected the cleanup answer (`missing 3 > 1`, `numbers changed`, `added sentence`, `scaffold echo: rules:`, ...); the reason never holds a dictated word. The phone writes `fidelity guard: <reason>, used the raw words` to logcat (tag `vox`) |
 | `streaming: N pieces, M sent while speaking` | A dictation went to speech-to-text in N pieces, M of them before the key was released |
 | `FLAC encoding failed (...), sending WAV` | The FLAC upload could not be made; the dictation went as WAV |
 | `clipboard format N (B bytes) is too big to keep, it is not put back` | One clipboard format was over 16 MB and was left out of the copy taken before a paste |

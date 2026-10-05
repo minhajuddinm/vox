@@ -556,15 +556,13 @@ public final class ApiClient {
         return status == 0 || status >= 500 || status == 429 || status == 408;
     }
 
-    /** Guards against the model replying to the transcript (too long) or summarising it (too few of the words): Light strength. */
+    /** Guards against the model replying to the transcript, padding it, summarising it or echoing the prompt: Light strength. */
     static boolean looksValid(String raw, String cleaned) {
         return looksValid(raw, cleaned, "light");
     }
 
-    /** looksValid for a cleanup strength ("light" or "standard"); twin of looks_valid in windows/vox_core.py (see Fidelity). */
+    /** looksValid for a cleanup strength ("light" or "standard"); twin of looks_valid in windows/vox_core.py (Fidelity.check). */
     static boolean looksValid(String raw, String cleaned, String strength) {
-        if (cleaned == null || cleaned.trim().isEmpty()) return false;
-        if (cleaned.length() > raw.length() * 1.6 + 40) return false;
         return Fidelity.ok(raw, cleaned, strength);
     }
 
