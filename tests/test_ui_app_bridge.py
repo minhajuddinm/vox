@@ -198,3 +198,15 @@ def test_a_changed_relay_address_or_token_clears_its_pin(api):
     assert api.save_config({"relay_url": url, "relay_token": "A"}) and pinned()   # the same values (Test saves them)
     assert api.save_config({"keep_history": False}) and pinned()                  # another setting
     assert api.save_config({"relay_token": "B"}) and not pinned()                 # a new token: asked again
+
+
+def test_a_saved_relay_change_is_reported_saved_when_its_pin_cannot_be_cleared(api, monkeypatch):
+    # review 6: unpin runs after the file is written; its failure made the page say "not saved"
+    import sqlite3
+    import sync
+
+    def locked(url):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(sync, "unpin", locked)
+    assert api.save_config({"relay_url": "http://127.0.0.1:8766", "relay_token": "C"}) is True
+    assert core.load_config()["relay_token"] == "C"

@@ -30,7 +30,7 @@ class Squatter(ThreadingHTTPServer):
 
     def __init__(self, mode):
         super().__init__(("127.0.0.1", 0), _SquatHandler)
-        self.mode, self.seen = mode, []
+        self.mode, self.seen, self.sent = mode, [], 0
 
     @property
     def url(self):
@@ -55,6 +55,17 @@ class _SquatHandler(BaseHTTPRequestHandler):
             self.rfile.read(n)
         self.server.seen.append((self.command, self.path.split("?")[0], self.headers.get("Authorization")))
         if self.path.startswith("/proof"):
+            if self.server.mode == "huge":   # a proof answer that does not end: 64 MB
+                self.send_response(200)
+                self.send_header("Content-Length", str(64 << 20))
+                self.end_headers()
+                try:
+                    for _ in range(64):
+                        self.wfile.write(b"x" * (1 << 20))
+                        self.server.sent += 1 << 20
+                except OSError:
+                    pass   # the client stopped reading
+                return
             if self.server.mode == "wrong":
                 return self._answer(200, {"proof": "0" * 64})
             if self.server.mode == "old":
@@ -244,12 +255,24 @@ def test_an_old_relay_is_still_used_with_a_warning_until_its_address_has_proved_
     sync.forget_proof(squatter.url)
     out = sync.test_relay(squatter.url, "REAL-TOKEN-A")
     assert not out["ok"] and out["message"] == sync.NO_LONGER and tokens(squatter) == []
+    # fix wave (review 5): the warning about a possible squatter never says how to lift the pin (clearing the token)
+    assert "update it" in sync.NO_LONGER and not any(w in sync.NO_LONGER.lower() for w in ("clear", "enter it", "settings"))
     # leftovers: an older relay put back at the address works again once the user changes its address or token
     sync.unpin(squatter.url + "/")
     assert sync.origin_of(squatter.url) not in json.loads(notes.get_meta("relay_proven", "[]"))
     out = sync.test_relay(squatter.url, "REAL-TOKEN-A")
     assert out["ok"] and sync.OLD_RELAY in out["message"]
     sync.unpin("")   # no address: nothing to do
+
+
+@pytest.mark.parametrize("squatter", ["huge"], indirect=True)
+def test_a_proof_answer_that_does_not_end_is_cut_off_and_gets_no_token(squatter):
+    # review 11: the /proof answer was read whole, whatever its size
+    import time
+    out = sync.test_relay(squatter.url, "REAL-TOKEN-A")
+    assert not out["ok"] and out["message"] == sync.NOT_PROVEN and tokens(squatter) == []
+    time.sleep(0.5)   # the squatter's last writes fail once the connection is dropped
+    assert squatter.sent < 32 << 20, squatter.sent   # far from the 64 MB it offered
 
 
 @pytest.mark.parametrize("squatter", ["silent"], indirect=True)

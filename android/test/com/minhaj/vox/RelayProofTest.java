@@ -103,6 +103,10 @@ public final class RelayProofTest {
             c = RelayClient.check(base, TOKEN, "Pixel");
             eq("pinned address without a proof: refused", "false/" + RelayProof.NO_LONGER, c.ok + "/" + c.message);
             eq("pinned address without a proof: no token", 0, auth.size());
+            // fix wave (review 5): the warning about a possible squatter never says how to lift the pin
+            String low = RelayProof.NO_LONGER.toLowerCase(java.util.Locale.ROOT);
+            eq("the warning gives no way to lift the pin", false, low.contains("clear") || low.contains("enter it") || low.contains("settings"));
+            eq("the warning and the Windows one are the same text", true, RelayProof.NO_LONGER.endsWith("If you went back to an older relay, update it."));
             // leftovers: a changed address or token in Settings clears the pin, so an older relay put back works again
             eq("the same values saved again are no change", false, RelayProof.relayChanged(base + "\n" + TOKEN, base + "\n" + TOKEN));
             eq("a token entered again after clearing it is a change", true, RelayProof.relayChanged(base + "\n", base + "\n" + TOKEN));

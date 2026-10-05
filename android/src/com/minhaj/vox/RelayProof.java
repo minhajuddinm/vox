@@ -44,7 +44,7 @@ final class RelayProof {
     static final String NOT_PROVEN = "The relay did not prove it holds this token, so the token was not sent. Either the token is wrong, or "
             + "another program is answering at the relay's address.";
     static final String NO_LONGER = "This relay proved it holds the token before and now does not, so the token was not sent: another program may "
-            + "be answering at its address. If you went back to an older relay, update it, or clear the relay token in Settings and enter it again.";
+            + "be answering at its address. If you went back to an older relay, update it.";   // never how to lift the pin
     static final String OLD_RELAY = "This relay is too old to prove it holds the token before Vox sends it: update it.";
 
     /** The relay addresses (SyncEngine.originOf) that have proved themselves once. */

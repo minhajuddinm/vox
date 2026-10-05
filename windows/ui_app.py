@@ -92,7 +92,10 @@ class Api:
             return before != (c.get("relay_url") or "", c.get("relay_token") or ""), c.get("relay_url") or ""
         changed, url = core.update_config(change)
         if changed:   # a new relay address or token: its pin goes, so an older relay put back works again
-            sync.unpin(url)
+            try:
+                sync.unpin(url)
+            except Exception as e:   # the settings are saved already: the page must not say otherwise
+                log.warning("relay pin not cleared: %s", type(e).__name__)
 
     def _edit_list(self, key, change):
         """Changes one item of a list setting in the file as it is now (the sync thread may have added words from

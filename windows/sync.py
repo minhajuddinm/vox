@@ -144,12 +144,12 @@ def problem(url, token):
 # there (it covers one sync run; a dictation proves on key-down, in core.warm). A connection failure or a 502, 503 or
 # 504 (tailscale serve with the relay stopped) forgets it at once (forget_proof).
 PROOF_TTL = 10
+PROOF_MAX_BYTES = 65536   # the most of a /proof answer read (a real one is about 80 bytes)
 GATEWAY_DOWN = (502, 503, 504)
 NOT_PROVEN = ("The relay did not prove it holds this token, so the token was not sent. Either the token is wrong, or "
               "another program is answering at the relay's address.")
 NO_LONGER = ("This relay proved it holds the token before and now does not, so the token was not sent: another program may "
-             "be answering at its address. If you went back to an older relay, update it, or clear the relay token in "
-             "Settings and enter it again.")
+             "be answering at its address. If you went back to an older relay, update it.")   # never how to lift the pin
 OLD_RELAY = "This relay is too old to prove it holds the token before Vox sends it: update it."
 _proofs = {}              # (origin, token) -> (time.monotonic() of the answer, "proven" or "old relay")
 _proof_lock = threading.Lock()
@@ -201,7 +201,10 @@ def prove_relay(url, token):
             return hit[1]
     nonce = secrets.token_hex(16)
     try:
-        r = _session.get(url + "/proof?nonce=" + nonce, timeout=TIMEOUT, allow_redirects=False)
+        r = core.read_capped(_session.get(url + "/proof?nonce=" + nonce, timeout=TIMEOUT, allow_redirects=False,
+                                          stream=True), PROOF_MAX_BYTES)
+    except core.ApiError:   # a proof is about 80 bytes: a huge answer is not the relay
+        raise SyncError(NOT_PROVEN, 401)
     except requests.RequestException as e:
         if core.refused_plain_http(e):
             raise SyncError(core.PLAIN_HTTP_ELSEWHERE)
