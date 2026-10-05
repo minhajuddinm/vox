@@ -759,12 +759,13 @@ def _restore(monkeypatch, snapshot):
 
 def test_the_restored_clipboard_is_marked_private(monkeypatch):
     user32, put = _restore(monkeypatch, [(13, b"o\x00l\x00d\x00\x00\x00")])
-    assert set(user32.registered) == {"ExcludeClipboardContentFromMonitorProcessing", "CanIncludeInClipboardHistory",
-                                      "CanUploadToCloudClipboard"}
-    assert put[0] == (13, b"o\x00l\x00d\x00\x00\x00") and len(put) == 4
+    # not ExcludeClipboardContentFromMonitorProcessing (final review W-M5): a clipboard manager or a VM's clipboard
+    # sharing must still see the old item put back, or the next paste there gives the dictation
+    assert set(user32.registered) == {"CanIncludeInClipboardHistory", "CanUploadToCloudClipboard"}
+    assert put[0] == (13, b"o\x00l\x00d\x00\x00\x00") and len(put) == 3
 
 
 def test_a_marker_the_old_clipboard_already_had_keeps_its_own_value(monkeypatch):
-    cloud = 0xC000 + 3   # the number the fake gives CanUploadToCloudClipboard (registered third)
+    cloud = 0xC000 + 2   # the number the fake gives CanUploadToCloudClipboard (registered second)
     user32, put = _restore(monkeypatch, [(13, b"x\x00\x00\x00"), (cloud, b"\x01\x00\x00\x00")])
-    assert [f for f, _ in put].count(cloud) == 1 and (cloud, b"\x01\x00\x00\x00") in put and len(put) == 4
+    assert [f for f, _ in put].count(cloud) == 1 and (cloud, b"\x01\x00\x00\x00") in put and len(put) == 3

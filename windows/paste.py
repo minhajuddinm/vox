@@ -64,6 +64,9 @@ _NO_CLOUD_FORMAT = ("CanUploadToCloudClipboard", b"\x00\x00\x00\x00")   # always
 _NO_HISTORY_FORMATS = (("ExcludeClipboardContentFromMonitorProcessing", b"\x01"),
                        ("CanIncludeInClipboardHistory", b"\x00\x00\x00\x00"))
 _PRIVATE_FORMATS = _NO_HISTORY_FORMATS + (_NO_CLOUD_FORMAT,)
+# The old clipboard put back: kept out of Win+V history and the cloud a second time, but not hidden from clipboard
+# listeners (a clipboard manager, a VM's or remote desktop's clipboard sharing), so it is still what the next paste gives.
+_RESTORE_FORMATS = (_NO_HISTORY_FORMATS[1], _NO_CLOUD_FORMAT)
 
 _user32 = _kernel32 = _keyboard = None
 # dwExtraInfo of every key Vox sends (its paste keys, the hotkey's Start-menu tap): the hotkey hook drops exactly these, so
@@ -341,9 +344,9 @@ class SystemDeps:
         return out or None
 
     def clip_restore(self, snapshot):
-        """Puts a clip_snapshot() back, replacing what is on the clipboard now. It is marked private (ENG-9): the old
-        item already went to Win+V history and the cloud clipboard once, if at all. A marker the snapshot holds keeps
-        its own value."""
+        """Puts a clip_snapshot() back, replacing what is on the clipboard now. It is kept out of Win+V history and the
+        cloud clipboard (ENG-9: the old item already went there once, if at all), but not marked for clipboard listeners
+        to ignore (_RESTORE_FORMATS). A marker the snapshot holds keeps its own value."""
         user32, kernel32 = _api()
         with _Clipboard(owner=True):
             user32.EmptyClipboard()
@@ -353,7 +356,7 @@ class SystemDeps:
                 except OSError as e:
                     log.warning("clipboard format %s not restored: %s", fmt, e)
             held = {fmt for fmt, _ in snapshot}
-            for name, value in _PRIVATE_FORMATS:
+            for name, value in _RESTORE_FORMATS:
                 try:
                     fmt = user32.RegisterClipboardFormatW(name)
                     if fmt and fmt not in held:

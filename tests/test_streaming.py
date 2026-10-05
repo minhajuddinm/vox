@@ -394,3 +394,21 @@ def test_the_rate_limit_wait_is_bounded_and_gives_up_after_a_few_tries(monkeypat
     with pytest.raises(core.ApiError):
         core._transcribe_in_pieces({"api_key": "k"}, tone(13) + silence(1) + tone(4))
     assert slept and max(slept) <= core.RATE_LIMIT_MAX_WAIT and len(slept) == core.RATE_LIMIT_TRIES
+
+
+def test_the_rest_after_a_failed_piece_waits_out_a_rate_limit_too(monkeypatch):
+    """Final review W-M6: the piece that failed most likely got a 429, so the upload of the rest right after it does too."""
+    slept = []
+
+    class R:
+        def __init__(self, status, text=""):
+            self.status_code, self._text, self.headers, self.text = status, text, {"Retry-After": "4"} if status == 429 else {}, ""
+
+        def json(self):
+            return {"error": {"message": "rate limited"}} if self.status_code == 429 else {"text": self._text}
+
+    answers = [R(429), R(200, "the rest")]
+    monkeypatch.setattr(core.requests, "post", lambda url, **kw: answers.pop(0))
+    monkeypatch.setattr(core.time, "sleep", slept.append)
+    assert core.transcribe_rest({"api_key": "k"}, tone(5), "what came before") == "the rest"
+    assert 4 in slept

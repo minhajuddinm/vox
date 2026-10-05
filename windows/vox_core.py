@@ -1852,12 +1852,13 @@ def _transcribe_waiting(cfg, pcm_bytes, context):
 
 def transcribe_rest(cfg, pcm_bytes, context):
     """The text of the end of a recording whose start already is text (`context`): what is left after a streamed piece
-    failed (ENG-7). One upload, or pieces when it is too big; "" for a blip or silence."""
+    failed (ENG-7). One upload, or pieces when it is too big; "" for a blip or silence. A rate limit is waited out: the
+    piece that failed most likely got a 429, and the rest right after it would get one too."""
     if len(pcm_bytes) < SAMPLE_RATE * 2 * 0.3 or is_silent(pcm_bytes):
         return ""
     if len(pcm_bytes) > MAX_UPLOAD_BYTES:
         return _transcribe_in_pieces(cfg, pcm_bytes, context)
-    return transcribe(cfg, upload_audio(cfg, pcm_bytes), context[-150:])
+    return _transcribe_waiting(cfg, pcm_bytes, context[-150:])
 
 
 def process_detailed(cfg, pcm_bytes, exe, app_label):
@@ -1951,5 +1952,6 @@ def process(cfg, pcm_bytes, exe, app_label):
 
 def check_key(key, base_url=None):
     """True when the API accepts the key (Groq unless base_url is given)."""
-    r = requests.get(f"{api_base({'base_url': base_url})}/models", headers=auth_headers({"api_key": key}), timeout=15)
+    r = requests.get(f"{api_base({'base_url': base_url})}/models", headers=auth_headers({"api_key": key}), timeout=15,
+                     allow_redirects=False)   # (SEC-6, as every other call)
     return r.status_code == 200

@@ -143,3 +143,4 @@ def test_check_key_uses_base_url(monkeypatch):
     assert seen["url"] == "https://api.groq.com/openai/v1/models"
     assert core.check_key("k", "http://laptop:8000/v1/")
     assert seen["url"] == "http://laptop:8000/v1/models"
+    assert seen["allow_redirects"] is False   # the key never follows a redirect (final review RC-M6)
