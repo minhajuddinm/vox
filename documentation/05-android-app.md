@@ -102,7 +102,7 @@ A voice note is recorded like a dictation but goes to the notes store instead of
 
 ## `Prefs` (SharedPreferences file `vox`)
 
-Keys, defaults and formats: [07-config-and-data.md](07-config-and-data.md). History is a JSON array of up to 500 entries, newest first. `Prefs.dictionaryTerms()` and `replacements()` delegate to `Terms`.
+Keys, defaults and formats: [07-config-and-data.md](07-config-and-data.md). History is a JSON array of up to 500 entries, newest first. `Prefs.dictionaryTerms()`, `people()` and `replacements()` delegate to `Terms`. `DictationService.send` passes only the terms the transcript needs to the cleanup (`Terms.select(raw, dictionaryTerms(), replacements())`), and the People list and `recentTerms()` (words learned in the last 14 days, from `learned_log`) to the speech request, which names them first (`ApiClient.transcribe(..., people, recent)`; see [06-pipeline.md](06-pipeline.md)).
 
 ## Helper classes (pure Java, unit-tested)
 
