@@ -1888,3 +1888,14 @@ echo	KUBERNETES vox ADA	Kubernetes, Vox, Ada.	true
 echo	नमस्ते दुनिया आज	Ada. नमस्ते दुनिया आज कल	true
 echo	it's Ada's turn	it's Ada's turn now	true
 echo	hello there friend		false
+# integration (cq-3 x cq-5): the echo check ignores the words of Whisper prompt v2's sentence (we, talked, with, about,
+# and) on both sides, so a real dictation of the sentence frame and one or two terms is kept, and a list of the terms
+# read back still counts.
+echo	Talked with Priya.	Talked with Priya about Docker.	false
+echo	We talked about Docker.	We talked about Docker.	false
+echo	Talked with Ada and Grace.	Talked with Ada and Grace about Kubernetes.	false
+echo	Talked with Ada and Grace about Kubernetes.	Talked with Ada and Grace about Kubernetes.	true
+echo	Kubernetes, Tailscale, Groq.	We talked about Kubernetes, Tailscale and Groq.	true
+echo	We talked about Kubernetes, Tailscale and Groq.	We talked about Kubernetes, Tailscale and Groq.	true
+echo	we talked about it with them	We talked about Docker.	false
+echo	Tailscale and Groq and Vox	We talked about Kubernetes, Tailscale and Groq. Vox is next	true

@@ -232,11 +232,20 @@ public final class ApiClient {
     static final int ECHO_MIN_WORDS = 3;
 
     /**
-     * True when the transcript only reads the Whisper prompt back (vox_core.is_prompt_echo, golden rows "echo"): at least
-     * ECHO_MIN_WORDS words, all of them a run of the prompt's words in the same order (case and punctuation ignored).
+     * The words of Whisper prompt v2's sentence ("We talked about A and B.", "Talked with P about A."): ignored on both
+     * sides, so "Talked with Priya." is not an echo of 3 words and "A, B, C." still matches "A, B and C" (vox_core.ECHO_FRAME_WORDS).
+     */
+    static final java.util.Set<String> ECHO_FRAME_WORDS = new java.util.HashSet<>(java.util.Arrays.asList("we", "talked", "with", "about", "and"));
+
+    /**
+     * True when the transcript only reads the Whisper prompt back (vox_core.is_prompt_echo, golden rows "echo"): without
+     * the sentence's own words (ECHO_FRAME_WORDS), at least ECHO_MIN_WORDS words, all of them a run of the prompt's words
+     * (also without them) in the same order (case and punctuation ignored).
      */
     static boolean isPromptEcho(String text, String prompt) {
-        List<String> t = Fidelity.wordTokens(text), p = Fidelity.wordTokens(prompt);
+        List<String> t = new ArrayList<>(Fidelity.wordTokens(text)), p = new ArrayList<>(Fidelity.wordTokens(prompt));
+        t.removeAll(ECHO_FRAME_WORDS);
+        p.removeAll(ECHO_FRAME_WORDS);
         if (t.size() < ECHO_MIN_WORDS || t.size() > p.size()) return false;
         for (int i = 0; i + t.size() <= p.size(); i++) {
             if (p.subList(i, i + t.size()).equals(t)) return true;

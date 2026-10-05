@@ -216,6 +216,26 @@ def test_an_answer_that_reads_the_prompt_back_is_dropped(monkeypatch):
     assert core.transcribe(cfg, b"RIFF") == "Groq"                          # one real word is never an echo
 
 
+def test_the_echo_check_ignores_the_words_of_the_whisper_v2_sentence(monkeypatch):
+    # integration of Whisper prompt v2 (a sentence) and the echo drop: the frame words do not count, on either side
+    cfg = _cfg(dictionary=["Docker", "Groq"], people=["Priya"])
+    sent = []
+
+    def answer(text):
+        return lambda url, **kw: sent.append(kw["data"].get("prompt")) or _Answer({"text": text})
+    monkeypatch.setattr(core, "post_with_retry", answer("Talked with Priya."))
+    assert core.transcribe(cfg, b"RIFF") == "Talked with Priya."             # a real dictation of the frame is kept
+    assert sent[0] == "Talked with Priya about Docker and Groq."
+    monkeypatch.setattr(core, "post_with_retry", answer("Talked with Priya about Docker."))
+    assert core.transcribe(cfg, b"RIFF") == "Talked with Priya about Docker."   # 2 words beyond the frame: kept, as 2 terms were before
+    monkeypatch.setattr(core, "post_with_retry", answer("Talked with Priya about Docker and Groq."))
+    assert core.transcribe(cfg, b"RIFF") == ""                               # the whole sentence read back is not
+    cfg = _cfg(dictionary=["Ada", "Grace", "Kubernetes"])
+    monkeypatch.setattr(core, "post_with_retry", answer("Ada, Grace, Kubernetes."))
+    assert core.transcribe(cfg, b"RIFF") == ""                               # nor the terms as a list
+    assert sent[-1] == "We talked about Ada, Grace and Kubernetes."
+
+
 def test_the_400_fallback_to_plain_json_still_works_and_still_drops_an_echo(monkeypatch):
     sent = []
 

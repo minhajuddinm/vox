@@ -2647,13 +2647,18 @@ def _segments_of(res):
 
 
 ECHO_MIN_WORDS = 3   # a shorter transcript is never called an echo: a one-word dictation of a dictionary name is real
+# The words of Whisper prompt v2's sentence ("We talked about A and B.", "Talked with P about A."): ignored on both sides,
+# so "Talked with Priya." is not an echo of 3 words and "A, B, C." still matches "A, B and C".
+ECHO_FRAME_WORDS = frozenset({"we", "talked", "with", "about", "and"})
 
 
 def is_prompt_echo(text, prompt):
     """True when the transcript is only a piece of the Whisper prompt read back (twin: ApiClient.isPromptEcho, golden rows
     "echo"): Whisper, given silence or a very short clip, can answer with its prompt (the dictionary terms or the text
-    before). It must be at least ECHO_MIN_WORDS words, all of them a run of the prompt's words in the same order."""
-    t, p = word_tokens(text), word_tokens(prompt)
+    before). Without the sentence's own words (ECHO_FRAME_WORDS) it must be at least ECHO_MIN_WORDS words, all of them a
+    run of the prompt's words (also without them) in the same order."""
+    t = [w for w in word_tokens(text) if w not in ECHO_FRAME_WORDS]
+    p = [w for w in word_tokens(prompt) if w not in ECHO_FRAME_WORDS]
     if len(t) < ECHO_MIN_WORDS or len(t) > len(p):
         return False
     return any(p[i:i + len(t)] == t for i in range(len(p) - len(t) + 1))
