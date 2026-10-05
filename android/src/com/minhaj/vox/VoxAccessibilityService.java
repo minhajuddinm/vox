@@ -635,7 +635,7 @@ public class VoxAccessibilityService extends AccessibilityService
 
     @Override
     public void onError(String message) {
-        toast(message);
+        main.post(() -> Toast.makeText(this, message, Toast.LENGTH_LONG).show());   // long: an error says what to do next
         // A warning that still ends in a result (cleanup fell back to the raw words) is followed by onResult,
         // whose flash replaces this one. A failed voice note flashes the note bubble, the one that shows that job.
         if (noteJob()) { flashNote(BubbleView.ERROR); return; }

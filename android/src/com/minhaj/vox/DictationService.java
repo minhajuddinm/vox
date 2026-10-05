@@ -739,7 +739,7 @@ public class DictationService extends Service {
             double seconds = Math.max(0, wav.length() - 44) / (SAMPLE_RATE * 2.0);
             if (raw.isEmpty() || ApiClient.isSilenceHallucination(raw)) {
                 discard(entry.id);
-                if (note) postError("Vox did not hear any words, so no note was saved");
+                postError(InsertGuard.emptyResult(note));   // never dropped without a word: a lone "Thank you." is a real reply too
                 return;
             }
             String style = p.styleFor(pkg);   // a note has no pkg (see startRecording): the default style, as on Windows
@@ -804,11 +804,18 @@ public class DictationService extends Service {
             if ((e.code == 401 || e.code == 403) && p.usesRelay()) postError("The relay or the AI server behind it refused the request (" + Providers.RELAY_HINT + "). Then tap Retry in the notification.");
             else if (e.code == 401) postError("The server rejected the API key. Fix it, then tap Retry in the notification.");
             else if (e.code == 429) postError("Rate limit reached. Tap Retry in the notification.");
-            else postError(e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
+            else postError(InsertGuard.sendFailed(e.getMessage()));
         } catch (IOException e) {
             if (!isCurrent(job)) return;
             retryFailed(entry);
-            postError("Network error:" + e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
+            postError(InsertGuard.networkFailed(e.getMessage(), e.getClass().getSimpleName()));
+        } catch (RuntimeException e) {
+            // Anything else (a header value the connection refuses, a bug) must not kill the process, and with it the
+            // accessibility bubble: the recording is kept for Retry, as for a network failure.
+            Log.w("vox", "send failed: " + e.getClass().getSimpleName());
+            if (!isCurrent(job)) return;
+            retryFailed(entry);
+            postError(InsertGuard.crashed(e));
         } finally {
             if (isCurrent(job)) liveClients = null;
             if (streamer != null) streamer.cancel();   // ends its thread on every way out (a no-op once it has finished)
@@ -826,7 +833,7 @@ public class DictationService extends Service {
     private void saveNote(int job, PendingQueue.Entry entry, String raw, String text, double seconds, Prefs p) {
         if (NoteLogic.strip(text).isEmpty()) {   // nothing left to keep (engine.py saves only when there is text)
             discard(entry.id);
-            postError("Vox did not hear any words, so no note was saved");
+            postError(InsertGuard.emptyResult(true));
             return;
         }
         if (!isCurrent(job)) return;   // a cancel that came after the last check in send(): nothing is stored
@@ -835,7 +842,7 @@ public class DictationService extends Service {
             id = NotesStore.get(this).add(text, raw, seconds, Note.SOURCE_NOTE, p.deviceName(), new ArrayList<String>(), "");
         } catch (RuntimeException e) {   // SQLiteException: disk full, database damaged
             retryFailed(entry);
-            postError("Could not save the note: " + e.getMessage() + ". Your recording is kept: tap Retry in the notification.");
+            postError(InsertGuard.KEPT + " Could not save the note: " + e.getClass().getSimpleName() + ".");
             return;
         }
         // From here the note is saved: reading the title back is cosmetic and must never report a failure (Retry

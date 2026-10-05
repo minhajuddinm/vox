@@ -34,6 +34,32 @@ public final class InsertGuardTest {
         eq("a cancelled job says nothing about a failed cleanup", null, InsertGuard.cleanupNotice(false, true, false));
         eq("a cancelled note says nothing about a failed cleanup", null, InsertGuard.cleanupNotice(false, true, true));
 
+        // emptyResult: a dictation that gave no usable words (nothing, or a lone "Thank you.") is never dropped without a word (AND-1)
+        eq("an empty dictation says so, in the PC app's words", "Vox heard no usable words in that recording (a lone \"Thank you\" counts as silence). "
+                + "Speak a little longer, or check the microphone.", InsertGuard.emptyResult(false));
+        eq("an empty note says no note was saved", "Vox did not hear any words, so no note was saved", InsertGuard.emptyResult(true));
+
+        // sendFailed: the action comes first (a toast shows two lines), the server's own text is capped (AND-13)
+        eq("a server error keeps the recording, action first", "Recording kept: tap Retry in the notification. API 400: bad file",
+                InsertGuard.sendFailed("API 400: bad file"));
+        StringBuilder huge = new StringBuilder("API 500: ");
+        for (int i = 0; i < 100; i++) huge.append("blah ");
+        String capped = InsertGuard.sendFailed(huge.toString());
+        eq("a long server text is cut", true, capped.length() <= InsertGuard.KEPT.length() + 1 + InsertGuard.MAX_DETAIL + 3);
+        eq("a long server text ends in dots", true, capped.endsWith("..."));
+        eq("a network failure keeps the recording, action first", "Recording kept: tap Retry in the notification. Network error: timeout",
+                InsertGuard.networkFailed("timeout", "SocketTimeoutException"));
+        eq("a network failure without a message", "Recording kept: tap Retry in the notification. Network error: SocketException",
+                InsertGuard.networkFailed(null, "SocketException"));
+        eq("no message: the class", "Recording kept: tap Retry in the notification. Network error: SocketException",
+                InsertGuard.networkFailed("", "SocketException"));
+
+        // crashed: any other failure in a send (a RuntimeException) keeps the recording and says what broke (AND-2)
+        eq("an unexpected failure keeps the recording", "Recording kept: tap Retry in the notification. Vox could not send it (IllegalArgumentException).",
+                InsertGuard.crashed(new IllegalArgumentException("Bearer gsk_secret")));
+        eq("the message never carries the exception's own text (it can hold the key)", false,
+                InsertGuard.crashed(new IllegalArgumentException("Bearer gsk_secret")).contains("gsk_secret"));
+
         System.out.println("OK: " + checks + " checks passed");
     }
 }
