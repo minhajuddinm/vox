@@ -56,13 +56,58 @@ def percentile(values, p):
     return s[max(0, math.ceil(p / 100 * len(s)) - 1)]
 
 
-def score(row, cleaned, strength):
-    """All the quality metrics of one answer. `terms` is None when the row names no term to keep."""
+def app_guard(row, cleaned, strength):
+    """The app's own guard verdict (vox_core.Verdict) on one answer, called as process_text calls it: the row's
+    dictionary terms (its people and dictionary, as bench_cleanup.row_config sets them) are critical words and its
+    "wrong => right" pairs are applied first."""
+    cfg = {"people": list(row.get("terms") or []), "dictionary": list(row.get("dictionary") or [])}
+    return core.fidelity_check(row["raw"], cleaned, strength, "", core.dictionary_terms(cfg), core.replacements(cfg))
+
+
+def score(row, cleaned, strength, verdict=None):
+    """All the quality metrics of one answer. `terms` is None when the row names no term to keep. `guard` is the app's
+    current guard (app_guard) unless `verdict` gives it."""
     keep = row.get("must_keep_terms") or []
     raw = row["raw"]
+    if verdict is None:
+        verdict = app_guard(row, cleaned, strength)
     return {"recall": recall(raw, cleaned), "added": added_rate(raw, cleaned), "ratio": length_ratio(raw, cleaned),
-            "guard": accepted(core.looks_valid(raw, cleaned, strength)),
+            "guard": accepted(verdict),
             "terms": term_hits(cleaned, keep) if keep else None, "structure": structure_only(raw, cleaned)}
+
+
+_GOT_NAMES = ("missing", "run", "ins", "free", "fixes", "moved")
+
+
+def guard_detail(raw, cleaned, strength, terms=(), repl=None):
+    """(verdict, counts) of the app's guard on one answer. counts: what the guard counted before its last check, read
+    from the guard's own local variables (no copy of its rules): {"words": the spoken words it requires, "missing",
+    "run", "ins" (inserted words), "free" (free insertions: a, the, to...), "fixes", "moved", "limits": {the same names:
+    the most allowed}}; None when it decided earlier (empty, preamble, too long, a dropped critical word, numbers...)."""
+    import sys
+    seen = {}
+
+    def tracer(frame, event, arg):
+        if frame.f_code is not core.fidelity_check.__code__:
+            return None
+
+        def local(frame, event, arg):
+            if event == "return":
+                seen.update({k: frame.f_locals.get(k) for k in ("got", "most", "n")})
+            return local
+        return local
+    old = sys.gettrace()
+    sys.settrace(tracer)
+    try:
+        verdict = core.fidelity_check(raw, cleaned, strength, "", terms, repl)
+    finally:
+        sys.settrace(old)
+    got, most = seen.get("got"), seen.get("most")
+    if not (isinstance(got, tuple) and isinstance(most, tuple) and len(got) == len(most) == len(_GOT_NAMES)):
+        return verdict, None
+    counts = dict(zip(_GOT_NAMES, got), words=seen.get("n"))
+    counts["limits"] = dict(zip(_GOT_NAMES, most))
+    return verdict, counts
 
 
 def accepted(verdict):
@@ -94,12 +139,31 @@ _CURRENCY = {"$": "dollars", "₹": "rupees", "€": "euros", "£": "pounds"}
 _PLURAL = {"dollar": "dollars", "rupee": "rupees", "euro": "euros", "pound": "pounds"}
 
 
+_SPELLING = {"okay": "ok", "cannot": "can not", "won't": "will not", "can't": "can not", "shan't": "shall not",
+             "i'm": "i am"}
+_SUFFIXES = (("n't", "not"), ("'re", "are"), ("'ve", "have"), ("'ll", "will"))
+
+
+def _expand(w):
+    """One word in Whisper normaliser spelling: common contractions spelled out ("don't" = "do not", "we're" = "we
+    are"), "okay" = "ok". 's and 'd stay (is, has or a possessive; had or would)."""
+    if w in _SPELLING:
+        return _SPELLING[w].split()
+    for end, full in _SUFFIXES:
+        if w.endswith(end) and len(w) > len(end):
+            return [w[:-len(end)], full]
+    return [w]
+
+
 def norm_words(text):
-    """Whisper-style normalised words for WER: lowercase, punctuation and case dropped, apostrophes removed ("don't" =
-    "dont"), pure noises (um, uh, hmm) dropped, spoken numbers as digits ("twenty five" = "25"), money and percent as
-    words ("$25" = "25 dollars" = "twenty five dollar"). Frozen v1 word rules (tools/bench/legacy.py)."""
+    """Whisper-style normalised words for WER: lowercase, punctuation and case dropped, common contractions spelled out
+    ("don't" = "do not", "won't" = "will not"), other apostrophes removed ("it's" = "its"), "okay" = "ok", "e-mail" =
+    "email", pure noises (um, uh, hmm) dropped, spoken numbers as digits ("twenty five" = "25"), money and percent as
+    words ("$25" = "25 dollars" = "twenty five dollar"). Frozen v1 word rules (tools/bench/legacy.py). Not covered: money
+    with cents spoken out ("$25.50" against "twenty five dollars fifty cents" is 3 errors)."""
     t = re.sub(r"([$₹€£])\s?([0-9][0-9,.]*)", lambda m: m.group(2) + " " + _CURRENCY[m.group(1)], text or "")
-    toks = [_PLURAL.get(w, w).replace("'", "") for w in legacy.word_tokens(t.replace("%", " percent"))]
+    t = re.sub(r"(?i)\be-mail", "email", t.replace("%", " percent"))
+    toks = [_PLURAL.get(x, x).replace("'", "") for w in legacy.word_tokens(t) for x in _expand(w)]
     return legacy._merge_numbers([w for w in toks if w and w not in legacy.NOISES])
 
 
@@ -145,13 +209,25 @@ def _is_word_char(ch):
     return unicodedata.category(ch)[0] in "LNM"   # letters, numbers and marks (Devanagari vowel signs), as the guard
 
 
+def _inner_mark(s, i, cur):
+    """True when s[i] is part of a word, not a punctuation mark: an apostrophe, dot or @ between two word characters
+    ("don't", "12.50", "example.com", "a@b"), or a colon or comma between two digits ("3:30", "1,000")."""
+    ch = s[i]
+    if not cur or i + 1 >= len(s) or not _is_word_char(s[i + 1]):
+        return False
+    if ch in "'.@":
+        return True
+    return ch in ":," and cur[-1].isdigit() and s[i + 1].isdigit()
+
+
 def format_tokens(text):
     """Words with their case kept, and every punctuation mark or symbol as a token of its own; whitespace and line
-    breaks do not count. A curly apostrophe inside a word is a straight one."""
+    breaks do not count. A curly apostrophe inside a word is a straight one; a decimal point, a time's colon, a
+    thousands comma and the dots of an address stay inside their word (_inner_mark)."""
     s = (text or "").replace("’", "'")
     out, cur = [], []
     for i, ch in enumerate(s):
-        if _is_word_char(ch) or (ch == "'" and cur and i + 1 < len(s) and _is_word_char(s[i + 1])):
+        if _is_word_char(ch) or _inner_mark(s, i, cur):
             cur.append(ch)
             continue
         if cur:
@@ -170,8 +246,8 @@ def wer_formatted_counts(ref, hyp):
 
 
 def wer_formatted(ref, hyp):
-    """Formatted WER: case and punctuation count (each mark is a token), so "hi priya" against "Hi, Priya." is 3 errors
-    in 4 tokens."""
+    """Formatted WER: case and punctuation count (each mark is a token), so "hi priya" against "Hi, Priya." is 4 errors
+    in 4 tokens (two capitals, two marks)."""
     return _rate(*wer_formatted_counts(ref, hyp))
 
 
@@ -271,15 +347,28 @@ def has_self_correction(raw):
     return any(" " + c + " " in text for c in CUES)
 
 
+_CUE_WORDS = frozenset(w for c in CUES for w in c.split())
+
+
+def _last_cue(words):
+    """The index where the last self-correction cue starts in a word list, or None."""
+    starts = [i for c in CUES for i in range(len(words)) if words[i:i + len(c.split())] == c.split()]
+    return max(starts) if starts else None
+
+
 def self_correction_ok(raw, cleaned, intended):
-    """For a dictation with a self-correction cue whose intended text drops words: True when those retracted words are
-    gone from the cleaned text and at least 90% of the intended words are there. None when it does not apply (no cue,
-    no intended text, nothing retracted)."""
-    if intended is None or not has_self_correction(raw):
+    """For a dictation with a self-correction cue whose intended text drops words spoken before the cue: True when those
+    retracted words (and the cue) are gone from the cleaned text and at least 90% of the intended words are there. None
+    when it does not apply (no cue, no intended text, no word before the cue retracted: "I actually like, you know, the
+    plan" only drops fillers after the cue)."""
+    words = norm_words(raw)
+    cue = _last_cue(words)
+    if intended is None or cue is None:
         return None
-    r, i, c = Counter(norm_words(raw)), Counter(norm_words(intended)), Counter(norm_words(cleaned))
-    retracted = r - i
-    if not retracted:
+    r, i, c = Counter(words), Counter(norm_words(intended)), Counter(norm_words(cleaned))
+    before = set(words[:cue])
+    retracted = {t: n for t, n in (r - i).items() if t in before or t in _CUE_WORDS}
+    if not any(t in before and t not in _CUE_WORDS for t in retracted):
         return None
     kept = sum(min(n, c[t]) for t, n in i.items())
     return all(c[t] <= i[t] for t in retracted) and kept * 10 >= 9 * sum(i.values())
@@ -300,15 +389,17 @@ def answered_or_obeyed(raw, cleaned, intended=None):
     return _added(r, norm_words(intended or ""), norm_words(cleaned)) >= max(3, 0.3 * len(r))
 
 
-def score_pasted(row, cleaned, accepted, strength, fallback):
-    """What gets pasted under one guard (the cleaned text when the guard accepts it, else fallback(raw)) scored against
-    the row's typed references when it has them (ref_intended: the text wanted). Counts are kept as [errors, total] or
-    [tp, fp, fn] so the summary can add them up. A bare EMPTY answer (filler-only input) pastes nothing."""
+def score_pasted(row, cleaned, accepted, strength, fallback, skipped=False):
+    """What gets pasted under one guard (the cleaned text when the guard accepts it, else fallback(raw); always
+    fallback(raw) when `skipped`: the app does not send a phrase under cleanup_min_words) scored against the row's typed
+    references when it has them (ref_intended: the text wanted). Counts are kept as [errors, total] or [tp, fp, fn] so
+    the summary can add them up. A bare EMPTY answer (filler-only input) pastes nothing."""
     raw, intended, keep = row["raw"], row.get("ref_intended"), row.get("must_keep_terms") or []
-    pasted = cleaned if accepted else fallback(raw)
+    pasted = cleaned if accepted and not skipped else fallback(raw)
     if pasted.strip() == "EMPTY":
         pasted = ""
-    out = {"accepted": bool(accepted), "over_edit": list(over_edit_counts(raw, pasted, intended, strength)),
+    out = {"accepted": bool(accepted), "skipped": bool(skipped),
+           "over_edit": list(over_edit_counts(raw, pasted, intended, strength)),
            "answered": answered_or_obeyed(raw, pasted, intended), "terms": term_hits(pasted, keep) if keep else None,
            "self_correction": self_correction_ok(raw, pasted, intended)}
     if intended is not None:
@@ -327,14 +418,16 @@ def _f1_sum(scores, key):
     return _f1(*(sum(c) for c in zip(*have))) if have else None
 
 
-def summarize_pasted(results, guard):
+def summarize_pasted(results, guard, key="pasted"):
     """The pasted-text numbers of one run under one guard: micro averages (all errors / all words) for WER, formatted WER
-    and over-edits, F1 from the summed counts, and rates for the rest. None where no row has the number."""
-    s = [r["score"]["pasted"][guard] for r in results if r["score"]]
+    and over-edits, F1 from the summed counts, and rates for the rest. None where no row has the number. key "rules"
+    with guard None: the rules layer alone on every row (what is pasted with no AI cleanup)."""
+    s = [r["score"][key] if guard is None else r["score"][key][guard] for r in results if r["score"]]
     corr = [x["self_correction"] for x in s if x["self_correction"] is not None]
     terms = [x["terms"] for x in s if x["terms"] is not None]
-    return {"rows": len(results), "errors": len(results) - len(s),
-            "guard_pass": _mean([x["accepted"] for x in s]) if s else None,
+    sent = [x["accepted"] for x in s if not x.get("skipped")]
+    return {"rows": len(results), "errors": len(results) - len(s), "skipped": len(s) - len(sent),
+            "guard_pass": _mean(sent) if sent else None,
             "fwer": _micro(s, "fwer"), "wer": _micro(s, "wer"), "punct_f1": _f1_sum(s, "punct"),
             "case_f1": _f1_sum(s, "case"), "term_accuracy": _mean(terms) if terms else None,
             "over_edit": _micro(s, "over_edit"), "self_correction": _mean(corr) if corr else None,
@@ -356,9 +449,10 @@ def summarize_usage(results):
             "reasoning_tokens": mean("reasoning_tokens"), "cached_share": sum(c for _, c in both) / total if total else None}
 
 
-def row_values(results, guard, metric):
-    """One number per row, in row order, for paired comparisons (None for a failed row): "fwer" and "over_edit" are the
-    row's rates under the guard, "ms" its time."""
+def row_values(results, guard, metric, key="pasted"):
+    """One value per row, in row order, for paired comparisons (None for a failed row): "fwer" and "over_edit" are the
+    row's [errors, words] under the guard (added up across rows: the micro rate of the table), "ms" its time. key
+    "rules" with guard None: the rules layer's numbers."""
     out = []
     for r in results:
         if not r["score"]:
@@ -366,9 +460,63 @@ def row_values(results, guard, metric):
         elif metric == "ms":
             out.append(r["ms"])
         else:
-            v = r["score"]["pasted"][guard].get(metric)
-            out.append(None if v is None else _rate(*v))
+            v = (r["score"][key] if guard is None else r["score"][key][guard]).get(metric)
+            out.append(None if v is None else list(v))
     return out
+
+
+def micro(pairs):
+    """All errors / all words of [errors, words] pairs: the statistic of the table's WER, formatted WER and over-edits."""
+    return _rate(sum(e for e, _ in pairs), sum(n for _, n in pairs))
+
+
+BUCKETS = ((1, 3), (4, 7), (8, 15), (16, None))   # spoken words per row, for the "skip the AI below N words" setting
+
+
+def bucket_of(words):
+    for lo, hi in BUCKETS:
+        if hi is None or words <= hi:
+            return f"{lo}+" if hi is None else f"{lo}-{hi}"
+
+
+def by_word_count(results, guards):
+    """Per bucket of spoken words: rows, and formatted WER and over-edits (micro) of the rules layer alone and of the
+    guarded AI answer under each guard (as if every row were sent: no minimum). Decides cleanup_min_words: a bucket where
+    the AI does not beat the rules is not worth a request."""
+    out = {}
+    for r in results:
+        s = r["score"]
+        if not s:
+            continue
+        b = out.setdefault(bucket_of(s["words"]), {"rows": 0, "rules": {"fwer": [], "over_edit": []},
+                                                    **{g: {"fwer": [], "over_edit": []} for g in guards}})
+        b["rows"] += 1
+        for name, x in [("rules", s["rules"])] + [(g, s["guarded"][g]) for g in guards]:
+            for m in ("fwer", "over_edit"):
+                if x.get(m) is not None:
+                    b[name][m].append(x[m])
+    order = [bucket_of(lo) for lo, _ in BUCKETS]
+    return {k: {"rows": out[k]["rows"], **{name: {m: micro(v) if v else None for m, v in d.items()}
+                                           for name, d in out[k].items() if name != "rows"}}
+            for k in order if k in out}
+
+
+def real_pair_confusion(results, guard):
+    """The guard on the run's own answers, labelled automatically: an answer is bad when it over-edits (a word added,
+    swapped or lost that the typed intended text does not allow) or answers the dictation. Same fields as
+    guard_confusion. A strict label: read the rejected and accepted rows' reasons before moving a threshold."""
+    rows = [r["score"] for r in results if r["score"]]
+    tp = fn = fp = tn = 0
+    for s in rows:
+        bad = s["answer"]["over_edit"][0] > 0 or s["answer"]["answered"]
+        ok = s["verdicts"][guard]["ok"]
+        tp += bad and not ok
+        fn += bad and ok
+        fp += not bad and not ok
+        tn += ok and not bad
+    return {"rows": len(rows), "tp": tp, "fn": fn, "fp": fp, "tn": tn,
+            "precision": tp / (tp + fp) if tp + fp else None, "recall": tp / (tp + fn) if tp + fn else None,
+            "false_accept": fn / (fn + tn) if fn + tn else None, "accuracy": (tp + tn) / len(rows) if rows else None}
 
 
 # ------------------------------------------------------------------ the guard on labelled pairs
@@ -393,12 +541,21 @@ def guard_confusion(rows, accepts, strength):
 
 # ------------------------------------------------------------------ comparing two runs
 
-def paired_bootstrap(a, b, reps=2000, seed=0):
-    """Δ = mean(b - a) over the rows that have a number in both runs, with a paired bootstrap 95% interval (2.5th and
-    97.5th percentile of `reps` resamples of those rows; a fixed seed, so a rerun prints the same). None without rows."""
-    d = [y - x for x, y in zip(a, b) if x is not None and y is not None]
-    if not d:
+def paired_bootstrap(a, b, reps=2000, seed=0, stat=None):
+    """Δ = stat(b) - stat(a) over the rows that have a value in both runs, with a paired bootstrap 95% interval: the rows
+    are resampled together and Δ recomputed with the same statistic (2.5th and 97.5th percentile of `reps` resamples; a
+    fixed seed, so a rerun prints the same). stat: the mean by default; `micro` for [errors, words] rows, so Δ and its
+    interval are on the very number the table shows (Bisani and Ney 2004); statistics.median for times. None without
+    rows."""
+    stat = stat or _mean
+    pairs = [(x, y) for x, y in zip(a, b) if x is not None and y is not None]
+    if not pairs:
         return None
-    n, rng = len(d), random.Random(seed)
-    means = sorted(sum(d[rng.randrange(n)] for _ in range(n)) / n for _ in range(reps))
-    return {"n": n, "delta": sum(d) / n, "lo": means[int(0.025 * reps)], "hi": means[min(reps - 1, int(0.975 * reps))]}
+    n, rng = len(pairs), random.Random(seed)
+    xs, ys = [x for x, _ in pairs], [y for _, y in pairs]
+    deltas = []
+    for _ in range(reps):
+        idx = [rng.randrange(n) for _ in range(n)]
+        deltas.append(stat([ys[k] for k in idx]) - stat([xs[k] for k in idx]))
+    deltas.sort()
+    return {"n": n, "delta": stat(ys) - stat(xs), "lo": deltas[int(0.025 * reps)], "hi": deltas[min(reps - 1, int(0.975 * reps))]}

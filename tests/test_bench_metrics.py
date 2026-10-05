@@ -20,7 +20,7 @@ GUARD_SET = os.path.join(ROOT, "tools", "bench", "guard_set.jsonl")
 # ------------------------------------------------------------------ WER
 
 def test_norm_words_is_whisper_style():
-    assert m.norm_words("Um, so I DON'T know... uh twenty five!") == ["so", "i", "dont", "know", "25"]
+    assert m.norm_words("Um, so I DON'T know... uh twenty five!") == ["so", "i", "do", "not", "know", "25"]
     assert m.norm_words("It costs $25 or ₹40, 10% off.") == ["it", "costs", "25", "dollars", "or", "40", "rupees", "10",
                                                              "percent", "off"]
     assert m.norm_words("one dollar") == m.norm_words("1 dollars")
@@ -150,7 +150,7 @@ def test_summarize_pasted_adds_up_counts_into_micro_averages():
     assert s["fwer"] == pytest.approx(4 / 20) and s["wer"] == pytest.approx(2 / 10) and s["over_edit"] == pytest.approx(2 / 10)
     assert s["punct_f1"] == pytest.approx(4 / 6) and s["case_f1"] == pytest.approx(4 / 5)
     assert s["term_accuracy"] == 1.0 and s["self_correction"] == 1.0 and s["self_correction_rows"] == 1 and s["answered"] == 0.5
-    assert m.row_values([result(a), result(b), result(None, error="x")], "g", "fwer") == [0.1, 0.3, None]
+    assert m.row_values([result(a), result(b), result(None, error="x")], "g", "fwer") == [[1, 10], [3, 10], None]
     assert m.row_values([result(a, ms=700)], "g", "ms") == [700]
 
 
@@ -212,3 +212,104 @@ def test_paired_bootstrap_gives_the_mean_difference_and_an_interval():
     assert m.paired_bootstrap([None], [1]) is None
     noisy = m.paired_bootstrap([0, 1, 0, 1, 0, 1], [1, 0, 1, 0, 0, 1], reps=500)
     assert noisy["lo"] < 0 < noisy["hi"]                                  # no real difference: the interval holds 0
+
+
+def test_paired_bootstrap_on_micro_rates_follows_the_table_not_the_mean_of_rows():
+    a, b = [[1, 2], [0, 100]], [[0, 2], [10, 100]]   # macro mean says B is better; all errors / all words says worse
+    r = m.paired_bootstrap(a, b, reps=300, stat=m.micro)
+    assert r["delta"] == pytest.approx(10 / 102 - 1 / 102) and r["delta"] > 0
+    assert r["lo"] <= r["delta"] <= r["hi"]
+    med = m.paired_bootstrap([100, 200, 300], [150, 260, 900], reps=200, stat=__import__("statistics").median)
+    assert med["delta"] == 60
+
+
+# ------------------------------------------------------------------ fixes of the final review
+
+def test_norm_words_spells_out_contractions_okay_and_e_mail():
+    assert m.wer("i won't send the e-mail okay", "I will not send the email, OK.") == 0.0
+    assert m.wer("we're done and they can't", "We are done and they cannot.") == 0.0
+    assert m.norm_words("it's Priya's") == ["its", "priyas"]   # 's stays (is, has or a possessive)
+
+
+def test_format_tokens_keep_decimals_times_and_addresses_whole():
+    assert m.format_tokens("At 3:30, pay $12.50 to a@b.com, 1,000 times.") == [
+        "At", "3:30", ",", "pay", "$", "12.50", "to", "a@b.com", ",", "1,000", "times", "."]
+    assert m.punct_counts("Meet at 3:30.", "Meet at 3:30.") == (1, 0, 0)
+    assert m.format_tokens("Hi, Priya. Done.") == ["Hi", ",", "Priya", ".", "Done", "."]
+
+
+def test_a_self_correction_needs_words_retracted_before_the_cue():
+    assert m.self_correction_ok("i actually like you know the plan", "I actually like the plan.",
+                                "I actually like the plan.") is None   # only fillers after the cue were dropped
+    raw, want = "send it to priya sorry to anirudh", "Send it to Anirudh."
+    assert m.self_correction_ok(raw, "Send it to Anirudh.", want) is True
+    assert m.self_correction_ok(raw, "Send it to Priya, sorry, to Anirudh.", want) is False
+
+
+def test_score_uses_the_apps_guard_with_the_rows_dictionary_terms():
+    raw = "please send the final quarterly report to ledgerly before the meeting on friday so we can review it"
+    cleaned = "Please send the final quarterly report before the meeting on Friday so we can review it."
+    assert core.looks_valid(raw, cleaned, "standard")   # without the dictionary the guard lets it through
+    r = row(raw=raw, terms=["Ledgerly"], must_keep_terms=[])
+    v = m.app_guard(r, cleaned, "standard")
+    assert not v.ok and v.reason == "critical word dropped"   # as the app: a dictionary term is a critical word
+    assert m.score(r, cleaned, "standard")["guard"] is False
+
+
+def test_guard_detail_reads_the_guards_own_counts():
+    with open(GUARD_SET, encoding="utf-8") as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    checked = counted = 0
+    for r in rows:
+        for s in ("light", "standard"):
+            v, c = m.guard_detail(r["raw"], core.sanitize(r["cleaned"]), s)
+            assert v == core.fidelity_check(r["raw"], core.sanitize(r["cleaned"]), s)   # the verdict is the guard's
+            if c is None:
+                continue
+            counted += 1
+            name = v.reason.split(" ")[0]
+            if name in c["limits"]:   # "ins 3 > 1": the counts are the very numbers the guard compared
+                got, lim = (int(x) for x in v.reason.split(" ")[1::2])
+                assert (c[name], c["limits"][name]) == (got, lim)
+                checked += 1
+            elif v.ok:
+                assert all(c[k] <= c["limits"][k] for k in c["limits"])
+    assert counted > 200 and checked > 5
+    before = sys.gettrace()
+    assert m.guard_detail("hello there", "", "light")[1] is None   # decided before counting
+    assert sys.gettrace() is before                                # the tracer that was there is put back
+
+
+def pasted_row(fwer, over, accepted, skipped=False):
+    return {"accepted": accepted, "skipped": skipped, "fwer": fwer, "wer": fwer, "punct": [0, 0, 0], "case": [0, 0, 0],
+            "terms": None, "over_edit": over, "self_correction": None, "answered": False}
+
+
+def test_skipped_rows_stay_out_of_the_guard_pass():
+    res = [result(pasted_row([0, 4], [0, 4], True)), result(pasted_row([1, 2], [0, 2], False, skipped=True))]
+    s = m.summarize_pasted(res, "g")
+    assert s["guard_pass"] == 1.0 and s["skipped"] == 1
+
+
+def test_score_pasted_follows_the_minimum_words_and_the_given_fallback():
+    s = m.score_pasted(row(raw="sounds good", ref_intended="Sounds good."), "Sounds good!", True, "light",
+                       lambda raw: "Sounds good.", skipped=True)
+    assert s["skipped"] and s["fwer"] == [0, 3]   # the rules layer's text was scored, not the answer
+
+
+def scored(words, rules, guarded, bad, ok):
+    return {"id": "x", "ms": 1, "error": "", "score": {
+        "words": words, "rules": {"fwer": rules, "over_edit": [0, 1]}, "guarded": {"g": {"fwer": guarded, "over_edit": [0, 1]}},
+        "answer": {"over_edit": [1 if bad else 0, 5], "answered": False}, "verdicts": {"g": {"ok": ok, "reason": "x"}}}}
+
+
+def test_by_word_count_and_the_guard_on_real_pairs():
+    res = [scored(2, [1, 3], [2, 3], False, True), scored(3, [1, 3], [0, 3], True, False),
+           scored(20, [4, 20], [1, 20], True, True), {"id": "e", "ms": 0, "error": "boom", "score": None}]
+    by = m.by_word_count(res, ["g"])
+    assert list(by) == ["1-3", "16+"] and by["1-3"]["rows"] == 2
+    assert by["1-3"]["rules"]["fwer"] == pytest.approx(2 / 6) and by["1-3"]["g"]["fwer"] == pytest.approx(2 / 6)
+    assert by["16+"]["g"]["fwer"] == pytest.approx(1 / 20)
+    c = m.real_pair_confusion(res, "g")
+    assert (c["tp"], c["fn"], c["fp"], c["tn"]) == (1, 1, 0, 1) and c["false_accept"] == 0.5
+    assert m.bucket_of(1) == "1-3" and m.bucket_of(4) == "4-7" and m.bucket_of(15) == "8-15" and m.bucket_of(99) == "16+"
