@@ -131,3 +131,30 @@ def test_the_page_says_when_a_save_failed():
     save = re.search(r"async function save\(part, msg = \"Saved\"\) \{(.*?)\n\}", page, re.S).group(1)
     assert "catch" in save and "ok === false" in save and "refresh()" in save
     assert "Not saved" in save
+
+
+# ---- Copy buttons use Vox's clipboard markers (PRV-4) ----------------------------------------------------------------
+
+def test_copy_marks_the_text_like_a_dictation(api, monkeypatch):
+    import types
+    calls = []
+    fake = types.ModuleType("paste")
+    fake.SystemDeps = lambda: types.SimpleNamespace(clip_set=lambda text, history=False: calls.append((text, history)))
+    monkeypatch.setitem(sys.modules, "paste", fake)
+    on_disk("clipboard_history", False)
+    assert api.copy("a dictation") is True
+    on_disk("clipboard_history", True)
+    assert api.copy("another") is True
+    assert calls == [("a dictation", False), ("another", True)]   # never the cloud clipboard; Win+V as the switch says
+
+
+def test_copy_that_fails_answers_false(api, monkeypatch):
+    import types
+    fake = types.ModuleType("paste")
+
+    def busy(text, history=False):
+        raise OSError("clipboard busy")
+
+    fake.SystemDeps = lambda: types.SimpleNamespace(clip_set=busy)
+    monkeypatch.setitem(sys.modules, "paste", fake)
+    assert api.copy("x") is False

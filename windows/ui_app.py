@@ -6,7 +6,6 @@ import sys
 import time
 import urllib.request
 
-import pyperclip
 import webview
 
 import audio_devices
@@ -242,7 +241,14 @@ class Api:
         return [[w, r] for w, r in core.suggest_corrections(original, edited) if w.lower() not in known]
 
     def copy(self, text):
-        pyperclip.copy(text)
+        """The Copy buttons (History, voice notes, meetings): marked like a dictation, so it never goes to the cloud
+        clipboard, and stays out of Win+V when "Clipboard history" is off. False when the clipboard could not be written."""
+        import paste
+        try:
+            paste.SystemDeps().clip_set(str(text or ""), bool(core.load_config().get("clipboard_history", True)))
+        except OSError as e:
+            log.warning("copy failed: %s", type(e).__name__)
+            return False
         return True
 
     def get_speed(self):
