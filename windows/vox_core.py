@@ -1,5 +1,6 @@
 """Platform-independent parts of Vox: config, Groq calls, prompt, text post-processing."""
 import array
+import copy
 import difflib
 import io
 import ipaddress
@@ -8,6 +9,7 @@ import logging
 import os
 import re
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -123,16 +125,129 @@ def config_path():
     return path
 
 
+# ------------------------------------------------------------------ one writer at a time
+# The window and the engine are two processes, and both have several threads that write config.json (page saves, the
+# sync thread, auto-learn, tray switches) and history.jsonl (the engine appends, the window deletes). Each write holds a
+# lock file next to the data file, so a read-modify-write never overlaps another one.
+LOCK_WAIT = 10.0      # seconds a writer waits for another (a save takes a few ms)
+_REPLACE_TRIES = 10   # a reader in the other process makes Windows refuse the replace for a moment (or an antivirus scan)
+_held = threading.local()             # per thread: lock file -> depth, so a nested use does not wait for itself
+_thread_locks = {}
+_thread_locks_guard = threading.Lock()
+
+
+def _lock_byte(f):
+    f.seek(0)
+    if sys.platform == "win32":
+        import msvcrt
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock_byte(f):
+    f.seek(0)
+    if sys.platform == "win32":
+        import msvcrt
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def file_lock(path, timeout=LOCK_WAIT):
+    """Holds `path`.lock: one writer at a time across the threads of this process and the other Vox process.
+    Re-entrant in one thread. Raises OSError when it is not free within `timeout` seconds."""
+    lock_path = os.path.abspath(path) + ".lock"
+    held = getattr(_held, "files", None)
+    if held is None:
+        held = _held.files = {}
+    if held.get(lock_path):
+        held[lock_path] += 1
+        try:
+            yield
+        finally:
+            held[lock_path] -= 1
+        return
+    with _thread_locks_guard:
+        tl = _thread_locks.setdefault(lock_path, threading.Lock())
+    deadline = time.monotonic() + timeout
+    if not tl.acquire(timeout=timeout):
+        raise OSError("another save of %s is still running" % os.path.basename(path))
+    try:
+        with open(lock_path, "a+b") as f:
+            while True:
+                try:
+                    _lock_byte(f)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise OSError("another save of %s is still running" % os.path.basename(path))
+                    time.sleep(0.01)
+            held[lock_path] = 1
+            try:
+                yield
+            finally:
+                held.pop(lock_path, None)
+                _unlock_byte(f)
+    finally:
+        tl.release()
+
+
+def _replace_file(path, write):
+    """Writes `path` through a temp file of its own (two writers never share one), flushed to the disk before it
+    replaces `path`: a crash or a power cut leaves the old file or the new one, never a mix. A refused replace (the
+    other process is reading the file) is retried for a moment."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=os.path.basename(path) + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            write(f)
+            f.flush()
+            os.fsync(f.fileno())
+        for attempt in range(_REPLACE_TRIES):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if attempt == _REPLACE_TRIES - 1:
+                    raise
+                time.sleep(_OPEN_PAUSE)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def save_config(cfg):
-    """Writes the settings; the API key is stored protected by the Windows login (see secret.py)."""
+    """Writes the settings; the API key is stored protected by the Windows login (see secret.py). A change that starts
+    from what is on disk goes through update_config, so it is not lost to a save made meanwhile."""
     if _config_unread:
         raise OSError("config.json could not be opened a moment ago; not saving over it")
     path = config_path()
-    tmp = path + ".tmp"
     on_disk = dict(cfg, **{k: secret.protect(cfg.get(k) or "") for k in KEY_FIELDS})
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(on_disk, f, indent=2)
-    os.replace(tmp, path)
+    with file_lock(path):
+        _replace_file(path, lambda f: json.dump(on_disk, f, indent=2))
+
+
+def update_config(change):
+    """Read-modify-write of config.json as one step, under the lock: `change(cfg)` edits the settings as they are on disk
+    now, so a save made meanwhile by the other process or another thread is kept. Returns what `change` returns. Writes
+    only when something changed. Raises OSError when the settings cannot be saved (the file could not be opened a moment
+    ago, another save holds the lock too long, the disk refuses)."""
+    path = config_path()
+    with file_lock(path):
+        cfg = load_config()
+        if _config_unread:
+            raise OSError("config.json could not be opened a moment ago; not saving over it")
+        before = copy.deepcopy(cfg)
+        out = change(cfg)
+        if cfg != before:
+            save_config(cfg)
+        return out
 
 
 # ------------------------------------------------------------------ history
@@ -142,7 +257,7 @@ def history_path():
 
 
 def add_history(entry):
-    with open(history_path(), "a+b") as f:
+    with file_lock(history_path()), open(history_path(), "a+b") as f:   # not while the window rewrites the file
         f.seek(0, os.SEEK_END)
         if f.tell():
             f.seek(-1, os.SEEK_END)
@@ -168,11 +283,15 @@ def read_history():
 
 
 def write_history(entries):
-    tmp = history_path() + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        for e in entries:
-            f.write(json.dumps(e, ensure_ascii=False) + "\n")
-    os.replace(tmp, history_path())
+    path = history_path()
+    with file_lock(path):
+        _replace_file(path, lambda f: f.writelines(json.dumps(e, ensure_ascii=False) + "\n" for e in entries))
+
+
+def update_history(change):
+    """Read, `change(entries)` -> the new entries, write, as one step: a dictation the engine saves meanwhile is kept."""
+    with file_lock(history_path()):
+        write_history(change(read_history()))
 
 
 def _fix_types(cfg):
@@ -218,14 +337,30 @@ def _read_config_file(path):
 
 
 def load_config():
-    global _config_unread
     path = config_path()
+    merged, plain = _load_config(path)
+    if plain:   # a key typed into config.json by hand: protect it from now on (read again under the lock: one writer)
+        try:
+            with file_lock(path):
+                merged, plain = _load_config(path)
+                if plain:
+                    save_config(merged)
+        except OSError:
+            log.warning("config.json could not be rewritten (read-only?); keys stay as typed")
+    return merged
+
+
+def _load_config(path):
+    """(settings, True when a key in the file is still plain text and could be protected)."""
+    global _config_unread
     try:
         os.stat(path)
     except FileNotFoundError:
         _config_unread = False
-        save_config(DEFAULT_CONFIG)
-        return dict(DEFAULT_CONFIG)
+        with file_lock(path):
+            if not os.path.exists(path):   # still missing now that no one else can be writing it
+                save_config(DEFAULT_CONFIG)
+                return dict(DEFAULT_CONFIG), False
     except OSError:
         pass   # exists() would say "missing" here, and the defaults would then be written over a good file: read it below
     try:
@@ -238,7 +373,7 @@ def load_config():
         _config_unread = True
         log.warning("config.json could not be opened (%s); using the defaults for now and leaving the file alone",
                     type(e).__name__)
-        return dict(DEFAULT_CONFIG)
+        return dict(DEFAULT_CONFIG), False
     except ValueError as e:   # includes bad UTF-8 and bad JSON: the file was read and it is damaged
         # a bad file must not stop Vox from starting: keep it aside and carry on with the defaults
         _config_unread = False
@@ -247,7 +382,7 @@ def load_config():
             os.replace(path, path + ".bad-%d" % time.time())
         except OSError:
             log.warning("config.json could not be moved aside")
-        return dict(DEFAULT_CONFIG)
+        return dict(DEFAULT_CONFIG), False
     _config_unread = False
     merged = dict(DEFAULT_CONFIG)
     merged.update(cfg)
@@ -255,12 +390,7 @@ def load_config():
     stored = {k: merged.get(k) or "" for k in KEY_FIELDS}
     for k, v in stored.items():
         merged[k] = secret.unprotect(v)
-    if secret.available() and any(v and not secret.is_protected(v) for v in stored.values()):
-        try:
-            save_config(merged)   # a key typed into config.json by hand: protect it from now on
-        except OSError:
-            log.warning("config.json could not be rewritten (read-only?); keys stay as typed")
-    return merged
+    return merged, secret.available() and any(v and not secret.is_protected(v) for v in stored.values())
 
 
 # ---------------------------------------------------------------- dictionary

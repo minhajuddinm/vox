@@ -159,15 +159,17 @@ class Watcher:
         """Adds new corrections to the dictionary and says so. Counts only in the log."""
         if not pairs:
             return
-        try:
-            cfg = core.load_config()
+        def learn(cfg):   # the settings as they are on disk now, in one locked step with the save
             if not autolearn.enabled(cfg):
-                return
+                return []
             parts, added = autolearn.apply_learned(cfg, pairs)
+            if added:
+                cfg.update(parts)
+            return added
+        try:
+            added = core.update_config(learn)
             if not added:
                 return
-            cfg.update(parts)
-            core.save_config(cfg)
         except Exception as e:
             log.warning("auto-learn: could not save what was learned (%s)", type(e).__name__)
             return

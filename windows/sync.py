@@ -308,11 +308,19 @@ def sync_profile(url, token, device):
         merged = local if version in (0, base_version) else merge3(base, local, remote_shared)
         received = {k: v for k, v in merged.items() if cfg.get(k) != v}
         if received:
-            live = core.load_config()
-            if core.config_is_fallback():
-                return PROFILE_SKIPPED
-            live.update(received)
-            core.save_config(live)
+            def take(live):   # the file as it is now, in one locked step: the window may have saved during the request
+                if any(live.get(k) != cfg.get(k) for k in received):
+                    return False   # a field we would write was changed here meanwhile: merge again with the new value
+                live.update(received)
+                return True
+            try:
+                taken = core.update_config(take)
+            except OSError:
+                if core.config_is_fallback():
+                    return PROFILE_SKIPPED
+                raise
+            if not taken:
+                continue
             received_any = True
         # Keys leave the relay only on this device's own on-to-off switch (it sent keys, now they are off). A device that
         # never sent keys leaves other devices' keys alone, or two devices would undo each other for ever.

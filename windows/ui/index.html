@@ -606,7 +606,14 @@ let S = null;
 let modelsLoaded = false;   // not part of S: refresh() replaces S every few seconds, and the lists should be fetched once
 const api = () => window.pywebview.api;
 
-async function save(part, msg = "Saved") { Object.assign(S.config, part); await api().save_config(part); toast(msg); }
+// True when saved. A save that fails says so and redraws the page from the file, so no control shows a value that is not saved.
+async function save(part, msg = "Saved") {
+  Object.assign(S.config, part);
+  let ok = false;
+  try { ok = await api().save_config(part); } catch (e) { ok = false; }
+  if (ok === false) { toast("Not saved: the settings file is busy or read-only. Try again."); await refresh(); return false; }
+  toast(msg); return true;
+}
 
 // ---- voice notes
 async function renderVoiceNotes() {
@@ -786,7 +793,10 @@ $("history").onclick = async (ev) => {
   const c = ev.target.closest("[data-copy]"), d = ev.target.closest("[data-del]"), r = ev.target.closest("[data-raw]");
   if (c) { const e = S.history.find(x => String(x.t) === c.dataset.copy); await api().copy(e.text); toast("Copied"); }
   if (r) { const e = S.history.find(x => String(x.t) === r.dataset.raw); await api().copy(e.raw); toast("Copied the words as spoken"); }
-  if (d) { await api().delete_history(Number(d.dataset.del)); S.history = S.history.filter(x => String(x.t) !== d.dataset.del); renderHistory(); }
+  if (d) {
+    try { await api().delete_history(Number(d.dataset.del)); } catch (e) { toast("Not deleted: the history file is busy. Try again."); return; }
+    S.history = S.history.filter(x => String(x.t) !== d.dataset.del); renderHistory();
+  }
 };
 
 // ---------- dictionary
@@ -797,7 +807,9 @@ function dictLists() {
 }
 // Each edit changes one item in the file's current list (the bridge reads config.json again): a list sent from this page
 // could be stale and would wipe words that the sync thread received from another device.
-async function editList(key, answer, msg = "Saved") { S.config[key] = await answer; toast(msg); }
+async function editList(key, answer, msg = "Saved") {
+  try { S.config[key] = await answer; toast(msg); } catch (e) { toast("Not saved: the settings file is busy or read-only. Try again."); await refresh(); }
+}
 function renderAbout() { if (document.activeElement !== $("about")) $("about").value = S.config.user_context || ""; aboutCount(); }
 $("about").oninput = aboutCount;
 $("about").onchange = () => save({ user_context: $("about").value.trim() });
