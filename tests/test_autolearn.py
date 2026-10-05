@@ -345,7 +345,8 @@ def test_unarmed_watch_does_nothing():
     ("में", "मैं"), ("की", "के"), ("को", "के"), ("है", "हैं"), ("हूं", "हूँ"),
 ])
 def test_a_grammar_edit_is_not_learned(wrong, right):
-    assert al.grammar_edit(wrong, right) and not al.looks_like_fix(wrong, right)
+    assert not al.looks_like_fix(wrong, right)
+    assert al.grammar_edit(wrong, right) or al.ordinary(wrong)   # one Hindi function word: the ordinary-word rule
 
 
 @pytest.mark.parametrize("wrong,right", [
@@ -353,7 +354,7 @@ def test_a_grammar_edit_is_not_learned(wrong, right):
     ("ec two", "EC2"), ("get user name", "getUserName"), ("postgre", "Postgres"), ("jone", "Jones"),
     ("wisper", "Whisper"), ("lama", "Llama"), ("cloud flare", "Cloudflare"), ("teh", "the"), ("recieve", "receive"),
     ("nite", "night"), ("seperate", "separate"), ("definately", "definitely"), ("accomodate", "accommodate"),
-    ("acha", "accha"), ("यार", "यारा"),
+    ("acha", "accha"), ("यार", "यारा"), ("Mark", "Marc"), ("their", "Thier"),
 ])
 def test_names_and_misheard_words_are_still_learned(wrong, right):
     assert al.looks_like_fix(wrong, right)

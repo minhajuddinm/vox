@@ -1147,3 +1147,5 @@ suggest	so naive naive nahi it is	so naiv naive Nahi it is	naive nahi=>Nahi
 suggest	kubernetis: you) you two second	kubernetis: You) you Question question second	you two=>Question question
 suggest	a b a b c	a c a b b	
 suggest	send it to Minhaj today	send it to Minhajuddin today	Minhaj=>Minhajuddin
+# TXT-1: one ordinary word fixed into a name (Mark -> Marc) is still learned, whatever its case.
+autocorrect	ask Mark about it	ask Marc about it	Mark=>Marc

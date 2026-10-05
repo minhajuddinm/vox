@@ -165,11 +165,12 @@ def _stems(w):
 
 def grammar_edit(wrong, right):
     """True when wrong -> right only fixes the grammar of its sentence: as many words on both sides, and each word the
-    same, the same word with another ending (ENDINGS: "client" -> "clients", "update" -> "updated") or an ordinary word
-    changed (SHORT_WORDS, COMMON_WORDS, the Hindi function words: "is" -> "are", "है" -> "हैं")."""
+    same, the same word with another ending (ENDINGS: "client" -> "clients", "update" -> "updated") or, in a swap of two or
+    more words, an ordinary word changed (SHORT_WORDS, COMMON_WORDS, the Hindi function words: "meeting is" -> "meetings
+    are"; one ordinary word alone is looks_like_fix's own rule)."""
     a, b = [_word_chars(t) for t in tokens(wrong)], [_word_chars(t) for t in tokens(right)]
-    return len(a) == len(b) and all(x == y or _stems(x) & _stems(y) or x in core.COMMON_WORDS or x in SHORT_WORDS
-                                    for x, y in zip(a, b))
+    return len(a) == len(b) and all(x == y or _stems(x) & _stems(y)
+                                    or (len(a) > 1 and (x in core.COMMON_WORDS or x in SHORT_WORDS)) for x, y in zip(a, b))
 
 
 def looks_like_fix(wrong, right, final=True):

@@ -252,15 +252,16 @@ final class AutoLearn {
 
     /**
      * True when wrong -> right only fixes the grammar of its sentence: as many words on both sides, and each word the same,
-     * the same word with another ending ("client" -> "clients", "update" -> "updated") or an ordinary word changed ("is" ->
-     * "are", "है" -> "हैं"). Twin of grammar_edit in windows/autolearn.py.
+     * the same word with another ending ("client" -> "clients", "update" -> "updated") or, in a swap of two or more words,
+     * an ordinary word changed ("meeting is" -> "meetings are"; one ordinary word alone is looksLikeFix's own rule). Twin
+     * of grammar_edit in windows/autolearn.py.
      */
     static boolean grammarEdit(String wrong, String right) {
         List<String> a = tokens(wrong), b = tokens(right);
         if (a.size() != b.size()) return false;
         for (int i = 0; i < a.size(); i++) {
             String x = wordChars(a.get(i)), y = wordChars(b.get(i));
-            if (x.equals(y) || Terms.isCommonWord(x) || SHORT_WORDS.contains(x)) continue;
+            if (x.equals(y) || (a.size() > 1 && (Terms.isCommonWord(x) || SHORT_WORDS.contains(x)))) continue;
             Set<String> common = stems(x);
             common.retainAll(stems(y));
             if (common.isEmpty()) return false;
