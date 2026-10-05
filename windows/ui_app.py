@@ -526,6 +526,9 @@ class Api:
         return True
 
     def connect_calendar(self, url):
+        problem = vcalendar.url_problem(url)
+        if problem:   # the secret address is not saved, so it is never fetched in clear text
+            return dict(self.calendar(), error=problem)
         self._save({"calendar_url": (url or "").strip()})
         return self.calendar(force=True)
 
