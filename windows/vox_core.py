@@ -3033,7 +3033,8 @@ def needs_cleanup(raw, style, enabled, min_words):
 def process_text(cfg, raw, exe, app_label, segments=None):
     """Everything after speech to text: silence phrases, style, cleanup and its fidelity guard, spoken commands,
     replacements, the dictionary's spellings, then lists and paragraphs (structure.py) on whatever text came out (cleaned,
-    fallback or raw). `segments` are the speech server's segment times (paragraph breaks at long pauses), or None."""
+    fallback or raw), then the snippets (apply_layout). `segments` are the speech server's segment times (paragraph breaks
+    at long pauses), or None."""
     if not raw or is_silence_hallucination(raw):
         return Result("", "", False, "")
     style = style_for(cfg, exe)
@@ -3068,10 +3069,16 @@ def process_text(cfg, raw, exe, app_label, segments=None):
     if code:
         out = codemode.format_code(out)   # "new line" is one of its symbols
     out = fuzzy_dictionary(apply_replacements(out, replacements(cfg)), dictionary_terms(cfg))
-    out = snippets_mod.apply_snippets(out, cfg.get("snippets"))   # after the cleanup: a saved text never goes to the AI
+    return Result(raw, apply_layout(cfg, out, style, segments, code), cleaned, error, rejected)
+
+
+def apply_layout(cfg, text, style, segments=None, code=False):
+    """Lists and paragraphs (apply_structure; not in code), then the snippets: last, so a saved text never goes to the AI
+    and is never re-formatted by the list pass (TXT-12: its line breaks and list markers stay as saved). Twin: the end of
+    DictationService's pipeline, Snippets.layout (golden rows "layout")."""
     if not code:
-        out = apply_structure(cfg, out, style, segments)
-    return Result(raw, out, cleaned, error, rejected)
+        text = apply_structure(cfg, text, style, segments)
+    return snippets_mod.apply_snippets(text, cfg.get("snippets"))
 
 
 def apply_structure(cfg, text, style, segments=None):

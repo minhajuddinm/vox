@@ -1,7 +1,7 @@
 """Snippets: a trigger phrase you say ("my email") becomes the text you saved for it, in every app. Pure: no I/O.
 
-The setting `snippets` is {trigger: text}. Applied after the AI cleanup (so the saved text never goes to the cleanup
-server) and before lists. Whole phrase, case ignored, any run of spaces between its words; the longest trigger wins and the
+The setting `snippets` is {trigger: text}. Applied last: after the AI cleanup (so the saved text never goes to the cleanup
+server) and after lists (so the list pass never re-formats it; vox_core.apply_layout). Whole phrase, case ignored, any run of spaces between its words; the longest trigger wins and the
 text put in is not looked at again. The same rules run on the phone (Snippets.java, golden rows `snippets`); the setting
 travels with the synced profile.
 """

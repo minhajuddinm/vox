@@ -375,6 +375,9 @@ def test_golden(kind, f, tmp_path, monkeypatch):
         assert structure.format_structure(f[2], f[0], f[1]) == f[3]
     elif kind == "snippets":   # text, expected, then trigger, saved text pairs
         assert snippets.apply_snippets(f[0], dict(zip(f[2::2], f[3::2]))) == f[1]
+    elif kind == "layout":   # mode, style, text, expected, then trigger, saved text pairs: lists first, then snippets
+        cfg = {"structure": f[0], "snippets": dict(zip(f[4::2], f[5::2]))}
+        assert core.apply_layout(cfg, f[2], f[1]) == f[3]
     elif kind == "promptstructure":   # structure, style, terms, app, About you, strength, rules => the cleanup prompt
         assert core.system_prompt(f[1], items(f[2]), f[3], f[4], f[5], f[6], f[0]) == f[7]
     elif kind == "notebubble":   # persistent switch, note recording, note being saved, expected

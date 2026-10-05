@@ -498,6 +498,12 @@ public final class ParityTest {
                     eq(ln, kind, f[1], Snippets.apply(f[0], snips));
                     break;
                 }
+                case "layout": {   // mode, style, text, expected, then trigger, saved text pairs: lists first, then snippets
+                    Map<String, String> snips = new LinkedHashMap<>();
+                    for (int i = 4; i + 1 < f.length; i += 2) snips.put(f[i], f[i + 1]);
+                    eq(ln, kind, f[3], Snippets.layout(f[2], snips, f[0], f[1]));
+                    break;
+                }
                 case "promptstructure":   // structure, style, terms, app, About you, strength, rules => the cleanup prompt
                     eq(ln, kind, f[7], ApiClient.systemPrompt(f[1], items(f[2], "|"), f[3], f[4], f[5], f[6], f[0]));
                     break;

@@ -90,9 +90,16 @@ def test_snippets_come_after_the_cleanup_and_never_go_to_it(monkeypatch):
     assert sent == ["send it to my email thanks"] and "me@example.com" not in str(sent)
 
 
-def test_snippets_come_before_lists(monkeypatch):
+def test_snippets_come_after_lists_and_keep_their_line_breaks(monkeypatch):
+    # TXT-12: before, the list pass ran on the saved text and flattened its line break ("Best regards, Yuvi")
     r = core.process_text(_cfg(cleanup=False), "First, my email. Second, my signature.", "x.exe", "x")
-    assert r.text == "1. me@example.com\n2. Best regards, Yuvi"
+    assert r.text == "1. me@example.com\n2. Best regards,\nYuvi"
+
+
+def test_a_saved_text_with_list_markers_no_longer_stops_the_lists(monkeypatch):
+    cfg = dict(_cfg(cleanup=False), snippets={"my list": "- a\n- b"})
+    r = core.process_text(cfg, "Send my list. First, milk. Second, eggs.", "x.exe", "x")
+    assert r.text == "Send - a\n- b.\n1. Milk\n2. Eggs"
 
 
 def test_snippets_work_in_a_code_app_and_when_cleanup_is_off():

@@ -2009,3 +2009,12 @@ promptterms	u v raj will check vox	Yuvraj|Minhaj|Priya|Supabase|Raventrack|Vox|T
 pickterms	ask preeya about it	Priya|Vox		Priya
 pickterms	a pure guess	Priya|Vox		
 pickterms	pr is ready	PR|Priya		PR
+# lo: layout: mode, style, text, expected, then trigger, saved text pairs (vox_core.apply_layout / Snippets.layout): lists
+# from spoken cues first, then the snippets, so a saved text keeps its line breaks and list markers (TXT-12).
+layout	auto	neutral	First, my address. Second, my phone.	1. 12 Main St\nSpringfield\n2. 555 0100	my address	12 Main St\nSpringfield	my phone	555 0100
+layout	auto	neutral	Send my list. First, milk. Second, eggs.	Send - a\n- b.\n1. Milk\n2. Eggs	my list	- a\n- b
+layout	auto	neutral	First, my signature. Second, call Sam.	1. 1. Yuvi\n2. Vox\n2. Call Sam	my signature	1. Yuvi\n2. Vox
+layout	off	neutral	First, my address. Second, my phone.	First, 12 Main St\nSpringfield. Second, my phone.	my address	12 Main St\nSpringfield
+layout	auto	raw	my address please	12 Main St\nSpringfield please	my address	12 Main St\nSpringfield
+layout	auto	neutral	No list here, my email.	No list here, me@example.com.	my email	me@example.com
+layout	lists	casual	Step one, my email. Step two, wait.	1. me@example.com\n2. Wait	my email	me@example.com
