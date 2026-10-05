@@ -193,7 +193,7 @@ class Engine:
         self.meeting = Meeting(lambda: self.cfg)
         self.sync = sync.SyncWorker(lambda: self.cfg)
         self.relay = relay_host.RelayHost(relay_host.default_data_dir(), relay_host.port_from(self.cfg), notify=self.notify)
-        self.kb = keyboard.Controller()
+        self.kb = paste_mod.keyboard_controller()   # its keys carry VOX_KEY_TAG: the hook ignores them
         self.icon = pystray.Icon(
             "Vox", ICONS["idle"], "Vox",
             menu=pystray.Menu(
@@ -490,17 +490,20 @@ class Engine:
     @staticmethod
     def _hook_filter(msg, data):
         """win32_event_filter of the keyboard listener, inside the hook (quick, never raises): False drops the event
-        before Vox sees it (Windows still gets it). Drops the Left Ctrl that Windows makes up for AltGr."""
+        before Vox sees it (Windows still gets it). Drops the keys Vox sends itself (dwExtraInfo is
+        paste.VOX_KEY_TAG: its paste keys and its Start-menu tap, so with the Ctrl+Shift preset Vox's own Ctrl+Shift+V
+        does not start a recording, ENG-5) and the Left Ctrl that Windows makes up for AltGr. Keys other programs send
+        (PowerToys remaps, a mouse button macro, Voice Access) still count: they are often how a user holds the shortcut."""
         try:
+            if (data.dwExtraInfo or 0) == paste_mod.VOX_KEY_TAG:
+                return False
             return not (data.vkCode in (0x11, 0xA2) and data.scanCode == ALTGR_CTRL_SCAN)
         except Exception:
             return True
 
     def on_press(self, key, injected=False):
-        # pynput passes `injected` (a key sent by a program: Vox's own paste keys, its Start-menu tap). They are never
-        # the user's shortcut (ENG-5): with the Ctrl+Shift preset Vox's Ctrl+Shift+V started a recording.
-        if injected:
-            return
+        # pynput passes `injected` (sent by a program). It is not used: Vox's own keys never get here (_hook_filter), and
+        # keys from other programs (a PowerToys remap, a mouse button macro) are the user's.
         self._hook_tap(key, True)
         q = self._hotkey_q
         if q is not None:
@@ -512,8 +515,6 @@ class Engine:
             self._hotkey_failed()
 
     def on_release(self, key, injected=False):
-        if injected:
-            return
         self._hook_tap(key, False)
         q = self._hotkey_q
         if q is not None:

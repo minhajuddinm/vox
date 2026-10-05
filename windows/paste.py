@@ -66,6 +66,34 @@ _NO_HISTORY_FORMATS = (("ExcludeClipboardContentFromMonitorProcessing", b"\x01")
 _PRIVATE_FORMATS = _NO_HISTORY_FORMATS + (_NO_CLOUD_FORMAT,)
 
 _user32 = _kernel32 = _keyboard = None
+# dwExtraInfo of every key Vox sends (its paste keys, the hotkey's Start-menu tap): the hotkey hook drops exactly these, so
+# Vox's own Ctrl+Shift+V never looks like the user's shortcut (ENG-5), while keys that other programs send (PowerToys
+# remaps, a mouse button macro, Voice Access, a software KVM) still count.
+VOX_KEY_TAG = 0x566F7821   # "Vox!"
+
+
+def keyboard_controller():
+    """pynput's keyboard Controller, with VOX_KEY_TAG on every key it sends (Windows; elsewhere the plain Controller)."""
+    global _keyboard
+    if _keyboard is None:
+        from pynput import keyboard
+        if not isinstance(keyboard.Controller, type):   # a stand-in (tests): use it as it is
+            return keyboard.Controller()
+        try:
+            from pynput._util.win32 import INPUT, INPUT_union, KEYBDINPUT, SendInput
+        except (ImportError, AttributeError, OSError):
+            _keyboard = keyboard.Controller()
+            return _keyboard
+
+        class Tagged(keyboard.Controller):
+            def _handle(self, key, is_press):
+                try:
+                    ki = KEYBDINPUT(dwExtraInfo=VOX_KEY_TAG, **key._parameters(is_press))
+                except ValueError:   # a character outside one UTF-16 unit: Vox never sends one, pynput's own way
+                    return super()._handle(key, is_press)
+                SendInput(1, ctypes.byref(INPUT(type=INPUT.KEYBOARD, value=INPUT_union(ki=ki))), ctypes.sizeof(INPUT))
+        _keyboard = Tagged()
+    return _keyboard
 
 
 def _api():
@@ -335,17 +363,16 @@ class SystemDeps:
 
     def _send(self, vk, shift=False):
         """Ctrl (+ Shift) + the key `vk`. The virtual key, not the letter: on a layout with no Latin letters (Cyrillic,
-        Greek, Hebrew, Arabic) the letter would be sent as a character and the shortcut would not work."""
-        global _keyboard
+        Greek, Hebrew, Arabic) the letter would be sent as a character and the shortcut would not work. Tagged
+        (VOX_KEY_TAG) so the hotkey hook ignores them."""
         from pynput import keyboard
-        if _keyboard is None:
-            _keyboard = keyboard.Controller()
-        with _keyboard.pressed(keyboard.Key.ctrl):
+        kb = keyboard_controller()
+        with kb.pressed(keyboard.Key.ctrl):
             if shift:
-                with _keyboard.pressed(keyboard.Key.shift):
-                    _keyboard.tap(keyboard.KeyCode.from_vk(vk))
+                with kb.pressed(keyboard.Key.shift):
+                    kb.tap(keyboard.KeyCode.from_vk(vk))
             else:
-                _keyboard.tap(keyboard.KeyCode.from_vk(vk))
+                kb.tap(keyboard.KeyCode.from_vk(vk))
 
     def send_ctrl_v(self):
         self._send(0x56)
@@ -355,12 +382,10 @@ class SystemDeps:
 
     def send_shift_insert(self):
         """Shift+Insert (PuTTY and mintty). pynput's Key.insert is the extended key, so it is not read as numpad 0."""
-        global _keyboard
         from pynput import keyboard
-        if _keyboard is None:
-            _keyboard = keyboard.Controller()
-        with _keyboard.pressed(keyboard.Key.shift):
-            _keyboard.tap(keyboard.Key.insert)
+        kb = keyboard_controller()
+        with kb.pressed(keyboard.Key.shift):
+            kb.tap(keyboard.Key.insert)
 
     def send_ctrl_c(self):
         self._send(0x43)

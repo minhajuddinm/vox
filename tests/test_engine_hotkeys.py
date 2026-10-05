@@ -439,20 +439,75 @@ def test_a_long_hold_with_another_key_is_still_sent(eng):
     assert eng.calls[-1] == ("stop", False)
 
 
-def test_keys_vox_sends_itself_are_ignored(eng):
-    """Vox's Ctrl+Shift+V into a terminal (paste last, keep listening's Type) must not look like the Ctrl+Shift preset."""
-    eng.hotkey = [engine_mod.KEY_ALIASES["ctrl"], engine_mod.KEY_ALIASES["shift"]]
-    for k in (Key.ctrl, Key.shift, KeyCode.from_vk(0x56)):
-        eng.on_press(k, True)
-    for k in (KeyCode.from_vk(0x56), Key.shift, Key.ctrl):
-        eng.on_release(k, True)
-    assert eng.calls == [] and eng.pressed == set()
+def _hook_data(vk=0xA2, scan=0x1D, extra=None):
+    return type("D", (), {"vkCode": vk, "scanCode": scan, "dwExtraInfo": extra})()
 
 
-def test_pynput_passes_the_injected_flag():
-    import inspect
-    assert list(inspect.signature(engine_mod.Engine.on_press).parameters)[1:] == ["key", "injected"]
-    assert list(inspect.signature(engine_mod.Engine.on_release).parameters)[1:] == ["key", "injected"]
+def test_keys_vox_sends_itself_are_dropped_by_the_hook():
+    """Vox's Ctrl+Shift+V into a terminal (paste last, keep listening's Type) must not look like the Ctrl+Shift preset:
+    every key Vox sends carries VOX_KEY_TAG, and the hook drops exactly those."""
+    import paste
+    assert engine_mod.Engine._hook_filter(0x100, _hook_data(vk=0x56, extra=paste.VOX_KEY_TAG)) is False
+    assert engine_mod.Engine._hook_filter(0x101, _hook_data(vk=0xA0, extra=paste.VOX_KEY_TAG)) is False
+    assert engine_mod.Engine._hook_filter(0x100, _hook_data(extra=None)) is True        # the keyboard
+    assert engine_mod.Engine._hook_filter(0x100, _hook_data(extra=0)) is True
+    assert engine_mod.Engine._hook_filter(0x100, _hook_data(extra=0x1234)) is True      # another program's own tag
+
+
+def test_keys_other_programs_send_still_start_dictation(eng):
+    """A PowerToys remap (Copilot key to Right Ctrl), a mouse button macro or Voice Access send injected keys: they are
+    the user's shortcut (final review W-I1)."""
+    eng.on_press(Key.ctrl_l, True)
+    eng.on_press(Key.cmd, True)
+    assert "start" in eng.calls
+    eng.on_release(Key.cmd, True)
+    eng.on_release(Key.ctrl_l, True)
+    assert eng.pressed == set()
+
+
+def test_vox_keys_carry_the_tag(monkeypatch):
+    """paste's controller puts VOX_KEY_TAG in dwExtraInfo of every key it sends (SendInput replaced, nothing is typed)."""
+    import sys
+    if sys.platform != "win32":
+        pytest.skip("SendInput is Windows only")
+    import ctypes
+    import paste
+    from pynput._util import win32 as w
+    sent = []
+
+    def fake_send(n, ptr, size):
+        inp = ctypes.cast(ptr, ctypes.POINTER(w.INPUT)).contents
+        sent.append((inp.value.ki.wVk, inp.value.ki.dwExtraInfo))
+        return 1
+    monkeypatch.setattr(w, "SendInput", fake_send)
+    monkeypatch.setattr(paste, "_keyboard", None)
+    paste.SystemDeps.send_ctrl_shift_v(object.__new__(paste.SystemDeps))
+    paste.SystemDeps.send_shift_insert(object.__new__(paste.SystemDeps))
+    assert sent and all(extra == paste.VOX_KEY_TAG for _, extra in sent)
+    assert 0x56 in [vk for vk, _ in sent] and 0x2D in [vk for vk, _ in sent]
+
+
+def test_a_real_pynput_listener_hands_the_hook_data_to_the_filter():
+    """Pins pynput's contract without starting a hook: the filter gets the KBDLLHOOKSTRUCT (with dwExtraInfo), a False
+    drops the event, and a program-sent key that passes reaches on_press."""
+    import ctypes
+    import sys
+    if sys.platform != "win32":
+        pytest.skip("the low-level hook is Windows only")
+    import paste
+    from pynput.keyboard import _win32 as kw
+    got = []
+    lis = kw.Listener(on_press=lambda k, injected: got.append((k, injected)), win32_event_filter=engine_mod.Engine._hook_filter)
+    S = lis._KBDLLHOOKSTRUCT
+
+    def convert(extra, scan=0x1D):
+        data = S(vkCode=0xA2, scanCode=scan, flags=S.LLKHF_INJECTED, time=0, dwExtraInfo=extra)
+        return lis._convert(0, 0x100, ctypes.addressof(data))   # HC_ACTION, WM_KEYDOWN
+    assert convert(paste.VOX_KEY_TAG) is None
+    assert convert(None, scan=engine_mod.ALTGR_CTRL_SCAN) is None
+    msg, vk = convert(None)
+    lis._process(msg, vk)
+    assert got == [(Key.ctrl_l, True)]
 
 
 # ------------------------------------------------------------------ ENG-6 and issue 63: AltGr is not Ctrl+Alt
@@ -476,7 +531,7 @@ def test_a_real_ctrl_then_right_alt_is_still_ctrl_alt(eng):
 
 
 def test_the_hook_drops_the_ctrl_that_windows_makes_up_for_altgr():
-    data = type("D", (), {"vkCode": 0xA2, "scanCode": 0x21D})()
+    data = _hook_data(scan=0x21D)
     assert engine_mod.Engine._hook_filter(0x100, data) is False
     data.scanCode = 0x1D   # a real Left Ctrl
     assert engine_mod.Engine._hook_filter(0x100, data) is True
