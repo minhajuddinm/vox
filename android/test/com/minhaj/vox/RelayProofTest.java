@@ -103,6 +103,14 @@ public final class RelayProofTest {
             c = RelayClient.check(base, TOKEN, "Pixel");
             eq("pinned address without a proof: refused", "false/" + RelayProof.NO_LONGER, c.ok + "/" + c.message);
             eq("pinned address without a proof: no token", 0, auth.size());
+            // leftovers: a changed address or token in Settings clears the pin, so an older relay put back works again
+            eq("the same values saved again are no change", false, RelayProof.relayChanged(base + "\n" + TOKEN, base + "\n" + TOKEN));
+            eq("a token entered again after clearing it is a change", true, RelayProof.relayChanged(base + "\n", base + "\n" + TOKEN));
+            RelayProof.unpin(base + "/");
+            eq("unpinned: the address is no longer pinned", false, RelayProof.pins.has(SyncEngine.originOf(base)));
+            c = RelayClient.check(base, TOKEN, "Pixel");
+            eq("unpinned: the older relay is used with a warning", "true/Connected. The relay holds 0 notes. " + RelayProof.OLD_RELAY, c.ok + "/" + c.message);
+            RelayProof.unpin("");   // no address: nothing to do
 
             // a connection failure makes the next request ask again
             mode = "good";

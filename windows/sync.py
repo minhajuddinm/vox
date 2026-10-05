@@ -148,7 +148,8 @@ GATEWAY_DOWN = (502, 503, 504)
 NOT_PROVEN = ("The relay did not prove it holds this token, so the token was not sent. Either the token is wrong, or "
               "another program is answering at the relay's address.")
 NO_LONGER = ("This relay proved it holds the token before and now does not, so the token was not sent: another program may "
-             "be answering at its address. If you went back to an older relay, update it.")
+             "be answering at its address. If you went back to an older relay, update it, or clear the relay token in "
+             "Settings and enter it again.")
 OLD_RELAY = "This relay is too old to prove it holds the token before Vox sends it: update it."
 _proofs = {}              # (origin, token) -> (time.monotonic() of the answer, "proven" or "old relay")
 _proof_lock = threading.Lock()
@@ -173,6 +174,19 @@ def forget_proof(url):
     with _proof_lock:
         for key in [k for k in _proofs if k[0] == origin]:
             del _proofs[key]
+
+
+def unpin(url):
+    """The user changed the relay's address or token in Settings: its address is no longer pinned and is asked for a new
+    proof, so a relay put back at an older version (no /proof) works again, with OLD_RELAY as the warning. Android twin:
+    RelayProof.unpin."""
+    origin = origin_of(url)
+    if not origin:
+        return
+    pinned = _proven_origins()
+    if origin in pinned:
+        notes.set_meta("relay_proven", json.dumps([o for o in pinned if o != origin]))
+    forget_proof(url)
 
 
 def prove_relay(url, token):

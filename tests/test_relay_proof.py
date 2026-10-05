@@ -244,6 +244,12 @@ def test_an_old_relay_is_still_used_with_a_warning_until_its_address_has_proved_
     sync.forget_proof(squatter.url)
     out = sync.test_relay(squatter.url, "REAL-TOKEN-A")
     assert not out["ok"] and out["message"] == sync.NO_LONGER and tokens(squatter) == []
+    # leftovers: an older relay put back at the address works again once the user changes its address or token
+    sync.unpin(squatter.url + "/")
+    assert sync.origin_of(squatter.url) not in json.loads(notes.get_meta("relay_proven", "[]"))
+    out = sync.test_relay(squatter.url, "REAL-TOKEN-A")
+    assert out["ok"] and sync.OLD_RELAY in out["message"]
+    sync.unpin("")   # no address: nothing to do
 
 
 @pytest.mark.parametrize("squatter", ["silent"], indirect=True)

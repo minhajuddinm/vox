@@ -182,3 +182,19 @@ def test_the_page_edits_snippets_through_the_one_item_bridge_call():
     page = open(os.path.join(os.path.dirname(__file__), "..", "windows", "ui", "index.html"), encoding="utf-8").read()
     assert not re.search(r"save\(\s*\{\s*snippets\s*:", page)
     assert page.count("api().snippet_set(") == 2
+
+
+def test_a_changed_relay_address_or_token_clears_its_pin(api):
+    # leftovers: the pin (an address that once proved it holds the token) could only be lifted by updating the relay
+    import json
+    import notes
+    import sync
+    url = "http://127.0.0.1:8765"
+
+    def pinned():
+        return sync.origin_of(url) in json.loads(notes.get_meta("relay_proven", "[]"))
+    assert api.save_config({"relay_url": url, "relay_token": "A"})
+    notes.set_meta("relay_proven", json.dumps([sync.origin_of(url)]))
+    assert api.save_config({"relay_url": url, "relay_token": "A"}) and pinned()   # the same values (Test saves them)
+    assert api.save_config({"keep_history": False}) and pinned()                  # another setting
+    assert api.save_config({"relay_token": "B"}) and not pinned()                 # a new token: asked again

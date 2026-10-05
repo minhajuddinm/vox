@@ -50,6 +50,12 @@ public final class Prefs {
                 s.add(origin);
                 sp.edit().putStringSet("relay_proven", s).apply();
             }
+
+            @Override
+            public void remove(String origin) {
+                java.util.Set<String> s = new java.util.HashSet<>(sp.getStringSet("relay_proven", java.util.Collections.<String>emptySet()));
+                if (s.remove(origin)) sp.edit().putStringSet("relay_proven", s).apply();
+            }
         };
     }
 

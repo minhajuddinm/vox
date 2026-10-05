@@ -262,6 +262,7 @@ public class MainActivity extends Activity {
         public void save(String json) {
             try {
                 JSONObject c = new JSONObject(json);
+                String relayBefore = prefs.relayUrl() + "\n" + prefs.relayToken();
                 android.content.SharedPreferences.Editor e = prefs.edit();
                 if (c.has("api_key")) e.putString("api_key", c.getString("api_key").trim());
                 if (c.has("base_url") && Endpoint.error(c.getString("base_url")) == null) {
@@ -306,6 +307,8 @@ public class MainActivity extends Activity {
                     e.putString("app_styles", sb.toString());
                 }
                 e.apply();
+                // the relay's address or token changed: its pin goes, so a relay put back at an older version works again
+                if (RelayProof.relayChanged(relayBefore, prefs.relayUrl() + "\n" + prefs.relayToken())) RelayProof.unpin(prefs.relayUrl());
                 SyncWorker.kick(MainActivity.this);   // the profile settings may have changed, or sync was just switched on
                 main.post(() -> {
                     VoxAccessibilityService a = VoxAccessibilityService.instance;
