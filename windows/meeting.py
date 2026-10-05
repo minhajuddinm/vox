@@ -59,8 +59,19 @@ def notes_export_dir(cfg):
     return d
 
 
+def notes_model(cfg):
+    """The chat model for notes, speaker naming and questions: `notes_model`, else the big Groq model on Groq, else the
+    cleanup model of the chosen server (core.feature_model)."""
+    return core.feature_model(cfg, "llm", "notes_model", DEFAULT_NOTES_MODEL)
+
+
+def final_stt_model(cfg):
+    """The speech model of the final pass: `final_stt_model`, else whisper-large-v3 on Groq, else the speech model."""
+    return core.feature_model(cfg, "stt", "final_stt_model", DEFAULT_FINAL_STT)
+
+
 def _llm(cfg, system, user, max_tokens=4096, effort="medium"):
-    model = cfg.get("notes_model") or DEFAULT_NOTES_MODEL
+    model = notes_model(cfg)
     body = {
         "model": model,
         "temperature": 0.2,
@@ -416,7 +427,7 @@ class Meeting:
         """Re-transcribes the recorded speech with Whisper large-v3 in long pieces (more context, fewer
         errors at piece edges). Falls back to the live transcript for any source that fails."""
         cfg = self.get_cfg()
-        model = cfg.get("final_stt_model") or DEFAULT_FINAL_STT
+        model = final_stt_model(cfg)
         final = []
         for s in self.sources:
             live = [e for e in self.entries if e["who"] == s.who]

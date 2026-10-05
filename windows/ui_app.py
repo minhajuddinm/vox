@@ -279,10 +279,11 @@ class Api:
         days, pairs = improve.selection(core.read_history(), days, now, cfg.get("snippets"))
         if (len(pairs), improve.estimate_cost(pairs, "")["chars"]) != (count, chars):
             return fail("Your history changed since the numbers were shown. They are updated: check them and run again.", True)
-        model = (model or "").strip() or improve.DEFAULT_MODEL
+        model = (model or "").strip() if isinstance(model, str) else ""
+        use = improve.model_for(dict(cfg, improve_model=model))   # blank: the model that fits the cleanup server
         messages = improve.build_request(pairs, cfg.get("user_context"), core.dictionary_terms(cfg), cfg.get("my_cleanup_rules"))
         try:
-            text = improve.ask(cfg, messages, model)
+            text = improve.ask(cfg, messages, use)
         except core.ApiError as e:
             return fail(providers.explain(e.code, "llm", str(e)[:160], via_relay=providers.uses_relay(cfg)))
         except core.requests.RequestException as e:

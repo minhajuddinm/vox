@@ -403,7 +403,7 @@ textarea.mynotes { width: 100%; min-height: 380px; font: inherit; color: var(--t
     <div class="card list" id="improve-card" style="margin-top:10px">
       <div class="setting"><div><div class="t">Improve my cleanup</div><div class="d">Once in a while, a stronger AI model reads your recent dictations (what you said and what Vox typed) and suggests dictionary words, replacements and cleanup rules for you to accept or reject. Nothing is sent until you press Run once and confirm, and nothing changes until you press Apply. Every change can be reverted. About you is only ever suggested to, never changed.</div></div></div>
       <div class="setting"><div><div class="t">Look at</div><div class="d" id="improve-counts"></div></div><select id="improve-days"><option value="7">The last 7 days</option><option value="14">The last 14 days</option><option value="30">The last 30 days</option><option value="90">The last 90 days</option><option value="0">All saved dictations</option></select></div>
-      <div class="setting"><div><div class="t">Model</div><div class="d">Runs on <span id="improve-provider"></span>, the server used for cleanup. Pick from its model list or type a name. Default openai/gpt-oss-120b.</div></div><input type="text" id="improve-model" list="llm-models" style="width:260px" placeholder="openai/gpt-oss-120b"><button class="btn" id="improve-run">Run once</button></div>
+      <div class="setting"><div><div class="t">Model</div><div class="d">Runs on <span id="improve-provider"></span>, the server used for cleanup. Pick from its model list or type a name. Empty uses openai/gpt-oss-120b on Groq, otherwise your cleanup model.</div></div><input type="text" id="improve-model" list="llm-models" style="width:260px" placeholder="openai/gpt-oss-120b"><button class="btn" id="improve-run">Run once</button></div>
       <div class="setting" id="improve-confirm-box" style="display:none"><div><div class="t" id="improve-confirm-text"></div><div class="d" id="improve-confirm-extra"></div></div><button class="btn" id="improve-confirm">Send</button><button class="btn ghost" id="improve-cancel">Cancel</button></div>
       <div class="status" id="improve-status" style="padding:0 18px"></div>
       <div id="improve-proposal" style="padding:4px 18px 8px"></div>
@@ -1139,6 +1139,8 @@ async function loadImprove() {
   $("improve-counts").textContent = s.count ? `${s.count} dictation${s.count === 1 ? "" : "s"}, about ${s.chars.toLocaleString()} characters, roughly ${s.tokens.toLocaleString()} tokens`
     + (s.lost ? `. ${s.lost} of them lost words or fell back to your raw words.` : "") : s.note;
   $("improve-provider").textContent = s.provider;
+  const box = $("improve-model"); box.placeholder = s.model;   // what an empty box uses (improve.model_for)
+  if (box.value === "openai/gpt-oss-120b" && s.model !== box.value && document.activeElement !== box) box.value = "";   // the old default, unknown off Groq
   $("improve-run").disabled = !s.can_run;
   $("improve-versions").innerHTML = improveVersionsHtml(s.versions);
   $("improve-remind").checked = s.remind;

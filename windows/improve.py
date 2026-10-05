@@ -261,12 +261,21 @@ def selection(history, days, now, snippets=None):
     return days, select_transcripts(history, now - days * 86400 if days else 0, MAX_SEND_CHARS, snippets)
 
 
+def model_for(cfg):
+    """The model a run uses: `improve_model`, else the big Groq model on Groq, else the cleanup model of the chosen server
+    (core.feature_model). A saved DEFAULT_MODEL counts as blank: configs saved before the setting could be blank hold it,
+    and only Groq has it under that name."""
+    saved = cfg.get("improve_model")
+    saved = saved.strip() if isinstance(saved, str) else ""
+    return core.feature_model(dict(cfg, improve_model="" if saved == DEFAULT_MODEL else saved), "llm", "improve_model", DEFAULT_MODEL)
+
+
 def preview(cfg, history, days, now):
     """What the card shows before anything is sent, from local data only: how many transcripts and characters a run over
     the last `days` days (0 = all) would send, the model and server, a token estimate, the sentence to confirm and the
     versions already applied. `extra` is the characters of About you, the dictionary and the rules that go along."""
     days, pairs = selection(history, days, now, cfg.get("snippets"))
-    model =(cfg.get("improve_model") or "").strip() or DEFAULT_MODEL
+    model = model_for(cfg)
     provider = provider_label(cfg)
     extra = (len(core.clean_context(cfg.get("user_context") or "")) + sum(len(t) for t in core.dictionary_terms(cfg))
              + len(core.clean_rules(cfg.get("my_cleanup_rules") or "")))

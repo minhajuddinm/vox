@@ -51,7 +51,9 @@ DEFAULT_CONFIG = {
     "user_context": "",
     "my_cleanup_rules": "",
     "my_cleanup_rules_versions": [],
-    "improve_model": "openai/gpt-oss-120b",
+    "improve_model": "",       # "" = openai/gpt-oss-120b on Groq, else the cleanup model (feature_model)
+    "notes_model": "",         # meeting notes and questions: "" = openai/gpt-oss-120b on Groq, else the cleanup model
+    "final_stt_model": "",     # the meeting final pass: "" = whisper-large-v3 on Groq, else the speech model
     "improve_days": 7,
     "improve_remind": False,
     "improve_remind_last": 0,
@@ -1321,6 +1323,18 @@ def endpoint_error(cfg):
         if u.scheme == "http" and not is_private_host(u.hostname):
             return "Plain http is only allowed for this PC, your local network or Tailscale. Use https:// for other servers."
     return ""
+
+
+def feature_model(cfg, role, setting, groq_model):
+    """The model of a feature with a model setting of its own (meeting notes, the meeting final pass, Improve my
+    cleanup): the setting when it is filled in; else `groq_model` when the role's server is Groq; else the role's own
+    model, since another provider, a server of your own or the relay does not know Groq's model names."""
+    own = cfg.get(setting)
+    own = own.strip() if isinstance(own, str) else ""
+    if own:
+        return own
+    base, _, model = providers.role_settings(cfg, role)
+    return groq_model if base.lower() == providers.GROQ_BASE.lower() else model
 
 
 def key_missing(cfg):

@@ -27,7 +27,8 @@ def answer(**fields):
 # ------------------------------------------------------------------ what is shown before anything is sent
 
 def test_the_defaults_are_the_big_model_one_week_and_no_reminder():
-    assert core.DEFAULT_CONFIG["improve_model"] == "openai/gpt-oss-120b" == improve.DEFAULT_MODEL
+    assert core.DEFAULT_CONFIG["improve_model"] == ""                     # blank: the big model on Groq (ARC-01)
+    assert improve.model_for(core.DEFAULT_CONFIG) == "openai/gpt-oss-120b" == improve.DEFAULT_MODEL
     assert core.DEFAULT_CONFIG["improve_days"] == 7 and core.DEFAULT_CONFIG["improve_remind"] is False
 
 
@@ -387,3 +388,15 @@ def test_the_engine_says_nothing_with_the_reminder_off(tmp_path, monkeypatch):
     eng = tray_engine(dict(core.DEFAULT_CONFIG))
     eng.check_improve_reminder(NOW)
     assert eng.said == [] and core.load_config().get("improve_remind_last", 0) == 0
+
+
+def test_a_run_with_an_empty_model_box_uses_the_cleanup_model_of_another_provider(api, monkeypatch):
+    # ARC-01 of the v2 review: openai/gpt-oss-120b exists only on Groq
+    seed(base_url="https://api.openai.com/v1", llm_model="gpt-4o-mini", improve_model="openai/gpt-oss-120b")
+    sent = []
+    monkeypatch.setattr(core.requests, "post", lambda url, **kw: sent.append((url, kw["json"]["model"])) or Reply(content="{}"))
+    s = api.improve_state()
+    assert s["model"] == "gpt-4o-mini"
+    for typed in ("", "openai/gpt-oss-120b"):   # the box empty, or still showing the old default
+        assert api.improve_run(7, typed, s["count"], s["chars"])["ok"] is True
+    assert sent == [("https://api.openai.com/v1/chat/completions", "gpt-4o-mini")] * 2
