@@ -842,6 +842,8 @@ def real_tuner(bench_dir, args):
 
 def main(argv=None, open_browser=webbrowser.open):
     clips.safe_console()
+    with contextlib.suppress(AttributeError, ValueError, OSError):
+        sys.stdout.reconfigure(line_buffering=True)   # the address shows at once, also when the output is piped
     ap = argparse.ArgumentParser(description="Vox Tuner: speak, compare the old and new cleanup, approve one.")
     ap.add_argument("--stt-models", default=",".join(DEFAULT_STT_MODELS),
                     help="comma-separated speech models (default: %(default)s)")
