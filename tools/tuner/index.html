@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vox Tuner</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #5b6573; --line: #d5dae1;
+  --accent: #2357c6; --accent-text: #ffffff; --mark: #ffe08a; --mark-text: #1b1f24;
+  --danger: #b42318; --danger-bg: #fdecea; --ok: #1a7f37; --ok-bg: #e7f5ec; --warn-bg: #fff6dd;
+  --rec: #c62828;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171b; --panel: #1d2127; --text: #e6e9ee; --muted: #9aa4b2; --line: #333a44;
+    --accent: #6d9bff; --accent-text: #0d1117; --mark: #7a5c00; --mark-text: #fff3cf;
+    --danger: #ff8a80; --danger-bg: #3a1d1b; --ok: #6fdc8c; --ok-bg: #16301f; --warn-bg: #352c12;
+    --rec: #ff6b6b;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+.muted { color: var(--muted); }
+.spacer { flex: 1; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+button { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel);
+  color: var(--text); cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button.rec { background: var(--rec); color: #fff; border-color: var(--rec); }
+button:disabled { opacity: .5; cursor: default; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+input[type=text], textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 8px; padding: 7px 9px; width: 100%; }
+textarea { min-height: 70px; resize: vertical; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.scen { display: flex; flex-wrap: wrap; gap: 6px; }
+.scen label { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+.scen input { margin-right: 6px; }
+.scen label:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.seg label { border: 1px solid var(--line); padding: 5px 10px; border-radius: 8px; cursor: pointer; }
+.seg label:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.exe { width: 220px !important; }
+.alert { border-radius: 8px; padding: 9px 12px; margin-bottom: 12px; }
+.alert.err { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
+.alert.info { background: var(--warn-bg); border: 1px solid var(--line); }
+.alert.ok { background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok); }
+.stt { display: grid; grid-template-columns: 200px 1fr; gap: 6px 12px; margin-bottom: 10px; }
+.stt .text { white-space: pre-wrap; }
+mark { background: var(--mark); color: var(--mark-text); border-radius: 3px; padding: 0 2px; }
+.cands { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.cand { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.cand .out { white-space: pre-wrap; background: var(--bg); border-radius: 6px; padding: 8px; min-height: 48px; }
+.cand .how { font-size: 13px; color: var(--muted); }
+.cand .err { font-size: 13px; color: var(--danger); }
+.recdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--rec);
+  margin-right: 6px; animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .2; } }
+table { border-collapse: collapse; width: 100%; }
+th, td { border-bottom: 1px solid var(--line); text-align: left; padding: 6px 8px; }
+kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 12px; }
+.hidden { display: none !important; }
+@media (max-width: 640px) { .stt { grid-template-columns: 1fr; } .exe { width: 100% !important; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Vox Tuner</h1>
+  <span id="counts" class="muted"></span>
+  <span class="spacer"></span>
+  <button id="btnSummary" type="button">Summary</button>
+  <button id="btnQuit" type="button">Quit</button>
+</header>
+<div id="error" class="alert err hidden" role="alert"></div>
+<div id="notice" class="alert ok hidden" role="status"></div>
+<div id="warnings"></div>
+
+<div id="viewTune">
+<section aria-labelledby="h1s">
+  <h2 id="h1s">1. Where would this text be typed?</h2>
+  <div class="scen" id="scenarios" role="radiogroup" aria-label="Scenario"></div>
+  <div class="row" style="margin-top:10px">
+    <label for="exe">App Vox sees:</label>
+    <input type="text" id="exe" class="exe" spellcheck="false" autocomplete="off">
+    <span class="muted" id="scenHint"></span>
+    <span class="spacer"></span>
+    <span class="seg row" role="radiogroup" aria-label="Cleanup strength">
+      <span class="muted">Strength:</span>
+      <label><input type="radio" name="strength" value="light"> Light</label>
+      <label><input type="radio" name="strength" value="standard"> Standard</label>
+    </span>
+  </div>
+</section>
+
+<section aria-labelledby="h2s">
+  <h2 id="h2s">2. Speak</h2>
+  <div class="row">
+    <button id="btnRec" type="button" class="primary">Start recording</button>
+    <span class="muted">or press <kbd>Space</kbd> (outside a text box) to start and stop</span>
+    <span class="spacer"></span>
+    <button id="btnPlay" type="button" disabled>Play it back</button>
+  </div>
+  <p id="recStatus" class="muted" aria-live="polite" style="margin:8px 0 0"></p>
+</section>
+
+<section id="secStt" class="hidden" aria-labelledby="h3s">
+  <h2 id="h3s">3. What the speech models heard <span class="muted">(differing words are marked)</span></h2>
+  <div class="stt" id="sttList"></div>
+  <div class="row" style="margin-bottom:6px">
+    <button id="btnRetryStt" type="button" class="hidden">Try the speech models again</button>
+  </div>
+  <label for="transcript"><b>What I said</b> <span class="muted">(fix any word the models got wrong; this becomes the reference)</span></label>
+  <textarea id="transcript" spellcheck="true"></textarea>
+  <div class="row" style="margin-top:8px">
+    <button id="btnRedo" type="button">Redo with my transcript</button>
+    <span id="stale" class="muted hidden">The candidates below were made for another transcript, app or strength: press Redo.</span>
+  </div>
+</section>
+
+<section id="secCand" class="hidden" aria-labelledby="h4s">
+  <h2 id="h4s">4. What Vox would type</h2>
+  <div class="cands" id="cands"></div>
+  <div style="margin-top:12px">
+    <label for="final"><b>Final text</b> <span class="muted">(edit it if none is right; starts as NEW)</span></label>
+    <textarea id="final" spellcheck="true"></textarea>
+  </div>
+  <div style="margin-top:8px">
+    <label for="note">Note <span class="muted">(one line, optional: what was wrong or what you want)</span></label>
+    <input type="text" id="note" maxlength="500" autocomplete="off">
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button id="btnSaveEdited" type="button" class="primary">Save my version</button>
+    <span class="muted"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> in the final text</span>
+    <span class="spacer"></span>
+    <button id="btnSkip" type="button">Skip (discard this clip)</button>
+  </div>
+</section>
+<section id="secSkipOnly" class="hidden">
+  <div class="row"><span class="muted">No usable transcript yet.</span>
+  <button id="btnTranscribe" type="button" class="primary">Transcribe it</button><span class="spacer"></span>
+  <button id="btnSkip2" type="button">Skip (discard this clip)</button></div>
+</section>
+</div>
+
+<div id="viewSummary" class="hidden">
+<section aria-labelledby="hsum">
+  <h2 id="hsum">Summary</h2>
+  <div id="sumBody"></div>
+  <div class="row" style="margin-top:12px">
+    <button id="btnExport" type="button" class="primary">Export for Claude</button>
+    <span id="exportPath" class="muted"></span>
+    <span class="spacer"></span>
+    <button id="btnBack" type="button">Back to tuning</button>
+  </div>
+</section>
+</div>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let TOKEN = "";
+const urlToken = new URLSearchParams(location.search || "").get("token") ||
+  new URLSearchParams((location.hash || "").slice(1)).get("token") || "";
+try {
+  if (urlToken) { TOKEN = urlToken; sessionStorage.setItem("voxTunerToken", urlToken); }
+  else TOKEN = sessionStorage.getItem("voxTunerToken") || "";
+} catch (e) { TOKEN = urlToken; }
+
+let S = null;          // the last state from the tuner
+let busy = false;
+let scenarioId = null; // the chosen scenario
+let exeEdited = {};    // app name typed per scenario
+let finalTouched = false;
+let lastCandKey = "";
+const LABEL = { old: "OLD (v1 prompt and guard)", new: "NEW (what Vox types today)", forced: "NEW + AI cleanup forced" };
+const KEYS = { old: "1", new: "2", forced: "3" };
+
+function showError(msg) { const e = $("error"); e.textContent = msg || ""; e.classList.toggle("hidden", !msg); }
+function showNotice(msg) { const e = $("notice"); e.textContent = msg || ""; e.classList.toggle("hidden", !msg); }
+
+async function api(path, body, raw) {
+  let r;
+  try {
+    r = await fetch(path, { method: body === undefined ? "GET" : "POST",
+      headers: { "X-Vox-Token": TOKEN, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch (e) {
+    throw new Error("The tuner is not answering. Is its window still open? Start tools\\vox_tuner.cmd again.");
+  }
+  if (raw && r.ok) return r;
+  let data;
+  try { data = await r.json(); } catch (e) { data = { error: "The tuner sent an unreadable answer (" + r.status + ")." }; }
+  if (!r.ok) throw new Error(data.error || ("Error " + r.status));
+  return data;
+}
+
+async function run(label, fn) {
+  if (busy) return;
+  busy = true; showError(""); setBusy(label);
+  try { await fn(); }
+  catch (e) { showError(e.message); }
+  finally { busy = false; setBusy(""); render(); }
+}
+
+function setBusy(label) {
+  document.querySelectorAll("button, textarea, input").forEach((b) => {
+    if (b.id === "btnQuit") return;
+    if (label) { b.dataset.wasDisabled = b.disabled ? "1" : ""; b.disabled = true; }
+  });
+  if (label) $("recStatus").textContent = label;
+}
+
+function scen() { return S.scenarios.find((s) => s.id === scenarioId) || S.scenarios[0]; }
+function strength() { const r = document.querySelector("input[name=strength]:checked"); return r ? r.value : "light"; }
+function context() { return { scenario: scenarioId, exe: $("exe").value.trim(), strength: strength() }; }
+
+function buildScenarios() {
+  const box = $("scenarios"); box.textContent = "";
+  S.scenarios.forEach((s, i) => {
+    const lab = document.createElement("label");
+    const inp = document.createElement("input");
+    inp.type = "radio"; inp.name = "scenario"; inp.value = s.id;
+    inp.checked = s.id === scenarioId;
+    inp.addEventListener("change", () => { scenarioId = s.id; $("exe").value = exeEdited[s.id] || s.exe; render(); });
+    lab.append(inp, document.createTextNode(s.name));
+    lab.title = s.hint + " (" + s.exe + ")";
+    box.append(lab);
+  });
+}
+
+function marked(el, marks, text) {
+  el.textContent = "";
+  if (text === null || text === undefined) return;
+  if (!marks) { el.textContent = text === "" ? "(nothing heard)" : text; return; }
+  marks.forEach(([w, changed], i) => {
+    if (i) el.append(" ");
+    if (changed) { const m = document.createElement("mark"); m.textContent = w; el.append(m); }
+    else el.append(w);
+  });
+  if (!marks.length) el.textContent = "(nothing heard)";
+}
+
+function candKey(c) { return JSON.stringify(c && c.made_for); }
+
+function render() {
+  if (!S) return;
+  const c = S.clip;
+  const cnt = S.counts;
+  $("counts").textContent = cnt.saved + " approved with the tuner (" +
+    S.scenarios.map((s) => s.name + " " + (cnt.per_scenario[s.id] || 0)).join(", ") + ")";
+  const w = $("warnings"); w.textContent = "";
+  S.warnings.forEach((t) => { const d = document.createElement("div"); d.className = "alert info"; d.textContent = t; w.append(d); });
+  $("scenHint").textContent = scen().hint;
+  const enable = (id, on) => { $(id).disabled = busy || !on; };
+
+  // recording
+  const rb = $("btnRec");
+  rb.textContent = S.recording ? "Stop recording" : "Start recording";
+  rb.className = S.recording ? "rec" : "primary";
+  enable("btnRec", S.recording || !c);
+  enable("btnPlay", !!c && !S.recording);
+  if (!busy) {
+    const st = $("recStatus"); st.textContent = "";
+    if (S.recording) { const d = document.createElement("span"); d.className = "recdot"; st.append(d, "Recording... speak, then press Space."); }
+    else if (c) st.textContent = (c.resumed ? "Kept from last time: " : "Recorded ") + c.seconds.toFixed(1) + " s" +
+      (c.silent ? " (it sounds silent: check the microphone)" : "") + ". Save or skip it before the next one.";
+    else st.textContent = "Ready. Choose the scenario, then press Space and speak.";
+  }
+  ["exe", "transcript", "final", "note"].forEach((id) => { $(id).disabled = busy; });
+  document.querySelectorAll("input[type=radio]").forEach((r) => { r.disabled = busy; });
+  enable("btnSummary", true);
+  enable("btnExport", true);
+  enable("btnBack", true);
+
+  const hasStt = !!c && Object.keys(c.stt).length > 0;
+  $("secStt").classList.toggle("hidden", !hasStt);
+  const cands = c ? Object.keys(c.cand || {}) : [];
+  $("secCand").classList.toggle("hidden", !(c && cands.length));
+  $("secSkipOnly").classList.toggle("hidden", !(c && !cands.length && !S.recording));
+  enable("btnSkip2", true);
+  enable("btnTranscribe", true);
+  if (!c) return;
+
+  // speech
+  const list = $("sttList"); list.textContent = "";
+  let failed = false;
+  S.models.forEach((m) => {
+    const hit = c.stt[m]; if (!hit) return;
+    const n = document.createElement("div"); n.textContent = m + (hit.ms ? " (" + (hit.ms / 1000).toFixed(1) + " s)" : "");
+    n.className = "muted";
+    const t = document.createElement("div"); t.className = "text";
+    if (hit.error) { failed = true; t.textContent = hit.error; t.style.color = "var(--danger)"; }
+    else marked(t, c.marks && c.marks[m], hit.text);
+    list.append(n, t);
+  });
+  $("btnRetryStt").classList.toggle("hidden", !failed);
+  enable("btnRetryStt", true);
+  enable("btnRedo", true);
+
+  // candidates
+  const ctx = context();
+  const here = c.made_for && c.made_for.transcript === $("transcript").value.trim() &&
+    c.made_for.scenario === ctx.scenario && c.made_for.exe === ctx.exe && c.made_for.strength === ctx.strength;
+  $("stale").classList.toggle("hidden", !c.made_for || here);
+  const box = $("cands"); box.textContent = "";
+  cands.forEach((name) => {
+    const r = c.cand[name];
+    const d = document.createElement("div"); d.className = "cand";
+    const h = document.createElement("b"); h.textContent = LABEL[name];
+    const how = document.createElement("div"); how.className = "how";
+    const route = r.route || {};
+    let txt = (r.cleaned ? "AI cleanup used" : "No AI text: " + (r.rejected ? "the guard rejected the AI answer, rules layer typed" : (route.ai ? "rules layer typed" : route.why || "rules layer typed")));
+    txt += " · style " + (route.style || "?") + (route.code ? " · code mode" : "") + " · " + (r.requests || 0) + " request" + (r.requests === 1 ? "" : "s");
+    if (r.ms) txt += " · " + (r.ms / 1000).toFixed(1) + " s";
+    how.textContent = txt;
+    const out = document.createElement("div"); out.className = "out";
+    out.textContent = r.text === "" ? "(nothing would be typed)" : r.text;
+    d.append(h, how, out);
+    if (r.error && !r.rejected) { const e = document.createElement("div"); e.className = "err"; e.textContent = r.error; d.append(e); }
+    const b = document.createElement("button"); b.type = "button";
+    b.textContent = (name === "old" ? "Old" : name === "new" ? "New" : "Forced") + " is right (" + KEYS[name] + ")";
+    b.disabled = busy || !here || r.failed;
+    b.addEventListener("click", () => save(name));
+    d.append(b);
+    box.append(d);
+  });
+  const key = candKey(c);
+  if (key !== lastCandKey) {
+    lastCandKey = key;
+    if (!finalTouched && c.cand.new) $("final").value = c.cand.new.text;
+  }
+  enable("btnSaveEdited", true);
+  enable("btnSkip", true);
+}
+
+async function refresh() { S = await api("/api/state"); }
+
+function applyState(st) {
+  S = st;
+  const c = S.clip;
+  if (c && c.made_for) {
+    scenarioId = c.made_for.scenario;
+  }
+}
+
+async function toggleRecord() {
+  if (!S) return;
+  if (S.recording) {
+    await run("Stopping...", async () => {
+      applyState(await api("/api/record/stop", {}));
+      finalTouched = false; lastCandKey = "";
+      await transcribeAndClean(false);
+    });
+  } else if (!S.clip) {
+    await run("Starting the microphone...", async () => {
+      applyState(await api("/api/record/start", {}));
+      showNotice("");
+    });
+  } else {
+    showError("Save or skip this clip first; then Space records the next one.");
+  }
+}
+
+async function transcribeAndClean(force) {
+  $("recStatus").textContent = "Transcribing with " + S.models.length + " speech models...";
+  applyState(await api("/api/transcribe", { force: force }));
+  $("transcript").value = S.clip.transcript || "";
+  render();
+  if (S.clip.made_for && S.clip.made_for.transcript === S.clip.transcript) return;   // a retry: the candidates are there
+  if (S.clip.transcript.trim()) await clean();
+  else showError("Nothing usable was heard. Type what you said in the box and press Redo, or skip the clip.");
+}
+
+async function clean() {
+  const ctx = context();
+  $("recStatus").textContent = "Cleaning for " + ctx.exe + " (" + ctx.strength + ")...";
+  lastCandKey = "";
+  applyState(await api("/api/clean", Object.assign({ transcript: $("transcript").value }, ctx)));
+}
+
+async function save(choice) {
+  await run("Saving...", async () => {
+    const st = await api("/api/save", Object.assign({ choice: choice, final: $("final").value,
+      transcript: $("transcript").value, note: $("note").value }, context()));
+    applyState(st);
+    $("transcript").value = ""; $("final").value = ""; $("note").value = ""; finalTouched = false; lastCandKey = "";
+    showNotice("Saved " + st.saved + ". Press Space for the next one.");
+  });
+}
+
+async function showSummary() {
+  await run("Loading the summary...", async () => {
+    const s = await api("/api/summary");
+    const b = $("sumBody"); b.textContent = "";
+    const t = document.createElement("table");
+    const head = document.createElement("tr");
+    ["Scenario", "Clips", "Old won", "New won", "Forced won", "My own version"].forEach((x) => { const th = document.createElement("th"); th.textContent = x; head.append(th); });
+    t.append(head);
+    s.by_scenario.concat([Object.assign({ name: "All" }, s.total)]).forEach((r) => {
+      const tr = document.createElement("tr");
+      [r.name, r.clips, r.old, r.new, r.forced, r.edited].forEach((x) => { const td = document.createElement("td"); td.textContent = x; tr.append(td); });
+      t.append(tr);
+    });
+    b.append(t);
+    const h = document.createElement("h2"); h.textContent = "Notes"; h.style.marginTop = "14px"; b.append(h);
+    const ul = document.createElement("ul");
+    s.notes.forEach((n) => { const li = document.createElement("li"); li.textContent = n.id + " (" + n.kind + ", chose " + n.choice + "): " + n.note; ul.append(li); });
+    if (!s.notes.length) { const li = document.createElement("li"); li.textContent = "No notes yet."; ul.append(li); }
+    b.append(ul);
+    $("viewTune").classList.add("hidden"); $("viewSummary").classList.remove("hidden");
+  });
+}
+
+$("btnRec").addEventListener("click", toggleRecord);
+$("btnPlay").addEventListener("click", () => run("Playing...", async () => {
+  const r = await api("/api/audio", undefined, true);
+  const url = URL.createObjectURL(await r.blob());
+  const a = new Audio(url);
+  a.addEventListener("ended", () => URL.revokeObjectURL(url));
+  await a.play();
+}));
+$("btnTranscribe").addEventListener("click", () => run("Transcribing...", () => transcribeAndClean(false)));
+$("btnRetryStt").addEventListener("click", () => run("Transcribing again...", () => transcribeAndClean(false)));
+$("btnRedo").addEventListener("click", () => run("Cleaning again...", async () => { finalTouched = false; await clean(); }));
+$("btnSaveEdited").addEventListener("click", () => save("edited"));
+const skip = () => { if (confirm("Discard this recording? It is not saved anywhere.")) run("Discarding...", async () => {
+  applyState(await api("/api/skip", {})); $("transcript").value = ""; $("final").value = ""; $("note").value = "";
+  finalTouched = false; lastCandKey = ""; showNotice("Clip discarded."); }); };
+$("btnSkip").addEventListener("click", skip);
+$("btnSkip2").addEventListener("click", skip);
+$("btnSummary").addEventListener("click", showSummary);
+$("btnBack").addEventListener("click", () => { $("viewSummary").classList.add("hidden"); $("viewTune").classList.remove("hidden"); $("exportPath").textContent = ""; });
+$("btnExport").addEventListener("click", () => run("Exporting...", async () => {
+  const r = await api("/api/export", {});
+  $("exportPath").textContent = "Written (" + r.clips + " clips): " + r.path;
+}));
+$("btnQuit").addEventListener("click", async () => {
+  if (S && S.clip && !confirm("A recording is not saved yet. It is kept and comes back next time. Quit?")) return;
+  try { await api("/api/quit", {}); } catch (e) { /* already gone */ }
+  document.body.textContent = "Vox Tuner stopped. You can close this tab.";
+});
+$("final").addEventListener("input", () => { finalTouched = true; });
+$("final").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); save("edited"); } });
+["transcript", "exe"].forEach((id) => $(id).addEventListener("input", () => { if (id === "exe") exeEdited[scenarioId] = $("exe").value; render(); }));
+document.querySelectorAll("input[name=strength]").forEach((r) => r.addEventListener("change", () => {
+  if (S && S.clip && S.clip.made_for && $("transcript").value.trim())
+    run("Cleaning again with " + strength() + "...", async () => { finalTouched = false; await clean(); });
+  else render();
+}));
+
+function typing(t) { return t && (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && t.type === "text")); }
+document.addEventListener("keydown", (e) => {
+  if (typing(e.target) || e.ctrlKey || e.altKey || e.metaKey) return;
+  if (!$("viewSummary").classList.contains("hidden")) return;
+  if (e.code === "Space") { e.preventDefault(); if (!e.repeat) toggleRecord(); }
+  else if (S && S.clip && ["1", "2", "3"].includes(e.key)) {
+    const name = Object.keys(KEYS).find((k) => KEYS[k] === e.key);
+    const btn = [...document.querySelectorAll("#cands button")].find((b) => b.textContent.endsWith("(" + e.key + ")"));
+    if (btn && !btn.disabled) { e.preventDefault(); save(name); }
+  }
+});
+document.addEventListener("keyup", (e) => { if (e.code === "Space" && !typing(e.target)) e.preventDefault(); });
+
+(async () => {
+  try {
+    if (!TOKEN) throw new Error("This page needs the address the tuner printed in its window (it carries a session token).");
+    await refresh();
+    scenarioId = (S.clip && S.clip.made_for && S.clip.made_for.scenario) || S.scenarios[0].id;
+    buildScenarios();
+    $("exe").value = (S.clip && S.clip.made_for && S.clip.made_for.exe) || scen().exe;
+    const st = (S.clip && S.clip.made_for && S.clip.made_for.strength) || S.strength;
+    document.querySelector("input[name=strength][value=" + st + "]").checked = true;
+    if (S.clip) {
+      $("transcript").value = S.clip.transcript || "";
+      if (S.clip.note) $("note").value = S.clip.note;
+    }
+    render();
+  } catch (e) { showError(e.message); }
+})();
+</script>
+</body>
+</html>
