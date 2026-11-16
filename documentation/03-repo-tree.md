@@ -29,6 +29,7 @@ windows/                Windows app (Python) and its installer scripts
 |---|---|
 | `README.md` | The project's front page for outsiders: what Vox is, what is new in 2.0, features, screenshots (rendered with sample data) and the ones still to take, status and known limits, install (Windows, Android with the sideload warnings), short user guide, privacy summary, build and test, repository map, contributing and the licence (MIT). User-facing; not this documentation. |
 | `AGENTS.md` | Short entry point for coding agents; points here. |
+| `pyproject.toml` | Tool settings only (Vox is not a Python package): the ruff lint rules CI enforces, and pytest's test folder. |
 | `CHANGELOG.md` | Release-style change history. |
 | `CONTRIBUTING.md` | How to contribute: setup, running the tests, the golden-rows rule, the docs-sync rule, the pull request checklist, and that contributions are accepted under the MIT licence. |
 | `SECURITY.md` | How to report a vulnerability privately (GitHub private vulnerability reporting) and a short trust model; links to [09-security-privacy.md](09-security-privacy.md) and the relay pages. |
@@ -176,7 +177,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tests/test_ci_workflow.py` | Text checks on `.github/workflows/build.yml` and `android/build.sh`: only a tag build gets the release key (after the tests, with its password from the environment), other builds use a throw-away key and say so; a release needs a commit on `main`, checksums cover every file, every job has a time limit, release builds install only the lock files. |
 | `tests/test_check_lock.py` | `tools/check_lock.py`: lock lines, platform markers, missing, wrong and extra packages. |
 | `tests/test_repo_hygiene.py` | `git check-ignore` for the files that hold secrets (`config.json`, `.env`, `relay.json`, `relay.db`, keystores, `*.pem`, ...) wherever they are in the tree. |
-| `tests/requirements.txt` | Pinned test dependencies (`requests`, `pytest`). |
+| `tests/requirements.txt` | Pinned test and lint dependencies (`requests`, `pytest`, `ruff`). |
 | `tests/test_vox_core.py` | Whisper prompt, sanitize, replacements, dictionary, style, WAV and silence-phrase helpers. |
 | `tests/test_endpoint_config.py` | Configurable server address, auth header, key test, cleanup fallback. |
 | `tests/test_endpoint_safety.py` | Private-host rule, `endpoint_error`, `key_missing`, `ApiError`; plain http goes only to a private address (a LAN name that also has a global IPv6 address is reached on its private one, a name with only public addresses is refused before connecting), no redirect is followed. |
@@ -368,6 +369,13 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/13-glossary.md` | Terms. |
 | `documentation/14-relay.md` | The relay server: what it is, protocol, rules, what is not built. |
 | `documentation/15-code-mode.md` | Code mode (Windows): when it is on, the formatters and the whole symbol table, what it does not do. |
+| `documentation/16-developer-guide.md` | How to work on Vox: the `tools/dev.py` commands, the change loop, recipes for common changes, prototyping tools, code conventions. |
+| `documentation/wiki/README.md` | What the `wiki/` folder is and how to publish it to the GitHub wiki. |
+| `documentation/wiki/Home.md` | GitHub wiki front page. |
+| `documentation/wiki/_Sidebar.md` | GitHub wiki sidebar. |
+| `documentation/wiki/Getting-started.md` | Wiki: install, dictate, the main settings. |
+| `documentation/wiki/Troubleshooting.md` | Wiki: common problems and where to look. |
+| `documentation/wiki/Developer-quickstart.md` | Wiki: the four dev commands and links into this documentation. |
 | `documentation/devlog.md` | Chronological development log. |
 | `documentation/decisions/README.md` | Index of architecture decision records and the template. |
 | `documentation/decisions/0001-openai-compatible-api-groq-default.md` | ADR: OpenAI-compatible API, Groq default. |
@@ -458,7 +466,7 @@ windows/                Windows app (Python) and its installer scripts
 | `tools/relay_smoke.py` | Smoke test for a standalone relay binary, run by the `relay-exe` CI job: `--help` exits 0, start on `127.0.0.1` with a temp data folder and `--show-token`, `/health` answers 401 without and 200 with the token, `/proof` answers a proof, stop. Never prints the tokens. Standard library only. |
 | `tools/check_lock.py` | Fails a release build when the Python it runs in holds anything but the lock files' packages at their versions (`pip` excepted). Standard library only. |
 | `tools/build-requirements.lock` | PyInstaller and its dependencies at exact versions, for `Vox.exe` and the relay programs (Windows-only ones marked `sys_platform == "win32"`). |
-| `tools/sync_ui.py` | Writes the `ui-shared` blocks into `windows/ui/index.html` and `android/assets/index.html` between the `ui-shared:css` and `ui-shared:js` marker comments; `--check` verifies. |
+| `tools/dev.py` | One entry point for working on Vox: `setup`, `test` (`--changed` runs only the matching test files), `java`, `lint`, `docs`, `check` (what CI's tests job checks), `run`, `selfcheck`. Guide: [16-developer-guide.md](16-developer-guide.md). |
 | `tools/sync_ui.py` | Writes the `ui-shared` blocks into `windows/ui/index.html` and `android/assets/index.html` between the `ui-shared:css`, `ui-shared:js` and `ui-shared:steps` marker comments (the last one is HTML made from `ui-shared/relay-steps.txt`); `--check` verifies. |
 | `documentation/tools/check_docs.py` | The documentation checker (tree, config keys, links, ADR index). |
 | `documentation/tools/docs_todo.py` | Prints which pages to update for the code that changed (checklist only, edits nothing). |

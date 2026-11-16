@@ -1238,7 +1238,7 @@ def test_a_streamed_chunked_upload_is_411_through_the_real_proxy_and_never_reach
 # ================================================================= clients that give up
 def _send_and_hang_up(srv, route, stub, arrived, linger=0.0):
     """Sends a real proxy request, waits until the stub has it, then closes the client's side without reading."""
-    method, path = route[0], route[1]
+    path = route[1]
     body = multipart() if route[2] == "stt" else chat()
     ctype = "multipart/form-data; boundary=" + BOUNDARY.decode() if route[2] == "stt" else "application/json"
     head = ("POST %s HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n"
