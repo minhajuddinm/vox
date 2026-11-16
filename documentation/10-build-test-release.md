@@ -6,7 +6,8 @@
 |---|---|
 | Python | 3.13 (CI uses 3.13; create a local venv with `python -m venv .venv` (it is git-ignored)) |
 | Windows app dependencies | `windows/requirements.txt` (the direct ones, pinned; `soundfile` is optional at run time: without it, or without its `libsndfile` DLL, uploads are WAV). Release builds use `windows/requirements.lock` (every package inside `Vox.exe`, exact versions) and `tools/build-requirements.lock` (PyInstaller and its dependencies); change `requirements.txt` and the lock together |
-| Test dependencies | `tests/requirements.txt` (pinned `requests`, `pytest`) |
+| Test dependencies | `tests/requirements.txt` (pinned `requests`, `pytest`, `ruff`) |
+| Lint | `ruff check .` with the rules in `pyproject.toml` (undefined and unused names, syntax errors); CI's tests job runs it before pytest. `python tools/dev.py lint --wide` runs a wider set by hand |
 | Android build | JDK 17+, Android platform 34, build-tools 36 (CI installs them). No Gradle. No local Android SDK is needed for day-to-day work |
 | Windows installer | Inno Setup 6 (used if present on the CI runner; the workflow installs it with Chocolatey if missing) |
 

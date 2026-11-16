@@ -297,7 +297,7 @@ def run_with(api, monkeypatch, text):
 
 
 def test_apply_writes_only_the_accepted_items_and_never_the_about_text(api, monkeypatch):
-    r = run_with(api, monkeypatch, answer(dictionary_add=["Atlas", "Ada"], rules=["Write Atlas."], about_suggestions=["+ I lead Atlas."]))
+    run_with(api, monkeypatch, answer(dictionary_add=["Atlas", "Ada"], rules=["Write Atlas."], about_suggestions=["+ I lead Atlas."]))
     out = api.improve_apply(["dictionary:1", "rule:0", "about:0", "nonsense"])
     cfg = core.load_config()
     assert out["ok"] is True and out["applied"] == 2

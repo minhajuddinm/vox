@@ -1,3 +1,4 @@
 # What the unit tests need (CI installs this; vox_core only imports requests)
 requests==2.34.2
 pytest==9.1.1
+ruff==0.17.5

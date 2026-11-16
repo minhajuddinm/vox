@@ -25,6 +25,7 @@ Documentation verified against commit: see the `Verified against` line at the bo
 | Terms used in the code and docs | [13-glossary.md](13-glossary.md) |
 | The optional relay server: protocol, management page, rules, what is missing (set-up guide: [../relay/README.md](../relay/README.md)) | [14-relay.md](14-relay.md) |
 | Code mode on Windows: spoken formatters and the whole spoken symbol table | [15-code-mode.md](15-code-mode.md) |
+| How to work on Vox fast: one dev command, the loop, recipes, conventions | [16-developer-guide.md](16-developer-guide.md) |
 | Why things are the way they are | [decisions/README.md](decisions/README.md) (architecture decision records) |
 | Designs written before the code (one per sub-project) | [specs/README.md](specs/README.md) |
 | What changed and when | [../CHANGELOG.md](../CHANGELOG.md) and [devlog.md](devlog.md) |

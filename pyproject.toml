@@ -1,0 +1,16 @@
+# Tool settings only. Vox is not a Python package: the Windows app is built with PyInstaller (windows/build_app.bat),
+# the relay with tools/build-requirements.lock. Run everything through `python tools/dev.py` (see
+# documentation/16-developer-guide.md).
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+extend-exclude = [".venv", "android", "docs", "ui-shared"]
+
+[tool.ruff.lint]
+# The CI gate: real errors only (undefined names, unused names, syntax). Wider rule sets are run by hand with
+# `python tools/dev.py lint --wide` and fixed in their own small PRs, never as one mass reformat.
+select = ["F", "E9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

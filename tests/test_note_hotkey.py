@@ -110,7 +110,6 @@ def test_the_window_bridge_saves_a_good_shortcut_normalised_and_refuses_a_bad_on
 
 def test_the_window_bridge_says_when_the_saved_shortcut_clashes_with_a_new_dictation_shortcut(tmp_path, monkeypatch):
     ui_app = pytest.importorskip("ui_app")
-    import vox_core as core
     monkeypatch.setenv("APPDATA", str(tmp_path))
     api = object.__new__(ui_app.Api)
     assert api.note_hotkey_problem() == ""                        # the defaults agree

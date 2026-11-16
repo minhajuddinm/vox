@@ -345,7 +345,6 @@ class Overlay:
         # bars
         gap, bw = 7.5 * s, 3 * s
         x0 = 32 * s
-        mid = (self.N_BARS - 1) / 2
         for i in range(self.N_BARS):
             target = 0.12 + 0.88 * self.hist.values[i]
             self.heights[i] += (target - self.heights[i]) * 0.5
