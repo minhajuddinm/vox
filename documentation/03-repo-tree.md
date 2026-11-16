@@ -370,12 +370,6 @@ windows/                Windows app (Python) and its installer scripts
 | `documentation/14-relay.md` | The relay server: what it is, protocol, rules, what is not built. |
 | `documentation/15-code-mode.md` | Code mode (Windows): when it is on, the formatters and the whole symbol table, what it does not do. |
 | `documentation/16-developer-guide.md` | How to work on Vox: the `tools/dev.py` commands, the change loop, recipes for common changes, prototyping tools, code conventions. |
-| `documentation/wiki/README.md` | What the `wiki/` folder is and how to publish it to the GitHub wiki. |
-| `documentation/wiki/Home.md` | GitHub wiki front page. |
-| `documentation/wiki/_Sidebar.md` | GitHub wiki sidebar. |
-| `documentation/wiki/Getting-started.md` | Wiki: install, dictate, the main settings. |
-| `documentation/wiki/Troubleshooting.md` | Wiki: common problems and where to look. |
-| `documentation/wiki/Developer-quickstart.md` | Wiki: the four dev commands and links into this documentation. |
 | `documentation/devlog.md` | Chronological development log. |
 | `documentation/decisions/README.md` | Index of architecture decision records and the template. |
 | `documentation/decisions/0001-openai-compatible-api-groq-default.md` | ADR: OpenAI-compatible API, Groq default. |

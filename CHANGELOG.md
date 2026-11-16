@@ -5,7 +5,7 @@ All notable changes to Vox. Format follows [Keep a Changelog](https://keepachang
 ## [Unreleased]
 
 ### Developer
-- `tools/dev.py`: one command to set up, test (`--changed` for the fast loop), lint, check and run; developer guide `documentation/16-developer-guide.md`; ruff lint in CI (`pyproject.toml`); GitHub wiki sources in `documentation/wiki/`.
+- `tools/dev.py`: one command to set up, test (`--changed` for the fast loop), lint, check and run; developer guide `documentation/16-developer-guide.md`; ruff lint in CI (`pyproject.toml`).
 
 ### Changed
 Cleanup-quality round (2026-10-05; tested with golden rows, a labelled set and fakes; not yet on real speech or a real model; defaults get tuned on the user's own recordings):
