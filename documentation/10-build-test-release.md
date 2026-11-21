@@ -26,6 +26,8 @@ Put the API key in the window's Settings, or in `%APPDATA%\Vox\config.json` (it 
 
 ## Tests
 
+Current collection with the pinned test dependencies on Windows: 4450 tests (2026-11-21, `fix/ci-python39-runner` at `5af87bb`). The older counts below describe their explicitly named revisions.
+
 | Suite | Command | Covers |
 |---|---|---|
 | Python | `python -m pytest -q` (from the repo root) | Every test runs with its own empty profile folders (`tests/conftest.py`), and one that touches the real Vox profile fails with `test touched the real profile`. 3017 tests collected at the time of writing (`python -m pytest --collect-only -q`, `main` at `85382df`): `tests/test_*.py`. On Windows 3009 pass and 8 are skipped (the seven POSIX file-permission and owner tests in `test_relay_admin.py`, which run in CI on Linux (the `relay` job passed on `main` at `288fe59`) and have not been run on a Windows machine, and the FLAC round trip in `test_upload_format.py` where `soundfile` is not installed; CI's `windows` job installs it); 926 of the 3017 are the shared golden cases in `test_parity.py`; the total includes `tests/test_ui_static.py`, the text-only checks of the two HTML pages |
@@ -67,6 +69,8 @@ Triggers: push of a tag `v*`, manual run (`workflow_dispatch`), or a pull reques
 | `release` (tags only; needs `tests`, `relay`, `relay-exe`, `relay-sums`, `windows` and `android`) | ubuntu | stop unless the tag's commit is on `main` (`git merge-base --is-ancestor`); download artifacts; write `SHA256SUMS.txt` over all five files; publish a GitHub Release with `VoxSetup.exe`, `Vox.apk`, the three relay programs and `SHA256SUMS.txt` (fails if one of them is missing) |
 
 Workflow permissions are `contents: read`; only `release` has `contents: write`. All third-party Actions are pinned by commit SHA (comments give the version). Every job has `timeout-minutes` (5 to 45), so a hung test cannot hold a runner for six hours.
+
+The Python 3.9 relay leg uses `ubuntu-22.04`: `setup-python` provides a Python 3.9 x64 build for that image, but none for Ubuntu 26.04, which `ubuntu-latest` now selects. The Python 3.13 legs keep their existing runners. A billing lock can prevent jobs from starting; after it is cleared, retry the old run to distinguish that account error from a build or test failure.
 
 **Locked dependencies, no hashes yet.** The lock files pin every package of the release programs at the version CI installed for v2.0.x, and `tools/check_lock.py` makes a build fail when anything else is installed. They carry no `--hash` lines: those need the package files from PyPI, which this work could not reach (it ran offline). To add them, with network: `pip-compile --generate-hashes --allow-unsafe --output-file windows/requirements.lock.new windows/requirements.lock` (pip-tools; every pin is exact, so the versions stay), check that only `--hash` lines were added, replace the lock with it, and do the same for `tools/build-requirements.lock` (once per platform for the Windows-only lines). pip then refuses any file whose hash differs, without a change to the workflow. Not pinned yet: Inno Setup (the runner's copy, or the newest from Chocolatey), the runner images and Python's patch version.
 
