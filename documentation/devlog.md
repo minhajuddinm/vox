@@ -242,7 +242,7 @@ Research (open-source dictation tools, providers and models, relay and Android l
 ## 2026-11-21, Python 3.9 CI runner compatibility
 The relay's Python 3.9 matrix leg now uses Ubuntu 22.04. Retrying the old workflow after the account billing block cleared exposed a separate setup failure: Python 3.9 x64 is unavailable for Ubuntu 26.04, now selected by `ubuntu-latest`.
 The official Python versions manifest includes Python 3.9.25 for Ubuntu 22.04. The Python 3.13 jobs and release conditions are unchanged.
-Local verification: workflow tests 17 passed, 2 skipped; lint and the documentation checker pass. The full local suite and hosted checks are being verified separately.
+Local verification: 4450 tests collected; workflow tests 17 passed, 2 skipped; lint and the documentation checker pass. The full local suite and hosted checks are being verified separately. A sandboxed full-suite attempt could not connect to its localhost HTTP fixtures (Windows socket error 10013); verification was restarted with localhost networking enabled.
 
 ## How to add an entry
 Add a dated heading above the newest one (below the two opening sections) and 3 to 10 lines: what changed, what was verified and how, what surprised you. Put lasting reasons into an ADR and user-visible changes into `CHANGELOG.md`.

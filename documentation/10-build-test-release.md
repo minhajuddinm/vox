@@ -26,6 +26,8 @@ Put the API key in the window's Settings, or in `%APPDATA%\Vox\config.json` (it 
 
 ## Tests
 
+Current collection with the pinned test dependencies on Windows: 4450 tests (2026-11-21, `fix/ci-python39-runner` at `5af87bb`). The older counts below describe their explicitly named revisions.
+
 | Suite | Command | Covers |
 |---|---|---|
 | Python | `python -m pytest -q` (from the repo root) | Every test runs with its own empty profile folders (`tests/conftest.py`), and one that touches the real Vox profile fails with `test touched the real profile`. 3017 tests collected at the time of writing (`python -m pytest --collect-only -q`, `main` at `85382df`): `tests/test_*.py`. On Windows 3009 pass and 8 are skipped (the seven POSIX file-permission and owner tests in `test_relay_admin.py`, which run in CI on Linux (the `relay` job passed on `main` at `288fe59`) and have not been run on a Windows machine, and the FLAC round trip in `test_upload_format.py` where `soundfile` is not installed; CI's `windows` job installs it); 926 of the 3017 are the shared golden cases in `test_parity.py`; the total includes `tests/test_ui_static.py`, the text-only checks of the two HTML pages |
